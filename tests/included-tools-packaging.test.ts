@@ -14,7 +14,7 @@ async function run(command: string, args: string[], timeout: number) {
   const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
   clearTimeout(timer); assert.equal(code, 0, output); return output;
 }
-test("five included resources remain inert through actual Pi catalogs in two Spaces", { timeout: 45_000 }, async () => {
+test("five included resources remain inert through actual Pi catalogs in two work-folders", { timeout: 45_000 }, async () => {
   const output = await run(process.execPath, ["--import", "tsx", join(repository, "tests/fixtures/included-tools/catalog-inertness.mts")], 40_000);
   assert.match(output, /PASS included catalog/);
 });

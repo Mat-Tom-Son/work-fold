@@ -1,4 +1,4 @@
-import { accentIdentityFromHex, resolveAccent } from "./space-appearance.js";
+import { accentIdentityFromHex, resolveAccent } from "./work-folder-appearance.js";
 
 export const applicationAppearanceKey = "work-fold.application-appearance.v1";
 export const applicationPresetsKey = "work-fold.appearance-presets.v1";
@@ -75,8 +75,8 @@ export function migrateApplicationAppearance(theme: unknown, typography: unknown
 type Ground = { canvas: string; surface: string; subtle: string; hover: string; border: string; strong: string; text: string; muted: string };
 export const applicationPalettes: Record<Choice<"palette">, { name: string; light: Ground; dark: Ground; accent: string }> = {
   original: { name: "Original", accent: "#0b6fd6",
-    light: { canvas: "#f2f4ef", surface: "#fbfcf9", subtle: "#e9ede3", hover: "#dfe5d9", border: "#d5dbd0", strong: "#bcc5b9", text: "#1c2530", muted: "#5b6472" },
-    dark: { canvas: "#0f1622", surface: "#151f2e", subtle: "#1d2939", hover: "#26344a", border: "#33415a", strong: "#46567a", text: "#e9eef7", muted: "#a5b0c2" } },
+    light: { canvas: "#e9eae6", surface: "#fafbf8", subtle: "#f0f1ed", hover: "#dce2d8", border: "#dce0d7", strong: "#c3cabe", text: "#29322f", muted: "#6b736e" },
+    dark: { canvas: "#202425", surface: "#242a2c", subtle: "#292f31", hover: "#414b4d", border: "#394143", strong: "#4a5455", text: "#e6eae7", muted: "#a9b3ae" } },
   paper: { name: "Paper", accent: "#397451",
     light: { canvas: "#eeeae2", surface: "#faf7f0", subtle: "#f0ebe0", hover: "#e7e0d3", border: "#dcd4c6", strong: "#b9af9c", text: "#302d27", muted: "#696154" },
     dark: { canvas: "#1c1a17", surface: "#24211d", subtle: "#2c2822", hover: "#383229", border: "#494238", strong: "#726857", text: "#f1eade", muted: "#bcb19f" } },
@@ -107,6 +107,7 @@ export function applicationAppearanceVariables(p: ApplicationAppearance, mode: "
   const font = { default: '"Inter Variable", Inter, system-ui, sans-serif', stable: '"Segoe UI", Tahoma, sans-serif', verdana: 'Verdana, sans-serif', aptos: 'Aptos, Arial, sans-serif' }[p.font];
   return {
     "--ui-canvas": g.canvas, "--ui-surface": g.surface, "--ui-surface-subtle": g.subtle, "--ui-surface-hover": g.hover,
+    "--ui-control-pressed": p.palette === "original" ? (mode === "dark" ? "#515e60" : "#cbd5c7") : `color-mix(in srgb, ${g.hover} 90%, ${g.text})`,
     "--ui-border": contrast ? g.muted : g.border, "--ui-border-strong": contrast ? g.text : g.strong,
     "--ui-text": g.text, "--ui-text-muted": contrast ? g.text : g.muted, "--ui-text-subtle": g.muted,
     "--ui-accent": a.textUi, "--ui-accent-hover": a.textBody, "--ui-accent-soft": a.softFill,
@@ -119,7 +120,7 @@ export function applicationAppearanceVariables(p: ApplicationAppearance, mode: "
     "--work-fold-chat-measure": { focused: "600px", standard: "760px", wide: "1100px" }[p.measure],
     "--work-fold-reading-leading": { tight: "1.45", standard: "1.65", relaxed: "1.85" }[p.spacing],
     "--work-fold-paragraph-gap": { tight: "0.65em", standard: "0.9em", relaxed: "1.2em" }[p.spacing],
-    "--work-fold-list-height": { compact: "32px", standard: "38px", spacious: "46px" }[p.density],
-    "--work-fold-list-padding": { compact: "4px", standard: "7px", spacious: "11px" }[p.density],
+    "--work-fold-list-height": { compact: "28px", standard: "30px", spacious: "38px" }[p.density],
+    "--work-fold-list-padding": { compact: "2px", standard: "3px", spacious: "7px" }[p.density],
   };
 }

@@ -1,4 +1,4 @@
-export const AZURE_OPENAI_PROVIDER = "azure-openai-responses";
+export const AZURE_OPENAI_PROVIDER = "azure";
 export const AZURE_OPENAI_DEPLOYMENTS_ENV = "WORKFOLD_AZURE_OPENAI_DEPLOYMENTS";
 
 export interface AzureOpenAIConnection {

@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-004
+Merchant: Linden Print
+Date: 2026-09-06
+Description: flyers
+Currency: USD
+Total paid: $126.00
+Payment: paid

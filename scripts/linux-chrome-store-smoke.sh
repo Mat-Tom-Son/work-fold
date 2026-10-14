@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run inside an owned test container; never change a personal Chrome policy.
+# Run inside an owned test container; never change a everywhere Chrome policy.
 set -euo pipefail
 test -f /run/.containerenv || test -f /.dockerenv
 test "${WORKFOLD_CONTAINER_CHROME_TEST:-}" = 1

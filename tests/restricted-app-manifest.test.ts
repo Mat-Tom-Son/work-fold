@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("named Assistant requests have reviewed static instructions and bounded typed input without changing old manifests", () => {
-  const action = { id: "compare", title: "Compare quotes", instructions: "Write a comparison in this Space.", inputSchema: {
+test("named Worker requests have reviewed static instructions and bounded typed input without changing old manifests", () => {
+  const action = { id: "compare", title: "Compare quotes", instructions: "Write a comparison in this work-folder.", inputSchema: {
     type: "object", properties: { quote: { type: "string", maxLength: 1_000 } }, required: ["quote"], additionalProperties: false } };
   const base = manifest();
   assert.deepEqual(parseRestrictedAppManifest({ ...base, assistantActions: [] }), parseRestrictedAppManifest(base));
@@ -10,7 +10,7 @@ test("named Assistant requests have reviewed static instructions and bounded typ
   assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: [{ ...action, instructions: "x".repeat(4_097) }] }).assistantActions?.[0]?.instructions.length, 4_097);
   assert.equal(parseRestrictedAppManifest({ ...base, assistantActions: Array.from({ length: 9 }, (_, index) => ({ ...action, id: `task-${index}` })) }).assistantActions?.length, 9);
   for (const actions of [[{ ...action, title: "Hidden\nreview" }],
-    [{ ...action, spaceId: "foreign" }], [{ ...action, standing: true }], [action, action],
+    [{ ...action, workFolderId: "foreign" }], [{ ...action, standing: true }], [action, action],
     [{ ...action, inputSchema: { type: "object", additionalProperties: true } }]]) {
     assert.throws(() => parseRestrictedAppManifest({ ...base, assistantActions: actions }));
   }
@@ -34,10 +34,15 @@ test("named Assistant requests have reviewed static instructions and bounded typ
 });
 
 import {
+  parseRestrictedAppJsonSchema,
   parseRestrictedAppManifest,
+  restrictedAppAutomationIntervalMinutes,
+  restrictedAppJsonSchemaLimits,
+  restrictedAppManifestLimits,
   restrictedAppManifestVersion,
   restrictedAppViewerSurfacePins,
 } from "../src/local/agent/restricted-app-manifest.js";
+import { restrictedAppCheckLimits } from "../src/shared/restricted-app-checks.js";
 import {
   restrictedAppDefaultCornerRadius,
   restrictedAppMaximumCornerRadius,
@@ -85,7 +90,7 @@ function manifest(overrides: Record<string, unknown> = {}) {
     automations: [{
       id: "refresh-inbox",
       title: "Refresh inbox",
-      description: "Fetch new messages for this Space.",
+      description: "Fetch new messages for this work-folder.",
       handler: "refresh-inbox",
       trigger: { kind: "interval", intervalMinutes: 30 },
       permissions: {
@@ -144,7 +149,7 @@ test("restricted app manifests normalize named automations with explicit permiss
   assert.deepEqual(parsed.automations, [{
     id: "refresh-inbox",
     title: "Refresh inbox",
-    description: "Fetch new messages for this Space.",
+    description: "Fetch new messages for this work-folder.",
     handler: "refresh-inbox",
     trigger: { kind: "interval", intervalMinutes: 30 },
     permissions: {
@@ -162,11 +167,25 @@ test("manifests require version 2 named automations and reject the legacy backgr
   assert.throws(() => parseRestrictedAppManifest(manifest({
     background: { intervalMinutes: 30 },
   })), /unsupported field: background/);
-  const { automations: _automations, ...missingAutomations } = manifest();
-  assert.throws(() => parseRestrictedAppManifest(missingAutomations), /automations must contain between 0 and 16 items/);
+  const { automations: _appAutomations, ...missingAppAutomations } = manifest();
+  const automationLimit = restrictedAppManifestLimits.automations;
+  assert.throws(() => parseRestrictedAppManifest(missingAppAutomations), new RegExp(`automations must contain between 0 and ${automationLimit} items`));
   assert.throws(() => parseRestrictedAppManifest({ ...manifest(), version: 3 }), /version must be 2/);
+  const automation = (_: unknown, index: number) => ({
+    id: `job-${index}`,
+    title: `Job ${index}`,
+    handler: `job-${index}`,
+    trigger: { kind: "interval", intervalMinutes: 30 },
+    permissions: { network: [], files: [], notifications: [] },
+    catchUp: "none",
+    overlap: "skip",
+  });
+  assert.equal(parseRestrictedAppManifest(manifest({
+    automations: Array.from({ length: automationLimit }, automation),
+    permissions: { network: [], files: [], notifications: [] },
+  })).automations.length, automationLimit, "the published automation count is reachable");
   assert.throws(() => parseRestrictedAppManifest(manifest({
-    automations: Array.from({ length: 17 }, (_, index) => ({
+    automations: Array.from({ length: automationLimit + 1 }, (_, index) => ({
       id: `job-${index}`,
       title: `Job ${index}`,
       handler: `job-${index}`,
@@ -176,7 +195,7 @@ test("manifests require version 2 named automations and reject the legacy backgr
       overlap: "skip",
     })),
     permissions: { network: [], files: [], notifications: [] },
-  })), /between 0 and 16 items/);
+  })), new RegExp(`between 0 and ${automationLimit} items`));
 });
 
 test("automation declarations are closed, bounded, and uniquely identified", () => {
@@ -187,10 +206,16 @@ test("automation declarations are closed, bounded, and uniquely identified", () 
   assert.throws(() => parseRestrictedAppManifest(manifest({
     automations: [{ ...valid, trigger: { kind: "daily", intervalMinutes: 30 } }],
   })), /trigger kind must be interval/);
-  for (const intervalMinutes of [14, 1_441, 30.5]) {
+  const { minimum, maximum } = restrictedAppAutomationIntervalMinutes;
+  for (const intervalMinutes of [minimum - 1, maximum + 1, 30.5]) {
     assert.throws(() => parseRestrictedAppManifest(manifest({
       automations: [{ ...valid, trigger: { kind: "interval", intervalMinutes } }],
-    })), /between 15 and 1440 minutes/);
+    })), new RegExp(`between ${minimum} and ${maximum} minutes`));
+  }
+  for (const intervalMinutes of [1, 5, 1_441, 7 * 24 * 60, maximum]) {
+    assert.equal(parseRestrictedAppManifest(manifest({
+      automations: [{ ...valid, trigger: { kind: "interval", intervalMinutes } }],
+    })).automations[0]?.trigger.intervalMinutes, intervalMinutes, "minute-level and multi-day intervals are accepted");
   }
   assert.throws(() => parseRestrictedAppManifest(manifest({
     automations: [{ ...valid, trigger: { kind: "interval", intervalMinutes: 30, timeZone: "UTC" } }],
@@ -226,11 +251,11 @@ test("automations require a worker and reference only declared permissions once"
     ["files", "missing-file"],
     ["notifications", "missing-notification"],
   ] as const) {
-    const automationPermissions = valid.permissions as Record<string, string[]>;
+    const appAutomationPermissions = valid.permissions as Record<string, string[]>;
     assert.throws(() => parseRestrictedAppManifest(manifest({
       automations: [{
         ...valid,
-        permissions: { ...automationPermissions, [kind]: [permissionId] },
+        permissions: { ...appAutomationPermissions, [kind]: [permissionId] },
       }],
     })), /references undeclared permission id/);
   }
@@ -240,11 +265,11 @@ test("automations require a worker and reference only declared permissions once"
     ["files", "exports"],
     ["notifications", "new-mail"],
   ] as const) {
-    const automationPermissions = valid.permissions as Record<string, string[]>;
+    const appAutomationPermissions = valid.permissions as Record<string, string[]>;
     assert.throws(() => parseRestrictedAppManifest(manifest({
       automations: [{
         ...valid,
-        permissions: { ...automationPermissions, [kind]: [permissionId, permissionId] },
+        permissions: { ...appAutomationPermissions, [kind]: [permissionId, permissionId] },
       }],
     })), /permission.*id is duplicated/);
   }
@@ -554,7 +579,39 @@ test("Check result slots are bounded reviewed choices, never Check ids or run au
   const withChecks = (checks: unknown) => ({ ...base, permissions: { ...base.permissions, checks } });
   assert.deepEqual(parseRestrictedAppManifest(withChecks([{ id: "quotes", title: "Quote review" }])).permissions.checks, [{ id: "quotes", title: "Quote review" }]);
   assert.equal("checks" in parseRestrictedAppManifest(base).permissions, false, "old normalized manifests retain their bytes");
-  for (const checks of [null, [{ id: "quotes", title: "Quote review", checkId: "private" }], [{ id: "quotes", title: "Quote review", run: true }], [{ id: "quotes", title: "x" }, { id: "quotes", title: "y" }], Array.from({ length: 9 }, (_, i) => ({ id: `slot-${i}`, title: "Check" }))]) {
+  const slots = (length: number) => Array.from({ length }, (_, i) => ({ id: `slot-${i}`, title: "Check" }));
+  assert.equal(parseRestrictedAppManifest(withChecks(slots(restrictedAppCheckLimits.permissions))).permissions.checks?.length, restrictedAppCheckLimits.permissions);
+  for (const checks of [null, [{ id: "quotes", title: "Quote review", checkId: "private" }], [{ id: "quotes", title: "Quote review", run: true }], [{ id: "quotes", title: "x" }, { id: "quotes", title: "y" }], slots(restrictedAppCheckLimits.permissions + 1)]) {
     assert.throws(() => parseRestrictedAppManifest(withChecks(checks)));
   }
+});
+
+test("manifest counts and the schema subset are generous: 256 of each power, deep and wide schemas", () => {
+  assert.deepEqual(
+    [restrictedAppManifestLimits.tools, restrictedAppManifestLimits.networkDestinations, restrictedAppManifestLimits.filePermissions,
+      restrictedAppManifestLimits.notificationCategories, restrictedAppManifestLimits.automations, restrictedAppCheckLimits.permissions],
+    [256, 256, 256, 256, 256, 256],
+  );
+  assert.deepEqual({ ...restrictedAppJsonSchemaLimits }, { depth: 32, properties: 1_024, enumValues: 1_024, maxItems: 100_000, maxLength: 16_777_216 });
+  const base = manifest();
+  const tool = (index: number) => ({
+    name: `tool_${index}`, description: "d".repeat(restrictedAppManifestLimits.descriptionCharacters), action: `action-${index}`,
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    resultSchema: { type: "object", properties: {}, additionalProperties: false },
+  });
+  const tools = Array.from({ length: restrictedAppManifestLimits.tools }, (_, index) => tool(index));
+  assert.equal(parseRestrictedAppManifest({ ...base, tools, runtime: { ...base.runtime, worker: "worker.js" } }).tools.length, restrictedAppManifestLimits.tools);
+  assert.throws(() => parseRestrictedAppManifest({ ...base, tools: [...tools, tool(tools.length)], runtime: { ...base.runtime, worker: "worker.js" } }),
+    new RegExp(`between 0 and ${restrictedAppManifestLimits.tools} items`));
+  const declared = base.permissions.files as unknown[];
+  const files = [...declared, ...Array.from({ length: restrictedAppManifestLimits.filePermissions - declared.length }, (_, index) => ({ id: `file-${index}`, target: "directory", access: "read" }))];
+  assert.equal(parseRestrictedAppManifest({ ...base, permissions: { ...base.permissions, files } }).permissions.files.length, restrictedAppManifestLimits.filePermissions);
+  const wide = Object.fromEntries(Array.from({ length: restrictedAppJsonSchemaLimits.properties }, (_, index) => [`p${index}`, { type: "string", maxLength: restrictedAppJsonSchemaLimits.maxLength }]));
+  assert.equal(Object.keys(parseRestrictedAppJsonSchema({ type: "object", properties: wide, additionalProperties: false }).properties ?? {}).length, restrictedAppJsonSchemaLimits.properties);
+  assert.throws(() => parseRestrictedAppJsonSchema({ type: "string", maxLength: restrictedAppJsonSchemaLimits.maxLength + 1 }));
+  assert.equal(parseRestrictedAppJsonSchema({ type: "array", items: { type: "string" }, maxItems: restrictedAppJsonSchemaLimits.maxItems }).maxItems, restrictedAppJsonSchemaLimits.maxItems);
+  assert.throws(() => parseRestrictedAppJsonSchema({ type: "array", items: { type: "string" }, maxItems: restrictedAppJsonSchemaLimits.maxItems + 1 }));
+  const values = Array.from({ length: restrictedAppJsonSchemaLimits.enumValues }, (_, index) => `v${index}`);
+  assert.equal(parseRestrictedAppJsonSchema({ type: "string", enum: values }).enum?.length, restrictedAppJsonSchemaLimits.enumValues);
+  assert.throws(() => parseRestrictedAppJsonSchema({ type: "string", enum: [...values, "extra"] }));
 });

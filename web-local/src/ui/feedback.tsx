@@ -116,12 +116,12 @@ function ConfirmationDialog({ request: activeRequest, onSettle }: { request: Con
           </div>
         </div>
         <div className="confirm-dialog-footer">
-          <button ref={cancelButtonRef} className="secondary-button" type="button" onClick={() => onSettle(false)}>
+          <button ref={cancelButtonRef} className="ui-control" type="button" onClick={() => onSettle(false)}>
             Cancel
           </button>
           <button
             ref={confirmButtonRef}
-            className={danger ? "secondary-button danger" : "primary-button"}
+            className={danger ? "ui-control danger" : "ui-control ui-control--primary"}
             type="button"
             onClick={() => onSettle(true)}
           >

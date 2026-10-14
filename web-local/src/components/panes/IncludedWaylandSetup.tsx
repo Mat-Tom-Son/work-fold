@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
+import { includedToolsPath, includedToolSetupBody } from "../../lib/included-tool-scope";
 
-export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
-  spaceId: string; enabled: boolean; onStatusChange?(status: IncludedToolStatus): void;
+export function IncludedWaylandSetup({ workFolderId, enabled, onStatusChange }: {
+  workFolderId?: string; enabled: boolean; onStatusChange?(status: IncludedToolStatus): void;
 }) {
   const [status, setStatus] = useState<IncludedToolStatus>();
   const [error, setError] = useState<string>();
@@ -18,7 +19,7 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
     const refresh = async () => {
       const revision = generation.current;
       try {
-        const result = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(spaceId)}`, { signal: signal.signal });
+        const result = await api<{ tools: IncludedToolStatus[] }>(includedToolsPath(workFolderId), { signal: signal.signal });
         const computer = result.tools.find(tool => tool.id === "computer");
         if (!closed && revision === generation.current && computer) { setStatus(computer); listener.current?.(computer); }
       } catch (error) { if (!closed) setError(errorText(error)); }
@@ -26,7 +27,7 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
     };
     void refresh();
     return () => { closed = true; signal.abort(); clearTimeout(timer); activeRequest.current?.abort(); };
-  }, [spaceId]);
+  }, [workFolderId]);
 
   async function act(action: "share-screen" | "stop-sharing") {
     if (action === "share-screen" && activeRequest.current) return;
@@ -37,7 +38,7 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
     try {
       const result = await api<{ status: IncludedToolStatus }>("/api/agent/included-tools/setup", {
         method: "POST", signal: controller.signal,
-        body: { spaceId, id: "computer", action },
+        body: includedToolSetupBody(workFolderId, "computer", action),
       });
       if (!controller.signal.aborted) { setStatus(result.status); listener.current?.(result.status); }
     } catch (error) { if (!controller.signal.aborted) setError(errorText(error)); }
@@ -52,11 +53,11 @@ export function IncludedWaylandSetup({ spaceId, enabled, onStatusChange }: {
     <p>{active ? "Shared with all chats and the work-fold agent." : "Share your screen with any chat."}</p>
     {!live ? <p>Choose <strong>Allow interaction</strong> to enable clicks and typing.</p> : null}
     {active && (!sharing.pointer || !sharing.keyboard) ? <p>Full control is off. Share again with <strong>Allow interaction</strong>.</p> : null}
-    {current ? <p role="status">{current.scope === "management" ? "work-fold agent" : "Folder Worker"} is using your screen.</p> : null}
+    {current ? <p role="status">{current.scope === "management" ? "work-fold agent" : "Worker"} is using your screen.</p> : null}
     {sharing?.state === "requesting" ? <p role="status">Choose a screen in the Linux dialog.</p> : sharing?.state === "stopping" ? <p role="status">Stopping sharing…</p> : null}
     <div className="included-tool-actions">
-      {!live ? <button className="professional-button professional-button-primary" type="button" disabled={busy || !enabled} onClick={() => void act("share-screen")}>Share desktop</button> : null}
-      {live || busy ? <button className="professional-button professional-button-secondary" type="button" disabled={sharing?.state === "stopping"} onClick={() => void act("stop-sharing")}>Stop sharing</button> : null}
+      {!live ? <button className="ui-control ui-control--primary" type="button" disabled={busy || !enabled} onClick={() => void act("share-screen")}>Share desktop</button> : null}
+      {live || busy ? <button className="ui-control" type="button" disabled={sharing?.state === "stopping"} onClick={() => void act("stop-sharing")}>Stop sharing</button> : null}
     </div>
     {failure ? <p className="included-tool-error" role="alert">{failure}</p> : null}
   </section>;

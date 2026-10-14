@@ -50,4 +50,23 @@ test("App Studio distinguishes Release registry deletion from deferred byte clea
     text: "Release 1.2.0 deleted",
     tone: "success",
   });
+  // A deleted Release waits in Recently Deleted (docs/receipts-not-gates.md, F20).
+  assert.deepEqual(releaseDeletionResultToast({
+    displayVersion: "1.2.0",
+    deleted: true,
+    cleanupPending: false,
+    recentlyDeleted: true,
+  }), {
+    text: "Release 1.2.0 moved to Recently Deleted",
+    tone: "success",
+  });
+  assert.deepEqual(releaseDeletionResultToast({
+    displayVersion: "1.2.0",
+    deleted: true,
+    cleanupPending: true,
+    recentlyDeleted: true,
+  }), {
+    text: "Release 1.2.0 moved to Recently Deleted · stored-byte cleanup will retry",
+    tone: "info",
+  });
 });

@@ -15,12 +15,12 @@ import {
   type FluentIcon,
 } from "@fluentui/react-icons";
 
-import { collectSpacePathCandidates, spacePathCandidate } from "../../lib/space-path-links";
+import { collectWorkFolderPathCandidates, workFolderPathCandidate } from "../../lib/work-folder-path-links";
 import { safeExternalHref } from "../../lib/api";
 import type { AgentActivityPhase, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 
-export type SpacePathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
+export type WorkFolderPathLinkResolver = (paths: string[]) => Promise<Map<string, string>>;
 export type WorkStepsRunningView = "every-step" | "current-step";
 
 interface RuntimeContextPreviewProps {
@@ -31,11 +31,11 @@ interface RuntimeContextPreviewProps {
   replyStarted?: boolean;
   /** Which rows stay visible while the turn runs. */
   runningView?: WorkStepsRunningView;
-  spaceRoot?: string;
-  onOpenSpaceFile?: (path: string) => void;
-  resolveSpacePathLinks?: SpacePathLinkResolver;
-  /** Already-resolved Folder paths (candidate → existing path); skips the resolver. */
-  resolvedSpacePaths?: Map<string, string>;
+  workFolderRoot?: string;
+  onOpenWorkFolderFile?: (path: string) => void;
+  resolveWorkFolderPathLinks?: WorkFolderPathLinkResolver;
+  /** Already-resolved work-folder paths (candidate → existing path); skips the resolver. */
+  resolvedWorkFolderPaths?: Map<string, string>;
   /** The Chat supplies its existing Markdown renderer without a module cycle. */
   renderText?: (text: string, links: Map<string, string> | null) => ReactNode;
 }
@@ -52,10 +52,10 @@ export function RuntimeContextPreview({
   running = false,
   replyStarted = false,
   runningView = "every-step",
-  spaceRoot,
-  onOpenSpaceFile,
-  resolveSpacePathLinks,
-  resolvedSpacePaths,
+  workFolderRoot,
+  onOpenWorkFolderFile,
+  resolveWorkFolderPathLinks,
+  resolvedWorkFolderPaths,
   renderText,
 }: RuntimeContextPreviewProps) {
   const settled = !running || replyStarted;
@@ -65,7 +65,7 @@ export function RuntimeContextPreview({
   const steps = entries.filter(isVisibleStep);
   const timerRunning = working && steps.some((entry) => entry.kind === "thinking" && isActivePhase(entry.phase) && !entry.text.trim());
   const now = useClock(timerRunning);
-  const spaceLinks = useSpacePathLinks(steps, spaceRoot, resolveSpacePathLinks, resolvedSpacePaths);
+  const workFolderLinks = useWorkFolderPathLinks(steps, workFolderRoot, resolveWorkFolderPathLinks, resolvedWorkFolderPaths);
   if (!steps.length && !working) return null;
   const summary = workStepsSummary(steps);
   const rows = working && runningView === "current-step" ? steps.slice(-1) : steps;
@@ -94,9 +94,9 @@ export function RuntimeContextPreview({
             </div>
           ) : null}
           {rows.map((entry) => (entry.kind === "tool" ? (
-            <ToolStep entry={entry} spaceRoot={spaceRoot} spaceLinks={spaceLinks} onOpenSpaceFile={onOpenSpaceFile} key={entry.id} />
+            <ToolStep entry={entry} workFolderRoot={workFolderRoot} workFolderLinks={workFolderLinks} onOpenWorkFolderFile={onOpenWorkFolderFile} key={entry.id} />
           ) : entry.kind === "progress" || entry.kind === "command" ? (
-            <TextStep entry={entry} rendered={renderText?.(entry.text, spaceLinks)} key={entry.id} />
+            <TextStep entry={entry} rendered={renderText?.(entry.text, workFolderLinks)} key={entry.id} />
           ) : (
             <ThoughtStep
               entry={entry}
@@ -115,22 +115,22 @@ export function RuntimeContextPreview({
 
 function ToolStep({
   entry,
-  spaceRoot,
-  spaceLinks,
-  onOpenSpaceFile,
+  workFolderRoot,
+  workFolderLinks,
+  onOpenWorkFolderFile,
 }: {
   entry: RuntimePreviewEntry;
-  spaceRoot?: string;
-  spaceLinks: Map<string, string> | null;
-  onOpenSpaceFile?: (path: string) => void;
+  workFolderRoot?: string;
+  workFolderLinks: Map<string, string> | null;
+  onOpenWorkFolderFile?: (path: string) => void;
 }) {
   const key = toolKey(entry);
   const active = isActivePhase(entry.phase);
   const failed = entry.phase === "error";
   const target = entry.edit?.path ?? entry.detail?.trim() ?? "";
   const command = commandTools.has(key);
-  const candidate = !command && target ? spaceRelativeToolPath(target, spaceRoot) : null;
-  const resolved = candidate ? spaceLinks?.get(candidate) ?? null : null;
+  const candidate = !command && target ? workFolderRelativeToolPath(target, workFolderRoot) : null;
+  const resolved = candidate ? workFolderLinks?.get(candidate) ?? null : null;
   const display = command ? target : targetFileName(target);
   const shimmer = active ? " work-step-shimmer" : "";
   const diffLines = entry.edit?.diff.split("\n") ?? [];
@@ -139,9 +139,9 @@ function ToolStep({
       <FluentGlyph icon={toolIcon(key)} size={16} filled={false} className="work-step-icon" />
       <div className="work-step-body">
         <div className="work-step-line">
-          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active)}</span>
-          {target ? (resolved && onOpenSpaceFile ? (
-            <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenSpaceFile(resolved)}>
+          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active, toolTitle(entry))}</span>
+          {target ? (resolved && onOpenWorkFolderFile ? (
+            <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenWorkFolderFile(resolved)}>
               {display}
             </button>
           ) : (
@@ -241,13 +241,13 @@ function useClock(active: boolean): number {
   return now;
 }
 
-function useSpacePathLinks(
+function useWorkFolderPathLinks(
   steps: RuntimePreviewEntry[],
-  spaceRoot: string | undefined,
-  resolver: SpacePathLinkResolver | undefined,
+  workFolderRoot: string | undefined,
+  resolver: WorkFolderPathLinkResolver | undefined,
   override: Map<string, string> | undefined,
 ): Map<string, string> | null {
-  const candidates = toolPathCandidates(steps, spaceRoot);
+  const candidates = toolPathCandidates(steps, workFolderRoot);
   const key = candidates.join("\n");
   const [links, setLinks] = useState<Map<string, string> | null>(null);
   const skip = Boolean(override) || !resolver || !key;
@@ -267,15 +267,15 @@ function useSpacePathLinks(
   return override ?? links;
 }
 
-function toolPathCandidates(steps: RuntimePreviewEntry[], spaceRoot: string | undefined): string[] {
+function toolPathCandidates(steps: RuntimePreviewEntry[], workFolderRoot: string | undefined): string[] {
   const candidates = new Set<string>();
   for (const entry of steps) {
     if (entry.kind === "progress" || entry.kind === "command") {
-      for (const path of collectSpacePathCandidates(entry.text)) candidates.add(path);
+      for (const path of collectWorkFolderPathCandidates(entry.text)) candidates.add(path);
       continue;
     }
     if (entry.kind !== "tool" || commandTools.has(toolKey(entry)) || !entry.detail?.trim()) continue;
-    const candidate = spaceRelativeToolPath(entry.detail, spaceRoot);
+    const candidate = workFolderRelativeToolPath(entry.detail, workFolderRoot);
     if (candidate) candidates.add(candidate);
   }
   return [...candidates];
@@ -283,16 +283,16 @@ function toolPathCandidates(steps: RuntimePreviewEntry[], spaceRoot: string | un
 
 /**
  * Tool calls name files by absolute path more often than not. A path inside the
- * Folder becomes Folder-relative so it resolves and opens like a link in a
+ * work-folder becomes work-folder-relative so it resolves and opens like a link in a
  * reply; anything outside stays plain text.
  */
-export function spaceRelativeToolPath(detail: string, spaceRoot?: string): string | null {
+export function workFolderRelativeToolPath(detail: string, workFolderRoot?: string): string | null {
   const value = detail.trim().replace(/\\/g, "/");
   if (!value) return null;
-  const root = spaceRoot?.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (root && value.startsWith(`${root}/`)) return spacePathCandidate(value.slice(root.length + 1), { allowSpaces: true });
+  const root = workFolderRoot?.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (root && value.startsWith(`${root}/`)) return workFolderPathCandidate(value.slice(root.length + 1), { allowWorkFolders: true });
   if (value.startsWith("/") || value.startsWith("~") || /^[A-Za-z]:\//.test(value)) return null;
-  return spacePathCandidate(value, { allowSpaces: true });
+  return workFolderPathCandidate(value, { allowWorkFolders: true });
 }
 
 function targetFileName(target: string): string {
@@ -335,17 +335,34 @@ function summaryIcon(steps: RuntimePreviewEntry[]): FluentIcon {
 export function toolKey(entry: RuntimePreviewEntry): string {
   return (entry.toolName?.trim() || entry.text
     .replace(/\s+(?:queued|running|updating|finished|failed)$/i, "")
-    .trim() || "Assistant tool").toLowerCase();
+    .trim() || "tool").toLowerCase();
 }
 
 function humanizeTool(key: string): string {
   return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-export function toolVerb(key: string, active: boolean): string {
+/** An app's tool is registered as `app_<16 hex>_<name>`; the hash is never shown. */
+const appToolName = /^app_[0-9a-f]{16}_(.+)$/i;
+
+/**
+ * The name a step shows for a tool without its own verb. An app's tool says
+ * which app it belongs to ("Inbox: Search"); a step saved before titles were
+ * recorded falls back to the tool's own name, marked as an app's.
+ */
+export function toolTitle(entry: RuntimePreviewEntry): string {
+  const title = entry.toolTitle?.trim();
+  if (title) return title;
+  const key = toolKey(entry);
+  const app = appToolName.exec(key)?.[1]?.replace(/[_-]+/g, " ").trim();
+  if (app) return `${app.charAt(0).toUpperCase()}${app.slice(1)} (app)`;
+  return humanizeTool(key);
+}
+
+export function toolVerb(key: string, active: boolean, title = humanizeTool(key)): string {
   const verbs = toolVerbs[key];
   if (verbs) return active ? verbs.running : verbs.done;
-  return `${active ? "Using" : "Used"} ${humanizeTool(key)}`;
+  return `${active ? "Using" : "Used"} ${title}`;
 }
 
 /** One finished tool call as a sentence fragment: "Read Character Map.md". */
@@ -353,7 +370,7 @@ export function toolStepLabel(entry: RuntimePreviewEntry): string {
   const key = toolKey(entry);
   const target = entry.detail?.trim() ?? "";
   const display = commandTools.has(key) ? target : targetFileName(target);
-  return `${toolVerb(key, false)} ${display}`.trim();
+  return `${toolVerb(key, false, toolTitle(entry))} ${display}`.trim();
 }
 
 /**
@@ -372,12 +389,14 @@ export function workStepsSummary(entries: RuntimePreviewEntry[]): string {
   if (tools.length === 1 && tools[0]) return toolStepLabel(tools[0]);
   const order: string[] = [];
   const touched = new Map<string, Set<string>>();
+  const titles = new Map<string, string>();
   for (const tool of tools) {
     const key = toolKey(tool);
     let targets = touched.get(key);
     if (!targets) {
       targets = new Set();
       touched.set(key, targets);
+      titles.set(key, toolTitle(tool));
       order.push(key);
     }
     targets.add(commandTools.has(key) ? tool.id : tool.detail?.trim() || tool.id);
@@ -385,7 +404,7 @@ export function workStepsSummary(entries: RuntimePreviewEntry[]): string {
   return order.map((key, index) => {
     const verbs = toolVerbs[key];
     const count = touched.get(key)?.size ?? 1;
-    const phrase = verbs ? (count > 1 ? verbs.many : verbs.one) : `Used ${humanizeTool(key)}`;
+    const phrase = verbs ? (count > 1 ? verbs.many : verbs.one) : `Used ${titles.get(key) ?? humanizeTool(key)}`;
     return index === 0 ? phrase : `${phrase.charAt(0).toLowerCase()}${phrase.slice(1)}`;
   }).join(", ");
 }

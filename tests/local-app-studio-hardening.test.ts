@@ -13,8 +13,8 @@ import {
 import { appReleaseDefaultLimits, assembleAppRelease } from "../src/local/agent/app-platform-release.js";
 import { LocalAppReleaseStore } from "../src/local/agent/local-app-release-store.js";
 
-const sourceSpace = "ws-studio-hardening-source";
-const targetSpace = "ws-studio-hardening-target";
+const sourceWorkFolder = "ws-studio-hardening-source";
+const targetWorkFolder = "ws-studio-hardening-target";
 const featureA = "feature-a";
 const featureB = "feature-b";
 
@@ -46,7 +46,7 @@ test("startup rejects pending cleanup aimed at active App data before deleting i
     await writePackage(fixture.sourceRoot, featureA, { marker: "active-cleanup-target" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    const preview = await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
+    const preview = await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
     const owner = storageOwner(preview);
     await fixture.storage.set(owner, "must-survive", { protected: true });
     await service.close();
@@ -83,8 +83,8 @@ test("startup rejects a verified Release that targets unsupported local runtime 
     await writePackage(fixture.sourceRoot, featureA, { marker: "unsupported-release-source" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    const preview = await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
-    const project = (await service.localAppStudio(sourceSpace)).project;
+    const preview = await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
+    const project = (await service.localAppStudio(sourceWorkFolder)).project;
     assert.ok(project);
     await service.close();
     service = undefined;
@@ -121,7 +121,7 @@ test("startup rejects a verified Release that targets unsupported local runtime 
     };
     registry.releases.push({
       projectId: project.projectId,
-      sourceSpaceId: sourceSpace,
+      sourceWorkFolderId: sourceWorkFolder,
       releaseDigest: unsupported.releaseDigest,
       displayVersion: unsupported.manifest.displayVersion,
       presentation: unsupported.manifest.presentation,
@@ -155,19 +155,19 @@ test("Local App update preparation and activation reject cross-runtime Feature c
     await writePackage(fixture.sourceRoot, featureA, { marker: "source-a-v1" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
     const firstRelease = await prepareAndPublish(service, "1.0.0");
     const firstInstall = await installRelease(service, firstRelease.releaseDigest);
 
     await writePackage(fixture.sourceRoot, featureB, { marker: "source-b-v1" });
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureB);
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureB);
     const secondRelease = await prepareAndPublish(service, "2.0.0");
 
     await writePackage(fixture.targetRoot, featureB, { version: "0.9.0", marker: "target-conflict-b" });
-    const conflict = await installPreview(service, targetSpace, fixture.targetRoot, featureB);
+    const conflict = await installPreview(service, targetWorkFolder, fixture.targetRoot, featureB);
     await assert.rejects(
       service.prepareLocalAppUpdate({
-        sourceSpaceId: sourceSpace,
+        sourceWorkFolderId: sourceWorkFolder,
         runtimeInstanceId: firstInstall.instance.runtimeInstanceId,
         releaseDigest: secondRelease.releaseDigest,
       }),
@@ -176,24 +176,24 @@ test("Local App update preparation and activation reject cross-runtime Feature c
     );
 
     assert.equal(await service.remove({
-      spaceId: targetSpace,
+      workFolderId: targetWorkFolder,
       appId: featureB,
       expectedDigest: conflict.digest,
     }), true);
     const operation = await service.prepareLocalAppUpdate({
-      sourceSpaceId: sourceSpace,
+      sourceWorkFolderId: sourceWorkFolder,
       runtimeInstanceId: firstInstall.instance.runtimeInstanceId,
       releaseDigest: secondRelease.releaseDigest,
     });
     assert.equal(operation.plan.canCommit, true);
     assert.equal(operation.plan.transitions.find((item) => item.featureId === featureB)?.action, "add");
 
-    await installPreview(service, targetSpace, fixture.targetRoot, featureB);
+    await installPreview(service, targetWorkFolder, fixture.targetRoot, featureB);
     await service.close();
     service = undefined;
 
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
-    assert.equal((await service.localAppStudio(sourceSpace)).operations.some((item) => item.operationId === operation.operationId), true,
+    assert.equal((await service.localAppStudio(sourceWorkFolder)).operations.some((item) => item.operationId === operation.operationId), true,
       "the prepared update must remain readable after restart");
     await assert.rejects(
       service.activateLocalAppUpdate(operation.operationId),
@@ -204,11 +204,11 @@ test("Local App update preparation and activation reject cross-runtime Feature c
     await service.close();
     service = undefined;
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
-    const afterFailure = await service.localAppStudio(sourceSpace);
+    const afterFailure = await service.localAppStudio(sourceWorkFolder);
     assert.equal(afterFailure.operations.some((item) => item.operationId === operation.operationId), true,
       "a rejected activation must leave its durable operation readable for review or cancellation");
     assert.deepEqual(
-      (await service.list(targetSpace)).map((app) => [app.manifest.id, app.runtimeInstanceKind]).sort(),
+      (await service.list(targetWorkFolder)).map((app) => [app.manifest.id, app.runtimeInstanceKind]).sort(),
       [[featureA, "app"], [featureB, "development"]],
     );
   } finally {
@@ -225,8 +225,8 @@ test("updating A+B to A retains B, then purge uninstall deletes active and previ
     await writePackage(fixture.sourceRoot, featureB, { marker: "source-b" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
-    const sourceB = await installPreview(service, sourceSpace, fixture.sourceRoot, featureB);
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
+    const sourceB = await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureB);
 
     const combinedRelease = await prepareAndPublish(service, "1.0.0");
     const installed = await installRelease(service, combinedRelease.releaseDigest);
@@ -236,13 +236,13 @@ test("updating A+B to A retains B, then purge uninstall deletes active and previ
     await fixture.storage.set(storageOwner(installedB), "state", { feature: featureB, value: 2 });
 
     assert.equal(await service.remove({
-      spaceId: sourceSpace,
+      workFolderId: sourceWorkFolder,
       appId: featureB,
       expectedDigest: sourceB.digest,
     }), true);
     const singleRelease = await prepareAndPublish(service, "2.0.0");
     const operation = await service.prepareLocalAppUpdate({
-      sourceSpaceId: sourceSpace,
+      sourceWorkFolderId: sourceWorkFolder,
       runtimeInstanceId: installed.instance.runtimeInstanceId,
       releaseDigest: singleRelease.releaseDigest,
     });
@@ -251,7 +251,7 @@ test("updating A+B to A retains B, then purge uninstall deletes active and previ
     const updated = await service.activateLocalAppUpdate(operation.operationId);
     assert.deepEqual(updated.apps.map((app) => app.manifest.id), [featureA]);
     assert.deepEqual(await fixture.storage.get(storageOwner(installedB), "state"), { feature: featureB, value: 2 });
-    const retained = (await service.localAppStudio(sourceSpace)).retainedData;
+    const retained = (await service.localAppStudio(sourceWorkFolder)).retainedData;
     assert.equal(retained.length, 1);
     assert.equal(retained[0]?.featureId, featureB);
     assert.equal(retained[0]?.runtimeInstanceId, installed.instance.runtimeInstanceId);
@@ -262,8 +262,8 @@ test("updating A+B to A retains B, then purge uninstall deletes active and previ
     });
     assert.equal(uninstall.removed, true);
     assert.deepEqual(uninstall.retainedData, []);
-    assert.deepEqual(await service.list(targetSpace), []);
-    assert.deepEqual((await service.localAppStudio(sourceSpace)).retainedData, []);
+    assert.deepEqual(await service.list(targetWorkFolder), []);
+    assert.deepEqual((await service.localAppStudio(sourceWorkFolder)).retainedData, []);
     assert.equal((await fixture.storage.usage(storageOwner(installedA))).keyCount, 0,
       "purge must delete the still-active A namespace");
     assert.equal((await fixture.storage.usage(storageOwner(installedB))).keyCount, 0,
@@ -281,11 +281,11 @@ test("publishing rejects a prepared Release after its App Project presentation c
     await writePackage(fixture.sourceRoot, featureA, { marker: "presentation-source" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
-    const prepared = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion: "1.0.0" });
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
+    const prepared = await service.prepareLocalAppRelease({ workFolderId: sourceWorkFolder, displayVersion: "1.0.0" });
 
     await service.declareLocalAppProject({
-      spaceId: sourceSpace,
+      workFolderId: sourceWorkFolder,
       presentation: {
         title: "Hardening fixture, revised",
         description: "Presentation edits after preparation require a new immutable Release review.",
@@ -293,10 +293,10 @@ test("publishing rejects a prepared Release after its App Project presentation c
       },
     });
     await assert.rejects(
-      service.publishLocalAppRelease({ spaceId: sourceSpace, releaseDigest: prepared.releaseDigest }),
+      service.publishLocalAppRelease({ workFolderId: sourceWorkFolder, releaseDigest: prepared.releaseDigest }),
       (error: unknown) => errorCode(error) === "REVISION_CHANGED" && /presentation|Project|Release/i.test(errorMessage(error)),
     );
-    const release = (await service.localAppStudio(sourceSpace)).releases.find((item) => item.releaseDigest === prepared.releaseDigest);
+    const release = (await service.localAppStudio(sourceWorkFolder)).releases.find((item) => item.releaseDigest === prepared.releaseDigest);
     assert.equal(release?.state, "prepared");
     assert.equal(release?.presentation.title, "Hardening fixture");
   } finally {
@@ -305,14 +305,14 @@ test("publishing rejects a prepared Release after its App Project presentation c
   }
 });
 
-test("source Space removal is blocked while its local Release lineage and retained data remain", async () => {
+test("source work-folder removal is blocked while its local Release lineage and retained data remain", async () => {
   const fixture = await createFixture("work-fold-local-app-source-removal-");
   let service: RestrictedAppService | undefined;
   try {
     await writePackage(fixture.sourceRoot, featureA, { marker: "retained-source" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
     const release = await prepareAndPublish(service, "1.0.0");
     const installed = await installRelease(service, release.releaseDigest);
     await fixture.storage.set(storageOwner(installed.apps[0]!), "state", "retained-value");
@@ -321,18 +321,18 @@ test("source Space removal is blocked while its local Release lineage and retain
       dataDisposition: "retain",
     });
     assert.equal(uninstalled.retainedData.length, 1);
-    const beforeRemoval = await service.localAppStudio(sourceSpace);
+    const beforeRemoval = await service.localAppStudio(sourceWorkFolder);
     assert.equal(beforeRemoval.instances.length, 0);
     assert.equal(beforeRemoval.releases.length, 1);
     assert.equal(beforeRemoval.retainedData.length, 1);
 
     await assert.rejects(
-      service.removeSpace(sourceSpace),
+      service.removeWorkFolder(sourceWorkFolder),
       (error: unknown) => errorCode(error) === "INPUT_INVALID" && /Release|retained|lineage|App Project/i.test(errorMessage(error)),
-      "removing the source Space must not orphan machine-local Release and retained-data management state",
+      "removing the source work-folder must not orphan machine-local Release and retained-data management state",
     );
-    const afterRejection = await service.localAppStudio(sourceSpace);
-    assert.equal(afterRejection.project?.spaceId, sourceSpace);
+    const afterRejection = await service.localAppStudio(sourceWorkFolder);
+    assert.equal(afterRejection.project?.workFolderId, sourceWorkFolder);
     assert.equal(afterRejection.previews.length, 1);
     assert.equal(afterRejection.releases.length, 1);
     assert.equal(afterRejection.retainedData.length, 1);
@@ -349,7 +349,7 @@ test("startup rejects a structurally valid registry projection that diverges fro
     await writePackage(fixture.sourceRoot, featureA, { marker: "projection-source" });
     service = await RestrictedAppService.create({ rootPath: fixture.rootPath, storage: fixture.storage });
     await declareProject(service);
-    await installPreview(service, sourceSpace, fixture.sourceRoot, featureA);
+    await installPreview(service, sourceWorkFolder, fixture.sourceRoot, featureA);
     const release = await prepareAndPublish(service, "1.0.0");
     await installRelease(service, release.releaseDigest);
     await service.close();
@@ -387,8 +387,8 @@ async function createFixture(prefix: string): Promise<{
   storage: FileRestrictedAppStorage;
 }> {
   const sandbox = await mkdtemp(join(tmpdir(), prefix));
-  const sourceRoot = join(sandbox, "source-space");
-  const targetRoot = join(sandbox, "target-space");
+  const sourceRoot = join(sandbox, "source-work-folder");
+  const targetRoot = join(sandbox, "target-work-folder");
   const rootPath = join(sandbox, "state", "restricted-apps");
   await Promise.all([mkdir(sourceRoot, { recursive: true }), mkdir(targetRoot, { recursive: true })]);
   return {
@@ -402,7 +402,7 @@ async function createFixture(prefix: string): Promise<{
 
 async function declareProject(service: RestrictedAppService): Promise<void> {
   await service.declareLocalAppProject({
-    spaceId: sourceSpace,
+    workFolderId: sourceWorkFolder,
     presentation: {
       title: "Hardening fixture",
       description: "Adversarial Local App Studio lifecycle coverage.",
@@ -413,24 +413,24 @@ async function declareProject(service: RestrictedAppService): Promise<void> {
 
 async function installPreview(
   service: RestrictedAppService,
-  spaceId: string,
-  spaceRoot: string,
+  workFolderId: string,
+  workFolderRoot: string,
   featureId: string,
 ): Promise<RestrictedAppInstalled> {
   const sourcePath = `apps/${featureId}`;
-  const review = await service.inspect({ spaceId, spaceRoot, sourcePath });
-  return await service.install({ spaceId, spaceRoot, sourcePath, expectedDigest: review.digest });
+  const review = await service.inspect({ workFolderId, workFolderRoot, sourcePath });
+  return await service.install({ workFolderId, workFolderRoot, sourcePath, expectedDigest: review.digest });
 }
 
 async function prepareAndPublish(service: RestrictedAppService, displayVersion: string) {
-  const prepared = await service.prepareLocalAppRelease({ spaceId: sourceSpace, displayVersion });
-  return await service.publishLocalAppRelease({ spaceId: sourceSpace, releaseDigest: prepared.releaseDigest });
+  const prepared = await service.prepareLocalAppRelease({ workFolderId: sourceWorkFolder, displayVersion });
+  return await service.publishLocalAppRelease({ workFolderId: sourceWorkFolder, releaseDigest: prepared.releaseDigest });
 }
 
 async function installRelease(service: RestrictedAppService, releaseDigest: string) {
   const operation = await service.prepareLocalAppInstall({
-    sourceSpaceId: sourceSpace,
-    targetSpaceId: targetSpace,
+    sourceWorkFolderId: sourceWorkFolder,
+    targetWorkFolderId: targetWorkFolder,
     releaseDigest,
   });
   return await service.activateLocalAppInstall(operation.operationId);
@@ -453,11 +453,11 @@ function storageOwner(app: RestrictedAppInstalled): RestrictedAppStorageOwner {
 }
 
 async function writePackage(
-  spaceRoot: string,
+  workFolderRoot: string,
   featureId: string,
   options: { version?: string; marker: string },
 ): Promise<void> {
-  const root = join(spaceRoot, "apps", featureId);
+  const root = join(workFolderRoot, "apps", featureId);
   await mkdir(root, { recursive: true });
   await writeFile(join(root, "package.json"), JSON.stringify({
     name: featureId,

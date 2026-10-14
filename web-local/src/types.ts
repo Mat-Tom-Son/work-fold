@@ -1,5 +1,5 @@
 import type { RestrictedAppCheckGrant, RestrictedAppCheckPermission } from "../../src/shared/restricted-app-checks";
-import type { AccentIdentity, SpaceAppearanceState } from "../../src/shared/space-appearance";
+import type { AccentIdentity, WorkFolderAppearanceState } from "../../src/shared/work-folder-appearance";
 import type {
   WorkFoldCheckDecisionKind,
   WorkFoldCheckFinding,
@@ -9,14 +9,14 @@ import type {
 } from "../../src/local/checks/check-types";
 import type { WorkFoldCheckTaskStatus } from "../../src/local/checks/check-service";
 
-export type SpacePane = "files" | "chats" | "history";
-export type SpaceExtensionRailMode = `app:${string}`;
+export type WorkFolderPane = "files" | "chats" | "history";
+export type WorkFolderExtensionRailMode = `app:${string}`;
 /**
- * `automations` is the Folder-owned Automations rail entry. Choosing it opens
- * the `space-automations` tab and leaves the navigator pane as it was, so it
- * is never the persisted mode.
+ * `automations` is the work-folder-owned Automations rail entry. Like Files, it
+ * shows a list in the navigator pane, and clicking an automation there opens
+ * that automation's own tab (2026-10-11).
  */
-export type SpaceRailMode = "spaces" | SpacePane | "automations" | SpaceExtensionRailMode;
+export type WorkFolderRailMode = "work-folders" | WorkFolderPane | "automations" | WorkFolderExtensionRailMode;
 export type AppTheme = "light" | "dark";
 export type AppThemePreference = AppTheme | "system";
 export type AppTypographyFont = "default" | "stable" | "verdana" | "aptos";
@@ -27,10 +27,10 @@ export interface AppTypographyPreference {
   textSize: AppTextSize;
 }
 
-import type { SpaceLocation, SpaceSummary } from "../../src/shared/space-summary";
-export type { SpaceLocation, SpaceSummary } from "../../src/shared/space-summary";
+import type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
+export type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
 
-export interface SpaceCustomization {
+export interface WorkFolderCustomization {
   schema?: 1 | 2;
   color?: string;
   color2?: string;
@@ -39,17 +39,17 @@ export interface SpaceCustomization {
   iconName?: string;
   bannerName?: string;
   bannerImage?: string | null;
-  bannerImagePosition?: SpaceBannerImagePosition;
-  bannerPreset?: import("../../src/shared/space-appearance").SpaceAppearanceBannerPresetId;
-  bannerFraming?: import("../../src/shared/space-appearance").SpaceAppearanceBannerFraming;
+  bannerImagePosition?: WorkFolderBannerImagePosition;
+  bannerPreset?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerPresetId;
+  bannerFraming?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerFraming;
 }
 
-export type SpaceCustomizationMap = Record<string, SpaceCustomization>;
-export type SpaceCustomizationPatch = SpaceCustomization;
-export interface SpaceColorOption { label: string; color: string; soft: string; border: string }
-export interface SpaceBannerOption { name: string; label: string }
-export type SpaceBannerImagePosition = "top" | "center" | "bottom";
-export interface SpacePaneBounds { min: number; max: number; fallback: number }
+export type WorkFolderCustomizationMap = Record<string, WorkFolderCustomization>;
+export type WorkFolderCustomizationPatch = WorkFolderCustomization;
+export interface WorkFolderColorOption { label: string; color: string; soft: string; border: string }
+export interface WorkFolderBannerOption { name: string; label: string }
+export type WorkFolderBannerImagePosition = "top" | "center" | "bottom";
+export interface WorkFolderPaneBounds { min: number; max: number; fallback: number }
 
 export interface TreeEntry {
   name: string;
@@ -61,7 +61,7 @@ export interface TreeEntry {
   ignored?: boolean;
   descendantIgnoredCount?: number;
   children?: TreeEntry[];
-  /** Its own registered Folder: Files shows it as a door, not a subtree. */
+  /** Its own registered work-folder: Files shows it as a door, not a subtree. */
   nestedFolder?: true;
 }
 
@@ -110,8 +110,12 @@ export interface ChatMessage {
   interruption?: ChatMessageInterruption;
   turnId?: string;
   requestId?: string;
-  /** Sent into an already-running turn; the Assistant saw it after its current step. */
+  /** Sent into an already-running turn; the agent saw it after its current step. */
   delivery?: "steer";
+  /** `app`: an installed app asked for this (`assistant.request`), not the person. */
+  source?: "remote_web" | "app";
+  appId?: string;
+  appTitle?: string;
 }
 
 export interface ChatMessageInterruption {
@@ -127,6 +131,7 @@ export interface ChatMessageInterruptionActivity {
   message: string;
   detail?: string;
   toolName?: string;
+  toolTitle?: string;
   phase?: AgentActivityPhase;
 }
 
@@ -138,7 +143,7 @@ export interface RuntimePreviewEntry extends Omit<import("../../src/shared/chat-
 }
 
 export interface ChatActionsState {
-  space: SpaceSummary;
+  workFolder: WorkFolderSummary;
   conversation: ConversationSummary;
   x: number;
   y: number;
@@ -167,14 +172,14 @@ export interface ContextAttachment {
 export interface ChatContextPathRequest {
   id: number;
   path: string;
-  spaceId: string;
+  workFolderId: string;
   surfaceTabId: string;
 }
 /** Seeds a Chat composer with starter text; the person finishes the sentence and sends. */
 export interface ChatDraftRequest {
   id: number;
   text: string;
-  spaceId: string;
+  workFolderId: string;
   surfaceTabId: string;
 }
 export interface PendingChatSend {
@@ -183,14 +188,13 @@ export interface PendingChatSend {
   requestId: string;
   userMessageId: string;
   localUserMessage: ChatMessage;
-  selectedPath: string | null;
   contextPaths: string[];
   transientConversation: boolean;
   draftStorageKey: string;
-  /** Folder Workers the message @-mentions (2026-10-01). */
-  addressedSpaceIds?: string[];
+  /** work-folder Workers the message @-mentions (2026-10-01). */
+  addressedWorkFolderIds?: string[];
 }
-export interface SpaceFixtureConversation extends ConversationSummary {
+export interface WorkFolderFixtureConversation extends ConversationSummary {
   messages: ChatMessage[];
   runtimePreviews?: RuntimePreviewEntry[];
   running?: boolean;
@@ -198,23 +202,24 @@ export interface SpaceFixtureConversation extends ConversationSummary {
   contextAttachments?: ContextAttachment[];
 }
 
-export type AssistantToolsView = "installed" | "discover";
+export type SkillsExtensionsView = "installed" | "discover";
 
-interface SpaceSurfaceTabBase {
+interface WorkFolderSurfaceTabBase {
   id: string;
-  spaceId: string;
+  workFolderId: string;
   title: string;
 }
 
-export type SpaceSurfaceTab =
-  | (SpaceSurfaceTabBase & { kind: "chat"; conversationId: string | null })
-  | (SpaceSurfaceTabBase & { kind: "file"; path: string })
-  | (SpaceSurfaceTabBase & { kind: "history"; checkpointId?: string })
-  | (SpaceSurfaceTabBase & { kind: "app-studio" })
-  | (SpaceSurfaceTabBase & { kind: "checks" })
-  | (SpaceSurfaceTabBase & { kind: "space-automations" })
-  | (SpaceSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
-  | (SpaceSurfaceTabBase & {
+export type WorkFolderSurfaceTab =
+  | (WorkFolderSurfaceTabBase & { kind: "chat"; conversationId: string | null })
+  | (WorkFolderSurfaceTabBase & { kind: "file"; path: string })
+  | (WorkFolderSurfaceTabBase & { kind: "history"; checkpointId?: string })
+  | (WorkFolderSurfaceTabBase & { kind: "app-studio" })
+  | (WorkFolderSurfaceTabBase & { kind: "checks" })
+  | (WorkFolderSurfaceTabBase & { kind: "work-folder-automations" })
+  | (WorkFolderSurfaceTabBase & { kind: "work-folder-automation"; automationId: string })
+  | (WorkFolderSurfaceTabBase & { kind: "extension"; surfaceId: string; surfaceExecution: "full-trust-pi"; viewId: string })
+  | (WorkFolderSurfaceTabBase & {
     kind: "restricted-app";
     appId: string;
     featureInstallationId: string;
@@ -254,6 +259,23 @@ export interface AgentModel {
   contextWindow?: number;
 }
 
+/** Non-secret connection metadata from Pi's complete provider catalog. */
+export interface AgentProvider {
+  id: string;
+  name: string;
+  configured: boolean;
+  authSource?: AgentModel["authSource"];
+  authLabel?: string;
+  authType?: "api_key" | "oauth";
+  apiKey: boolean;
+  apiKeyLabel?: string;
+  oauth: boolean;
+  oauthLabel?: string;
+  oauthAvailable: boolean;
+  guidedSetup: boolean;
+  modelCount: number;
+}
+
 export interface AgentModelCatalog {
   provider: string;
   refreshable: boolean;
@@ -262,7 +284,7 @@ export interface AgentModelCatalog {
   modelCount?: number;
 }
 
-export interface AssistantComposerState {
+export interface ComposerState {
   model?: { provider: string; id: string; name: string };
   thinkingLevel: string;
   thinkingLevels: string[];
@@ -513,9 +535,10 @@ export interface RestrictedAppAutomation {
 
 /**
  * The declared viewer surface for "an app at your address"
- * (docs/fold-publishing.md, rung 3): `entry` is the packaged document served
+ * (docs/shared-pages.md, rung 3): `entry` is the packaged document served
  * to link holders, `readable` the exact instance-owned collections viewers
- * may read. Declared in the manifest, so it appears in the app's install copy.
+ * may read. Declared in the manifest, so the app's details in Settings → Apps
+ * say exactly what sharing it puts at the address.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;
@@ -552,8 +575,8 @@ export interface RestrictedAppReview {
 }
 
 export interface RestrictedAppInstalled extends RestrictedAppReview {
-  spaceId: string;
-  sourceSpaceId: string;
+  workFolderId: string;
+  sourceWorkFolderId: string;
   projectId: string;
   tenantId: string;
   principalId: string;
@@ -579,7 +602,7 @@ export interface LocalAppPresentation {
 }
 
 export interface LocalAppProject {
-  spaceId: string;
+  workFolderId: string;
   projectId: string;
   presentation: LocalAppPresentation;
   createdAt: string;
@@ -588,7 +611,7 @@ export interface LocalAppProject {
 
 export interface LocalAppRelease {
   projectId: string;
-  sourceSpaceId: string;
+  sourceWorkFolderId: string;
   releaseDigest: string;
   displayVersion: string;
   presentation: LocalAppPresentation;
@@ -601,12 +624,14 @@ export interface LocalAppRelease {
 export interface LocalAppReleaseDeletionResult {
   deleted: boolean;
   cleanupPending: boolean;
+  /** Where the deleted Release waits to be restored (docs/receipts-not-gates.md, F20). */
+  recentlyDeleted?: { entryId: string; restoreBy: string } | null;
 }
 
 export interface LocalAppInstance {
   runtimeInstanceId: string;
   projectId: string;
-  spaceId: string;
+  workFolderId: string;
   releaseDigest: string;
   displayVersion: string;
   presentation: LocalAppPresentation;
@@ -619,7 +644,7 @@ export interface LocalAppInstallOperation {
   operationId: string;
   kind: "install";
   projectId: string;
-  targetSpaceId: string;
+  targetWorkFolderId: string;
   releaseDigest: string;
   runtimeInstanceId: string;
   features: Array<{ featureId: string; featureInstallationId: string; dataNamespaceId: string }>;
@@ -630,7 +655,7 @@ export interface LocalAppUpdateOperation {
   operationId: string;
   kind: "update";
   projectId: string;
-  targetSpaceId: string;
+  targetWorkFolderId: string;
   releaseDigest: string;
   runtimeInstanceId: string;
   continuityPolicy: "eligible" | "reset";
@@ -674,7 +699,7 @@ export interface LocalAppStudioSnapshot {
   retainedData: LocalAppRetainedData[];
 }
 
-export interface LocalAppSpaceRemovalImpact {
+export interface LocalAppWorkFolderRemovalImpact {
   activeSourceInstanceCount: number;
   activeTargetInstanceCount: number;
   retainedDataCount: number;
@@ -693,7 +718,7 @@ export interface RestrictedAppAutomationRunReceipt {
   receiptId: string;
   verification: "captured";
   runId: string;
-  automationId: string;
+  appAutomationId: string;
   reason: "scheduled" | "manual" | "resume";
   scheduledAt: string;
   startedAt: string;
@@ -731,7 +756,7 @@ export interface AppPlatformAuthorityStamp {
 }
 
 export interface RestrictedAppViewRequest {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
@@ -745,11 +770,15 @@ export interface RestrictedAppViewRequest {
   active: boolean;
   occluded: boolean;
   theme: AppTheme;
+  /** The shell's look as `--wf-*` values, read from this placeholder's own styles. */
+  appearance?: Record<string, string>;
+  /** Left-pane views only: the notification click that opened it here. */
+  openedFrom?: { kind: "notification"; permissionId: string };
 }
 
 export interface RestrictedAppProposal {
   id: string;
-  spaceId: string;
+  workFolderId: string;
   conversationId: string;
   sourcePath: string;
   review: RestrictedAppReview;
@@ -848,7 +877,7 @@ export interface CapabilityDiscoverDetailsResponse {
   item: CapabilityDiscoverDetailsItem;
 }
 
-export interface SpaceCheckpoint {
+export interface WorkFolderCheckpoint {
   checkpointId: string;
   createdAt: string;
   label?: string;
@@ -882,7 +911,7 @@ export interface LocalEventStream {
   close: () => void;
 }
 
-export type SpaceFileEvent =
+export type WorkFolderFileEvent =
   | { type: "ready"; recursive: boolean }
   | { type: "file_event"; eventType: string; path: string | null }
   | { type: "error"; message: string };
@@ -906,6 +935,8 @@ export interface ChatStreamEvent {
   message?: string;
   text?: string;
   toolName?: string;
+  /** Readable name for a tool whose registered name is not, such as an app's. */
+  toolTitle?: string;
   toolCallId?: string;
   phase?: AgentActivityPhase;
   thinkingPhase?: "start" | "delta" | "end";
@@ -923,7 +954,7 @@ export interface ChatStreamEvent {
   editorMode?: "replace" | "append";
 }
 
-export interface BootstrapResponse { spaces: SpaceSummary[]; agent: AgentStatus; appearance?: SpaceAppearanceState }
+export interface BootstrapResponse { workFolders: WorkFolderSummary[]; agent: AgentStatus; appearance?: WorkFolderAppearanceState }
 export interface DesktopUpdateStatus {
   supported: boolean;
   phase: "unsupported" | "idle" | "checking" | "available" | "not_available" | "downloading" | "ready" | "installing" | "error";
@@ -934,6 +965,6 @@ export interface DesktopUpdateStatus {
   message: string;
   error: string | null;
 }
-export type CommandPaletteGroupId = "go-to" | "switch-space" | "chats" | "files" | "actions";
+export type CommandPaletteGroupId = "go-to" | "switch-work-folder" | "chats" | "files" | "actions";
 export interface ShortcutRow { keys: string[]; action: string }
 export interface ShortcutGroup { title: string; rows: ShortcutRow[] }

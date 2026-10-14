@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { finished } from "node:stream/promises";
+import { withInputContract } from "../input-contracts.mjs";
 
 const candidates = {
   libreoffice: ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice", "/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"],
@@ -158,7 +159,7 @@ export function registerDocumentEngineTools(pi, host) {
     for (const entry of active) entry.controller.abort();
     await Promise.allSettled([...active].map((entry) => entry.done));
   });
-  pi.registerTool({
+  pi.registerTool(withInputContract({
     name: "document_engine", label: "Render, calculate, or recognize document text",
     description: "Use an installed document engine. status detects LibreOffice (Office-to-PDF rendering and XLSX recalculation) and Tesseract (OCR of selected page images) without starting them. Other operations write a new normal file, preserve source bytes, report engine/source/output identity, and support Stop. No default deadline. Engines are optional installed programs, not bundled or automatically installed. Use document_run to inspect the rendered PDF, calculated workbook, or page image.",
     parameters: { type: "object", properties: {
@@ -180,5 +181,11 @@ export function registerDocumentEngineTools(pi, host) {
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       } finally { active.delete(entry); signal?.removeEventListener("abort", stop); settle(); }
     },
-  });
+  }, {
+    variants: [
+      { when: { operation: "status" } },
+      ...["render", "recalculate", "ocr"].map(operation => ({ when: { operation }, required: ["source", "output"] })),
+    ],
+    examples: [{ operation: "status" }, { operation: "ocr", source: ".worker/task/page.png", output: ".worker/task/page.txt", language: "eng" }],
+  }));
 }

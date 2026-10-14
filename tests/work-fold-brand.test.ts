@@ -50,7 +50,6 @@ test("the canonical brand sources are the designer icon pack and lockups", async
   assert.match(generator, /WorkFoldTemplate-source\.png/);
   assert.match(bridgeGenerator, /favicon-32x32\.png/);
   assert.match(bridgeGenerator, /lockup-horizontal-black/);
-  assert.match(bridgeGenerator, /work-fold-icon-512\.png/);
 
   // Neither redrawn marks nor the pre-pack raster cuts may linger as second
   // sources of truth.
@@ -135,7 +134,6 @@ test("the web surfaces ship the same pack exports", async () => {
     const metadata = await sharp(bridgeAsset(`brand-lockup-${tone}.png`)).metadata();
     assert.equal(metadata.height, 192, `the ${tone} lockup ships at the shared 192px height`);
   }
-  await assertBytesEqual(rendererAsset("work-fold-mark.png"), packAsset("png/transparent/work-fold-icon-512.png"), "the renderer mark must be the pack export exactly");
 
   const og = await sharp(bridgeAsset("og-image.png")).metadata();
   assert.equal(og.width, 1200);
@@ -146,13 +144,13 @@ test("the web surfaces ship the same pack exports", async () => {
     read("services/bridge/public/manifest.webmanifest"),
     read("services/bridge/public/app.css"),
   ]);
-  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#f2f4ef"/);
-  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#0f1622"/);
+  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: light\)" content="#ffffff"/);
+  assert.match(indexHtml, /name="theme-color" media="\(prefers-color-scheme: dark\)" content="#212121"/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon-32\.png" type="image\/png" sizes="32x32" \/>/);
   assert.match(indexHtml, /property="og:image" content="https:\/\/www\.work-fold\.com\/og-image\.png"/);
   assert.match(indexHtml, /name="twitter:card" content="summary_large_image"/);
-  assert.match(manifest, /"background_color": "#f2f4ef"/);
-  assert.match(manifest, /"theme_color": "#f2f4ef"/);
+  assert.match(manifest, /"background_color": "#ffffff"/);
+  assert.match(manifest, /"theme_color": "#ffffff"/);
 
   // Brand typography is self-hosted: Inter Variable for text, Poppins for
   // display headings, declared in app.css and committed under /fonts.
@@ -181,7 +179,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
     read("web-local/src/popover/PopoverApp.tsx"),
     read("web-local/index.html"),
     read("web-local/popover.html"),
-    read("web-local/src/professional-foundation.css"),
+    read("web-local/src/styles.css"),
     read("web-local/src/popover/popover.css"),
     read("web-local/src/main.tsx"),
     read("web-local/src/constants.ts"),
@@ -191,7 +189,6 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   // stitched or redrawn.
   assert.match(brand, /work-fold-lockup-black\.png/);
   assert.match(brand, /work-fold-lockup-white\.png/);
-  assert.match(brand, /work-fold-mark\.png/);
   assert.match(brand, /data-animated=/);
   assert.doesNotMatch(brand, /wordmark|mark-shell|flat/i);
   assert.match(brandCss, /\.work-fold-lockup-art-white/);
@@ -202,12 +199,12 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   assert.match(brandCss, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?animation:\s*none/);
   assert.match(foundation, /--ui-accent:\s*#0b6fd6/i);
   assert.match(foundation, /:root\[data-theme="dark"\][\s\S]*?--ui-accent:\s*#1ea0ff/i);
-  assert.match(foundation, /--work-fold-font-display:\s*"Poppins"/);
+  assert.match(foundation, /--work-fold-font-display:\s*var\(--work-fold-ui-font\)/);
   assert.match(popoverCss, /--pop-accent:\s*#0b6fd6/i);
   assert.match(popoverCss, /--pop-accent:\s*#1ea0ff/i);
 
   // The old terracotta-and-paper palette must not resurface in token files.
-  for (const [name, css] of [["brand.css", brandCss], ["professional-foundation.css", foundation], ["popover.css", popoverCss]] as const) {
+  for (const [name, css] of [["brand.css", brandCss], ["styles.css", foundation], ["popover.css", popoverCss]] as const) {
     assert.doesNotMatch(css, /#(c84f30|d95735|f08363|f3f0e9|252321|1b1a18)/i, `${name} still carries the pre-rebrand palette`);
   }
 
@@ -233,7 +230,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
   assert.doesNotMatch(`${indexHtml}\n${popoverHtml}`, /Workspace/);
 });
 
-test("the fold names the popover surface, tray entry, and two-state capture button", async () => {
+test("the work-fold agent names the popover surface, tray entry, and two-state capture button", async () => {
   const [popover, desktopMain] = await Promise.all([
     read("web-local/src/popover/PopoverApp.tsx"),
     read("desktop/src/main.ts"),
@@ -246,7 +243,7 @@ test("the fold names the popover surface, tray entry, and two-state capture butt
   assert.match(popover, /Tell work-fold what to do/);
   assert.match(popover, /Reply to work-fold/);
 
-  assert.match(desktopMain, /\{ label: "work-fold agent", click: \(\) => \{ void toggleManagementPopover\(\); \} \}/);
+  assert.match(desktopMain, /\{ label: "work-fold agent", click: \(\) => \{ void toggleWorkFoldAgentPopover\(\); \} \}/);
   assert.match(desktopMain, /label: `Open \$\{productName\}`/);
   assert.match(desktopMain, /label: `Quit \$\{productName\}`/);
 

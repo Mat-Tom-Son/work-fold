@@ -123,4 +123,4 @@ else
   echo 'Choose apt or rpm' >&2
   exit 1
 fi
-echo "PASS signed $kind repository: install, real version upgrade, remove/reinstall, preserved Pi/Chat/History/Library/request and credentials, tamper rejection"
+echo "PASS signed $kind repository: install, real version upgrade, remove/reinstall, preserved Pi/Chat/History/request and credentials, tamper rejection"

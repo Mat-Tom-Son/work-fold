@@ -26,6 +26,7 @@ export function includedToolReadiness(status: IncludedToolStatus | undefined) {
     case "ready": return { label: "Ready", tone: "enabled", setup: false };
     case "setup_required": return { label: "Setup Needed", tone: "", setup: true };
     case "unavailable": return { label: "Unavailable", tone: "error", setup: true };
-    default: return { label: "Not Checked", tone: "", setup: false };
+    // Computer Control can always be set up from here: Allow finishes at once when it is already allowed.
+    default: return { label: "Not Checked", tone: "", setup: status?.id === "computer" };
   }
 }

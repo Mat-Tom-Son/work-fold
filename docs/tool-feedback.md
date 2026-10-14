@@ -1,8 +1,8 @@
-# Feedback during Assistant work
+# Feedback during Worker work
 
 Status: shared foundation and included integrations implemented in the development tree, 2026-09-11. This extends
 [Extensions and computer work](extension-foundation.md). It applies to every
-kind of Assistant work, including text, calculations, service operations,
+kind of work a Worker or the work-fold agent does, including text, calculations, service operations,
 files, generated artifacts, browsers, and desktop applications. Exact-build
 release acceptance is separate from implementation and fixture evidence.
 
@@ -11,11 +11,11 @@ release acceptance is separate from implementation and fixture evidence.
 The primitive is an operation returning useful observations to the same Pi
 conversation. Pi already runs the model/tool loop and accepts text and images
 in native tool results. work-fold preserves that path. A tool may perform an
-action and return its observed result, or the Assistant may explicitly follow
+action and return its observed result, or the Worker may explicitly follow
 the action with an existing read, query, render, or inspection tool. Both are
 first-class compositions; ordinary tools need no additional manifest.
 
-The Assistant decides what to do next using the user's objective and the
+The Worker decides what to do next using the user's objective and the
 evidence it has. A successful tool execution establishes that operation's
 reported outcome; it does not establish that the whole request is correct.
 The design adds no model scheduler, universal retry loop, second tool registry,
@@ -24,7 +24,7 @@ handling, and continuation remain authoritative.
 
 ## Reuse before adding
 
-The installed Pi 0.80.6 provides these mechanisms:
+The installed Pi 1.1.0 provides these mechanisms:
 
 | Need | Existing mechanism | work-fold responsibility |
 |---|---|---|
@@ -76,13 +76,40 @@ revision as verification of the delivered file.
 
 ## Composition and stopping
 
-The Assistant can repeat action, observation, and correction in its normal Pi
+### Input contracts and failure correction
+
+Every work-fold Pi session carries the same correction guidance for failed
+tools: compare the submitted arguments with the current native schema and
+reported error, correct the inputs before another call, and inspect any
+possible effects before retrying. Native `tool_result` and finalized
+`message_end` hooks cover execution errors and validation failures respectively.
+They append guidance while preserving the original text, images, structured
+content, error state and usage. This covers built-ins, Extensions, MCP and
+codemode; it neither retries a call nor supplies missing arguments. Codemode
+uses the same validation and authority as direct calls.
+
+The included integrations add reviewed input alternatives to their ordinary
+Pi schemas, with descriptions and example inputs. These declarations place
+parameters in a required `input` object so alternatives remain nested; OpenAI
+rejects alternatives at the function-schema root. The adapter forwards exactly
+that declared object and all native cancellation/update/context arguments to
+the original executor. It fills in no inputs. Documents requires source
+and output for render, recalculate and OCR; status needs neither. Chrome
+inspection and uploads need an element target, click/hover/tap accept an
+element or both pointer coordinates, and drag needs both endpoints. Native
+defaults remain valid, including an empty new tab, viewport scrolling and
+typing into a focused field. Computer Control, Web, built-ins and the native
+codemode/search tools already declare their required inputs. Service
+Connections keeps the server's MCP declarations unchanged. There is no second
+tool registry or inferred contract for third-party tools.
+
+The Worker can repeat action, observation, and correction in its normal Pi
 turn. It can compose unrelated tools without work-fold inferring a workflow
 from their names. It observes again where the result can change the next
 decision. Independent reads may run concurrently; dependent mutations use the
 domain's concurrency and stale-state rules.
 
-Browser scripting and DOM access have technical limits. The Assistant may
+Browser scripting and DOM access have technical limits. The Worker may
 choose another available tool, such as native Computer Control, when it fits
 the person's authorized task and constraints. Actual permission and policy
 denials still apply. Tool selection stays with the model; work-fold does not
@@ -159,7 +186,7 @@ window has a sandboxed, diagnostics-only preload: the local API credential
 stays in the host, and ordinary desktop/settings IPC is unavailable. Opening
 the inspector does not enable recording. **Close** or Escape closes only that
 window; it does not turn recording off. Disable recording before closing when
-capture is no longer needed. Normal Chats, the fold and Settings have no
+capture is no longer needed. Normal Chats, the work-fold agent and Settings have no
 inspector entry. Changing models remains a separate action.
 Recording is explicitly enabled for the current app run and starts with the
 next model call; inspection itself only reads retained records. It never
@@ -168,10 +195,13 @@ evidence. Disabling or clearing recording invalidates in-flight recorder
 callbacks as well as deleting retained records. Restart begins with recording
 off and no captured records.
 
-Use one diagnostic observer at the bound Pi session's `agent.streamFn`, shared
+Use one diagnostic observer at the bound Pi session's `agent.streamFunction`, shared
 by normal turns and the host's title, Check, app inference and compaction calls.
 Capture a detached bounded **Assembled model context** with the effective
-model, system prompt, messages and active tool definitions. Chain the existing
+model and canonical transcript. Replay its system/tool deltas for dispatch
+digests and tool names; never infer these from the current session state.
+Native ModelRuntime image/classifier calls and cache warming have separate
+observers with the same bounded capture policy and originating async identity. Chain the existing
 native `onPayload` callback and capture its final effective result as
 **Provider payload observed**. Preserve native hook order, replacements, errors
 and return values exactly; observer failures cannot affect the request. Never
@@ -226,9 +256,9 @@ introduced.
 
 The shared foundation preserves native text/image results into the next Pi
 request, built-in image reads, provider conversion and `blockImages` behavior.
-A concise shared prompt appendix teaches useful verification across fold and
-Space sessions. A stopped tool may drain, but late UI events cannot revive its
-turn or permit overlapping reuse. The local inspector observes Assistant,
+A concise shared prompt appendix teaches useful verification across work-fold
+agent and Worker sessions. A stopped tool may drain, but late UI events cannot revive its
+turn or permit overlapping reuse. The local inspector observes Chat-turn,
 title, Check, app inference and compaction calls without changing their hooks
 or source-pinned Check authority.
 
@@ -275,7 +305,7 @@ attribution; bounded private recording; and honest capture-stage labels.
 Foundation verification on 2026-09-11: `npm run check`, `npm test` (1,354
 passed, one optional model-driven test skipped), the bridge's 55 tests, and
 `npm run desktop:prepare` passed. Browser checks covered the desktop inspector
-and the compact fold layout, keyboard navigation, closing and focus recovery.
+and the compact work-fold agent layout, keyboard navigation, closing and focus recovery.
 Provider fixtures use local synthetic responses; these checks establish native
 transport and lifecycle compatibility, not a model's judgment on real work.
 
@@ -295,7 +325,7 @@ regression and did not justify replacing Pi's native compaction behavior.
 - [Pi Extensions](https://pi.dev/docs/latest/extensions): native tool results,
   result hooks, guidance, Skills integration and terminal rendering.
 - [Pi SDK](https://pi.dev/docs/latest/sdk): embedded sessions and native tools.
-- The installed Pi 0.80.6 `createReadTool`, `convertToLlm` and `ToolDefinition`
+- The installed Pi 1.1.0 `createReadTool`, `convertToLlm` and `ToolDefinition`
   exports; work-fold's [Pi client](../src/local/agent/pi-client.ts) constructs
   native sessions and projects their events into bounded UI activity.
 
@@ -304,8 +334,8 @@ regression and did not justify replacing Pi's native compaction behavior.
 The host projects only a successful built-in Pi `edit` result's display diff,
 relative path, first changed line when available, and truncation flag into its
 existing tool event and portable Chat work trail. It checks the path at invocation
-and completion, excluding outside-Folder, reserved metadata, symbolic links and
-nested Folder identities. Replaced/unknown tools retain the generic activity
+and completion, excluding outside-work-folder, reserved metadata, symbolic links and
+nested work-folder identities. Replaced/unknown tools retain the generic activity
 fallback. Evidence is limited to 16 KiB per edit and 64 KiB per turn; raw results and
 runnable patches are not copied. A display diff describes that tool's observation,
 not a live file preview or proof of the entire task's correctness.
@@ -330,14 +360,14 @@ durable content are unaffected. A host process crash remains an interrupted turn
 the durable journal preserves available partial text but does not reconstruct
 unfinished live steps. Reopening a view and resuming execution are different acts.
 
-Saved-file review uses [bounded History reads and differences](management-layer.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
+Saved-file review uses [bounded History reads and differences](work-fold-agent-and-cli.md#bounded-history-review-and-durable-turn-evidence-2026-09-27).
 That comparison describes an interval's bytes; native edit evidence describes a
 particular tool call. They must not be conflated when other people or programs can
 write the same file.
 
-Folder Chat file attachments are references to the originals, inspected with
+Worker Chat file attachments are references to the originals, inspected with
 native file and document tools rather than eagerly extracted into the prompt.
-The bounded Office text reader used by management attachments remains available:
+The bounded Office text reader used by work-fold agent attachments remains available:
 PowerPoint and spreadsheet extractions follow their package manifest relationship
 order. A reader that cannot resolve all declared parts returns the existing
 path-only reference with a reason, rather than claiming partial extraction is full.
@@ -375,7 +405,7 @@ changes live in the reviewed native patches, not a parallel tool implementation.
 
 Search streams ordinary text without a per-file size exclusion, exposes scope and
 coverage, and continues through page budgets. History lists and verified text ranges
-continue through the same CLI/HTTP domain services. See the management guide for
+continue through the same CLI/HTTP domain services. See [the work-fold agent and CLI](work-fold-agent-and-cli.md) for
 version, cursor, and consistency details.
 
 Attachment bodies are loaded after the live model is resolved. Admission accounts
@@ -392,11 +422,10 @@ Model output-length exhaustion preserves partial work and ends with an explicit
 incomplete failure, rather than recording a successful final answer or replaying work.
 Pi's existing compact-and-retry remains responsible for input overflow. A successful
 native retry clears the discarded attempt's error and text in the host projection.
-The reviewed Pi 0.80.6 patch also prevents rebuilding compacted context from
-restoring an empty length-stop overflow response that native continuation cannot
-resume, preserves the one-retry guard across repeated length responses, and uses
-session order to distinguish fresh retries from pre-compaction context. It changes
-no retry count or ordinary output-length behavior.
+Pi 1.1 persists recovery omissions as canonical context edits and retains the
+one-retry guard. The reviewed patch uses session order to distinguish fresh
+retries from pre-compaction context when timestamps are equal. It changes no
+retry count or ordinary output-length behavior.
 
 Native bash remains available for ordinary full-trust file/process work. This change
 does not install a PTY/job scheduler: native bash has no default command deadline and

@@ -108,7 +108,7 @@ test("desktop startup wires the tested recovery controller to updater and releas
   assert.match(source, /desktopUpdater\.updateNow\(\)/);
   assert.match(source, /openExternal\(latestWorkFoldReleaseUrl\)/);
   assert.match(source, /could not complete update recovery/);
-  assert.equal(latestWorkFoldReleaseUrl, "https://github.com/Mat-Tom-Son/work-fold/releases/latest");
+  assert.equal(latestWorkFoldReleaseUrl, "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest");
 });
 
 function requiredPlan() {
@@ -146,6 +146,6 @@ test("dialog copy keeps data safety explicit in every recovery stage", () => {
     { kind: "check-failed" },
     { kind: "install-failed" },
   ] as const) {
-    assert.match(workFoldStartupRecoveryDialog(plan, stage).detail, /Spaces and app data are safe/);
+    assert.match(workFoldStartupRecoveryDialog(plan, stage).detail, /work-folders and app data are safe/);
   }
 });

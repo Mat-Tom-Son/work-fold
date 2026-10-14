@@ -1,0 +1,29 @@
+{
+  "generator": "built-in image_gen",
+  "assets": [
+    {
+      "slug": "receipts",
+      "prompt": "Generate a single photographic header banner for a work-folder in work-fold. Ultra-wide 3:1 composition, realistic analog editorial still life, soft natural window light, warm walnut desk, subtly aged materials, fine photographic grain, restrained and beautiful. Objects at the far left and right; leave the middle 55 percent dark and quiet for the application's white folder title. No text, labels, letters, logos, watermarks, UI frames or screens. The image fills the canvas edge to edge. Subject: a small stack of cream paper receipts, an understated olive calculator at the far left, a pencil and folded linen at the right. Muted sage and olive accents, a sense of checking the household paperwork.",
+      "savedPath": "banners/receipts.webp",
+      "source": "banners/receipts-source.png"
+    },
+    {
+      "slug": "job-search",
+      "prompt": "Generate a single photographic header banner for a work-folder in work-fold. Ultra-wide 3:1 composition, realistic analog editorial still life, soft natural window light, warm walnut desk, subtly aged materials, fine photographic grain, restrained and beautiful. Objects at the far left and right; leave the middle 55 percent dark and quiet for the application's white folder title. No text, labels, letters, logos, watermarks, UI frames or screens. The image fills the canvas edge to edge. Subject: a cream résumé-like sheet with no readable writing, a slim leather portfolio and elegant fountain pen along the left edge, a folded navy cardigan and small brass clip at the right. Navy and slate blue accents, calm optimism before an interview.",
+      "savedPath": "banners/job-search.webp",
+      "source": "banners/job-search-source.png"
+    },
+    {
+      "slug": "downloads",
+      "prompt": "Generate a single photographic header banner for a work-folder in work-fold. Ultra-wide 3:1 composition, realistic analog editorial still life, soft natural window light, warm walnut desk, subtly aged materials, fine photographic grain, restrained and beautiful. Objects at the far left and right; leave the middle 55 percent dark and quiet for the application's white folder title. No text, labels, letters, logos, watermarks, UI frames or screens. The image fills the canvas edge to edge. Subject: neatly stacked manila folders and paper files at the left, a small vintage metal desk tray and amber glass paperweight at the right. Warm ochre and honey amber accents, the satisfying order of an organized desk.",
+      "savedPath": "banners/downloads.webp",
+      "source": "banners/downloads-source.png"
+    },
+    {
+      "slug": "tracker",
+      "prompt": "Generate a single photographic header banner for a work-folder in work-fold. Ultra-wide 3:1 composition, realistic analog editorial still life, soft natural window light, warm walnut desk, subtly aged materials, fine photographic grain, restrained and beautiful. Objects at the far left and right; leave the middle 55 percent dark and quiet for the application's white folder title. No text, labels, letters, logos, watermarks, UI frames or screens. The image fills the canvas edge to edge. Subject: a sea-green notebook and cream index cards with no text, a small brushed brass clip at the left, a pen and empty ceramic cup at the right. Deep teal and muted sea-green accents, thoughtful weekly planning.",
+      "savedPath": "banners/tracker.webp",
+      "source": "banners/tracker-source.png"
+    }
+  ]
+}

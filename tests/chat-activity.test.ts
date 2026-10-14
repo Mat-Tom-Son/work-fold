@@ -18,7 +18,7 @@ const icons = registerHooks({
     return next(url, context);
   },
 });
-const { RuntimeContextPreview, formatDuration, spaceRelativeToolPath, thoughtPreview, workStepsSummary } = await import("../web-local/src/components/chat/activity.js");
+const { RuntimeContextPreview, formatDuration, workFolderRelativeToolPath, thoughtPreview, workStepsSummary } = await import("../web-local/src/components/chat/activity.js");
 icons.deregister();
 
 const read = (id: string, detail: string): RuntimePreviewEntry => ({ id, kind: "tool", toolName: "read", text: "Read finished", detail, phase: "complete" });
@@ -58,7 +58,7 @@ test("steps keep the order they happened and fold into a plain summary once the 
     thought("t2", "Now the budget."),
     bash("b1", "rg -n total budget.csv"),
   ];
-  const running = render({ entries, running: true, spaceRoot: "/Users/mat/Folder" });
+  const running = render({ entries, running: true, workFolderRoot: "/Users/mat/Folder" });
   const order = ["Let me read the notes first.", ">Read<", "notes.md", "Now the budget.", ">Ran<", "rg -n total budget.csv"]
     .map((needle) => running.indexOf(needle));
   assert.ok(order.every((index) => index >= 0), running);
@@ -101,16 +101,16 @@ test("hidden reasoning shows its time while running and stays as a timed thought
   assert.equal(render({ running: true, replyStarted: true, entries: [] }), "");
 });
 
-test("a finished thought shows its first sentence until opened, and file targets link only inside the Folder", () => {
+test("a finished thought shows its first sentence until opened, and file targets link only inside the work-folder", () => {
   const html = render({
     entries: [
       thought("t1", "**Checking the files.** I'm matching the notes against the budget.\n\n```\nlong code line\n```"),
       read("r1", "/Users/mat/Folder/Kitchen refresh/ideas.md"),
       read("r2", "/elsewhere/secret.txt"),
     ],
-    spaceRoot: "/Users/mat/Folder",
-    resolvedSpacePaths: new Map([["Kitchen refresh/ideas.md", "Kitchen refresh/ideas.md"]]),
-    onOpenSpaceFile: () => undefined,
+    workFolderRoot: "/Users/mat/Folder",
+    resolvedWorkFolderPaths: new Map([["Kitchen refresh/ideas.md", "Kitchen refresh/ideas.md"]]),
+    onOpenWorkFolderFile: () => undefined,
   });
   assert.match(html, /aria-expanded="false"><span class="work-step-verb">Thought<\/span><span class="work-step-target">Checking the files\.<\/span>/);
   assert.doesNotMatch(html, /long code line/);
@@ -118,13 +118,13 @@ test("a finished thought shows its first sentence until opened, and file targets
   assert.match(html, /<span class="work-step-target" title="\/elsewhere\/secret\.txt">secret\.txt<\/span>/);
 });
 
-test("tool paths become Folder-relative only when they sit inside the Folder", () => {
-  assert.equal(spaceRelativeToolPath("/Users/mat/Folder/notes/a.md", "/Users/mat/Folder"), "notes/a.md");
-  assert.equal(spaceRelativeToolPath("/Users/mat/Folder-2/a.md", "/Users/mat/Folder"), null);
-  assert.equal(spaceRelativeToolPath("/tmp/a.md", "/Users/mat/Folder"), null);
-  assert.equal(spaceRelativeToolPath("notes/a.md", "/Users/mat/Folder"), "notes/a.md");
-  assert.equal(spaceRelativeToolPath("budget variance", "/Users/mat/Folder"), null);
-  assert.equal(spaceRelativeToolPath("/Users/mat/Folder/a.md", undefined), null);
+test("tool paths become work-folder-relative only when they sit inside the work-folder", () => {
+  assert.equal(workFolderRelativeToolPath("/Users/mat/Folder/notes/a.md", "/Users/mat/Folder"), "notes/a.md");
+  assert.equal(workFolderRelativeToolPath("/Users/mat/Folder-2/a.md", "/Users/mat/Folder"), null);
+  assert.equal(workFolderRelativeToolPath("/tmp/a.md", "/Users/mat/Folder"), null);
+  assert.equal(workFolderRelativeToolPath("notes/a.md", "/Users/mat/Folder"), "notes/a.md");
+  assert.equal(workFolderRelativeToolPath("budget variance", "/Users/mat/Folder"), null);
+  assert.equal(workFolderRelativeToolPath("/Users/mat/Folder/a.md", undefined), null);
 });
 
 test("durations and thought previews read plainly", () => {
@@ -157,4 +157,30 @@ test("saved successful-turn work trails restore thinking and tools without a spi
   ]);
   assert.equal(previews[1]?.durationMs, 2_600);
   assert.equal(previews[2]?.detail, "notes.md");
+});
+
+test("an app's tool step names the app and the tool, never the registered hash", () => {
+  const hashed = `app_${"1a2b3c4d".repeat(2)}_inbox_search`;
+  const live: RuntimePreviewEntry = { id: "a1", kind: "tool", toolName: hashed, toolTitle: "Inbox: Inbox search", text: "Inbox: Inbox search running", detail: "invoices", phase: "running" };
+  const done: RuntimePreviewEntry = { ...live, text: "Inbox: Inbox search finished", phase: "complete" };
+  const running = render({ entries: [live], running: true });
+  assert.match(running, />Using Inbox: Inbox search</);
+  assert.doesNotMatch(running, /1a2b3c4d|App 1a2b/i);
+  const settled = render({ entries: [done], running: true, replyStarted: true });
+  assert.match(settled, />Used Inbox: Inbox search invoices</);
+  assert.match(settled, />Used Inbox: Inbox search</);
+  assert.doesNotMatch(settled, /1a2b3c4d/i);
+  assert.equal(workStepsSummary([done, read("r1", "a.md")]), "Used Inbox: Inbox search, read a file");
+
+  // A step saved before titles were recorded still hides the hash.
+  const saved = savedWorkTrailPreviews({ id: "old", role: "assistant", content: "Done.", createdAt: "2026-10-01T00:00:00.000Z",
+    workTrail: [{ kind: "tool", text: "App 1a2b3c4d1a2b3c4d Inbox Search finished", toolName: hashed, phase: "complete" }] });
+  assert.equal(workStepsSummary(saved), "Used Inbox search (app)");
+  assert.doesNotMatch(render({ entries: saved }), /1a2b3c4d/i);
+
+  // And the title reaches the saved view from an interrupted turn's activities.
+  const interrupted = savedWorkTrailPreviews({ id: "stopped", role: "assistant", content: "", createdAt: "2026-10-01T00:00:00.000Z",
+    interruption: { reason: "cancelled", message: "Stopped.", retryAttempts: 0, provider: null, model: null,
+      activities: [{ message: "Inbox: Inbox search running", toolName: hashed, toolTitle: "Inbox: Inbox search", phase: "running" }] } });
+  assert.equal(workStepsSummary(interrupted), "Used Inbox: Inbox search");
 });

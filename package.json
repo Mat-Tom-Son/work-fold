@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.4.52",
+  "version": "0.10.1",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -38,7 +38,7 @@
     "local:build": "vite build --config vite.local.config.ts",
     "desktop:icons": "node scripts/generate-desktop-icons.mjs && node scripts/generate-dmg-background.mjs",
     "desktop:check": "tsc --noEmit -p tsconfig.desktop.json",
-    "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json",
+    "desktop:compile": "node scripts/clean-desktop-dist.mjs && tsc -p tsconfig.desktop.json && node scripts/stage-restricted-app-kit.mjs",
     "desktop:prepare": "npm run desktop:computer-helper && npm run desktop:linux-native-hosts && npm run desktop:chrome-native-host && npm run desktop:icons && npm run local:build && npm run desktop:compile && npm run desktop:preload:smoke && npm run desktop:restricted-app:smoke && npm run desktop:preflight",
     "desktop:package": "npm run desktop:prepare && electron-forge package && node scripts/verify-packaged-app-assets.mjs --package-dir out/work-fold-win32-x64",
     "desktop:package:smoke": "npm run desktop:prepare && electron-builder --config electron-builder.desktop.cjs --win --x64 --dir --publish never && npm run desktop:verify:packaged-assets -- --package-dir out/builder/win-unpacked",
@@ -76,8 +76,8 @@
     "desktop:stage:linux": "node scripts/stage-linux-repository.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.80.6",
-    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@injaneity/pi-computer-use": "0.5.1",
     "@napi-rs/canvas": "1.0.9",
     "acorn": "8.16.0",
@@ -90,7 +90,6 @@
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.3.289",
     "pi-chrome": "0.15.51",
-    "pi-mcp-adapter": "2.33.0",
     "pi-web-access": "0.29.0",
     "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
@@ -150,9 +149,6 @@
     },
     "jsdom": {
       "undici": "7.29.1"
-    },
-    "pi-mcp-adapter": {
-      "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
     },
     "smol-toml": "1.7.1",
     "exceljs": {

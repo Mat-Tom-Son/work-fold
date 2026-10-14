@@ -1,4 +1,4 @@
-// The viewer shell for "pages your fold serves" (docs/fold-publishing.md,
+// The viewer shell for shared pages (docs/shared-pages.md,
 // rung 2). It runs on the isolated pages-<slug> origin, holds no cookies and
 // writes no storage, and reads exactly one thing: this page's typed state
 // from /api/viewer/pages/<publicationId>. The decryption key rides only in
@@ -145,6 +145,17 @@ async function main() {
   const root = document.getElementById("viewer-root");
   if (!root) return;
   const { publicationId, key } = parseViewerLocation(location.pathname, location.hash);
+  // Inert local previews use the real viewer shell, without relay requests.
+  if (location.hostname.endsWith(".localhost") && new URL(location.href).searchParams.get("fixture") === "1") {
+    const pages = {
+      "fixture-quarterly": ["Quarterly overview", "<h1>Quarterly overview</h1><p>October 2026</p><h2>A strong quarter, with a few loose ends</h2><p>Revenue grew 12% this quarter. Returning customers accounted for most of the increase, while the new ordering flow reduced support requests.</p><h2>What we learned</h2><ul><li>Keep the purchase-order reference visible on every invoice.</li><li>Give returning customers a shorter checkout.</li><li>Set aside time each week to reconcile open balances.</li></ul><h2>Next quarter</h2><p>Focus on making the everyday experience easier: clearer invoices, faster ordering, and a reliable monthly close.</p>"],
+      "fixture-trip": ["Montréal weekend", "<h1>A weekend in Montréal</h1><p>A relaxed plan for two days in the city.</p><h2>Saturday</h2><p>Start with coffee in Mile End, wander through the neighbourhood, and leave the afternoon open for the market.</p><h2>Sunday</h2><p>Walk up Mount Royal before lunch. Spend the afternoon in Old Montréal, with time to stop wherever looks interesting.</p><h2>Keep it easy</h2><p>One reservation each day is enough. The best part of this trip is having room to explore.</p>"],
+      "fixture-reading": ["Reading notes", "<h1>Reading notes</h1><p>Passages and ideas to return to.</p><h2>On paying attention</h2><p>A useful practice: write down one thing you noticed today that you would usually pass by.</p><h2>Questions for next time</h2><ul><li>What makes a place feel familiar?</li><li>Which details change when you slow down?</li><li>What would you like to remember a year from now?</li></ul>"],
+    };
+    const page = pages[publicationId];
+    if (!page) return showStatus(root, "Nothing is published here.");
+    return renderPayload(root, { title: page[0], mediaType: "text/html", body: page[1] });
+  }
   if (!publicationId) return showStatus(root, "Nothing is published here.");
   if (!key) return showStatus(root, "This link is incomplete — it is missing its key. Ask the person who shared it for a fresh link.");
 

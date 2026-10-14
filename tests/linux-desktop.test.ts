@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import { WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES } from "../src/local/cli/act-protocol.js";
 import { secureStorageAvailable } from "../desktop/src/secure-storage.js";
 import { prepareLinuxDevelopmentCli } from "../desktop/src/linux-development-cli.js";
 
@@ -46,10 +47,10 @@ fs.writeFileSync(path.join(root, 'responses', id + '.json'), JSON.stringify({pro
   assert.equal(reply.request.cwd, repoRoot);
   assert.equal(reply.request.protocolVersion, 1);
   await writeFile(join(stateDirectory, "cli/act-token.json"), JSON.stringify({ version: 1, actToken: "d".repeat(64) }), { mode: 0o600 });
-  const act = JSON.parse((await run("/bin/bash", ["-c", 'work-fold files list --space "Test Folder" --json'], { env, cwd: repoRoot })).stdout);
+  const act = JSON.parse((await run("/bin/bash", ["-c", 'work-fold files list --work-folder "Test Folder" --json'], { env, cwd: repoRoot })).stdout);
   assert.equal(act.request.protocolVersion, 3);
   assert.equal(act.request.lane, "act");
-  assert.deepEqual(act.request.argv, ["files", "list", "--space", "Test Folder", "--json"]);
+  assert.deepEqual(act.request.argv, ["files", "list", "--work-folder", "Test Folder", "--json"]);
 });
 
 test("Linux credentials require an actual keyring and retain other platform behavior", () => {
@@ -68,7 +69,7 @@ const fs = require('node:fs'), path = require('node:path');
 const id = process.argv[3], root = path.join(process.env.WORKFOLD_CLI_STATE_DIR, 'cli');
 const request = JSON.parse(fs.readFileSync(path.join(root, 'requests', id + '.json')));
 fs.writeFileSync(path.join(root, 'last.json'), JSON.stringify(request));
-const data = request.argv.includes('status') ? {task:{state:'running'},requestGraph:{state:'waiting'},waiting:{questionId:'q'}} : request;
+const data = request.argv.includes('status') && ['chat', 'agent'].includes(request.argv[0]) ? {task:{state:'running'},requestGraph:{state:'waiting'},waiting:{questionId:'q'}} : request;
 const response = {protocolVersion:1,id:process.env.WRONG_ID ? 'wrong' : id,exitCode:0,stdout:JSON.stringify({data}),stderr:''};
 fs.writeFileSync(path.join(root,'responses',id+'.json'),JSON.stringify(response),{mode:0o600});
 `); await chmod(app, 0o755);
@@ -82,16 +83,29 @@ fs.writeFileSync(path.join(root,'responses',id+'.json'),JSON.stringify(response)
   assert.equal(JSON.parse((await run(join(system, "work-fold"), ["context", "--json"], { env })).stdout).data.protocolVersion, 1, "installed CLI resolves its native sibling through the system symlink");
   let reply = JSON.parse((await run(cli, ["context", "--json"], { env })).stdout).data;
   assert.equal(reply.protocolVersion, 1); assert.equal(reply.actToken, undefined);
-  await assert.rejects(run(cli, ["files", "list", "--space", "Test"], { env }), (error: any) => error.code === 6);
+  for (const args of [["agent", "--help"], ["work-folders", "list"], ["checks", "status"], ["automations", "-h"]]) {
+    const help = JSON.parse((await run(cli, [...args, "--json"], { env })).stdout).data;
+    assert.equal(help.protocolVersion, 1, "content-free commands need no launch token");
+  }
+  await assert.rejects(run(cli, ["files", "list", "--work-folder", "Test"], { env }), (error: any) => error.code === 6);
   await writeFile(join(state, "cli/act-token.json"), JSON.stringify({ version: 1, actToken: "a".repeat(64) }), { mode: 0o600 });
+  for (const args of [["agent", "chats"], ["work-folders", "create"], ["automations", "list"], ["recently-deleted", "list"]]) {
+    const act = JSON.parse((await run(cli, [...args, "--json"], { env })).stdout).data;
+    assert.equal(act.protocolVersion, 3); assert.equal(act.actToken, "a".repeat(64));
+  }
   const message = join(root, "message.txt"); await writeFile(message, "A real\nUTF-8 message: café");
-  reply = JSON.parse((await run(cli, ["chat", "send", "--space", "Test", "--message-file", message, "--json"], { env })).stdout).data;
+  reply = JSON.parse((await run(cli, ["chat", "send", "--work-folder", "Test", "--message-file", message, "--json"], { env })).stdout).data;
   assert.equal(reply.protocolVersion, 3); assert.equal(reply.lane, "act"); assert.equal(reply.payload.messageFile, "A real\nUTF-8 message: café"); assert.ok(reply.argv.includes("--message-from-payload"));
-  reply = JSON.parse((await run(cli, ["manage", "wait", "--task", "t", "--json"], { env })).stdout).data;
+  reply = JSON.parse((await run(cli, ["agent", "wait", "--task", "t", "--json"], { env })).stdout).data;
   assert.equal(reply.requestGraph.state, "waiting");
   const last = JSON.parse(await readFile(join(state, "cli/last.json"), "utf8")); assert.equal(last.argv[1], "status");
   await assert.rejects(run(cli, ["context"], { env: { ...env, WRONG_ID: "1" } }), /Invalid CLI response identity/);
-  await writeFile(message, "x".repeat(262145)); await assert.rejects(run(cli, ["chat", "send", "--message-file", message], { env }), (error: any) => error.code === 2);
+  const largeMessage = "x".repeat(3 * 1024 * 1024);
+  await writeFile(message, largeMessage);
+  reply = JSON.parse((await run(cli, ["chat", "send", "--work-folder", "Test", "--message-file", message, "--json"], { env, maxBuffer: 8 * 1024 * 1024 })).stdout).data;
+  assert.equal(reply.payload.messageFile, largeMessage, "current payload and response bounds permit normal large messages");
+  await writeFile(message, "x".repeat(WORKFOLD_CLI_ACT_MAX_PAYLOAD_BYTES + 1));
+  await assert.rejects(run(cli, ["chat", "send", "--message-file", message], { env }), (error: any) => error.code === 2);
 });
 
 test("Linux Chrome host validates origin, private descriptor, framing, and loopback forwarding", { skip: !native }, async t => {

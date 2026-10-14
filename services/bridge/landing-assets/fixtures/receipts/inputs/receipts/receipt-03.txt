@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-003
+Merchant: Harbor Hardware
+Date: 2026-09-04
+Description: shelf brackets
+Currency: USD
+Total paid: $38.25
+Payment: paid

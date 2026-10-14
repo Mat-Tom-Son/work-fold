@@ -1,0 +1,4 @@
+SAMPLE RECEIPT
+Merchant: Northbank Office
+Date: 2026-09-03
+Total USD: 25.00

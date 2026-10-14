@@ -19,6 +19,7 @@ import {
   normalizeRestrictedAppCredential,
   RestrictedAppError,
   RestrictedAppNetworkBroker,
+  restrictedAppNetworkDefaultLimits,
   type RestrictedAppConnectionBinding,
   type RestrictedAppConnectionStore,
   type RestrictedAppCredential,
@@ -403,7 +404,7 @@ test("network broker caps redirects, response bytes, and exposed response header
     oversized.request(owner, manifest(), { destinationId: "mail-api", method: "GET", path: "/messages" }),
     (error) => error instanceof RestrictedAppError && error.code === "NETWORK_RESPONSE_TOO_LARGE" && /4-byte/.test(error.message),
   );
-  assert.deepEqual(oversized.limits, { maxRequestBytes: 128 * 1024, maxResponseBytes: 4, timeoutMs: 15_000, maxRedirects: 3 });
+  assert.deepEqual(oversized.limits, { ...restrictedAppNetworkDefaultLimits, maxResponseBytes: 4 });
 
   const filtered = new RestrictedAppNetworkBroker({
     credentials: new MemoryConnections(),
@@ -582,7 +583,38 @@ test("network broker sends reviewed per-destination headers and still denies und
   );
 });
 
-test("reviewed request headers cannot carry routing, hop-by-hop, or credential names", async () => {
+test("production loopback transport accepts bodyless responses and rejects response construction failures", async (t) => {
+  const server = createServer((request, response) => {
+    response.writeHead(Number(request.url?.slice(1)), { "content-type": "application/json" });
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const broker = new RestrictedAppNetworkBroker({ credentials: new MemoryConnections() });
+  const app = loopbackManifest(address.port);
+  const localOwner = { ...owner, networkGrants: ["local-api"] };
+  try {
+    for (const status of [204, 205, 304]) await t.test(`HTTP ${status}`, async () => {
+      const result = await broker.request(localOwner, app, { destinationId: "local-api", method: "GET", path: `/${status}` });
+      assert.equal(result.status, status);
+      assert.equal(result.body, "");
+      assert.equal(result.encoding, "utf8");
+    });
+    await t.test("an unsupported status rejects the broker promise", async () => {
+      await assert.rejects(
+        broker.request(localOwner, app, { destinationId: "local-api", method: "GET", path: "/600" }),
+        isRestrictedError("NETWORK_FAILED"),
+      );
+      const next = await broker.request(localOwner, app, { destinationId: "local-api", method: "GET", path: "/200" });
+      assert.equal(next.status, 200, "a rejected callback does not strand the next request");
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("reviewed request headers cannot carry automation, hop-by-hop, or credential names", async () => {
   for (const header of [
     "authorization", "host", "cookie", "content-length", "transfer-encoding",
     "forwarded", "x-forwarded-for", "x-forwarded-port", "proxy-connection",

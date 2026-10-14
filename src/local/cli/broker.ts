@@ -33,8 +33,8 @@ import {
   type WorkFoldCliBrokeredRequest,
 } from "./act-protocol.js";
 
-export const WORKFOLD_CLI_MAX_REQUEST_BYTES = 128 * 1024;
-export const WORKFOLD_CLI_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_REQUEST_BYTES = 64 * 1024 * 1024;
+export const WORKFOLD_CLI_MAX_RESPONSE_BYTES = 256 * 1024 * 1024;
 export const WORKFOLD_CLI_REQUEST_MAX_AGE_MS = 5 * 60 * 1000;
 export const WORKFOLD_CLI_REQUEST_FUTURE_SKEW_MS = 60 * 1000;
 export const WORKFOLD_CLI_DEFAULT_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000;

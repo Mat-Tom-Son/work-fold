@@ -1,3 +1,4 @@
+import { currentAppearance } from "../../lib/restricted-app-appearance";
 import { ArrowClockwise20Regular, Apps24Regular } from "@fluentui/react-icons";
 import { Loader2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -13,6 +14,7 @@ export function RestrictedAppViewport({
   appTabId,
   route = "/",
   state,
+  openedFrom,
   active,
 }: {
   app: RestrictedAppInstalled;
@@ -20,17 +22,19 @@ export function RestrictedAppViewport({
   appTabId?: string;
   route?: string;
   state?: unknown;
+  /** Left-pane views only: the notification click that opened it at this route and state. */
+  openedFrom?: { kind: "notification"; permissionId: string };
   active: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const mountIdRef = useRef(crypto.randomUUID());
   const sequenceRef = useRef(0);
-  const latestRef = useRef({ app, placement, appTabId, route, state, active });
+  const latestRef = useRef({ app, placement, appTabId, route, state, openedFrom, active });
   const [generation, setGeneration] = useState(0);
   const [viewState, setViewState] = useState<"loading" | "ready" | "crashed">("loading");
   const [message, setMessage] = useState("");
   const cornerRadius = resolveRestrictedAppCornerRadius(app.manifest.ui.cornerRadius);
-  latestRef.current = { app, placement, appTabId, route, state, active };
+  latestRef.current = { app, placement, appTabId, route, state, openedFrom, active };
   const desktop = window.workFoldDesktop?.restrictedApps;
 
   useEffect(() => {
@@ -74,6 +78,8 @@ export function RestrictedAppViewport({
     const mutationObserver = new MutationObserver(schedule);
     resizeObserver.observe(element);
     mutationObserver.observe(document.body, { attributes: true, childList: true, subtree: true });
+    // Appearance choices (palette, contrast) live on the root element.
+    mutationObserver.observe(document.documentElement, { attributes: true });
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     document.addEventListener("visibilitychange", schedule);
@@ -100,13 +106,13 @@ export function RestrictedAppViewport({
       document.removeEventListener("visibilitychange", schedule);
       void desktop.unmountView(mountId).catch(() => undefined);
     };
-  }, [desktop, generation, app.spaceId, app.manifest.id, app.digest, app.featureInstallationId]);
+  }, [desktop, generation, app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId]);
 
   useLayoutEffect(() => {
     const element = hostRef.current;
     if (!desktop || !element) return;
     desktop.layoutView(viewRequest(element, mountIdRef.current, sequenceRef.current++, latestRef.current));
-  }, [active, appTabId, desktop, placement, route, state]);
+  }, [active, appTabId, desktop, openedFrom, placement, route, state]);
 
   if (!desktop) {
     return <div className="restricted-app-view restricted-app-view-fallback" style={{ borderRadius: cornerRadius }}><Apps24Regular /><strong>{app.manifest.title}</strong><span>Interactive app views run in the work-fold desktop app.</span></div>;
@@ -120,7 +126,7 @@ export function RestrictedAppViewport({
           <Apps24Regular />
           <strong>{app.manifest.title} stopped</strong>
           <span>{message}</span>
-          <button type="button" className="secondary-button" onClick={() => { mountIdRef.current = crypto.randomUUID(); sequenceRef.current = 0; setGeneration((value) => value + 1); }}><ArrowClockwise20Regular />Try Again</button>
+          <button type="button" className="ui-control" onClick={() => { mountIdRef.current = crypto.randomUUID(); sequenceRef.current = 0; setGeneration((value) => value + 1); }}><ArrowClockwise20Regular />Try Again</button>
         </div>
       ) : null}
     </div>
@@ -137,6 +143,7 @@ function viewRequest(
     appTabId?: string;
     route: string;
     state?: unknown;
+    openedFrom?: { kind: "notification"; permissionId: string };
     active: boolean;
   },
 ): RestrictedAppViewRequest {
@@ -144,7 +151,7 @@ function viewRequest(
   const bounds = nativeViewBounds(element, elementBounds, latest.placement);
   const active = latest.active && !element.hidden && document.visibilityState === "visible";
   return {
-    spaceId: latest.app.spaceId,
+    workFolderId: latest.app.workFolderId,
     appId: latest.app.manifest.id,
     featureInstallationId: latest.app.featureInstallationId,
     digest: latest.app.digest,
@@ -153,11 +160,13 @@ function viewRequest(
     ...(latest.appTabId ? { appTabId: latest.appTabId } : {}),
     route: latest.route,
     ...(latest.state !== undefined ? { state: latest.state } : {}),
+    ...(latest.openedFrom && latest.placement === "navigator" ? { openedFrom: latest.openedFrom } : {}),
     sequence,
     bounds,
     active,
     occluded: !active || bounds.width < 1 || bounds.height < 1 || nativeViewOccluded(element, elementBounds),
     theme: currentTheme(),
+    appearance: currentAppearance(element, currentTheme()),
   };
 }
 
@@ -172,7 +181,7 @@ function nativeViewBounds(element: HTMLElement, bounds: DOMRect, placement: "nav
   const right = bounds.right - borderRight;
   const bottom = bounds.bottom - borderBottom;
   if (placement === "navigator") {
-    const rail = document.querySelector<HTMLElement>(".professional-space-rail")?.getBoundingClientRect();
+    const rail = document.querySelector<HTMLElement>(".professional-work-folder-rail")?.getBoundingClientRect();
     if (rail) left = Math.max(left, rail.right + restrictedAppRailGuard);
   }
   return {
@@ -200,7 +209,7 @@ function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
     ".command-palette-backdrop",
     ".context-menu-backdrop",
     ".context-menu",
-    ".surface-tab-space-menu",
+    ".surface-tab-work-folder-menu",
     ".chat-rename-popover",
     "[role='menu']",
     "[role='dialog'][aria-modal='true']",

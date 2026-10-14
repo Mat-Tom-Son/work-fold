@@ -1,6 +1,6 @@
-import type { ContextAttachment, ConversationSummary, SpaceFixtureConversation } from "../types";
+import type { ContextAttachment, ConversationSummary, WorkFolderFixtureConversation } from "../types";
 
-export function fixtureConversationSummary(conversation: SpaceFixtureConversation): ConversationSummary {
+export function fixtureConversationSummary(conversation: WorkFolderFixtureConversation): ConversationSummary {
   return {
     id: conversation.id,
     title: conversation.title,

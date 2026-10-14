@@ -55,7 +55,7 @@ async function open() {
   await (await page.createCDPSession()).send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await page.waitForSelector('button[aria-label="Settings"]');
   await page.$eval('button[aria-label="Settings"]', b => b.click());
-  await page.$eval('#settings-tab-assistant', b => b.click());
+  await page.$eval('#settings-tab-ai-models', b => b.click());
   await page.waitForSelector('select[aria-label="Provider"]');
   assert.deepEqual(await page.select('select[aria-label="Provider"]', provider), [provider]);
 }
@@ -71,21 +71,21 @@ async function close() {
 }
 try {
   await open();
-  await page.waitForSelector('#assistant-api-key');
-  await page.type('#assistant-api-key', secret);
+  await page.waitForSelector('#ai-models-api-key');
+  await page.type('#ai-models-api-key', secret);
   await click('Connect and save model');
   await page.waitForFunction(() => document.body.innerText.includes('Connected and model saved'), { polling: 200 });
   const encrypted = await readFile(join(state, 'secure-settings.bin'));
   assert.ok(encrypted.length > 32 && !encrypted.includes(Buffer.from(secret)));
-  assert.equal(await page.$('#assistant-api-key'), null);
+  assert.equal(await page.$('#ai-models-api-key'), null);
   console.log('PASS native Settings entry: synthetic provider key saved through the real login keyring, encrypted bytes verified');
   await close();
   await open();
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Remove API key'), { polling: 200 });
-  assert.equal(await page.$('#assistant-api-key'), null);
+  assert.equal(await page.$('#ai-models-api-key'), null);
   console.log('PASS native Settings cold relaunch: persisted credential decrypts and the connection remains configured');
   await click('Remove API key');
-  await page.waitForSelector('#assistant-api-key');
+  await page.waitForSelector('#ai-models-api-key');
   assert.ok(!(await readFile(join(state, 'secure-settings.bin'))).equals(encrypted));
   console.log('PASS native Settings removal: connection returns to unconfigured without a provider request');
 } catch (error) {

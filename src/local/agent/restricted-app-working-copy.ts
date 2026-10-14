@@ -1,18 +1,18 @@
 import { mkdir, mkdtemp, open, rename, rm } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 
-import { resolveSpacePath } from "../space.js";
+import { resolveWorkFolderPath } from "../work-folder.js";
 import { inspectRestrictedAppPackage } from "./restricted-app-package.js";
 import type { RestrictedAppChangeReceipt } from "./restricted-app-proposals.js";
 
 /** Copy reviewed bytes only. Neither source tooling nor runtime data is executed or copied. */
 export async function materializeRestrictedAppWorkingCopy(
-  spaceRoot: string,
+  workFolderRoot: string,
   change: RestrictedAppChangeReceipt,
   files: ReadonlyMap<string, Uint8Array>,
   checkpoint: (paths: string[]) => Promise<unknown>,
 ): Promise<void> {
-  const destination = resolveSpacePath(spaceRoot, change.sourcePath);
+  const destination = resolveWorkFolderPath(workFolderRoot, change.sourcePath);
   let temporary: string | undefined;
   let created = false;
   try {
@@ -22,10 +22,10 @@ export async function materializeRestrictedAppWorkingCopy(
       throw error;
     });
     if (!existing) {
-      temporary = await mkdtemp(resolveSpacePath(spaceRoot, `${change.sourcePath}-preparing-`));
+      temporary = await mkdtemp(resolveWorkFolderPath(workFolderRoot, `${change.sourcePath}-preparing-`));
       const directories = new Set<string>([temporary]);
       for (const [path, bytes] of files) {
-        const target = resolveSpacePath(temporary, path);
+        const target = resolveWorkFolderPath(temporary, path);
         await mkdir(dirname(target), { recursive: true });
         for (let parent = dirname(target); parent.startsWith(temporary); parent = dirname(parent)) {
           directories.add(parent);
@@ -42,11 +42,11 @@ export async function materializeRestrictedAppWorkingCopy(
       await rename(temporary, destination);
       temporary = undefined;
       created = true;
-      await syncDirectory(spaceRoot);
+      await syncDirectory(workFolderRoot);
     } else if (existing.digest !== change.baseDigest) {
       throw new Error(`The interrupted working copy has been edited. Keep ${change.sourcePath} and start a new app change.`);
     }
-    await checkpoint([...files.keys()].map((path) => relative(spaceRoot, resolveSpacePath(destination, path)).replaceAll("\\", "/")));
+    await checkpoint([...files.keys()].map((path) => relative(workFolderRoot, resolveWorkFolderPath(destination, path)).replaceAll("\\", "/")));
   } catch (error) {
     if (created) {
       // Don't remove content somebody edited while History was being recorded.

@@ -33,16 +33,17 @@ impl Outcome {
     }
 }
 fn is_act(argv: &[String]) -> bool {
+    if argv.iter().any(|arg| ["--help", "-h"].contains(&arg.as_str())) { return false; }
     let tokens: Vec<_> = argv
         .iter()
         .filter(|arg| arg.as_str() != "--json")
         .map(String::as_str)
         .collect();
     match tokens.first().copied().unwrap_or("") {
-        "chat" | "chats" | "files" | "manage" | "history" | "search" | "library" | "tools"
-        | "apps" | "routings" | "pages" | "trash" | "requests" => true,
+        "chat" | "chats" | "files" | "agent" | "history" | "search" | "tools"
+        | "apps" | "automations" | "pages" | "recently-deleted" | "requests" => true,
         "checks" => tokens.get(1) != Some(&"status"),
-        "spaces" => tokens.get(1) != Some(&"list"),
+        "work-folders" => tokens.get(1) != Some(&"list"),
         _ => false,
     }
 }
@@ -67,9 +68,9 @@ impl Client {
                 request["payload"] = payload;
             }
             let limit = if token.is_some() {
-                2 * 1024 * 1024
+                128 * 1024 * 1024
             } else {
-                128 * 1024
+                64 * 1024 * 1024
             };
             if serde_json::to_vec(&request).map_err(error)?.len() > limit {
                 return Err(usage(format!("CLI request exceeds {limit} bytes.")));
@@ -89,7 +90,7 @@ impl Client {
             });
             let deadline = Instant::now() + self.timeout;
             loop {
-                match private_json(&response_path, 2 * 1024 * 1024) {
+                match private_json(&response_path, 256 * 1024 * 1024) {
                     Ok(response) => {
                         if response["protocolVersion"] != 1 || response["id"] != id {
                             return Err(error("Invalid CLI response identity or version"));
@@ -145,9 +146,9 @@ fn prepare(argv: Vec<String>) -> Result<(Vec<String>, Option<Value>)> {
             return Err(usage("--message-file must name a regular file."));
         }
         let mut bytes = Vec::new();
-        file.take(262145).read_to_end(&mut bytes).map_err(error)?;
-        if bytes.len() > 262144 {
-            return Err(usage("--message-file exceeds 262144 bytes."));
+        file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(error)?;
+        if bytes.len() > 16 * 1024 * 1024 {
+            return Err(usage("--message-file exceeds 16777216 bytes."));
         }
         let text = String::from_utf8(bytes).map_err(|_| usage("--message-file must be UTF-8."))?;
         payload = Some(json!({"messageFile":text}));
@@ -158,14 +159,14 @@ fn prepare(argv: Vec<String>) -> Result<(Vec<String>, Option<Value>)> {
 fn wait(client: &Client, argv: &[String], token: &str) -> Result<Option<Outcome>> {
     let tokens: Vec<_> = argv.iter().filter(|a| a.as_str() != "--json").collect();
     let group = tokens.first().map(|s| s.as_str()).unwrap_or("");
-    if !["chat", "manage", "checks"].contains(&group)
+    if !["chat", "agent", "checks"].contains(&group)
         || tokens.get(1).map(|s| s.as_str()) != Some("wait")
     {
         return Ok(None);
     }
     let mut space = None;
     let mut task = None;
-    let mut seconds = 600;
+    let mut seconds = 3600;
     let mut index = 2;
     while index < tokens.len() {
         let option = tokens[index].as_str();
@@ -173,14 +174,14 @@ fn wait(client: &Client, argv: &[String], token: &str) -> Result<Option<Outcome>
             .get(index + 1)
             .ok_or_else(|| usage(format!("{option} requires a value.")))?;
         match option {
-            "--space" if space.is_none() => space = Some((*value).clone()),
+            "--work-folder" if space.is_none() => space = Some((*value).clone()),
             "--task" if task.is_none() => task = Some((*value).clone()),
             "--timeout" => {
                 seconds = value
                     .parse::<u64>()
                     .ok()
-                    .filter(|s| (1..=3600).contains(s))
-                    .ok_or_else(|| usage("--timeout must be between 1 and 3600 seconds."))?
+                    .filter(|s| (1..=2592000).contains(s))
+                    .ok_or_else(|| usage("--timeout must be between 1 and 2592000 seconds."))?
             }
             _ => {
                 return Err(usage(format!(
@@ -190,18 +191,18 @@ fn wait(client: &Client, argv: &[String], token: &str) -> Result<Option<Outcome>
         }
         index += 2;
     }
-    if group == "manage" && space.is_some() {
-        return Err(usage("The management scope does not take --space."));
+    if group == "agent" && space.is_some() {
+        return Err(usage("The management scope does not take --work-folder."));
     }
-    if group != "manage" && space.is_none() {
+    if group != "agent" && space.is_none() {
         return Err(usage(
-            "Act commands require an explicit --space <id-or-name>.",
+            "Act commands require an explicit --work-folder <id-or-name>.",
         ));
     }
     let task = task.ok_or_else(|| usage("Provide --task <id>."))?;
     let mut scope = Vec::new();
     if let Some(space) = space {
-        scope.extend(["--space".into(), space]);
+        scope.extend(["--work-folder".into(), space]);
     }
     scope.extend(["--task".into(), task]);
     let json_output = argv.iter().any(|s| s == "--json");
@@ -276,11 +277,11 @@ fn run() -> Result<Outcome> {
         .unwrap_or_else(|| base.join("work-fold"))
         .join("cli");
     let timeout = environment("WORKFOLD_CLI_TIMEOUT_MS")
-        .unwrap_or_else(|| "120000".into())
+        .unwrap_or_else(|| "1800000".into())
         .parse::<u64>()
         .ok()
-        .filter(|n| (100..=600000).contains(n))
-        .ok_or_else(|| usage("WORKFOLD_CLI_TIMEOUT_MS must be between 100 and 600000."))?;
+        .filter(|n| *n >= 100)
+        .ok_or_else(|| usage("WORKFOLD_CLI_TIMEOUT_MS must be an integer of at least 100."))?;
     private_directory(&root).map_err(error)?;
     private_directory(&root.join("requests")).map_err(error)?;
     private_directory(&root.join("responses")).map_err(error)?;

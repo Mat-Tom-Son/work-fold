@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-013
+Merchant: Cedar Workshop
+Date: not printed
+Description: cotton aprons
+Currency: USD
+Total paid: $128.00
+Payment: paid

@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-010
+Merchant: Northbank Office
+Date: 2026-09-18
+Description: labels
+Currency: USD
+Total paid: $19.79
+Payment: paid

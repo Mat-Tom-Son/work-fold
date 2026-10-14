@@ -1,17 +1,17 @@
 :root {
   color-scheme: light dark;
-  --viewer-ink: #1c2530;
-  --viewer-paper: #fbfcf9;
-  --viewer-muted: #5f6a78;
-  --viewer-line: #dde3ea;
+  --viewer-ink: #202020;
+  --viewer-paper: #ffffff;
+  --viewer-muted: #747474;
+  --viewer-line: #e6e6e6;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --viewer-ink: #e7ecf4;
-    --viewer-paper: #131a26;
-    --viewer-muted: #98a4b4;
-    --viewer-line: #2b3648;
+    --viewer-ink: #eeeeee;
+    --viewer-paper: #212121;
+    --viewer-muted: #a0a0a0;
+    --viewer-line: #333333;
   }
 }
 
@@ -21,7 +21,7 @@ body {
   margin: 0;
   background: var(--viewer-paper);
   color: var(--viewer-ink);
-  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16px/1.75 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 .viewer-banner {
@@ -33,7 +33,7 @@ body {
 }
 
 .viewer-root {
-  max-width: 46rem;
+  max-width: 48rem;
   margin: 0 auto;
   padding: 2rem 1.25rem 4rem;
   overflow-wrap: break-word;
@@ -115,3 +115,9 @@ body {
   border: 0;
   background: var(--viewer-paper);
 }
+
+.viewer-root :is(h1, h2, h3) { font-weight: 550; line-height: 1.35; letter-spacing: -.025em; }
+.viewer-root h1 { margin: 0 0 1.5rem; font-size: 2rem; }
+.viewer-root :is(a, a:visited) { color: var(--viewer-ink); text-underline-offset: 3px; }
+.viewer-root a:hover { color: var(--viewer-muted); }
+.viewer-root a:focus-visible { outline: 2px solid var(--viewer-ink); outline-offset: 3px; }

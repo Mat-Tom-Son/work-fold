@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { groupChatsByRecency } from "../web-local/src/lib/chat-recency.js";
 
-test("management chat history uses local calendar days across DST and year boundaries", () => {
+test("work-fold agent chat history uses local calendar days across DST and year boundaries", () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = "America/New_York";
   try {

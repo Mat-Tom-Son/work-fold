@@ -32,7 +32,7 @@ export interface WorkFoldDesktopCliHostOptions {
  * reusable work-fold kernel. Requests are serialized so catalog discovery and
  * task snapshots never race one another inside a single desktop host. Act-lane
  * requests dispatch to the act executor, which only accepts the queue entry
- * itself — a long Assistant turn runs detached inside the interactive API, so
+ * itself — a long turn runs detached inside the interactive API, so
  * it never blocks later status polls.
  */
 export class WorkFoldDesktopCliHost {

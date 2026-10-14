@@ -5,13 +5,21 @@ Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The public release and automatic-update lane remains
 macOS. Linux candidates have no update feed and are not published by these commands.
 
-The 0.4.52 candidate integrates main through `cc16e4b` (Mac 0.4.41),
-including Folder customization, nested Folders and Worker mentions, bounded
-History review, the revised Files and Chats UI, document engines, and current
-browser/readiness fixes. Linux retains its native CLI, window controls,
-app-wide Wayland sharing and accepted-turn ownership. Computer **Check** is
-read-only; **Start and Check** and **Check accessibility** deliberately probe
-the helper without repairing it or disposing peer Chats.
+The 0.10.1 candidate integrates main through `6d65601` (Mac 0.10.0),
+including Pi 1.1 native MCP and codemode, the work-fold agent panel, current
+Automations, first-run AI setup, folder setup, and image generation. Linux
+retains its native CLI, window controls, app-wide Wayland sharing and
+accepted-turn ownership. Computer Control uses Linux portal sharing on first
+run and in Skills & Extensions; it does not ask for macOS permissions. Chrome
+setup uses Linux's executable and native-host paths. Accessibility checks
+remain deliberate, read-only probes that preserve other Chats.
+
+Upgrading from 0.4.x runs the same vocabulary migration as macOS: CLI commands
+use `work-folders`, `agent`, `automations`, `recently-deleted`, and
+`--work-folder`; portable metadata becomes `.work-fold/work-folder.json`.
+The app preserves identities, content, conversations and History, backs up
+changed app-owned records, and records migration completion. Existing Linux
+0.4.52 artifacts retain their original source and are an upgrade baseline.
 
 For everyday iteration, prepare the native development app once and use
 `npm start`; rebuild only the renderer, TypeScript, or native helper that changed.
@@ -93,9 +101,8 @@ are installed in the build image: cyclonedx-npm 6.0.1 inventories the npm graph
 including build tools, and cargo-cyclonedx 0.5.9 inventories each Linux Rust
 runtime graph. They are dependency inventories, not a claim that all npm tools
 ship in the app. System-provided shared libraries remain external; helper
-provenance and DEB/RPM dependencies record those requirements. The two reviewed
-npm projections (Pi’s undici override and the MCP core source declaration) are
-recorded explicitly; new dependency errors stop generation. Cargo generation
+provenance and DEB/RPM dependencies record those requirements. Pi 1.1’s native MCP dependency graph needs no npm-error exceptions;
+any dependency error stops generation. Cargo generation
 uses a private copy and refuses lockfile changes. Repeated generation has been
 checked for identical bytes.
 
@@ -229,7 +236,7 @@ The installed-app harness exercises the packaged Pi runtime using a bounded loca
 synthetic provider through Pi's standard `models.json`. Pi calls its native
 `write` tool, and the test checks exact output bytes. This does not call a paid
 provider or qualify provider login. A retained profile also checks Folder/Chat
-identities, messages and results, History, Library bytes, model selection and the
+identities, messages and results, History, model selection and the
 durable request, then runs another turn after relaunch. `verify` refuses missing,
 incomplete or unrecognized fixtures instead of silently creating fresh data.
 The harness observes only its own process descendants and requires actual
@@ -507,3 +514,22 @@ regression checks the output image and verifies a tracked-asset sentinel remains
 byte-for-byte intact. This restores the source-cleanliness rule in the Mac release
 runbooks and allows Linux production staging to enforce its existing clean-source
 requirement. Previously captured candidates remain unchanged.
+
+## 0.10.1 integration verification — 2026-10-14
+
+The integrated source passes repository and both TypeScript checks, 2,087
+application tests with 11 explicit environment skips, all 78 bridge tests,
+and the native Rust helper suites (51 passed, two explicit ignored cases).
+Ubuntu 24.04 preparation passes both real Electron sandbox probes. The unpacked
+archive passes native Pi 1.1 MCP/codemode and document-tool verification, plus
+a real Pi shell/write turn through its inherited CLI.
+
+Private Ubuntu/GNOME 46 and Fedora/GNOME 50 desktop runs verify portal setup,
+Stop during the chooser, real Pi capture/input and exact saved bytes, native
+folder dialogs/reveal, accepted-turn minimize/restore continuity, second-instance
+reuse and clean Quit/token removal. Fedora’s first concurrent desktop run
+failed to find the switcher target; its isolated repeat passed, and the failed
+log is retained. Private native acceptance also passes both compositors;
+Fedora repeats 100/125/150/200% scale. These are software-rendered private seats
+with simulated login services and scripted model responses, not a new physical
+GPU, IME, sleep, paid-provider or public-distribution qualification.

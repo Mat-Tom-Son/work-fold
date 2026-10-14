@@ -3,16 +3,16 @@ import test from "node:test";
 
 import {
   WorkFoldRequestLimitError,
-  assertSpaceRelativeResultPath,
+  assertWorkFolderRelativeResultPath,
   parseWorkFoldResultEnvelope,
   workFoldRequestLimitsSection,
 } from "../src/local/requests/request-records.js";
-import { workFoldRequestLimits } from "../src/shared/fold-limits.js";
+import { workFoldRequestLimits } from "../src/shared/work-fold-limits.js";
 import { parseRestrictedAppJsonSchema } from "../src/local/agent/restricted-app-manifest.js";
 
 /**
  * The one result shape (docs/collaboration-contract.md, F29). `chat report`,
- * an app-requested Assistant task, a handoff outcome, and a routing chat hop
+ * an app-requested Worker task, a handoff outcome, and an automation chat hop
  * all produce this envelope, so what it accepts and what it refuses is a
  * contract several callers depend on.
  */
@@ -120,7 +120,7 @@ test("every envelope bound refuses as a named limit, not as a generic failure", 
   assert.equal(parseWorkFoldResultEnvelope({ summary: "Done.", outcome: "succeeded", files: manyFiles }).files?.length, 100);
 });
 
-test("deliverables are Space-relative paths with a real content hash and size", () => {
+test("deliverables are work-folder-relative paths with a real content hash and size", () => {
   const envelope = (files: unknown) => () => parseWorkFoldResultEnvelope({ summary: "Done.", outcome: "succeeded", files });
   assert.throws(envelope("drafts/q3.md"), /Result files must be a list\./);
   assert.throws(envelope(["drafts/q3.md"]), /Result file 1 must be an object\./);
@@ -128,20 +128,20 @@ test("deliverables are Space-relative paths with a real content hash and size", 
     envelope([{ path: "drafts/q3.md", sha256, sizeBytes: 1, note: "mine" }]),
     /Result file 1 has an unexpected field: note\./,
   );
-  // Portable Space metadata and executable Pi configuration are never
-  // deliverables, and no spelling of a path may reach outside the Space
+  // Portable work-folder metadata and executable Pi configuration are never
+  // deliverables, and no spelling of a path may reach outside the work-folder
   // (AGENTS.md, portable identity).
   for (const path of ["/etc/passwd", "C:\\notes.md", "../outside.md", "drafts/../../outside.md", "./drafts/q3.md", "."]) {
-    assert.throws(() => assertSpaceRelativeResultPath(path), /must be relative to the Space\./, path);
-    assert.throws(envelope([{ path, sha256, sizeBytes: 1 }]), /must be relative to the Space\./, path);
+    assert.throws(() => assertWorkFolderRelativeResultPath(path), /must be relative to the work-folder\./, path);
+    assert.throws(envelope([{ path, sha256, sizeBytes: 1 }]), /must be relative to the work-folder\./, path);
   }
-  for (const path of [".work-fold/space.json", ".pi/skills/x.md", "docs/.WORKSPACE/old.json", "notes/.Work-Fold/x"]) {
-    assert.throws(() => assertSpaceRelativeResultPath(path), /reserved work-fold, Pi, or legacy product metadata\./, path);
+  for (const path of [".work-fold/work-folder.json", ".pi/skills/x.md", "docs/.WORKSPACE/old.json", "notes/.Work-Fold/x"]) {
+    assert.throws(() => assertWorkFolderRelativeResultPath(path), /reserved work-fold, Pi, or legacy product metadata\./, path);
     assert.throws(envelope([{ path, sha256, sizeBytes: 1 }]), /reserved work-fold, Pi, or legacy product metadata\./, path);
   }
   assert.throws(envelope([{ path: "", sha256, sizeBytes: 1 }]), /Result file 1 path cannot be empty\./);
   // Ordinary names with spaces stay ordinary.
-  assert.doesNotThrow(() => assertSpaceRelativeResultPath("drafts/q3 note.md"));
+  assert.doesNotThrow(() => assertWorkFolderRelativeResultPath("drafts/q3 note.md"));
 
   for (const bad of [undefined, "", `sha256:${sha256}`, "A".repeat(64), "a".repeat(63)]) {
     assert.throws(

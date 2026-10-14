@@ -14,8 +14,8 @@ import {
 } from "./restricted-app-service.js";
 
 export interface RestrictedAppProposalScope {
-  spaceId: string;
-  spaceRoot: string;
+  workFolderId: string;
+  workFolderRoot: string;
   conversationId: string;
 }
 
@@ -43,13 +43,13 @@ export interface RestrictedAppProposalReceipt extends RestrictedAppProposalScope
 }
 
 export interface RestrictedAppProposalInstallContext {
-  spaceId: string;
+  workFolderId: string;
   conversationId: string;
 }
 
 /**
  * Performs the recorded proposal's install. The server supplies a variant that
- * waits for other Space work and never stops the proposing turn's own client.
+ * waits for other work-folder work and never stops the proposing turn's own client.
  */
 export type RestrictedAppProposalInstaller = (
   proposalId: string,
@@ -60,7 +60,7 @@ export type RestrictedAppProposalInstaller = (
 export interface RestrictedAppChangeReceipt {
   id: string;
   status: "preparing" | "ready";
-  sourceSpaceId: string;
+  sourceWorkFolderId: string;
   sourcePath: string;
   appId: string;
   packageName: string;
@@ -68,17 +68,17 @@ export interface RestrictedAppChangeReceipt {
   version: string;
   baseDigest: string;
   baseFeatureInstallationId: string;
-  targetSpaceId: string;
+  targetWorkFolderId: string;
   targetRuntimeInstanceId: string;
   baseReleaseDigest: string | null;
   previewBase: RestrictedAppPreviewBase;
   buildConversationId: string | null;
-  updateTarget?: { spaceId: string; runtimeInstanceId: string } | null;
+  updateTarget?: { workFolderId: string; runtimeInstanceId: string } | null;
   createdAt: string;
 }
 
 export interface RestrictedAppBuildContext {
-  sourceSpaceId: string;
+  sourceWorkFolderId: string;
   sourcePath: string | null;
   buildConversationId: string | null;
   updateTargetRuntimeInstanceId: string | null;
@@ -110,7 +110,7 @@ interface ProposalRegistryFile {
 
 /**
  * Machine-local, conversation-bound receipts for app packages proposed by Pi.
- * The model supplies only a Space-relative folder. work-fold inspects that
+ * The model supplies only a work-folder-relative folder. work-fold inspects that
  * folder, owns every review field and the digest used for installation, and
  * installs the local preview in the same call; the receipt is the record of
  * what was added and what still needs a person (docs/receipts-not-gates.md, F21).
@@ -147,19 +147,19 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     if (signal?.aborted) return { status: "cancelled" };
     const sourcePath = input.sourcePath.trim();
     const review = await this.#service.inspect({
-      spaceId: input.spaceId,
-      spaceRoot: input.spaceRoot,
+      workFolderId: input.workFolderId,
+      workFolderRoot: input.workFolderRoot,
       sourcePath,
     });
     if (signal?.aborted) return { status: "cancelled" };
     const proposal = await this.#mutate(async () => {
-      const change = this.#registry.changes.find((item) => item.sourceSpaceId === input.spaceId
-        && resolve(input.spaceRoot, item.sourcePath) === resolve(input.spaceRoot, sourcePath));
+      const change = this.#registry.changes.find((item) => item.sourceWorkFolderId === input.workFolderId
+        && resolve(input.workFolderRoot, item.sourcePath) === resolve(input.workFolderRoot, sourcePath));
       if (change && (change.status !== "ready" || change.appId !== review.manifest.id || change.packageName !== review.packageName)) {
         throw new RestrictedAppError("INPUT_INVALID", "Keep the app and package identity of this working copy before adding it.");
       }
       const existing = this.#registry.proposals.find((item) => (item.status === "pending" || item.status === "installed" || item.status === "failed")
-        && item.spaceId === input.spaceId
+        && item.workFolderId === input.workFolderId
         && item.conversationId === input.conversationId
         && item.sourcePath === sourcePath
         && item.review.digest === review.digest);
@@ -185,7 +185,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     if (signal?.aborted) return { status: "cancelled", proposal };
     let app: RestrictedAppInstalled | null;
     try {
-      app = await this.#installNow(proposal.id, { spaceId: input.spaceId, conversationId: input.conversationId });
+      app = await this.#installNow(proposal.id, { workFolderId: input.workFolderId, conversationId: input.conversationId });
     } catch {
       // install() already recorded the failure and emitted its settlement.
       return { status: "failed", proposal: (await this.get(proposal.id)) ?? proposal };
@@ -201,24 +201,24 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     return proposal ? copyReceipt(proposal) : undefined;
   }
 
-  async buildContext(spaceId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppBuildContext> {
-    const app = await this.#service.runtimeDescriptor(spaceId, appId, expectedDigest, featureInstallationId);
+  async buildContext(workFolderId: string, appId: string, expectedDigest: string, featureInstallationId?: string): Promise<RestrictedAppBuildContext> {
+    const app = await this.#service.runtimeDescriptor(workFolderId, appId, expectedDigest, featureInstallationId);
     await this.#queue.catch(() => undefined);
     const context = this.#sourceContext(app);
     const origin = context.updateTarget;
     const target = app.runtimeInstanceKind === "app" ? app : origin
-      ? (await this.#service.list(origin.spaceId)).find((item) => item.runtimeInstanceKind === "app"
+      ? (await this.#service.list(origin.workFolderId)).find((item) => item.runtimeInstanceKind === "app"
         && item.runtimeInstanceId === origin.runtimeInstanceId && item.projectId === app.projectId && item.manifest.id === appId)
       : undefined;
-    return { sourceSpaceId: app.sourceSpaceId, sourcePath: context.sourcePath,
+    return { sourceWorkFolderId: app.sourceWorkFolderId, sourcePath: context.sourcePath,
       buildConversationId: context.buildConversationId, updateTargetRuntimeInstanceId: target?.runtimeInstanceId ?? null };
   }
 
   #sourceContext(app: RestrictedAppInstalled) {
     const proposal = this.#registry.proposals.filter((item) => item.status === "installed"
-      && item.spaceId === app.sourceSpaceId && item.review.digest === app.digest)
+      && item.workFolderId === app.sourceWorkFolderId && item.review.digest === app.digest)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    const changes = this.#registry.changes.filter((item) => item.sourceSpaceId === app.sourceSpaceId
+    const changes = this.#registry.changes.filter((item) => item.sourceWorkFolderId === app.sourceWorkFolderId
       && item.appId === app.manifest.id && item.packageName === app.packageName && item.status === "ready"
       && (item.baseDigest === app.digest || item.previewBase?.digest === app.digest))
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -231,11 +231,11 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       buildConversationId: proposal && !proposal.conversationId.startsWith("work-fold.act.")
         ? proposal.conversationId : origin?.buildConversationId ?? null,
       updateTarget: origin?.updateTarget ?? (releaseOrigin
-        ? { spaceId: releaseOrigin.targetSpaceId, runtimeInstanceId: releaseOrigin.targetRuntimeInstanceId } : null),
+        ? { workFolderId: releaseOrigin.targetWorkFolderId, runtimeInstanceId: releaseOrigin.targetRuntimeInstanceId } : null),
     };
   }
 
-  async prepareChange(input: { id: string; spaceId: string; appId: string; expectedDigest: string; featureInstallationId?: string },
+  async prepareChange(input: { id: string; workFolderId: string; appId: string; expectedDigest: string; featureInstallationId?: string },
     materialize: (change: RestrictedAppChangeReceipt, files: ReadonlyMap<string, Uint8Array>) => Promise<void>,
   ): Promise<RestrictedAppChangeReceipt> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(input.id)) {
@@ -243,15 +243,12 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     }
     return this.#mutate(async () => {
       let change = this.#registry.changes.find((item) => item.id === input.id);
-      if (change && (change.targetSpaceId !== input.spaceId || change.appId !== input.appId || change.baseDigest !== input.expectedDigest
+      if (change && (change.targetWorkFolderId !== input.workFolderId || change.appId !== input.appId || change.baseDigest !== input.expectedDigest
         || (input.featureInstallationId !== undefined && change.baseFeatureInstallationId !== input.featureInstallationId))) {
         throw new RestrictedAppError("INPUT_INVALID", "This app-change request already belongs to a different revision.");
       }
       if (change?.status === "ready") return structuredClone(change);
-      if (!change && this.#registry.changes.length >= 1_000) {
-        throw new RestrictedAppError("INPUT_INVALID", "This computer has reached its saved app-change limit.");
-      }
-      const snapshot = await this.#service.snapshotForChange(input.spaceId, input.appId, input.expectedDigest, input.featureInstallationId);
+      const snapshot = await this.#service.snapshotForChange(input.workFolderId, input.appId, input.expectedDigest, input.featureInstallationId);
       const app = snapshot.app;
       if (change && (change.baseFeatureInstallationId !== app.featureInstallationId || change.targetRuntimeInstanceId !== app.runtimeInstanceId)) {
         throw new RestrictedAppError("REVISION_CHANGED", "The app was reinstalled while its working copy was being prepared.");
@@ -259,16 +256,16 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       if (!change) {
         const build = this.#sourceContext(app);
         change = {
-          id: input.id, status: "preparing", sourceSpaceId: app.sourceSpaceId,
+          id: input.id, status: "preparing", sourceWorkFolderId: app.sourceWorkFolderId,
           sourcePath: `${app.manifest.id}-change-${input.id}`,
           appId: app.manifest.id, packageName: app.packageName, title: app.manifest.title,
           version: app.version, baseDigest: app.digest,
           baseFeatureInstallationId: app.featureInstallationId,
-          targetSpaceId: app.spaceId, targetRuntimeInstanceId: app.runtimeInstanceId,
+          targetWorkFolderId: app.workFolderId, targetRuntimeInstanceId: app.runtimeInstanceId,
           baseReleaseDigest: app.releaseDigest, previewBase: snapshot.previewBase,
           buildConversationId: build.buildConversationId, createdAt: new Date().toISOString(),
           updateTarget: app.runtimeInstanceKind === "app"
-            ? { spaceId: app.spaceId, runtimeInstanceId: app.runtimeInstanceId } : build.updateTarget,
+            ? { workFolderId: app.workFolderId, runtimeInstanceId: app.runtimeInstanceId } : build.updateTarget,
         };
         await this.#writeRegistry({ ...this.#registry, changes: [...this.#registry.changes, change] });
       }
@@ -279,10 +276,10 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     });
   }
 
-  async list(scope?: Partial<Pick<RestrictedAppProposalScope, "spaceId" | "conversationId">>): Promise<RestrictedAppProposalReceipt[]> {
+  async list(scope?: Partial<Pick<RestrictedAppProposalScope, "workFolderId" | "conversationId">>): Promise<RestrictedAppProposalReceipt[]> {
     await this.#queue.catch(() => undefined);
     return this.#registry.proposals
-      .filter((item) => (!scope?.spaceId || item.spaceId === scope.spaceId)
+      .filter((item) => (!scope?.workFolderId || item.workFolderId === scope.workFolderId)
         && (!scope?.conversationId || item.conversationId === scope.conversationId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(copyReceipt);
@@ -298,8 +295,8 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
       let app: RestrictedAppInstalled;
       try {
         app = await this.#service.install({
-          spaceId: proposal.spaceId,
-          spaceRoot: proposal.spaceRoot,
+          workFolderId: proposal.workFolderId,
+          workFolderRoot: proposal.workFolderRoot,
           sourcePath: proposal.sourcePath,
           expectedDigest: proposal.review.digest,
           ...(proposal.expectedPreviewBase !== undefined ? { expectedPreviewBase: proposal.expectedPreviewBase } : {}),
@@ -330,7 +327,7 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
   async #needsFor(app: RestrictedAppInstalled): Promise<RestrictedAppInstallationNeeds> {
     let statuses: Awaited<ReturnType<RestrictedAppService["connectionStatus"]>> = [];
     try {
-      statuses = await this.#service.connectionStatus(app.spaceId, app.manifest.id, app.digest, app.featureInstallationId);
+      statuses = await this.#service.connectionStatus(app.workFolderId, app.manifest.id, app.digest, app.featureInstallationId);
     } catch {
       // Without a connection store every credential-bearing destination still needs the person.
     }
@@ -349,11 +346,11 @@ export class RoutedRestrictedAppProposalHost extends EventEmitter implements Res
     });
   }
 
-  async removeSpace(spaceId: string): Promise<void> {
+  async removeWorkFolder(workFolderId: string): Promise<void> {
     await this.#mutate(async () => {
-      const proposals = this.#registry.proposals.filter((item) => item.spaceId !== spaceId);
-      // A removed target does not erase guards on working copies still in their source Space.
-      const changes = this.#registry.changes.filter((item) => item.sourceSpaceId !== spaceId);
+      const proposals = this.#registry.proposals.filter((item) => item.workFolderId !== workFolderId);
+      // A removed target does not erase guards on working copies still in their source work-folder.
+      const changes = this.#registry.changes.filter((item) => item.sourceWorkFolderId !== workFolderId);
       if (proposals.length === this.#registry.proposals.length && changes.length === this.#registry.changes.length) return;
       await this.#writeRegistry({ ...this.#registry, proposals, changes });
     });
@@ -401,11 +398,31 @@ function normalizeRegistry(value: unknown): ProposalRegistryFile {
   }
   const proposals = (value as ProposalRegistryFile).proposals.filter(validReceipt).map(copyReceipt).slice(-100);
   const rawChanges = (value as Partial<ProposalRegistryFile>).changes;
-  if (rawChanges !== undefined && (!Array.isArray(rawChanges) || rawChanges.length > 1_000 || !rawChanges.every(validChange)
+  if (rawChanges !== undefined && (!Array.isArray(rawChanges) || !rawChanges.every(validChange)
     || new Set(rawChanges.map((item) => item.id)).size !== rawChanges.length)) {
     throw new Error("App-change provenance is invalid. Restore the machine-local proposal registry before continuing.");
   }
-  return { schemaVersion: 2, proposals, changes: structuredClone(rawChanges ?? []) };
+  return { schemaVersion: 2, proposals, changes: retainedChanges(structuredClone(rawChanges ?? [])) };
+}
+
+/**
+ * App-change records are never refused for count. They are guards on working
+ * copies, so the newest are kept: past `retainedChangeRecords`, the oldest
+ * settled (`ready`) records are pruned — a working copy that old proposes as
+ * an ordinary local preview again — and a change still being prepared is
+ * never dropped.
+ */
+const retainedChangeRecords = 10_000;
+
+function retainedChanges(changes: RestrictedAppChangeReceipt[]): RestrictedAppChangeReceipt[] {
+  if (changes.length <= retainedChangeRecords) return changes;
+  const excess = changes.length - retainedChangeRecords;
+  const prunable = new Set(changes
+    .filter((item) => item.status === "ready")
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(0, excess)
+    .map((item) => item.id));
+  return changes.filter((item) => !prunable.has(item.id));
 }
 
 function validChange(value: unknown): value is RestrictedAppChangeReceipt {
@@ -413,14 +430,14 @@ function validChange(value: unknown): value is RestrictedAppChangeReceipt {
   const item = value as RestrictedAppChangeReceipt;
   return typeof item.id === "string" && /^[0-9a-f-]{36}$/.test(item.id)
     && ["preparing", "ready"].includes(item.status)
-    && [item.sourceSpaceId, item.appId, item.packageName, item.title, item.version, item.baseFeatureInstallationId,
-      item.targetSpaceId, item.targetRuntimeInstanceId, item.createdAt].every((field) => typeof field === "string" && field.length > 0)
+    && [item.sourceWorkFolderId, item.appId, item.packageName, item.title, item.version, item.baseFeatureInstallationId,
+      item.targetWorkFolderId, item.targetRuntimeInstanceId, item.createdAt].every((field) => typeof field === "string" && field.length > 0)
     && item.sourcePath === `${item.appId}-change-${item.id}` && /^[a-z0-9][a-z0-9._-]*$/.test(item.appId)
     && /^[a-f0-9]{64}$/.test(item.baseDigest)
     && (item.baseReleaseDigest === null || typeof item.baseReleaseDigest === "string")
     && (item.buildConversationId === null || typeof item.buildConversationId === "string")
     && (item.updateTarget === undefined || item.updateTarget === null || typeof item.updateTarget === "object"
-      && typeof item.updateTarget.spaceId === "string" && typeof item.updateTarget.runtimeInstanceId === "string")
+      && typeof item.updateTarget.workFolderId === "string" && typeof item.updateTarget.runtimeInstanceId === "string")
     && validPreviewBase(item.previewBase);
 }
 
@@ -435,8 +452,8 @@ function validReceipt(value: unknown): value is RestrictedAppProposalReceipt {
   if (!value || typeof value !== "object") return false;
   const receipt = value as Partial<RestrictedAppProposalReceipt>;
   return typeof receipt.id === "string"
-    && typeof receipt.spaceId === "string"
-    && typeof receipt.spaceRoot === "string"
+    && typeof receipt.workFolderId === "string"
+    && typeof receipt.workFolderRoot === "string"
     && typeof receipt.conversationId === "string"
     && typeof receipt.sourcePath === "string"
     && typeof receipt.createdAt === "string"
@@ -457,7 +474,8 @@ function validNeeds(value: unknown): value is RestrictedAppInstallationNeeds {
     && Object.keys(needs).every((key) => ["connections", "files", "checks"].includes(key));
 }
 
-const maximumErrorLength = 500;
+/** A failed install keeps its whole plain error up to this many characters. */
+const maximumErrorLength = 16 * 1024;
 
 function boundedError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? "unknown error");

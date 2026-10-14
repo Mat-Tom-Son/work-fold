@@ -3,7 +3,8 @@ import { WorkRequest } from "../components/chat/WorkRequest";
 import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -14,10 +15,12 @@ import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingM
 import { folderTreeRows } from "../lib/folder-nesting";
 import { FolderMentionMenu, type MentionFolderOption } from "../components/chat/FolderMentionMenu";
 import { WorkFoldLockup } from "../components/brand/WorkFoldBrand";
-import type { AssistantComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest } from "../types";
+import { RuntimeContextPreview } from "../components/chat/activity";
+import { savedWorkTrailPreviews } from "../lib/chat-work-trail";
+import type { ChatMessage, ComposerState, ConversationRuntime, ChatStreamEvent, ExtensionUiRequest, RuntimePreviewEntry } from "../types";
 
 /** Mirrors the server's WorkFoldActManagementRequest projection. */
-interface ManagementRequestView {
+interface WorkFoldAgentRequestView {
   taskId: string;
   conversationId: string;
   phase: "working" | "needs_you" | "handed_off" | "done" | "failed" | "stopped";
@@ -28,17 +31,16 @@ interface ManagementRequestView {
   attachments: Array<{ kind: "file" | "folder" | "url"; target: string; name: string }>;
   dispositions: Array<{
     attachment: { kind: "file" | "folder" | "url"; target: string; name: string };
-    /** `library` is Space-free: the attachment entered the personal Library through an attributed `library add`. */
-    status: "placed" | "registered" | "library" | "unrecorded";
-    spaceName?: string;
+    status: "placed" | "registered" | "unrecorded";
+    workFolderName?: string;
     copied?: string[];
     checkpointId?: string | null;
   }>;
   actions: Array<{
-    command: "files.add" | "spaces.create" | "spaces.register" | "chat.send";
+    command: "files.add" | "work-folders.create" | "work-folders.register" | "chat.send";
     at: string;
-    spaceId: string;
-    spaceName: string;
+    workFolderId: string;
+    workFolderName: string;
     copied?: string[];
     checkpointId?: string | null;
     rootPath?: string;
@@ -47,8 +49,8 @@ interface ManagementRequestView {
   }>;
   children: Array<{
     taskId: string;
-    spaceId: string;
-    spaceName: string;
+    workFolderId: string;
+    workFolderName: string;
     conversationId: string;
     state: "running" | "succeeded" | "failed" | "aborted" | "unknown";
     error: string | null;
@@ -56,27 +58,30 @@ interface ManagementRequestView {
   reply: { messageId: string; content: string } | null;
 }
 
-function managementTurnIdentity(prefix: "request" | "message"): string {
+function workFoldAgentTurnIdentity(prefix: "request" | "message"): string {
   const value = globalThis.crypto?.randomUUID?.()
     ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}-${value}`;
 }
 
-interface ManagementSummary {
+interface WorkFoldAgentSummary {
   available: boolean;
   reason?: string;
   conversation: { id: string; title: string } | null;
   state: "idle" | "running" | "compacting";
-  latestRequest: ManagementRequestView | null;
+  latestRequest: WorkFoldAgentRequestView | null;
 }
 
-interface ManagementMessage {
+interface WorkFoldAgentMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
   kind?: string;
   source?: string;
+  /** The steps the agent took for this reply, folded above it. */
+  workTrail?: ChatMessage["workTrail"];
+  interruption?: ChatMessage["interruption"];
 }
 
 interface StagedItem {
@@ -85,7 +90,7 @@ interface StagedItem {
   isLink: boolean;
 }
 
-interface FoldChat {
+interface WorkFoldAgentChat {
   id: string;
   title: string;
   updatedAt: string;
@@ -95,8 +100,8 @@ interface FoldChat {
   needsAnswer?: boolean;
 }
 
-const fixtureChats: FoldChat[] = [
-  { id: "fixture-fold", title: "Catch up on my work-folders", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
+const fixtureChats: WorkFoldAgentChat[] = [
+  { id: "fixture-agent", title: "Catch up on my work-folders", updatedAt: "2026-09-11T19:30:00Z", requestState: "done" },
   { id: "fixture-plan", title: "Plan next week’s workshop", updatedAt: "2026-09-10T16:00:00Z", requestState: "waiting", needsAnswer: true },
   { id: "fixture-notes", title: "Organize the field notes", updatedAt: "2026-09-09T15:00:00Z", requestState: "done" },
 ];
@@ -105,10 +110,10 @@ const activePhases = new Set(["working", "handed_off"]);
 const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
-const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "fold";
+const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "agent";
 const extensionFixtureRequested = popoverFixtureRequested && new URLSearchParams(window.location.search).get("extensions") === "1";
 
-const popoverFixtureMessages: ManagementMessage[] = [
+const popoverFixtureMessages: WorkFoldAgentMessage[] = [
   {
     id: "fixture-user-1",
     role: "user",
@@ -130,31 +135,57 @@ const popoverFixtureMessages: ManagementMessage[] = [
   },
 ];
 
-const popoverFixtureComposer: AssistantComposerState = {
+const popoverFixtureComposer: ComposerState = {
   model: { provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude Sonnet" },
   thinkingLevel: "medium",
   thinkingLevels: ["low", "medium", "high"],
 };
 
+/** The menu-bar popover: its own window, so it owns the appearance preferences. */
 export function PopoverApp() {
   useApplicationAppearance({ fixtureMode: popoverFixtureRequested });
+  return <WorkFoldAgentChat host="popover" fixtureMode={popoverFixtureRequested} />;
+}
+
+export interface WorkFoldAgentChatProps {
+  /** The menu-bar popover window, or the panel beside the main window's work area. */
+  host: "popover" | "panel";
+  fixtureMode?: boolean;
+  /** Panel only: the window's top strip, where the chat's controls render. */
+  controlsTarget?: HTMLElement | null;
+  /** Panel only: the panel is showing (it stays mounted while closed). */
+  visible?: boolean;
+  /** Panel only: opens Settings → AI Models for the work-fold agent. */
+  onOpenModelSettings?: () => void;
+  /** Panel only: text another surface handed over, added to the message box like a tray drop. */
+  draftRequest?: { id: number; text: string } | null;
+}
+
+/**
+ * The work-fold agent's chat. The menu-bar popover and the main window's
+ * panel render this same component, so both show one conversation the same
+ * way, including each turn's thinking and tool steps as they happen.
+ */
+export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = null, visible = true, onOpenModelSettings, draftRequest = null }: WorkFoldAgentChatProps) {
+  const popoverFixtureRequested = fixtureMode;
+  const extensionFixture = fixtureMode && extensionFixtureRequested;
   const bridge = window.workFoldDesktop;
   const [available, setAvailable] = useState<boolean | null>(popoverFixtureRequested ? true : null);
   const [unavailableReason, setUnavailableReason] = useState<string>("");
-  const [request, setRequest] = useState<ManagementRequestView | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(popoverFixtureRequested ? "fixture-fold" : null);
-  const [messages, setMessages] = useState<ManagementMessage[]>(popoverFixtureRequested ? popoverFixtureMessages : []);
+  const [request, setRequest] = useState<WorkFoldAgentRequestView | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(popoverFixtureRequested ? "fixture-agent" : null);
+  const [messages, setMessages] = useState<WorkFoldAgentMessage[]>(popoverFixtureRequested ? popoverFixtureMessages : []);
   const [staged, setStaged] = useState<StagedItem[]>([]);
   const [text, setText] = useState("");
-  // Folder Workers the work-fold agent can be told to involve with @
-  // (2026-10-01), in the same nested order as the Folder switcher.
+  // work-folder Workers the work-fold agent can be told to involve with @
+  // (2026-10-01), in the same nested order as the work-folder switcher.
   const [mentionFolders, setMentionFolders] = useState<MentionFolderOption[]>([]);
   const [composerCaret, setComposerCaret] = useState(0);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [startingNewChat, setStartingNewChat] = useState(false);
-  const [chats, setChats] = useState<FoldChat[]>(popoverFixtureRequested ? fixtureChats : []);
+  const [chats, setChats] = useState<WorkFoldAgentChat[]>(popoverFixtureRequested ? fixtureChats : []);
   const [chatTitle, setChatTitle] = useState(popoverFixtureRequested ? fixtureChats[0].title : "New Chat");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
@@ -162,31 +193,37 @@ export function PopoverApp() {
   const [chatAction, setChatAction] = useState<{ id: string; mode: "menu" | "rename"; title: string } | null>(null);
   const [savingChat, setSavingChat] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
-  const workState = useWorkRequest(!popoverFixtureRequested && conversationId && !startingNewChat ? `/api/management/conversations/${encodeURIComponent(conversationId)}/work` : null);
+  const workState = useWorkRequest(!popoverFixtureRequested && conversationId && !startingNewChat ? `/api/work-fold-agent/conversations/${encodeURIComponent(conversationId)}/work` : null);
   const [stopping, setStopping] = useState(false);
   const [banner, setBanner] = useState<string>("");
   const [dropActive, setDropActive] = useState(false);
   const [activity, setActivity] = useState<string>("");
   const [streamingAssistant, setStreamingAssistant] = useState("");
-  const [managementComposer, setManagementComposer] = useState<AssistantComposerState | null>(popoverFixtureRequested ? popoverFixtureComposer : null);
+  // The current turn's steps, as the main window's Chat shows them.
+  const [liveSteps, setLiveSteps] = useState<RuntimePreviewEntry[]>([]);
+  const activeThinkingIdRef = useRef<string | null>(null);
+  const stepCounterRef = useRef(0);
+  const [workFoldAgentComposer, setWorkFoldAgentComposer] = useState<ComposerState | null>(popoverFixtureRequested ? popoverFixtureComposer : null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-fold" : null);
+  const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-agent" : null);
   const refreshGeneration = useRef(0);
-  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixtureRequested ? {
-    conversationId: "fixture-fold", requests: [
+  const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixture ? {
+    conversationId: "fixture-agent", requests: [
       { id: "fixture-extension", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
     ],
   } : null);
   const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
+  const [transcriptPinned, setTranscriptPinnedState] = useState(true);
   const dragDepthRef = useRef(0);
   const streamingDeltaRef = useRef("");
   const streamingFrameRef = useRef<number | null>(null);
-  const requestRef = useRef<ManagementRequestView | null>(null);
+  const requestRef = useRef<WorkFoldAgentRequestView | null>(null);
   const pendingSendIdentityRef = useRef<{
     signature: string;
     requestId: string;
@@ -194,11 +231,11 @@ export function PopoverApp() {
   } | null>(null);
   const startingNewChatRef = useRef(false);
   requestRef.current = request;
-  const refreshManagementComposer = useCallback(async () => {
+  const refreshWorkFoldAgentComposer = useCallback(async () => {
     if (popoverFixtureRequested) return;
     try {
-      const result = await api<{ composer: AssistantComposerState }>("/api/agent/composer?scope=management");
-      setManagementComposer(result.composer);
+      const result = await api<{ composer: ComposerState }>("/api/agent/composer?scope=agent");
+      setWorkFoldAgentComposer(result.composer);
     } catch {
       // Model setup is a convenience affordance, not popover availability.
       // Keep the last known composer state if this optional read is unavailable.
@@ -208,7 +245,7 @@ export function PopoverApp() {
   const refreshConversationRuntime = useCallback(async (id: string) => {
     if (popoverFixtureRequested) return;
     try {
-      const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(id)}/runtime`);
+      const result = await api<{ runtime: ConversationRuntime }>(`/api/work-fold-agent/conversations/${encodeURIComponent(id)}/runtime`);
       if (selectionRef.current === id) setConversationRuntime(result.runtime);
     } catch {
       if (selectionRef.current === id) setConversationRuntime(null);
@@ -248,8 +285,8 @@ export function PopoverApp() {
     const selectedId = selectionRef.current;
     try {
       const [summary, history] = await Promise.all([
-        api<ManagementSummary>(selectedId ? `/api/management/summary?conversationId=${encodeURIComponent(selectedId)}` : "/api/management/summary"),
-        api<{ conversations: FoldChat[] }>("/api/management/conversations").then(
+        api<WorkFoldAgentSummary>(selectedId ? `/api/work-fold-agent/summary?conversationId=${encodeURIComponent(selectedId)}` : "/api/work-fold-agent/summary"),
+        api<{ conversations: WorkFoldAgentChat[] }>("/api/work-fold-agent/conversations").then(
           (result) => ({ chats: result.conversations, error: "" }),
           (error) => ({ chats: null, error: errorText(error) }),
         ),
@@ -271,7 +308,7 @@ export function PopoverApp() {
         replaceStreamingAssistant("");
         return;
       }
-      const transcript = await api<{ messages: ManagementMessage[] }>(`/api/management/conversations/${encodeURIComponent(nextConversationId)}`);
+      const transcript = await api<{ messages: WorkFoldAgentMessage[] }>(`/api/work-fold-agent/conversations/${encodeURIComponent(nextConversationId)}`);
       if (generation !== refreshGeneration.current) return;
       selectionRef.current = nextConversationId;
       setConversationId(nextConversationId);
@@ -283,7 +320,11 @@ export function PopoverApp() {
       // array identity for identical content spares re-renders and the
       // follow-scroll effect.
       setMessages((current) => (sameTranscript(current, next) ? current : next));
-      if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) replaceStreamingAssistant("");
+      if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) {
+        replaceStreamingAssistant("");
+        activeThinkingIdRef.current = null;
+        setLiveSteps([]);
+      }
     } catch (error) {
       if (generation !== refreshGeneration.current) return;
       if (error instanceof ApiError && error.status === 404) {
@@ -304,13 +345,13 @@ export function PopoverApp() {
 
   useEffect(() => {
     void refreshConversation();
-    void refreshManagementComposer();
-  }, [refreshConversation, refreshManagementComposer]);
+    void refreshWorkFoldAgentComposer();
+  }, [refreshConversation, refreshWorkFoldAgentComposer]);
 
   // Staged material handed over by the tray (macOS icon drops).
   useEffect(() => {
     if (popoverFixtureRequested) return;
-    const unsubscribe = bridge?.management?.onStaged((items) => {
+    const unsubscribe = bridge?.workFoldAgent?.onStaged((items) => {
       for (const item of items) {
         if (item.kind === "path") addStagedValue(item.value, setStaged);
         else if (looksLikeLink(item.value)) addStagedValue(item.value.trim(), setStaged);
@@ -320,10 +361,56 @@ export function PopoverApp() {
     return () => unsubscribe?.();
   }, [bridge]);
 
+  const clearLiveSteps = useCallback(() => {
+    activeThinkingIdRef.current = null;
+    setLiveSteps([]);
+  }, []);
+
+  const upsertLiveStep = useCallback((step: RuntimePreviewEntry) => {
+    setLiveSteps((current) => {
+      const index = current.findIndex((item) => item.id === step.id);
+      if (index < 0) return [...current, step];
+      const next = [...current];
+      next[index] = { ...next[index], ...step };
+      return next;
+    });
+  }, []);
+
+  const startLiveThought = useCallback((event?: ChatStreamEvent) => {
+    const id = event?.workTrailId ?? `thinking-${++stepCounterRef.current}`;
+    activeThinkingIdRef.current = id;
+    upsertLiveStep({ id, kind: "thinking", text: "", phase: "streaming", startedAt: event?.startedAt ?? Date.now(), ...(event?.order !== undefined ? { order: event.order } : {}) });
+  }, [upsertLiveStep]);
+
+  const appendLiveThought = useCallback((text: string, event?: ChatStreamEvent) => {
+    let id = event?.workTrailId ?? activeThinkingIdRef.current;
+    if (!id) { startLiveThought(event); id = activeThinkingIdRef.current; }
+    if (!id) return;
+    setLiveSteps((current) => current.map((entry) => entry.id === id ? { ...entry, text: `${entry.text}${text}`, phase: "streaming" } : entry));
+  }, [startLiveThought]);
+
+  const finishLiveThought = useCallback((event?: ChatStreamEvent) => {
+    const id = event?.workTrailId ?? activeThinkingIdRef.current;
+    if (!id) return;
+    activeThinkingIdRef.current = null;
+    const endedAt = Date.now();
+    setLiveSteps((current) => current.map((entry) => entry.id === id
+      ? { ...entry, phase: "complete", ...(event?.durationMs !== undefined ? { durationMs: event.durationMs } : entry.startedAt ? { durationMs: Math.max(0, endedAt - entry.startedAt) } : {}) }
+      : entry));
+  }, []);
+
+  // A draft from another surface (a Check or an Automation) lands in the message box.
+  useEffect(() => {
+    if (!draftRequest) return;
+    setHistoryOpen(false);
+    setText((current) => (current ? `${current}\n${draftRequest.text}` : draftRequest.text));
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [draftRequest?.id]);
+
   // Live turn events for the active request's conversation.
   useEffect(() => {
     if (!conversationId || popoverFixtureRequested) return;
-    const stream = createEventSource(`/api/management/conversations/${encodeURIComponent(conversationId)}/events`);
+    const stream = createEventSource(`/api/work-fold-agent/conversations/${encodeURIComponent(conversationId)}/events`);
     let observedRunning = false;
     stream.onmessage = (raw) => {
       if (selectionRef.current !== conversationId) return;
@@ -342,11 +429,39 @@ export function PopoverApp() {
         if (message || tool) setActivity(message || tool);
       }
       if (event.type === "turn_state" || event.type === "turn_snapshot") {
-        if (event.running === true && !observedRunning) replaceStreamingAssistant("");
+        if (event.running === true && !observedRunning) {
+          replaceStreamingAssistant("");
+          clearLiveSteps();
+        }
         observedRunning = event.running === true;
       }
       if (event.type === "turn_snapshot" && typeof event.text === "string" && event.running === true) {
-        replaceStreamingAssistant(event.text);
+        replaceStreamingAssistant(event.presentation?.text ?? event.text);
+        // A snapshot replaces the steps at its cursor, so a reconnect never duplicates rows.
+        if (event.presentation) {
+          setLiveSteps(event.presentation.workTrail);
+          activeThinkingIdRef.current = [...event.presentation.workTrail].reverse()
+            .find((entry) => entry.kind === "thinking" && ["running", "streaming"].includes(entry.phase ?? ""))?.id ?? null;
+        }
+      }
+      if (event.type === "tool") {
+        upsertLiveStep({
+          id: event.workTrailId ?? (event.toolCallId?.trim() ? `tool-${event.toolCallId.trim()}` : `tool-${++stepCounterRef.current}`),
+          kind: "tool",
+          text: event.message?.trim() || event.toolName?.trim() || "Tool",
+          ...(event.detail?.trim() ? { detail: event.detail.trim() } : {}),
+          ...(event.toolName?.trim() ? { toolName: event.toolName.trim() } : {}),
+          ...(event.toolTitle?.trim() ? { toolTitle: event.toolTitle.trim() } : {}),
+          ...(event.order !== undefined ? { order: event.order } : {}),
+          ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          ...(event.edit ? { edit: event.edit } : {}),
+          phase: event.phase ?? "running",
+        });
+      }
+      if (event.type === "assistant_thinking") {
+        if (event.thinkingPhase === "start") startLiveThought(event);
+        if (event.text) appendLiveThought(event.text, event);
+        if (event.thinkingPhase === "end") finishLiveThought(event);
       }
       if (event.type === "assistant_delta" && typeof event.text === "string") {
         queueStreamingAssistant(event.text);
@@ -355,13 +470,13 @@ export function PopoverApp() {
         replaceStreamingAssistant(event.text);
       }
       if (event.type === "turn_state" || event.type === "done" || event.type === "error") {
-        if (event.type === "done" || event.type === "error" || event.running === false) flushStreamingAssistant();
+        if (event.type === "done" || event.type === "error" || event.running === false) { flushStreamingAssistant(); finishLiveThought(); }
         if (event.type === "done" || event.type === "error" || event.running === false) void refreshConversationRuntime(conversationId);
         void refreshConversation();
       }
     };
     return () => stream.close();
-  }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant]);
+  }, [conversationId, refreshConversation, refreshConversationRuntime, flushStreamingAssistant, queueStreamingAssistant, replaceStreamingAssistant, clearLiveSteps, upsertLiveStep, startLiveThought, appendLiveThought, finishLiveThought]);
 
   useEffect(() => {
     if (popoverFixtureRequested) return;
@@ -392,21 +507,21 @@ export function PopoverApp() {
       // Focus and visibility often fire together on one show; read once.
       if (!force && Date.now() - lastMentionRefresh < 1000) return;
       lastMentionRefresh = Date.now();
-      void api<{ spaces: Array<{ id: string; name: string; spaceRoot: string }> }>("/api/spaces/outline")
-        .then(({ spaces }) => { const names = mentionNames(spaces); setMentionFolders(folderTreeRows(spaces).map(({ space, depth }) => ({
-          id: space.id,
-          name: names.get(space.id) ?? space.name,
+      void api<{ workFolders: Array<{ id: string; name: string; workFolderRoot: string }> }>("/api/work-folders/outline")
+        .then(({ workFolders }) => { const names = mentionNames(workFolders); setMentionFolders(folderTreeRows(workFolders).map(({ workFolder, depth }) => ({
+          id: workFolder.id,
+          name: names.get(workFolder.id) ?? workFolder.name,
           icon: <Folder aria-hidden="true" />,
           style: { paddingLeft: `${8 + depth * 16}px` },
         }))); })
         .catch(() => {});
     };
     refreshMentionFolders(true);
-    const unsubscribeControl = subscribeControlEvents((hint) => { if (hint === "spaces" || hint === "reset") refreshMentionFolders(true); });
+    const unsubscribeControl = subscribeControlEvents((hint) => { if (hint === "work-folders" || hint === "reset") refreshMentionFolders(true); });
     const refreshWhenVisible = () => {
       if (document.visibilityState !== "hidden") {
         void refreshConversation();
-        void refreshManagementComposer();
+        void refreshWorkFoldAgentComposer();
         refreshMentionFolders();
       }
     };
@@ -417,16 +532,31 @@ export function PopoverApp() {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [refreshConversation, refreshManagementComposer]);
+  }, [refreshConversation, refreshWorkFoldAgentComposer]);
+
+  const setTranscriptPinned = useCallback((pinned: boolean) => {
+    transcriptPinnedRef.current = pinned;
+    setTranscriptPinnedState(pinned);
+  }, []);
+
+  // Sending, opening a chat, and Latest all return to the newest entry.
+  const followLatest = useCallback((behavior: ScrollBehavior = "auto") => {
+    setTranscriptPinned(true);
+    window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (transcript) transcript.scrollTo({ top: transcript.scrollHeight, behavior });
+    });
+  }, [setTranscriptPinned]);
 
   useEffect(() => {
-    transcriptPinnedRef.current = true;
-  }, [conversationId]);
+    setTranscriptPinned(true);
+  }, [conversationId, setTranscriptPinned]);
 
   // The transcript follows every streamed frame and compact status change only
   // while the person is at (or near) the bottom. A frame runs after layout so
   // a growing Markdown reply and the shrinking/growing live tail are measured
-  // at their final height before the scroll is applied.
+  // at their final height before the scroll is applied. Showing the panel or
+  // coming back from Chats counts too: a hidden transcript loses its place.
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (!transcript || !transcriptPinnedRef.current) return;
@@ -434,13 +564,45 @@ export function PopoverApp() {
       if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [messages, phase, streamingAssistant, activity, conversationId]);
+  }, [messages, phase, streamingAssistant, activity, liveSteps, conversationId, visible, historyOpen]);
+
+  // Size changes that come from outside the chat state follow too: a resized
+  // panel or window, a growing composer, a loaded image, or an opened step.
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    let frame: number | null = null;
+    const stick = () => {
+      if (!transcriptPinnedRef.current || frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        if (transcriptPinnedRef.current) transcript.scrollTop = transcript.scrollHeight;
+      });
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(stick);
+    observer?.observe(transcript);
+    transcript.addEventListener("load", stick, true);
+    transcript.addEventListener("toggle", stick, true);
+    return () => {
+      observer?.disconnect();
+      transcript.removeEventListener("load", stick, true);
+      transcript.removeEventListener("toggle", stick, true);
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, []);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no running work hiding the composer — and focus has not landed
   // anywhere yet, the composer takes it.
   useEffect(() => {
-    if (available !== true) return;
+    if (host !== "panel" || !visible || available !== true) return;
+    const current = requestRef.current;
+    if (current && activePhases.has(current.phase)) return;
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [host, visible, available]);
+
+  useEffect(() => {
+    if (host !== "popover" || available !== true) return;
     // `phase` is a dependency so the composer regains focus the moment a
     // settled request brings it back, not only on the next window focus.
     const focusComposerFirst = () => {
@@ -458,13 +620,14 @@ export function PopoverApp() {
       window.removeEventListener("focus", focusComposerFirst);
       document.removeEventListener("visibilitychange", focusComposerFirst);
     };
-  }, [available, phase]);
+  }, [host, available, phase]);
 
   // Hiding the popover releases focus parked on a button or strip: Chromium
   // keeps DOM focus across hide/show, and a stale button would otherwise
   // swallow both the reopen keystrokes and the composer's first-focus claim.
   // Text entry (the composer) keeps its focus across reopens.
   useEffect(() => {
+    if (host !== "popover") return;
     const releaseStaleFocus = () => {
       if (document.visibilityState !== "hidden") return;
       const active = document.activeElement;
@@ -474,7 +637,7 @@ export function PopoverApp() {
     };
     document.addEventListener("visibilitychange", releaseStaleFocus);
     return () => document.removeEventListener("visibilitychange", releaseStaleFocus);
-  }, []);
+  }, [host]);
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -484,9 +647,11 @@ export function PopoverApp() {
     setBanner("");
     setActivity("");
     replaceStreamingAssistant("");
+    clearLiveSteps();
+    followLatest();
     try {
       const current = requestRef.current;
-      const addressedSpaceIds = addressedFolderIds(content, mentionFolders);
+      const addressedWorkFolderIds = addressedFolderIds(content, mentionFolders);
       // Match the host's request digest: a registry change may remove or
       // rename an addressed Worker between retries of the same message.
       const signature = JSON.stringify({
@@ -500,8 +665,8 @@ export function PopoverApp() {
         ? pendingSendIdentityRef.current
         : {
             signature,
-            requestId: managementTurnIdentity("request"),
-            userMessageId: managementTurnIdentity("message"),
+            requestId: workFoldAgentTurnIdentity("request"),
+            userMessageId: workFoldAgentTurnIdentity("message"),
           };
       pendingSendIdentityRef.current = identity;
       const body: Record<string, unknown> = {
@@ -510,7 +675,7 @@ export function PopoverApp() {
         userMessageId: identity.userMessageId,
       };
       if (staged.length) body.attachments = staged.map((item) => item.value);
-      if (addressedSpaceIds.length) body.addressedSpaceIds = addressedSpaceIds;
+      if (addressedWorkFolderIds.length) body.addressedWorkFolderIds = addressedWorkFolderIds;
       if (startingNewChatRef.current) {
         body.newConversation = true;
       } else if (selectionRef.current) {
@@ -518,7 +683,7 @@ export function PopoverApp() {
         if (current?.phase === "needs_you") body.continuationTaskId = current.taskId;
       }
       const result = await api<{ taskId: string; conversationId: string }>(
-        "/api/management/messages",
+        "/api/work-fold-agent/messages",
         { method: "POST", body, idempotent: true },
       );
       startingNewChatRef.current = false;
@@ -537,7 +702,7 @@ export function PopoverApp() {
     } finally {
       setSending(false);
     }
-  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, mentionFolders]);
+  }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders, followLatest]);
 
   const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
   const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
@@ -581,10 +746,11 @@ export function PopoverApp() {
     setMessages(popoverFixtureRequested && id ? popoverFixtureMessages : []);
     setActivity("");
     replaceStreamingAssistant("");
+    clearLiveSteps();
     setBanner("");
     void refreshConversation();
     window.setTimeout(() => composerRef.current?.focus(), 0);
-  }, [sending, stopping, workState.busy, savingChat, text, staged, chats, refreshConversation, replaceStreamingAssistant]);
+  }, [sending, stopping, workState.busy, savingChat, text, staged, chats, refreshConversation, replaceStreamingAssistant, clearLiveSteps]);
   async function changeChat(action: "rename" | "delete") {
     if (!chatAction || savingChat) return;
     const { id } = chatAction;
@@ -595,7 +761,7 @@ export function PopoverApp() {
     // Invalidate reads started before this mutation so they cannot restore an old title/list.
     refreshGeneration.current++;
     try {
-      if (!popoverFixtureRequested) await api(`/api/management/conversations/${encodeURIComponent(id)}${action === "rename" ? "/title" : ""}`, {
+      if (!popoverFixtureRequested) await api(`/api/work-fold-agent/conversations/${encodeURIComponent(id)}${action === "rename" ? "/title" : ""}`, {
         method: action === "rename" ? "POST" : "DELETE",
         ...(action === "rename" ? { body: { title } } : {}),
       });
@@ -639,10 +805,18 @@ export function PopoverApp() {
     const onKeyDown = (event: KeyboardEvent) => {
       // Cancelling an IME composition must not dismiss the surface.
       if (event.isComposing) return;
+      if (host === "panel") {
+        const target = event.target instanceof Node ? event.target : null;
+        const inside = Boolean(target && (rootRef.current?.contains(target) || controlsTarget?.contains(target)));
+        if (!inside || event.key !== "Escape") return;
+        if (chatAction) { if (!savingChat) setChatAction(null); }
+        else if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
+        return;
+      }
       if (event.key === "Escape") {
         if (chatAction) { if (!savingChat) setChatAction(null); }
         else if (historyOpen) { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }
-        else bridge?.management?.hide();
+        else bridge?.workFoldAgent?.hide();
       }
       // ⌘N/Ctrl+N mirrors the direct header action.
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
@@ -652,7 +826,7 @@ export function PopoverApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [bridge, startNewChat, historyOpen, chatAction, savingChat]);
+  }, [bridge, host, controlsTarget, startNewChat, historyOpen, chatAction, savingChat]);
 
   const stop = useCallback(async () => {
     const current = requestRef.current;
@@ -660,9 +834,9 @@ export function PopoverApp() {
     setStopping(true);
     try {
       const result = await api<{
-        stopped: { managementAborted: boolean; children: Array<{ aborted: boolean }> };
-      }>(`/api/management/requests/${encodeURIComponent(current.taskId)}/stop`, { method: "POST", body: {} });
-      if (!result.stopped.managementAborted && !result.stopped.children.some((child) => child.aborted)) {
+        stopped: { workFoldAgentAborted: boolean; children: Array<{ aborted: boolean }> };
+      }>(`/api/work-fold-agent/requests/${encodeURIComponent(current.taskId)}/stop`, { method: "POST", body: {} });
+      if (!result.stopped.workFoldAgentAborted && !result.stopped.children.some((child) => child.aborted)) {
         setBanner("No running work was stopped. It may have finished just before the request arrived.");
       }
       await refreshConversation();
@@ -680,7 +854,7 @@ export function PopoverApp() {
     const transfer = event.dataTransfer;
     let added = false;
     for (const file of Array.from(transfer.files)) {
-      const path = bridge?.management?.getPathForFile(file) ?? "";
+      const path = (bridge?.workFoldAgent?.getPathForFile ?? bridge?.agent?.getPathForFile)?.(file) ?? "";
       if (path) {
         addStagedValue(path, setStaged);
         added = true;
@@ -763,9 +937,9 @@ export function PopoverApp() {
     : request?.phase === "needs_you"
       ? "Reply to work-fold"
       : "Tell work-fold what to do";
-  const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : managementComposer;
+  const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : workFoldAgentComposer;
   const thinkingLevels = composerThinking?.thinkingLevels ?? [];
-  const managementModelLabel = composerThinking?.model?.name || composerThinking?.model?.id || "Choose model";
+  const workFoldAgentModelLabel = composerThinking?.model?.name || composerThinking?.model?.id || "Choose model";
   const visibleBanner = banner || (available === false ? unavailableReason : "");
   const backgroundChats = chats.filter((chat) => chat.id !== conversationId && (chat.requestState === "working" || chat.requestState === "handed_off"));
   const filteredChats = chats.filter((chat) => chat.title.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()));
@@ -777,17 +951,17 @@ export function PopoverApp() {
     const selectedId = selectionRef.current;
     try {
       if (conversationId && conversationRuntime && !startingNewChat) {
-        const result = await api<{ runtime: ConversationRuntime }>(`/api/management/conversations/${encodeURIComponent(conversationId)}/thinking`, {
+        const result = await api<{ runtime: ConversationRuntime }>(`/api/work-fold-agent/conversations/${encodeURIComponent(conversationId)}/thinking`, {
           method: "POST",
           body: { level },
         });
         if (selectionRef.current === selectedId) setConversationRuntime(result.runtime);
       } else {
-        const result = await api<{ composer: AssistantComposerState }>("/api/agent/thinking", {
+        const result = await api<{ composer: ComposerState }>("/api/agent/thinking", {
           method: "POST",
-          body: { scope: "management", level },
+          body: { scope: "agent", level },
         });
-        setManagementComposer(result.composer);
+        setWorkFoldAgentComposer(result.composer);
       }
     } catch (error) {
       if (selectionRef.current === selectedId) setBanner(errorText(error));
@@ -796,16 +970,29 @@ export function PopoverApp() {
 
   return (
     <div
-      className={`popover${dropActive ? " drop-active" : ""}${popoverFixtureRequested ? " popover-fixture" : ""}`}
+      ref={rootRef}
+      className={`popover${host === "panel" ? " agent-panel-chat" : ""}${dropActive ? " drop-active" : ""}${popoverFixtureRequested && host === "popover" ? " popover-fixture" : ""}`}
       onDragEnter={onDragEnter}
       onDragOver={(event) => { event.preventDefault(); }}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <header className="popover-header">
+      {host === "panel" ? (controlsTarget ? createPortal(
+        // The panel's chat controls live in the window's top strip, icon only.
+        <>
+          <button className="window-chrome-button" type="button" aria-label={historyOpen ? "Back to chat" : "Chats"} title={historyOpen ? "Back to chat" : `Chats · ${chatTitle}`} aria-pressed={historyOpen} aria-controls="agent-chat-history"
+            onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
+            <History aria-hidden="true" size={16} />
+          </button>
+          <button className="window-chrome-button" type="button" aria-label="New Chat" title="New Chat" onClick={startNewChat} disabled={navigationBusy}>
+            <SquarePen aria-hidden="true" size={16} />
+          </button>
+        </>,
+        controlsTarget,
+      ) : null) : <header className="popover-header">
         <h1 className="popover-chat-title">{chatTitle}</h1>
         <div className="popover-header-actions">
-          <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="fold-chat-history"
+          <button className="popover-new-chat" type="button" aria-expanded={historyOpen} aria-controls="agent-chat-history"
             onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
             <History aria-hidden="true" /><span>Previous</span>
           </button>
@@ -820,35 +1007,35 @@ export function PopoverApp() {
             <span>New Chat</span>
           </button>
         </div>
-      </header>
+      </header>}
 
       {visibleBanner ? (
-        <div className="banner" role="alert">
-          <span className="banner-text">{visibleBanner}</span>
-          <button className="banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
+        <div className="agent-banner" role="alert">
+          <span className="agent-banner-text">{visibleBanner}</span>
+          <button className="agent-banner-dismiss" type="button" aria-label="Dismiss" onClick={() => setBanner("")}><X aria-hidden="true" /></button>
         </div>
       ) : null}
 
       {historyOpen ? (
-        <section className="fold-chat-history" id="fold-chat-history" aria-label="Saved work-fold agent chats">
-          <div className="fold-history-heading">
-            <button type="button" className="fold-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
-            <h1>Chats</h1><span>On this desktop</span>
+        <section className="agent-chat-history" id="agent-chat-history" aria-label="Saved work-fold agent chats">
+          <div className="agent-history-heading">
+            <button type="button" className="agent-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
+            <h1>Chats</h1>
           </div>
-          <label className="fold-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
+          <label className="agent-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
           {historyError ? <p className="error-line" role="alert">{historyError} <button type="button" onClick={() => void refreshConversation()}>Try Again</button></p> : null}
-          <div className="fold-chat-list">
-            {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="fold-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New Chat</span><small>Draft</small></button> : null}
-            {chatsByRecency.map(([label, groupedChats]) => <section className="fold-chat-group" key={label} aria-label={label}>
+          <div className="agent-chat-list">
+            {draftsRef.current.get("new")?.text || draftsRef.current.get("new")?.staged.length ? <button className="agent-chat-row" type="button" disabled={navigationBusy} onClick={startNewChat}><span>New Chat</span><small>Draft</small></button> : null}
+            {chatsByRecency.map(([label, groupedChats]) => <section className="agent-chat-group" key={label} aria-label={label}>
               <h2>{label}</h2>
               {groupedChats.map((chat) => (
-                <div key={chat.id} className="fold-chat-item">
-                <button className="fold-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
+                <div key={chat.id} className="agent-chat-item">
+                <button className="agent-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
                   <span>{chat.title || "Untitled chat"}</span>
                   <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
                 </button>
-                <button className="fold-chat-options" data-chat-actions={chat.id} type="button" aria-label={`Actions for ${chat.title}`} aria-expanded={chatAction?.id === chat.id} disabled={navigationBusy || chat.requestState === "working" || chat.requestState === "handed_off"} onClick={() => setChatAction(chatAction?.id === chat.id ? null : { id: chat.id, mode: "menu", title: chat.title })}><MoreHorizontal aria-hidden="true" /></button>
-                {chatAction?.id === chat.id ? <div className="fold-chat-actions">
+                <button className="agent-chat-options" data-chat-actions={chat.id} type="button" aria-label={`Actions for ${chat.title}`} aria-expanded={chatAction?.id === chat.id} disabled={navigationBusy || chat.requestState === "working" || chat.requestState === "handed_off"} onClick={() => setChatAction(chatAction?.id === chat.id ? null : { id: chat.id, mode: "menu", title: chat.title })}><MoreHorizontal aria-hidden="true" /></button>
+                {chatAction?.id === chat.id ? <div className="agent-chat-actions">
                   {chatAction.mode === "rename" ? <form onSubmit={(event) => { event.preventDefault(); void changeChat("rename"); }}>
                     <input aria-label="Chat title" autoFocus maxLength={80} value={chatAction.title} disabled={savingChat} onChange={(event) => setChatAction({ ...chatAction, title: event.target.value })} />
                     <button type="submit" disabled={savingChat || !chatAction.title.trim()}>Save</button>
@@ -858,15 +1045,15 @@ export function PopoverApp() {
                 </div>
               ))}
             </section>)}
-            {!filteredChats.length ? <p className="fold-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}
+            {!filteredChats.length ? <p className="agent-history-empty">{historyQuery ? "No chats match your search." : "Your chats will appear here after you send a message."}</p> : null}
           </div>
         </section>
       ) : null}
 
-      {backgroundChats.length ? <button type="button" className="fold-background-work" onClick={() => selectChat(backgroundChats[0].id)} disabled={navigationBusy}><span className="spinner" aria-hidden="true" /><span>{backgroundChats.length === 1 ? backgroundChats[0].title : `${backgroundChats.length} chats`} · Working</span><ChevronRight aria-hidden="true" /></button> : null}
+      {backgroundChats.length ? <button type="button" className="agent-background-work" onClick={() => selectChat(backgroundChats[0].id)} disabled={navigationBusy}><span className="spinner" aria-hidden="true" /><span>{backgroundChats.length === 1 ? backgroundChats[0].title : `${backgroundChats.length} chats`} · Working</span><ChevronRight aria-hidden="true" /></button> : null}
 
       <div className="popover-chat" hidden={historyOpen}>
-      <section className="fold-section fold-section-conversation">
+      <section className="agent-section agent-section-conversation">
         <section
           className="popover-transcript"
           id="popover-conversation"
@@ -875,16 +1062,20 @@ export function PopoverApp() {
           tabIndex={-1}
           onScroll={(event) => {
             const target = event.currentTarget;
-            transcriptPinnedRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
+            // A hidden transcript reports no height; keep its place for when it shows.
+            if (!target.clientHeight) return;
+            const pinned = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+            if (pinned !== transcriptPinnedRef.current) setTranscriptPinned(pinned);
           }}
         >
-          {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="fold-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
+          {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="agent-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
           {messages.map((message) => (
             <article
               className={message.kind === "assistant_continuation" ? "work-continuation" : `popover-message ${message.role}`}
               key={message.id}
               title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
             >
+              {message.role === "assistant" && message.kind !== "assistant_continuation" ? <RuntimeContextPreview entries={savedWorkTrailPreviews(message as ChatMessage)} renderText={renderStepText} /> : null}
               <div className="popover-message-body">
                 {message.kind === "assistant_continuation" ? "Continuing with the results from delegated work." : message.role === "assistant"
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
@@ -892,6 +1083,9 @@ export function PopoverApp() {
               </div>
             </article>
           ))}
+          {request?.phase === "working" || liveSteps.length ? (
+            <RuntimeContextPreview entries={liveSteps} running={request?.phase === "working"} replyStarted={Boolean(streamingAssistant)} renderText={renderStepText} />
+          ) : null}
           {streamingAssistant ? (
             <article className="popover-message assistant streaming" aria-label="work-fold is replying">
               <div className="popover-message-body">
@@ -905,7 +1099,7 @@ export function PopoverApp() {
                 {request.children.map((child) => (
                   <li key={child.taskId}>
                     {child.state === "running" ? <span className="spinner" aria-hidden="true" /> : <Tick state={child.state} />}
-                    <span>{child.spaceName}: {childStateLabel(child.state)}</span>
+                    <span>{child.workFolderName}: {childStateLabel(child.state)}</span>
                   </li>
                 ))}
               </ul>
@@ -914,21 +1108,21 @@ export function PopoverApp() {
           {request && !activePhases.has(request.phase) ? (
             <ResultEntry request={request} showState={!workState.work} />
           ) : null}
-          {conversationId && extensionSnapshot?.conversationId === conversationId ? <ExtensionQuestions requests={extensionSnapshot.requests} scope={`management/${conversationId}`} respond={async (question, value, cancelled = false) => {
+          {conversationId && extensionSnapshot?.conversationId === conversationId ? <ExtensionQuestions requests={extensionSnapshot.requests} scope={`agent/${conversationId}`} respond={async (question, value, cancelled = false) => {
             const selectedId = conversationId;
-            if (!popoverFixtureRequested) await api(`/api/management/conversations/${encodeURIComponent(selectedId)}/extension-ui/${encodeURIComponent(question.id)}`, { method: "POST", body: { value, cancelled } });
+            if (!popoverFixtureRequested) await api(`/api/work-fold-agent/conversations/${encodeURIComponent(selectedId)}/extension-ui/${encodeURIComponent(question.id)}`, { method: "POST", body: { value, cancelled } });
             setExtensionSnapshot((current) => current?.conversationId === selectedId ? { ...current, requests: current.requests.filter((item) => item.id !== question.id) } : current);
           }} /> : null}
           <WorkRequest {...workState} showProgress={request?.phase !== "working"} showStop={request?.phase === "needs_you"} />
+          {!transcriptPinned ? (
+            <button className="agent-jump-latest" type="button" onClick={() => followLatest("smooth")}><ArrowDown aria-hidden="true" />Latest</button>
+          ) : null}
         </section>
           {request && activePhases.has(request.phase) ? (
-            <div className="fold-tail">
+            <div className="agent-tail">
               {request.phase === "working" ? (
-                <p className="working-line" role="status" aria-live="polite">
-                  <span className="spinner" aria-hidden="true" />
-                  <span className="working-copy">{activity || "Thinking…"}</span>
-                  {elapsedLabel ? <span className="working-elapsed">{elapsedLabel}</span> : null}
-                </p>
+                // The steps above show what is happening; this line keeps the time.
+                elapsedLabel ? <p className="working-line" role="status" aria-live="polite"><span className="working-elapsed">{elapsedLabel}</span></p> : null
               ) : !workState.work ? (
                 <p className="working-line" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="working-copy">Working in {request.children.filter((child) => child.state === "running").length === 1 ? "a work-folder" : "work-folders"}…</span></p>
               ) : null}
@@ -949,7 +1143,7 @@ export function PopoverApp() {
           ))}
         </ul>
       ) : null}
-      <section className="composer">
+      <section className="agent-composer">
         <div className="composer-field">
           <div className="composer-input">
             {mentionMenuOpen ? (
@@ -1002,10 +1196,10 @@ export function PopoverApp() {
               <button
                 className="composer-model"
                 type="button"
-                onClick={() => { void bridge?.management?.openAssistantSettings(); }}
-                aria-label={`Change the model used by the work-fold agent. Current model: ${managementModelLabel}`}
+                onClick={() => { if (host === "panel") onOpenModelSettings?.(); else void bridge?.workFoldAgent?.openAiModelsSettings(); }}
+                aria-label={`Change the model used by the work-fold agent. Current model: ${workFoldAgentModelLabel}`}
               >
-                <span>{managementModelLabel}</span>
+                <span>{workFoldAgentModelLabel}</span>
               </button>
               {thinkingLevels.length >= 2 && composerThinking ? (
                 <select
@@ -1043,6 +1237,11 @@ export function PopoverApp() {
   );
 }
 
+/** Progress notes inside the steps render with the same Markdown as replies. */
+function renderStepText(text: string) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>;
+}
+
 function chatDateLabel(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
@@ -1052,7 +1251,7 @@ function chatDateLabel(value: string): string {
  * The settled request's inline conversation entry — the same host-recorded
  * outcome the old result card carried, absorbed into the one narrator.
  */
-function ResultEntry({ request, showState = true }: { request: ManagementRequestView; showState?: boolean }) {
+function ResultEntry({ request, showState = true }: { request: WorkFoldAgentRequestView; showState?: boolean }) {
   const showOutcome = request.phase === "failed"
     || request.phase === "stopped"
     || request.dispositions.length > 0
@@ -1071,12 +1270,12 @@ function ResultEntry({ request, showState = true }: { request: ManagementRequest
 
 /**
  * Host-recorded trail: dispositions come from explicitly attributed act-lane
- * actions, not the Assistant's prose. An attachment with no recorded action is shown
+ * actions, not the agent's prose. An attachment with no recorded action is shown
  * as exactly that — nothing silently disappears from the story.
  */
-function DispositionTrail({ request }: { request: ManagementRequestView }) {
+function DispositionTrail({ request }: { request: WorkFoldAgentRequestView }) {
   const extraActions = request.actions.filter((action) =>
-    action.command === "spaces.create" || action.command === "spaces.register" || action.command === "chat.send");
+    action.command === "work-folders.create" || action.command === "work-folders.register" || action.command === "chat.send");
   if (!request.dispositions.length && !extraActions.length) return null;
   return (
     <ul className="trail">
@@ -1085,12 +1284,10 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
           {disposition.status === "unrecorded" ? <span className="dot" aria-hidden="true" /> : <Tick state="succeeded" />}
           <span>
             {disposition.status === "placed"
-              ? <>Copied {disposition.attachment.name} to {disposition.spaceName}{disposition.checkpointId ? <span className="muted small"> · restore point {shortId(disposition.checkpointId)}</span> : null}</>
+              ? <>Copied {disposition.attachment.name} to {disposition.workFolderName}{disposition.checkpointId ? <span className="muted small"> · restore point {shortId(disposition.checkpointId)}</span> : null}</>
               : disposition.status === "registered"
-                ? <>Registered {disposition.attachment.name} as the folder {disposition.spaceName}</>
-                : disposition.status === "library"
-                  ? <>Added {disposition.attachment.name} to your Library</>
-                  : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
+                ? <>Registered {disposition.attachment.name} as the folder {disposition.workFolderName}</>
+                : <>{disposition.attachment.name}: no recorded placement — see the reply below</>}
           </span>
         </li>
       ))}
@@ -1104,10 +1301,10 @@ function DispositionTrail({ request }: { request: ManagementRequestView }) {
             {state === "running" ? <span className="spinner" aria-hidden="true" /> : <Tick state={state} />}
             <span>
               {action.command === "chat.send"
-                ? <>Work in {action.spaceName}: {childStateLabel(state)}</>
-                : action.command === "spaces.create"
-                  ? <>Created the folder {action.spaceName}</>
-                  : <>Registered the folder {action.spaceName}</>}
+                ? <>Work in {action.workFolderName}: {childStateLabel(state)}</>
+                : action.command === "work-folders.create"
+                  ? <>Created the folder {action.workFolderName}</>
+                  : <>Registered the folder {action.workFolderName}</>}
               {child?.error ? <span className="muted small"> · {child.error}</span> : null}
             </span>
           </li>
@@ -1142,7 +1339,7 @@ function timestampTitle(value: string): string | undefined {
   return Number.isFinite(at) ? new Date(at).toLocaleString() : undefined;
 }
 
-function sameTranscript(current: ManagementMessage[], next: ManagementMessage[]): boolean {
+function sameTranscript(current: WorkFoldAgentMessage[], next: WorkFoldAgentMessage[]): boolean {
   if (current.length !== next.length) return false;
   return current.every((message, index) => {
     const candidate = next[index];
@@ -1167,7 +1364,7 @@ function addStagedValue(value: string, setStaged: React.Dispatch<React.SetStateA
     : trimmed.split(/[\\/]/).filter(Boolean).at(-1) ?? trimmed;
   setStaged((current) => {
     if (current.some((item) => item.value === trimmed)) return current;
-    if (current.length >= 16) return current;
+    if (current.length >= 1_000) return current;
     return [...current, { value: trimmed, label, isLink }];
   });
 }

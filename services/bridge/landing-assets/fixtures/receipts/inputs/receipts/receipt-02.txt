@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-002
+Merchant: Oak Street Books
+Date: 2026-09-03
+Description: reference books
+Currency: USD
+Total paid: $64.30
+Payment: paid

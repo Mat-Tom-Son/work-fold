@@ -48,12 +48,12 @@ app.setPath('userData',${JSON.stringify(join(root, "profile"))}); app.disableHar
 app.whenReady().then(async()=>{ const window=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
 try { await window.loadURL(${JSON.stringify(origin)}); const result=await window.webContents.executeJavaScript(\`(async()=>{
  const {api,createEventSource}=window.fixture; const streams=[]; let ready=0; let frames=0;
- const paths=Array.from({length:12},(_,i)=>'/api/spaces/lab/conversations/chat-'+i+'/events'); paths.push('/api/spaces/lab/file-events','/api/management/control-events');
+ const paths=Array.from({length:12},(_,i)=>'/api/work-folders/lab/conversations/chat-'+i+'/events'); paths.push('/api/work-folders/lab/file-events','/api/work-fold-agent/control-events');
  for(const path of paths){const stream=createEventSource(path);stream.onopen=()=>ready++;stream.onmessage=()=>frames++;streams.push(stream);}
  const wait=async(predicate)=>{const end=Date.now()+5000;while(!predicate()){if(Date.now()>end)throw Error('Stream pool admission stalled');await new Promise(r=>setTimeout(r,10));}};
  await wait(()=>ready===14); const before=performance.now();
  const accepted=await Promise.race([Promise.all(['start','answer','stop'].map(name=>api('/fixture/'+name,{method:'POST',body:{synthetic:true}}))),new Promise((_,reject)=>setTimeout(()=>reject(Error('Start/answer/Stop starved behind SSE')),1500))]);
- const elapsed=performance.now()-before; const added=createEventSource('/api/spaces/lab/conversations/new/events'); added.onopen=()=>ready++;streams.push(added);
+ const elapsed=performance.now()-before; const added=createEventSource('/api/work-folders/lab/conversations/new/events'); added.onopen=()=>ready++;streams.push(added);
  await wait(()=>ready===29); const cursors=streams.slice(0,14).map(stream=>stream.lastEventId);for(const stream of streams)stream.close();
  return {accepted:accepted.length,elapsed,frames,cursors}; })()\`);console.log('RESULT '+JSON.stringify(result));window.destroy();app.exit(0);}
 catch(error){console.error(error.stack);window.destroy();app.exit(1);}});`);

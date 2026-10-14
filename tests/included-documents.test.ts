@@ -196,7 +196,7 @@ test("changed render cannot retain PDF provenance and collisions do not overwrit
   assert.equal(result.original.source.sha256, result.smaller.source.sha256);
 });
 
-test("default PDF reviews leave no Space PNGs and retain native image bytes after cleanup", async (t) => {
+test("default PDF reviews leave no work-folder PNGs and retain native image bytes after cleanup", async (t) => {
   const setup = await fixture(t, `import{writeFile}from'node:fs/promises';export default async({libraries,resolve,renderPdf,emitImage})=>{
     const pdf=await libraries.pdfLib.PDFDocument.create();pdf.addPage([200,200]);await writeFile(resolve('test.pdf'),await pdf.save());
     const render=await renderPdf('test.pdf');await emitImage(render.pages[0].path);return render;};`);

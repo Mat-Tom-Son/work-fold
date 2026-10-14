@@ -1,17 +1,17 @@
 /**
- * The bounded-inference lane for Space apps (docs/receipts-not-gates.md, F22):
+ * The bounded-inference lane for work-folder apps (docs/receipts-not-gates.md, F22):
  * an installed app's view or worker calls `assistant.infer`, the host parses
  * and bounds the request, pins the exact installation before and after the
  * model call, and appends a receipt line carrying the effective model and its
  * usage. Nothing here waits on a person; the receipt is the disclosure.
  *
- * The transport itself is `bounded-inference.ts` running on the owning Space's
+ * The transport itself is `bounded-inference.ts` running on the owning work-folder's
  * configured session. This module owns everything around it: request shape,
  * byte bounds, the concurrency limiter, identity pins, and the journal.
  *
  * The limiter is deliberately not the Check reviewer's serial chain. Check
  * runs serialize machine-wide so a run cannot fan provider calls out; an app
- * is granted four concurrent calls per installation, which a serial queue
+ * is granted many concurrent calls per installation, which a serial queue
  * cannot honour. Both lanes bound their own total budget instead.
  */
 import { randomUUID } from "node:crypto";
@@ -30,13 +30,13 @@ import { BoundedInferenceError } from "./bounded-inference.js";
 import { parseRestrictedAppJsonSchema, type RestrictedAppJsonSchema } from "./restricted-app-manifest.js";
 import { RestrictedAppTaskError, type RestrictedAppTaskScope } from "./restricted-app-tasks.js";
 
-/** The same installation, revision, and authority pin an Assistant request carries. */
+/** The same installation, revision, and authority pin an Worker request carries. */
 export type RestrictedAppInferenceScope = RestrictedAppTaskScope;
 
 /** Where the call came from; viewers and remote app views never reach this lane. */
 export type RestrictedAppInferenceSurface = "view" | "worker";
 
-/** Which receipts a reader may see: the calling revision, or the whole installation for the Apps tab. */
+/** Which receipts a reader may see: the calling revision, or the whole installation for Settings → Apps. */
 export type RestrictedAppInferenceOwnership = "revision" | "installation";
 
 export class RestrictedAppInferenceError extends Error {
@@ -52,8 +52,8 @@ export interface RestrictedAppInferencePorts {
    * never across the model call, so inference cannot block a grant change.
    */
   pin(scope: RestrictedAppInferenceScope): Promise<void>;
-  /** The owning Space's bounded transport; the server hands over its per-Space client. */
-  infer(spaceId: string, request: BoundedInferenceRequest): Promise<BoundedInferenceOutcome>;
+  /** The owning work-folder's bounded transport; the server hands over its per-work-folder client. */
+  infer(workFolderId: string, request: BoundedInferenceRequest): Promise<BoundedInferenceOutcome>;
 }
 
 export interface RestrictedAppInferenceParsedRequest {
@@ -103,9 +103,10 @@ interface LimiterWaiter {
 }
 
 /**
- * Four running and twelve waiting per installation, eight running machine-wide.
- * A call that cannot even queue is refused immediately with both numbers, so an
- * app can back off instead of discovering the bound by timing out.
+ * `runningPerInstallation` running and `waitingPerInstallation` waiting per
+ * installation, `runningMachineWide` running across the machine. A call that
+ * cannot even queue is refused immediately with both numbers, so an app can
+ * back off instead of discovering the bound by timing out.
  */
 export class RestrictedAppInferenceLimiter {
   readonly #limits: LimiterLimits;
@@ -229,7 +230,7 @@ export function parseRestrictedAppInferenceRequest(value: unknown): RestrictedAp
     throw new RestrictedAppInferenceError(
       "INFER_INPUT_TOO_LARGE",
       `Inference input exceeds the ${limits.inputBytes}-byte limit in ${limitsSection}. `
-      + "Send less, or write the data as Space files and summarize.",
+      + "Send less, or write the data as work-folder files and summarize.",
     );
   }
   let outputSchema: RestrictedAppJsonSchema | undefined;
@@ -267,7 +268,7 @@ export interface RestrictedAppInferenceServiceOptions {
  * journal (docs/collaboration-contract.md, F30).
  */
 export interface RestrictedAppInferenceActivity {
-  receipt: { id: string; spaceId: string; appId: string; featureInstallationId: string };
+  receipt: { id: string; workFolderId: string; appId: string; featureInstallationId: string };
   terminal: boolean;
 }
 
@@ -303,7 +304,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
     return service;
   }
 
-  /** Current occupancy for one installation; the Apps tab and tests read it. */
+  /** Current occupancy for one installation; Settings → Apps and tests read it. */
   occupancy(featureInstallationId: string): { running: number; waiting: number } {
     return this.#limiter.snapshot(featureInstallationId);
   }
@@ -338,7 +339,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
           v: 1,
           id: receiptId,
           at: this.#now().toISOString(),
-          spaceId: scope.spaceId,
+          workFolderId: scope.workFolderId,
           appId: scope.appId,
           featureInstallationId: scope.featureInstallationId,
           digest: scope.digest,
@@ -351,7 +352,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
         throw new RestrictedAppInferenceError("INFER_UNAVAILABLE", "work-fold could not record this inference call, so it did not run.");
       }
       id = receiptId;
-      const outcome = await this.#ports.infer(scope.spaceId, {
+      const outcome = await this.#ports.infer(scope.workFolderId, {
         instructions: request.instructions,
         input: request.input,
         ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}),
@@ -369,7 +370,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
         v: 1,
         id,
         at: this.#now().toISOString(),
-        spaceId: scope.spaceId,
+        workFolderId: scope.workFolderId,
         appId: scope.appId,
         featureInstallationId: scope.featureInstallationId,
         digest: scope.digest,
@@ -390,7 +391,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
           v: 1,
           id,
           at: this.#now().toISOString(),
-          spaceId: scope.spaceId,
+          workFolderId: scope.workFolderId,
           appId: scope.appId,
           featureInstallationId: scope.featureInstallationId,
           digest: scope.digest,
@@ -419,7 +420,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
     const ownership = options.ownership ?? "revision";
     const limit = Math.min(options.limit ?? this.#limits.listItems, this.#limits.listItems);
     return latestInferenceReceipts(this.#receipts
-      .filter((receipt) => receipt.spaceId === scope.spaceId
+      .filter((receipt) => receipt.workFolderId === scope.workFolderId
         && receipt.appId === scope.appId
         && receipt.featureInstallationId === scope.featureInstallationId
         && (ownership === "installation" || receipt.digest === scope.digest)))
@@ -514,7 +515,7 @@ export class RestrictedAppInferenceService extends EventEmitter {
     this.emit("changed", {
       receipt: {
         id: receipt.id,
-        spaceId: receipt.spaceId,
+        workFolderId: receipt.workFolderId,
         appId: receipt.appId,
         featureInstallationId: receipt.featureInstallationId,
       },
@@ -558,8 +559,8 @@ function latestInferenceReceipts(receipts: RestrictedAppInferenceReceipt[]): Res
   return current;
 }
 
-function inferenceReceiptKey(receipt: Pick<RestrictedAppInferenceReceipt, "spaceId" | "appId" | "featureInstallationId" | "digest" | "id">): string {
-  return JSON.stringify([receipt.spaceId, receipt.appId, receipt.featureInstallationId, receipt.digest, receipt.id]);
+function inferenceReceiptKey(receipt: Pick<RestrictedAppInferenceReceipt, "workFolderId" | "appId" | "featureInstallationId" | "digest" | "id">): string {
+  return JSON.stringify([receipt.workFolderId, receipt.appId, receipt.featureInstallationId, receipt.digest, receipt.id]);
 }
 
 function toInferenceError(error: unknown): RestrictedAppInferenceError {
@@ -571,7 +572,7 @@ function toInferenceError(error: unknown): RestrictedAppInferenceError {
   // Never let provider or transport text reach an app.
   return new RestrictedAppInferenceError(
     "INFER_FAILED",
-    "The model call did not complete. Check the Space's provider connection in Settings → AI Models, then try again.",
+    "The model call did not complete. Check the work-folder's provider connection in Settings → AI Models, then try again.",
   );
 }
 
@@ -586,7 +587,7 @@ function invalid(message: string): never {
 function parseInferenceReceipt(value: unknown): RestrictedAppInferenceReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("An inference receipt is invalid.");
   const receipt = value as Record<string, unknown>;
-  const required = ["v", "id", "at", "spaceId", "appId", "featureInstallationId", "digest", "surface", "outcome", "inputBytes", "schema"];
+  const required = ["v", "id", "at", "workFolderId", "appId", "featureInstallationId", "digest", "surface", "outcome", "inputBytes", "schema"];
   const optional = ["errorCode", "outputBytes", "model", "usage", "durationMs"];
   if (required.some((key) => !Object.hasOwn(receipt, key))
     || Object.keys(receipt).some((key) => !required.includes(key) && !optional.includes(key))) {
@@ -595,7 +596,7 @@ function parseInferenceReceipt(value: unknown): RestrictedAppInferenceReceipt {
   if (receipt.v !== 1
     || typeof receipt.id !== "string" || !uuid.test(receipt.id)
     || typeof receipt.at !== "string" || new Date(receipt.at).toISOString() !== receipt.at
-    || typeof receipt.spaceId !== "string" || !receipt.spaceId
+    || typeof receipt.workFolderId !== "string" || !receipt.workFolderId
     || typeof receipt.appId !== "string" || !receipt.appId
     || typeof receipt.featureInstallationId !== "string" || !receipt.featureInstallationId
     || typeof receipt.digest !== "string" || !/^[a-f0-9]{64}$/.test(receipt.digest)

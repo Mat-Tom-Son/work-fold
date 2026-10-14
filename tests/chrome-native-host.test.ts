@@ -107,11 +107,19 @@ test("Linux Chrome registration verifies binary provenance and pins the app laun
   await writeFile(join(sourceDirectory, "source.json"), JSON.stringify({ schema: "work-fold.chrome-native-host-source.v1", origin,
     nativeHostName: distribution.nativeHostName, bootstrapVersion: 1, target: "x86_64-unknown-linux-gnu", binarySha256: createHash("sha256").update(bytes).digest("hex") }));
   const registration = new ChromeNativeHostRegistration({ sourceDirectory, stateRoot, chromeUserDataRoot, distribution, enabled: true, platform: "linux", appPath: "/opt/work-fold/work-fold-desktop" });
-  await registration.register(true);
+  await registration.register(false, true);
+  await assert.rejects(() => readFile(join(chromeUserDataRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`)), /ENOENT/, "startup does not create an absent Chrome profile");
+  await mkdir(chromeUserDataRoot);
+  await registration.register(false, true);
   const manifest = JSON.parse(await readFile(join(chromeUserDataRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`), "utf8"));
   const receipt = JSON.parse(await readFile(join(stateRoot, "chrome/native-host/registration.json"), "utf8"));
   assert.deepEqual(manifest.allowed_origins, [origin]); assert.equal(receipt.binary, manifest.path);
   assert.equal(receipt.appPath, "/opt/work-fold/work-fold-desktop");
+  const manifestPath = join(chromeUserDataRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
+  const foreign = { ...manifest, path: "/another/installation" };
+  await writeFile(manifestPath, JSON.stringify(foreign));
+  await registration.register(false, true);
+  assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), foreign, "startup preserves another installation's registration");
   await writeFile(join(sourceDirectory, "work-fold-chrome-host"), "altered host");
   await assert.rejects(() => registration.register(true), /packaged provenance/);
 });

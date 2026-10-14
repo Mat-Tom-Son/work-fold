@@ -6,44 +6,43 @@ import test from "node:test";
 
 import {
   accentIdentityFromHex,
-  createSpaceAppearanceProposal,
-  parseSpaceAppearanceProposal,
-  resolveSpaceAppearance,
-} from "../src/shared/space-appearance.js";
-import { SpaceAppearanceStore } from "../src/local/space-appearance-store.js";
+  createWorkFolderAppearanceProposal,
+  parseWorkFolderAppearanceProposal,
+  resolveWorkFolderAppearance,
+} from "../src/shared/work-folder-appearance.js";
+import { WorkFolderAppearanceStore } from "../src/local/work-folder-appearance-store.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
-import { defaultSpaceBannerName } from "../web-local/src/constants.js";
+import { defaultWorkFolderBannerName } from "../web-local/src/constants.js";
 import {
-  normalizeSpaceBannerImage,
-  normalizeSpaceBannerImagePosition,
-  normalizeSpaceCustomizations,
-  spaceBannerOptionFor,
-} from "../web-local/src/lib/space-customization.js";
+  normalizeWorkFolderBannerImage,
+  normalizeWorkFolderBannerImagePosition,
+  normalizeWorkFolderCustomizations,
+  workFolderBannerOptionFor,
+} from "../web-local/src/lib/work-folder-customization.js";
 import { writeStoredJsonValue } from "../web-local/src/lib/storage.js";
 import { readableTextColorOn } from "../web-local/src/lib/color-contrast.js";
-import { spaceLookOptions } from "../web-local/src/lib/space-looks.js";
-import type { SpaceSummary } from "../web-local/src/types.js";
+import type { WorkFolderSummary } from "../web-local/src/types.js";
 
-const space: SpaceSummary = {
-  id: "space-home",
+const workFolder: WorkFolderSummary = {
+  id: "work-folder-home",
   name: "Home projects",
-  spaceRoot: "C:\\Users\\you\\Documents\\Home projects",
+  workFolderRoot: "C:\\Users\\you\\Documents\\Home projects",
   location: { kind: "local", storage: "linked" },
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z",
 };
 
-test("Space banners keep Classic as the explicit default while supporting None", () => {
-  assert.equal(defaultSpaceBannerName, "classic");
-  assert.equal(spaceBannerOptionFor(undefined).name, "classic");
-  assert.equal(spaceBannerOptionFor("none").name, "none");
-  assert.equal(spaceBannerOptionFor("unknown").name, "classic");
+test("work-folder banners keep Classic as the explicit default while supporting None", () => {
+  assert.equal(defaultWorkFolderBannerName, "classic");
+  assert.equal(workFolderBannerOptionFor(undefined).name, "classic");
+  assert.equal(workFolderBannerOptionFor("none").name, "none");
+  assert.equal(workFolderBannerOptionFor("unknown").name, "classic");
 });
 
-test("Space customization normalization accepts only supported fields", () => {
+test("work-folder customization normalization accepts only supported fields", () => {
   const raster = "data:image/png;base64,AA==";
-  const normalized = normalizeSpaceCustomizations({
-    [space.id]: {
+  const normalized = normalizeWorkFolderCustomizations({
+    [workFolder.id]: {
       color: "#0D74CE",
       color2: "#5C7C2E",
       iconName: "home",
@@ -53,10 +52,10 @@ test("Space customization normalization accepts only supported fields", () => {
       ignored: "value",
     },
     removed: { color: "#ffffff" },
-  }, new Set([space.id]), new Set(["folder", "home", "airplane"]));
+  }, new Set([workFolder.id]), new Set(["folder", "home", "airplane"]));
 
   assert.deepEqual(normalized, {
-    [space.id]: {
+    [workFolder.id]: {
       schema: 1,
       color: "#0d74ce",
       color2: "#5c7c2e",
@@ -68,9 +67,9 @@ test("Space customization normalization accepts only supported fields", () => {
   });
 });
 
-test("Space customization normalization rejects unsafe images and invalid values", () => {
-  const normalized = normalizeSpaceCustomizations({
-    [space.id]: {
+test("work-folder customization normalization rejects unsafe images and invalid values", () => {
+  const normalized = normalizeWorkFolderCustomizations({
+    [workFolder.id]: {
       color: "blue",
       color2: "#12345g",
       iconName: "not-a-real-icon",
@@ -81,9 +80,9 @@ test("Space customization normalization rejects unsafe images and invalid values
   }, undefined, new Set(["folder", "home", "airplane"]));
 
   assert.deepEqual(normalized, {});
-  assert.equal(normalizeSpaceBannerImage("https://example.com/banner.png"), null);
-  assert.equal(normalizeSpaceBannerImage("data:image/svg+xml;base64,PHN2Zy8+"), null);
-  assert.equal(normalizeSpaceBannerImagePosition("left"), "center");
+  assert.equal(normalizeWorkFolderBannerImage("https://example.com/banner.png"), null);
+  assert.equal(normalizeWorkFolderBannerImage("data:image/svg+xml;base64,PHN2Zy8+"), null);
+  assert.equal(normalizeWorkFolderBannerImagePosition("left"), "center");
 });
 
 test("preference storage reports quota failures instead of silently claiming durability", () => {
@@ -106,19 +105,19 @@ test("preference storage reports quota failures instead of silently claiming dur
   }
 });
 
-test("Space identity chooses user-message text from the primary message background", () => {
+test("work-folder identity chooses user-message text from the primary message background", () => {
   assert.equal(readableTextColorOn("#c5c5c4"), "#182846");
   assert.equal(readableTextColorOn("#0d74ce"), "#ffffff");
 });
 
-test("semantic Space palettes preserve v1 light solids and pass both contrast gates", () => {
+test("semantic work-folder palettes preserve v1 light solids and pass both contrast gates", () => {
   const colors = [
     "#60646c", "#ce2c31", "#cc4e00", "#ab6400", "#5c7c2e", "#1a7f37",
     "#0e7490", "#0d74ce", "#6550b9", "#953ea3", "#c2298a", "#815e46",
   ];
   for (const color of colors) {
-    const first = resolveSpaceAppearance({ primary: accentIdentityFromHex(color), bannerName: "classic" });
-    const second = resolveSpaceAppearance({ primary: accentIdentityFromHex(color), bannerName: "classic" });
+    const first = resolveWorkFolderAppearance({ primary: accentIdentityFromHex(color), bannerName: "classic" });
+    const second = resolveWorkFolderAppearance({ primary: accentIdentityFromHex(color), bannerName: "classic" });
     assert.equal(first.light.solid, color, `light solid must preserve ${color}`);
     assert.equal(first.passes, true, `${color} must pass both modes`);
     assert.deepEqual(first, second, "resolution must be deterministic");
@@ -137,7 +136,7 @@ test("guided palettes resolve extreme and arbitrary user colors in both modes", 
     "#7f7f7f", "#123456", "#fedcba", "#80ff00", "#0000ff", "#ff0000",
   ];
   for (const color of colors) {
-    const resolved = resolveSpaceAppearance({ primary: accentIdentityFromHex(color) });
+    const resolved = resolveWorkFolderAppearance({ primary: accentIdentityFromHex(color) });
     assert.equal(resolved.passes, true, `${color} must produce a passing guided palette`);
     for (const palette of [resolved.light, resolved.dark]) {
       assert.equal(palette.audit.find((entry) => entry.role === "onSolidMuted")?.passes, true);
@@ -145,26 +144,9 @@ test("guided palettes resolve extreme and arbitrary user colors in both modes", 
   }
 });
 
-test("curated Looks are distinct one-click combinations that pass every audited role", () => {
-  assert.equal(spaceLookOptions.length, 8);
-  assert.equal(new Set(spaceLookOptions.map((look) => look.name)).size, spaceLookOptions.length);
-  assert.equal(new Set(spaceLookOptions.map((look) => `${look.primary}:${look.secondary}:${look.bannerName}`)).size, spaceLookOptions.length);
-  for (const look of spaceLookOptions) {
-    const resolved = resolveSpaceAppearance({
-      primary: accentIdentityFromHex(look.primary),
-      secondary: accentIdentityFromHex(look.secondary),
-      bannerName: look.bannerName,
-    });
-    assert.equal(resolved.passes, true, `${look.name} must pass both modes`);
-    for (const palette of [resolved.light, resolved.dark]) {
-      assert.deepEqual(palette.audit.filter((entry) => !entry.passes), []);
-    }
-  }
-});
-
 test("appearance identities repair forged hue and chroma metadata from reference hex", () => {
-  const parsed = parseSpaceAppearanceProposal({
-    kind: "work-fold.space-appearance",
+  const parsed = parseWorkFolderAppearanceProposal({
+    kind: "work-fold.work-folder-appearance",
     version: 1,
     name: "Forged metadata",
     customization: {
@@ -173,11 +155,11 @@ test("appearance identities repair forged hue and chroma metadata from reference
     },
   });
   assert.deepEqual(parsed.customization.primary, accentIdentityFromHex("#ffffff"));
-  assert.equal(resolveSpaceAppearance({ primary: parsed.customization.primary! }).passes, true);
+  assert.equal(resolveWorkFolderAppearance({ primary: parsed.customization.primary! }).passes, true);
 });
 
 test("appearance proposals are typed, code-free, and ignore unknown fields", () => {
-  const proposal = createSpaceAppearanceProposal({
+  const proposal = createWorkFolderAppearanceProposal({
     name: "Project blue",
     customization: {
       schema: 2,
@@ -188,8 +170,8 @@ test("appearance proposals are typed, code-free, and ignore unknown fields", () 
     },
     createdBy: "codex",
   });
-  const parsed = parseSpaceAppearanceProposal(JSON.parse(JSON.stringify(proposal)));
-  assert.equal(parsed.kind, "work-fold.space-appearance");
+  const parsed = parseWorkFolderAppearanceProposal(JSON.parse(JSON.stringify(proposal)));
+  assert.equal(parsed.kind, "work-fold.work-folder-appearance");
   assert.equal(parsed.customization.primary?.referenceHex, "#0d74ce");
   assert.equal("css" in parsed.customization, false);
   assert.equal("javascript" in parsed.customization, false);
@@ -197,17 +179,17 @@ test("appearance proposals are typed, code-free, and ignore unknown fields", () 
 
 test("legacy Workspace appearance kinds and target fields are rejected", () => {
   const customization = { schema: 2 as const, primary: accentIdentityFromHex("#0d74ce") };
-  assert.throws(() => parseSpaceAppearanceProposal({
-    kind: "workspace.space-appearance",
+  assert.throws(() => parseWorkFolderAppearanceProposal({
+    kind: "workspace.work-folder-appearance",
     version: 1,
     name: "Legacy kind",
     customization,
   }), /unsupported format/);
-  assert.throws(() => parseSpaceAppearanceProposal({
-    kind: "work-fold.space-appearance",
+  assert.throws(() => parseWorkFolderAppearanceProposal({
+    kind: "work-fold.work-folder-appearance",
     version: 1,
     name: "Legacy target",
-    target: { workspaceId: "space-home", workspaceName: "Home projects" },
+    target: { workspaceId: "work-folder-home", workspaceName: "Home projects" },
     customization,
   }), /Legacy appearance target fields/);
 });
@@ -216,16 +198,16 @@ test("appearance store writes versioned machine-local state atomically", async (
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-appearance-"));
   const path = join(sandbox, "appearance.json");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
-  const store = await SpaceAppearanceStore.create({ path });
-  const updated = await store.replaceSpace("space-home", {
+  const store = await WorkFolderAppearanceStore.create({ path });
+  const updated = await store.replaceWorkFolder("work-folder-home", {
     schema: 2,
     primary: accentIdentityFromHex("#6550b9"),
     iconName: "folder",
   });
   assert.equal(updated.revision, 1);
-  assert.equal(updated.customizations["space-home"]?.primary?.referenceHex, "#6550b9");
+  assert.equal(updated.customizations["work-folder-home"]?.primary?.referenceHex, "#6550b9");
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")), updated);
-  const reopened = await SpaceAppearanceStore.create({ path });
+  const reopened = await WorkFolderAppearanceStore.create({ path });
   assert.deepEqual(reopened.snapshot(), updated);
 });
 
@@ -233,27 +215,27 @@ test("appearance store recovers its last committed backup and rejects future for
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-appearance-recovery-"));
   const path = join(sandbox, "appearance.json");
   t.after(() => rm(sandbox, { recursive: true, force: true }));
-  const store = await SpaceAppearanceStore.create({ path });
-  const first = await store.replaceSpace("space-home", { color: "#0d74ce" });
-  await store.replaceSpace("space-home", { color: "#6550b9" });
+  const store = await WorkFolderAppearanceStore.create({ path });
+  const first = await store.replaceWorkFolder("work-folder-home", { color: "#0d74ce" });
+  await store.replaceWorkFolder("work-folder-home", { color: "#6550b9" });
   await writeFile(path, "{not-json", "utf8");
-  const recovered = await SpaceAppearanceStore.create({ path });
+  const recovered = await WorkFolderAppearanceStore.create({ path });
   assert.deepEqual(recovered.snapshot(), first);
 
   await writeFile(path, JSON.stringify({ version: 99, revision: 3, customizations: {} }), "utf8");
   await assert.rejects(
-    () => SpaceAppearanceStore.create({ path }),
+    () => WorkFolderAppearanceStore.create({ path }),
     /unsupported version 99/i,
   );
 });
 
-test("authenticated renderer API owns Space appearance persistence and removal", async (t) => {
+test("authenticated renderer API owns work-folder appearance persistence and removal", async (t) => {
   const { startLocalApi } = await import("../src/local/server.js");
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-appearance-api-"));
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "spaces"),
+    workFolderBase: join(sandbox, "work-folders"),
     sessionToken: "appearance-test-token",
     loadEnv: false,
   });
@@ -266,14 +248,14 @@ test("authenticated renderer API owns Space appearance persistence and removal",
     "content-type": "application/json",
     "x-work-fold-session": "appearance-test-token",
   };
-  const createResponse = await fetch(`${api.origin}/api/spaces`, {
+  const createResponse = await fetch(`${api.origin}/api/work-folders`, {
     method: "POST",
     headers,
     body: JSON.stringify({ name: "Appearance API" }),
   });
   assert.equal(createResponse.status, 201);
-  const spaceId = (await createResponse.json() as { space: { id: string } }).space.id;
-  const updateResponse = await fetch(`${api.origin}/api/spaces/${spaceId}/appearance`, {
+  const workFolderId = (await createResponse.json() as { workFolder: { id: string } }).workFolder.id;
+  const updateResponse = await fetch(`${api.origin}/api/work-folders/${workFolderId}/appearance`, {
     method: "PUT",
     headers,
     body: JSON.stringify({
@@ -287,13 +269,13 @@ test("authenticated renderer API owns Space appearance persistence and removal",
   assert.equal(updateResponse.status, 200);
   const updated = await updateResponse.json() as { appearance: { revision: number; customizations: Record<string, { primary?: { referenceHex: string } }> } };
   assert.equal(updated.appearance.revision, 1);
-  assert.equal(updated.appearance.customizations[spaceId]?.primary?.referenceHex, "#0d74ce");
+  assert.equal(updated.appearance.customizations[workFolderId]?.primary?.referenceHex, "#0d74ce");
 
   const bootstrapResponse = await fetch(`${api.origin}/api/bootstrap`, { headers });
   const bootstrap = await bootstrapResponse.json() as { appearance: typeof updated.appearance };
-  assert.equal(bootstrap.appearance.customizations[spaceId]?.primary?.referenceHex, "#0d74ce");
+  assert.equal(bootstrap.appearance.customizations[workFolderId]?.primary?.referenceHex, "#0d74ce");
 
-  const removeResponse = await fetch(`${api.origin}/api/spaces/${spaceId}/appearance`, { method: "DELETE", headers });
+  const removeResponse = await fetch(`${api.origin}/api/work-folders/${workFolderId}/appearance`, { method: "DELETE", headers });
   const removed = await removeResponse.json() as { appearance: { customizations: Record<string, unknown> } };
-  assert.equal(spaceId in removed.appearance.customizations, false);
+  assert.equal(workFolderId in removed.appearance.customizations, false);
 });

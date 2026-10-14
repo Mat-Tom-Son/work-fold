@@ -9,8 +9,8 @@ import { RoutedPiExtensionUiBridge, type PiExtensionUiRequest } from "../src/loc
 
 test("a native transport opened in a stopped turn can ask after drain, but never during drain or after disposal", { timeout: 20_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-stopped-transport-"));
-  const agentDir = join(root, "pi"), spaceRoot = join(root, "space"), results = join(root, "results.jsonl");
-  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(spaceRoot);
+  const agentDir = join(root, "pi"), workFolderRoot = join(root, "work-folder"), results = join(root, "results.jsonl");
+  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(workFolderRoot);
   let socket: Socket | undefined;
   const server = createServer((connected) => { socket = connected; });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -45,7 +45,7 @@ test("a native transport opened in a stopped turn can ask after drain, but never
   const emitted: PiExtensionUiRequest[] = [];
   bridge.on("request", (request) => { pending.set(request.id, request); emitted.push(request); });
   bridge.on("settled", ({ id }) => pending.delete(id));
-  const client = new PiConversationClient("transport-chat", spaceRoot, { resolveRuntime: async () => ({ agentDir, extensionUi: bridge }) });
+  const client = new PiConversationClient("transport-chat", workFolderRoot, { resolveRuntime: async () => ({ agentDir, extensionUi: bridge }) });
   t.after(async () => {
     socket?.write("release-opening\n");
     await client.stop(); socket?.destroy();
@@ -54,7 +54,7 @@ test("a native transport opened in a stopped turn can ask after drain, but never
   });
   const records = async (): Promise<Array<{ title: string; answer: string | null }>> => (await readFile(results, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
   const send = (title: string) => { assert.ok(socket); socket.write(`${title}\n`); };
-  const opening = client.prompt("/open-transport", { managementTaskId: "opening-task" });
+  const opening = client.prompt("/open-transport", { workFoldAgentTaskId: "opening-task" });
   const openingCancelled = assert.rejects(opening, { name: "PiTurnCancelledError" });
   await until(() => Boolean(socket));
   send("Before Stop"); await until(() => pending.size === 1);
@@ -66,14 +66,14 @@ test("a native transport opened in a stopped turn can ask after drain, but never
   send("During drain");
   await until(async () => (await records()).some(record => record.title === "During drain" && record.answer === null));
   assert.equal(emitted.length, 1, "cancelled native work cannot open another question while it drains");
-  await assert.rejects(client.prompt("/noop", { managementTaskId: "too-early" }), PiTurnDrainingError);
+  await assert.rejects(client.prompt("/noop", { workFoldAgentTaskId: "too-early" }), PiTurnDrainingError);
   send("release-opening");
   await until(async () => {
-    try { await client.prompt("/noop", { managementTaskId: "drain-probe" }); return true; }
+    try { await client.prompt("/noop", { workFoldAgentTaskId: "drain-probe" }); return true; }
     catch (error) { if (error instanceof PiTurnDrainingError) return false; throw error; }
   });
 
-  const next = client.prompt("/next-question", { managementTaskId: "new-task" });
+  const next = client.prompt("/next-question", { workFoldAgentTaskId: "new-task" });
   await until(() => pending.size === 1);
   const newQuestion = [...pending.values()][0]!; assert.equal(newQuestion.taskId, "new-task");
   send("After drained Stop"); await until(() => pending.size === 2);

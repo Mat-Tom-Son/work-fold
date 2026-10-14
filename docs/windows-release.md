@@ -76,7 +76,7 @@ Use `./scripts/build-signed-windows.ps1` instead of the final `desktop:make` com
 
 `desktop:make` includes `desktop:prepare`; a release candidate therefore must pass both native Pi preflight and the real-Electron restricted-app probe before Electron Builder creates the installer. Do not accept a Node-only sandbox test, a skipped Electron probe, or a package produced after that probe failed.
 
-Review the complete diff and inspect the exact unpacked application and installer as described in [Windows build](windows-build.md). Confirm the version, Files/Space language, tabs, menus, background turn continuity, CLI, Mica/fallback, updater surface, and the restricted-app install/review, rail/tab, default-off grant and automation, run-receipt, storage, notification, suspend, and teardown paths. The local and cloud installers are separate builds, so use local QA to validate behavior rather than expecting byte-for-byte identity.
+Review the complete diff and inspect the exact unpacked application and installer as described in [Windows build](windows-build.md). Confirm the version, Files/work-folder language, tabs, menus, background turn continuity, CLI, Mica/fallback, updater surface, and the restricted-app install, rail/tab, install-time grants and enabled automation, revoke and disable, run-receipt, storage, notification, suspend, and teardown paths. The local and cloud installers are separate builds, so use local QA to validate behavior rather than expecting byte-for-byte identity.
 
 Prepare a complete checked-in release note at `docs/releases/<version>.md`. For
 `0.1.0`, create a new work-fold release note rather than rewriting the preserved
@@ -140,8 +140,8 @@ GitHub's release API exposes asset names, sizes, URLs, and SHA-256 digests for a
 ### 5. Exercise the installed updater
 
 For `0.1.0`, install the signed public artifact manually and verify the empty
-new profile, product identity, CLI, updater feed, Spaces, Chats, restricted-app
-clean state, and coexistence with untouched legacy Workspace data. No Workspace
+new profile, product identity, CLI, updater feed, work-folders, Chats,
+restricted-app clean state, and coexistence with untouched legacy Workspace data. No Workspace
 build is a valid lower work-fold updater source.
 
 For the next higher work-fold release, keep `0.1.0` installed for the final
@@ -152,7 +152,7 @@ updater smoke test:
 3. Confirm the new version is offered without a missing-feed or network error.
 4. Choose **Update now** to download it.
 5. Confirm work-fold performs its update-specific shutdown and relaunch after the download. If a ready-update prompt appears instead, exercise **Restart now** or choose **Later** and then explicitly quit the app.
-6. Confirm the restarted installed application reports the new version and preserves its Spaces, Chats, preferences, Pi state, version-2 restricted-app installs and reviewed digests, explicit grants, automation settings, receipts, and local app storage. Reopen the app's owning Space and verify its rail surface and any persistent Space-owned tab still resolve to that Space. Confirm the frozen legacy Workspace profile remains untouched and is still not imported.
+6. Confirm the restarted installed application reports the new version and preserves its work-folders, Chats, preferences, Pi state, version-2 restricted-app installs and reviewed digests, grants, automation settings, receipts, and local app storage. Reopen the app's owning work-folder and verify its rail surface and any persistent work-folder-owned tab still resolve to that work-folder. Confirm the frozen legacy Workspace profile remains untouched and is still not imported.
 
 Do not silently install over a user's test environment merely to verify a release; leave the lower installed version available when the user is meant to exercise the update themselves.
 

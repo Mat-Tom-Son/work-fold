@@ -24,11 +24,16 @@ async function verifyPackagedPatch(archivePath, packageName, label) {
   };
   const metadata = JSON.parse(read("package.json").toString("utf8"));
   if (metadata.name !== entry.package || metadata.version !== entry.version) throw new Error(`Packaged ${label} verification failed: expected ${entry.package}@${entry.version}`);
-  for (const file of entry.files) {
+  // Electron Builder prunes compile-time declarations from dependency payloads.
+  // The install lane verifies every patched file, including those declarations;
+  // the distribution guard requires every reviewed runtime file and its hash.
+  const runtimeFiles = entry.files.filter(file => !file.path.endsWith(".d.ts"));
+  if (!runtimeFiles.length) throw new Error(`Missing ${label} runtime patch manifest.`);
+  for (const file of runtimeFiles) {
     const digest = createHash("sha256").update(read(file.path)).digest("hex");
     if (digest !== file.after) throw new Error(`Packaged ${label} verification failed: ${file.path} does not match the reviewed patch`);
   }
-  return entry;
+  return { ...entry, files: runtimeFiles };
 }
 
 export async function verifyPackagedImageSize(archivePath) {

@@ -57,7 +57,7 @@ const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const { IncludedChromeConnectionService } = await jiti.import(new URL("../src/local/agent/included-chrome-connection.ts", import.meta.url).pathname);
 const { ChromeNativeHostRegistration } = await jiti.import(new URL("../desktop/src/chrome-native-host.ts", import.meta.url).pathname);
 const chrome = await jiti.import(new URL("../resources/included-tools/chrome/index.ts", import.meta.url).pathname);
-const { AuthStorage, createAgentSession, createEventBus, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+const { FileCredentialStore, createAgentSession, createEventBus, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const stateRoot = join(root, "state");
 const registration = new ChromeNativeHostRegistration({ stateRoot, distribution, enabled: true,
   sourceDirectory: join(packageRoot, "resources/chrome-native-host"), chromeUserDataRoot: browserRoot,
@@ -138,9 +138,9 @@ async function makeSession(name) {
     noContextFiles: true, noSkills: true, noThemes: true, noPromptTemplates: true,
     extensionFactories: [{ path: join(root, name + ".ts"), factory: chrome.default }] });
   await resourceLoader.reload(); assert.deepEqual(resourceLoader.getExtensions().errors, []);
-  const authStorage = AuthStorage.inMemory();
+  const authStorage = FileCredentialStore.inMemory();
   const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager,
-    authStorage, modelRegistry: ModelRegistry.inMemory(authStorage), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
+    modelRuntime: await ModelRuntime.create({ credentials: authStorage, modelsPath: null }), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
   await session.bindExtensions({ mode: "rpc" }); sessions.push(session); return session;
 }
 async function call(session, name, args, signal) {

@@ -8,7 +8,7 @@ import {
   resolveChatSnoozePresets,
 } from "../../lib/chat-lifecycle";
 import { errorText } from "../../lib/api";
-import type { ChatActionsState, ConversationSummary, SpaceSummary } from "../../types";
+import type { ChatActionsState, ConversationSummary, WorkFolderSummary } from "../../types";
 
 type ActionView = "menu" | "rename" | "snooze";
 
@@ -20,13 +20,13 @@ export function ChatActionsPopover({
   onClose,
 }: {
   state: ChatActionsState;
-  onRename: (space: SpaceSummary, conversation: ConversationSummary, title: string) => Promise<void>;
+  onRename: (workFolder: WorkFolderSummary, conversation: ConversationSummary, title: string) => Promise<void>;
   onLifecycle: (
-    space: SpaceSummary,
+    workFolder: WorkFolderSummary,
     conversation: ConversationSummary,
     patch: { archived?: boolean; snoozedUntil?: string | null },
   ) => Promise<void>;
-  onDelete: (space: SpaceSummary, conversation: ConversationSummary) => Promise<void>;
+  onDelete: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => Promise<void>;
   onClose: () => void;
 }) {
   const [view, setView] = useState<ActionView>("menu");
@@ -88,15 +88,15 @@ export function ChatActionsPopover({
       setError("Enter a Chat title.");
       return;
     }
-    await runAction(() => onRename(state.space, state.conversation, nextTitle));
+    await runAction(() => onRename(state.workFolder, state.conversation, nextTitle));
   }
 
   async function handleLifecycle(patch: { archived?: boolean; snoozedUntil?: string | null }): Promise<void> {
-    await runAction(() => onLifecycle(state.space, state.conversation, patch));
+    await runAction(() => onLifecycle(state.workFolder, state.conversation, patch));
   }
 
   async function handleDelete(): Promise<void> {
-    await runAction(() => onDelete(state.space, state.conversation), "Deleting");
+    await runAction(() => onDelete(state.workFolder, state.conversation), "Deleting");
   }
 
   async function runAction(action: () => Promise<void>, label = "Saving"): Promise<void> {
@@ -134,7 +134,7 @@ export function ChatActionsPopover({
         <div className="chat-actions-menu">
           <div className="chat-actions-heading">
             <strong>{state.conversation.title}</strong>
-            <span>{state.space.name}</span>
+            <span>{state.workFolder.name}</span>
           </div>
           <button ref={firstActionRef} type="button" disabled={busy} onClick={() => setView("rename")}>
             <Pencil size={14} />

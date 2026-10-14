@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
+import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { BlockList } from "node:net";
 import { Readable } from "node:stream";
@@ -152,7 +152,8 @@ export type RestrictedAppErrorCode =
   | "NETWORK_RESPONSE_TOO_LARGE"
   | "OUTPUT_INVALID"
   | "REVISION_CHANGED"
-  | "STORAGE_FAILED";
+  | "STORAGE_FAILED"
+  | "TAB_DENIED";
 
 export class RestrictedAppError extends Error {
   constructor(readonly code: RestrictedAppErrorCode, message: string) {
@@ -186,6 +187,18 @@ const allowedRequestHeaders = new Set(["accept", "content-type", "if-modified-si
 const exposedResponseHeaders = new Set(["cache-control", "content-language", "content-type", "etag", "expires", "last-modified"]);
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
+/**
+ * Default bounds for one brokered request. The byte bounds keep one response
+ * in memory; the timeout is a hang guard for a slow or stalled destination.
+ * Destination, DNS, header, and credential policy are separate and fixed.
+ */
+export const restrictedAppNetworkDefaultLimits = Object.freeze({
+  timeoutMs: 120_000,
+  maxRequestBytes: 16 * 1024 * 1024,
+  maxResponseBytes: 64 * 1024 * 1024,
+  maxRedirects: 3,
+});
+
 export class RestrictedAppNetworkBroker {
   readonly #credentials: RestrictedAppConnectionStore;
   readonly #fetch?: typeof globalThis.fetch;
@@ -199,10 +212,10 @@ export class RestrictedAppNetworkBroker {
   constructor(options: RestrictedAppNetworkBrokerOptions) {
     this.#credentials = options.credentials;
     this.#fetch = options.fetch;
-    this.#timeoutMs = options.timeoutMs ?? 15_000;
-    this.#maxRequestBytes = options.maxRequestBytes ?? 128 * 1024;
-    this.#maxResponseBytes = options.maxResponseBytes ?? 256 * 1024;
-    this.#maxRedirects = options.maxRedirects ?? 3;
+    this.#timeoutMs = options.timeoutMs ?? restrictedAppNetworkDefaultLimits.timeoutMs;
+    this.#maxRequestBytes = options.maxRequestBytes ?? restrictedAppNetworkDefaultLimits.maxRequestBytes;
+    this.#maxResponseBytes = options.maxResponseBytes ?? restrictedAppNetworkDefaultLimits.maxResponseBytes;
+    this.#maxRedirects = options.maxRedirects ?? restrictedAppNetworkDefaultLimits.maxRedirects;
     // Tests may inject a closed fake fetch. Production always performs a DNS
     // policy check before letting the real transport resolve the same host.
     this.#resolveHost = options.resolveHost ?? (options.fetch ? undefined : resolveHost);
@@ -593,17 +606,7 @@ function httpsRequestToAddress(
       headers: Object.fromEntries(headers),
       signal: init.signal ?? undefined,
     }, (incoming) => {
-      const responseHeaders = new Headers();
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        if (Array.isArray(value)) for (const item of value) responseHeaders.append(name, item);
-        else if (value !== undefined) responseHeaders.set(name, value);
-      }
-      const stream = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
-      resolvePromise(new Response(stream, {
-        status: incoming.statusCode ?? 502,
-        statusText: incoming.statusMessage,
-        headers: responseHeaders,
-      }));
+      settleIncomingResponse(incoming, resolvePromise, reject);
     });
     request.once("error", reject);
     if (typeof init.body === "string") request.end(init.body);
@@ -633,22 +636,35 @@ function pinnedLoopbackFetch(
       headers: Object.fromEntries(headers),
       signal: init.signal ?? undefined,
     }, (incoming) => {
-      const responseHeaders = new Headers();
-      for (const [name, value] of Object.entries(incoming.headers)) {
-        if (Array.isArray(value)) for (const item of value) responseHeaders.append(name, item);
-        else if (value !== undefined) responseHeaders.set(name, value);
-      }
-      const stream = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
-      resolvePromise(new Response(stream, {
-        status: incoming.statusCode ?? 502,
-        statusText: incoming.statusMessage,
-        headers: responseHeaders,
-      }));
+      settleIncomingResponse(incoming, resolvePromise, reject);
     });
     request.once("error", reject);
     if (typeof init.body === "string") request.end(init.body);
     else request.end();
   });
+}
+
+function settleIncomingResponse(
+  incoming: IncomingMessage,
+  resolveResponse: (response: Response) => void,
+  rejectResponse: (error: unknown) => void,
+): void {
+  try {
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(incoming.headers)) {
+      if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+      else if (value !== undefined) headers.set(name, value);
+    }
+    const status = incoming.statusCode ?? 502;
+    const nullBody = status === 204 || status === 205 || status === 304;
+    const body = nullBody ? null : Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
+    const response = new Response(body, { status, statusText: incoming.statusMessage, headers });
+    if (nullBody) incoming.destroy();
+    resolveResponse(response);
+  } catch (error) {
+    incoming.destroy();
+    rejectResponse(error);
+  }
 }
 
 function strictObject(value: unknown, label: string, allowedKeys?: string[], maximumKeys = allowedKeys?.length ?? 64): Record<string, unknown> {

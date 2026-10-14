@@ -171,7 +171,7 @@ try {
   // renderer. This debugger-only emulation is removed before testing native
   // focus, minimization and background continuity; production keeps throttling.
   await automation.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-  await page.waitForFunction(() => window.workFoldDesktop?.desktop && document.querySelector('.onboarding-choose'), { polling: 100 });
+  await page.waitForFunction(() => window.workFoldDesktop?.desktop && document.querySelector('.onboarding-flow'), { polling: 100 });
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   const tokenPath = join(state, 'cli/act-token.json');
   await until(async () => existsSync(tokenPath), 45_000);
@@ -180,13 +180,13 @@ try {
   assert.equal(tokenMetadata.mode & 0o077, 0);
   assert.ok(tokenMetadata.isFile() && tokenMetadata.size <= 4096);
   console.log('Private installed CLI act lane is ready');
-  await command('spaces', 'register', '--path', folder);
-  const spaceId = JSON.parse(await readFile(join(folder, '.work-fold/space.json'), 'utf8')).id;
-  await command('spaces', 'assistant', 'model', '--space', spaceId, '--provider', 'desktop-fixture', '--model', 'desktop-fixture');
-  const conversationId = (await command('chat', 'create', '--space', spaceId)).conversation.id;
-  await command('chat', 'rename', '--space', spaceId, '--conversation', conversationId, '--title', 'Wayland desktop acceptance');
-  let task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Create the disposable desktop acceptance Chat.');
-  assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
+  await command('work-folders', 'register', '--path', folder);
+  const workFolderId = JSON.parse(await readFile(join(folder, '.work-fold/work-folder.json'), 'utf8')).id;
+  await command('work-folders', 'worker', 'model', '--work-folder', workFolderId, '--provider', 'desktop-fixture', '--model', 'desktop-fixture');
+  const conversationId = (await command('chat', 'create', '--work-folder', workFolderId)).conversation.id;
+  await command('chat', 'rename', '--work-folder', workFolderId, '--conversation', conversationId, '--title', 'Wayland desktop acceptance');
+  let task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Create the disposable desktop acceptance Chat.');
+  assert.equal((await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('button[aria-label="Skills & Extensions"]');
   await page.$eval('button[aria-label="Skills & Extensions"]', button => button.click());
@@ -214,16 +214,16 @@ try {
   // Capture the actual compositor through the shipped path. CDP screenshots
   // are not the product's Wayland backend and may stall on a background page.
   phase = 'setup_snapshot';
-  task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Observe the disposable desktop setup once without sending input.');
-  assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
+  task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Observe the disposable desktop setup once without sending input.');
+  assert.equal((await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
   assert.equal(snapshotRequests, 3);
   // Present the test editor after setup so real seat input has an explicit,
   // independently checked foreground target. No personal desktop is involved.
   fixture = spawn('python3', ['/work/scripts/linux-wayland-probe/input-fixture.py'], { stdio: 'ignore' });
   await until(async () => existsSync('/tmp/workfold-input-fixture/events.json') && JSON.parse(await readFile('/tmp/workfold-input-fixture/events.json', 'utf8')).active);
   phase = 'computer';
-  task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Complete the isolated screen edit and save task.');
-  const settled = await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)));
+  task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Complete the isolated screen edit and save task.');
+  const settled = await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)));
   assert.equal(settled.task.state, 'succeeded', JSON.stringify(settled.task));
   assert.deepEqual(errors, []); assert.equal(computerRequests, 4); assert.ok(images >= 2);
   await until(async () => existsSync('/tmp/workfold-input-fixture/saved.txt'));
@@ -237,7 +237,7 @@ try {
     await clickText('Share desktop'); await ui('choose-input');
     await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Shared with all chats and the work-fold agent.'), { polling: 100 }, section);
     phase = 'continuity'; continuityStarted = false;
-    task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Complete after this disposable computer wakes from sleep.');
+    task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Complete after this disposable computer wakes from sleep.');
     await until(async () => continuityStarted);
     console.log('WAITING_FOR_FIXTURE_RESUME: requesting guest suspend; observe sleep, then wake and unlock its virtual console');
     // The host observes QEMU enter suspended state before issuing system_wakeup.
@@ -264,30 +264,30 @@ try {
     await waitShareReady();
     assert.ok(!(await page.$eval(section, el => el.textContent)).includes('Shared with all chats and the work-fold agent.'));
     releaseContinuity();
-    assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
+    assert.equal((await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     assert.equal(app.exitCode, null);
     await waitShareReady();
     await clickText('Share desktop'); await ui('choose-input');
     await page.waitForFunction(selector => document.querySelector(selector)?.textContent.includes('Shared with all chats and the work-fold agent.'), { polling: 100 }, section);
     phase = 'setup_snapshot'; snapshotRequests = 0;
-    task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Verify the newly granted screen after waking without sending input.');
-    assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
+    task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Verify the newly granted screen after waking without sending input.');
+    assert.equal((await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     assert.equal(snapshotRequests, 3);
     await clickText('Stop sharing'); await waitShareReady();
     console.log('PASS real guest suspend/resume: accepted turn persisted, sharing stayed revoked, fresh chooser grant captured successfully');
   }
   await page.$eval('[aria-label="Close details"]', button => button.click());
-  const folderDialog = page.evaluate(() => window.workFoldDesktop.space.chooseFolder());
+  const folderDialog = page.evaluate(() => window.workFoldDesktop.workFolder.chooseFolder());
   folderDialog.catch(() => {});
   await ui('cancel-folder');
   assert.equal(await folderDialog, null);
-  await page.evaluate(spaceId => window.workFoldDesktop.space.revealFolder(spaceId), spaceId);
+  await page.evaluate(workFolderId => window.workFoldDesktop.workFolder.revealFolder(workFolderId), workFolderId);
   await ui('folder-visible');
   console.log('PASS packaged native folder dialog/cancel and Show folder opens the exact Folder in Nautilus');
 
   await automation.send('Emulation.setFocusEmulationEnabled', { enabled: false });
   phase = 'continuity'; continuityStarted = false;
-  task = await command('chat', 'send', '--space', spaceId, '--conversation', conversationId, '--message', 'Complete after this window is minimized.');
+  task = await command('chat', 'send', '--work-folder', workFolderId, '--conversation', conversationId, '--message', 'Complete after this window is minimized.');
   await until(async () => continuityStarted);
   // Exercise the compositor's actual minimize shortcut and native restore.
   await run(executable, launchArgs, { env, cwd: repoRoot, timeout: testTime(15_000) });
@@ -316,7 +316,7 @@ try {
     // Chromium can suspend debugger evaluations on a minimized renderer. Check
     // the actual compositor and host-owned task instead of executing hidden JS.
     releaseContinuity();
-    assert.equal((await command('chat', 'wait', '--space', spaceId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
+    assert.equal((await command('chat', 'wait', '--work-folder', workFolderId, '--task', task.taskId, '--timeout', String(testTime(30)))).task.state, 'succeeded');
     const switcherTarget = JSON.parse((await ui('work-fold-switcher-target')).stdout.trim());
     const switcherObservation = await driver.call('observe', { lease });
     await driver.call('act', { lease, observation: switcherObservation.observationId, actions: [{ action: 'click', ...switcherTarget }] });

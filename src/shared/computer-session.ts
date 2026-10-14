@@ -1,9 +1,9 @@
 /** Trusted desktop setup status. No lease tokens, monitor names, pixels,
  * filesystem roots or desktop transport identifiers cross this boundary. */
 export interface ComputerSessionOwner {
-  scope: "space" | "management";
+  scope: "work-folder" | "management";
   conversationId: string;
-  spaceId?: string;
+  workFolderId?: string;
 }
 export interface ComputerSessionSummary {
   state: "idle" | "requesting" | "active" | "stopping" | "error";

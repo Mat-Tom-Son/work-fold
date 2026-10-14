@@ -4,7 +4,7 @@ import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { chatActivityKey, conversationLifecycleView } from "../lib/chat-lifecycle";
 import type { ChatActivityStatus, ConversationSummary } from "../types";
 
-const attentionStorageKey = "work-fold.space.chat-attention.v1";
+const attentionStorageKey = "work-fold.work-folder.chat-attention.v1";
 
 export function useChatActivity(fixtureMode = false) {
   const [runningKeys, setRunningKeys] = useState<Set<string>>(() => new Set());
@@ -26,7 +26,7 @@ export function useChatActivity(fixtureMode = false) {
   }, [setAttention]);
 
   // Turns the host reports running that no mounted Chat tab follows — a
-  // handoff into a nested Folder, a CLI send. When one ends unwatched, its
+  // handoff into a nested work-folder, a CLI send. When one ends unwatched, its
   // Chat earns the same "new reply" dot a background tab would.
   const [backgroundKeys, setBackgroundKeys] = useState<Set<string>>(() => new Set());
   const backgroundRef = useRef<Set<string>>(new Set());
@@ -50,7 +50,7 @@ export function useChatActivity(fixtureMode = false) {
   }, [attentionKeys, backgroundKeys, runningKeys]);
 
   // Saved "new reply" marks outlive their Chats (deleted from the CLI, a
-  // removed Folder). Drop the ones the caller can prove are gone.
+  // removed work-folder). Drop the ones the caller can prove are gone.
   const pruneAttention = useCallback((isGone: (key: string) => boolean) => {
     setAttentionKeys((current) => {
       const next = new Set([...current].filter((key) => !isGone(key)));
@@ -76,9 +76,9 @@ export function backgroundRunningTransition(previous: ReadonlySet<string>, next:
 }
 
 /**
- * One dot per Folder. A running turn counts wherever it is; a waiting reply
+ * One dot per work-folder. A running turn counts wherever it is; a waiting reply
  * counts only for a Chat the person can open from the active Chats list, so a
- * deleted, archived, or snoozed Chat never leaves a Folder dot nobody can clear.
+ * deleted, archived, or snoozed Chat never leaves a work-folder dot nobody can clear.
  */
 export function folderActivityStatuses(
   statuses: Readonly<Record<string, ChatActivityStatus>>,
@@ -88,13 +88,13 @@ export function folderActivityStatuses(
   const result: Record<string, ChatActivityStatus> = {};
   for (const [key, status] of Object.entries(statuses)) {
     if (status !== "running") continue;
-    const spaceId = key.slice(0, key.indexOf(":"));
-    if (spaceId) result[spaceId] = "running";
+    const workFolderId = key.slice(0, key.indexOf(":"));
+    if (workFolderId) result[workFolderId] = "running";
   }
-  for (const [spaceId, list] of Object.entries(conversations)) {
-    if (result[spaceId]) continue;
-    if (list.some((chat) => statuses[chatActivityKey(spaceId, chat.id)] === "attention" && conversationLifecycleView(chat, now) === "active")) {
-      result[spaceId] = "attention";
+  for (const [workFolderId, list] of Object.entries(conversations)) {
+    if (result[workFolderId]) continue;
+    if (list.some((chat) => statuses[chatActivityKey(workFolderId, chat.id)] === "attention" && conversationLifecycleView(chat, now) === "active")) {
+      result[workFolderId] = "attention";
     }
   }
   return result;

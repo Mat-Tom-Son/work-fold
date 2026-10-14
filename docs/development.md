@@ -45,7 +45,7 @@ searching for an unavailable command.
 without making a package. It launches `npm start` with a disposable profile and
 a local scripted provider, then asks real Pi shell tools to find `work-fold`,
 create a file with a History restore point, and finish the file through Pi.
-It also checks Folder, Chat, Library, request, model, and renderer sandbox state.
+It also checks work-folder, Chat, request, model, and renderer sandbox state.
 Use `-- --profile-root <empty-directory>` to retain the test profile, then
 `-- --profile-root <same-directory> --phase verify` to check a cold restart.
 CI runs both phases on a private Xvfb desktop. This tests integration, not a
@@ -56,7 +56,7 @@ real provider's model decisions or OAuth.
 The browser/local API and unpackaged Electron default to **work-fold
 Development** application data, separate from the installed app. They can
 share that development profile. Run one development host at a time against a
-given profile, and use disposable Space folders for tests that change files.
+given profile, and use disposable folders for tests that change files.
 An existing folder remains a real folder, even in a development build.
 
 Pi's personal capabilities and auth can still be shared with your normal Pi
@@ -78,17 +78,17 @@ override does **not** isolate macOS Keychain. A signed Mac candidate uses the
 production identity by default—follow the [candidate guidance](macos-build.md#interactive-packaged-smoke)
 before launching one.
 
-Real Assistant work needs a model provider and may incur charges. The browser
-development host and unpackaged desktop load the root `.env` when present;
-already-exported variables win. Copy [the optional template](../.env.example)
+Real Worker and work-fold agent turns need a model provider and may incur
+charges. The browser development host and unpackaged desktop load the root
+`.env` when present; already-exported variables win. Copy [the optional template](../.env.example)
 only if you need it, and uncomment only the settings you intend to use.
 `WORKFOLD_AGENT_DIR` selects work-fold's Pi directory; the native Pi variable
 `PI_CODING_AGENT_DIR` is also supported. `PI_AGENT_DIR` is not supported.
 
-The installed `work-fold ... --json` CLI addresses a running app's management
-surface. `npm run work-fold:drive` is a separate real-Pi-turn test driver and
-can use a chosen agent directory; it is not an offline unit test. See
-[Management and CLI](management-layer.md) before driving real work.
+The installed `work-fold ... --json` CLI addresses the running app.
+`npm run work-fold:drive` is a separate real-Pi-turn test driver and can use a
+chosen agent directory; it is not an offline unit test. See
+[the work-fold agent and CLI](work-fold-agent-and-cli.md) before driving real work.
 
 ## Inspect a model request
 
@@ -104,10 +104,10 @@ recording automatically. Close or Escape closes just the inspector window;
 turn recording off explicitly when finished, or quit work-fold to discard it.
 During browser development, open the local renderer with `?dev-context`
 (for example, `http://localhost:5173/?dev-context` at Vite's default port).
-This is a developer diagnostic route, with no normal Chat, fold or Settings entry. Enable
-**Record model context**, reproduce the behavior in the app, then refresh and
-choose the request. The all-request view includes Assistant turns, titles,
-Checks, app inference and compaction. Search or copy assembled context, compare
+This is a developer diagnostic route, with no normal Chat, work-fold agent or
+Settings entry. Enable **Record model context**, reproduce the behavior in the
+app, then refresh and choose the request. The all-request view includes Worker
+and work-fold agent turns, titles, Checks, app inference and compaction. Search or copy assembled context, compare
 provider payloads where the adapter exposes them, and inspect provenance from
 the loaded runtime: source paths, instruction digests, Skills, Extensions and
 tools. These facts are captured at dispatch, not reconstructed from later file
@@ -127,7 +127,10 @@ for capture stages, coverage and bounds.
 |---|---|
 | `web-local/src/` | React UI, client state, styles, and inert UI fixtures |
 | `src/local/server.ts` | Local API routes and domain-service composition |
-| `src/local/agent/` | Pi integration, Checks, app services, and brokers |
+| `src/local/agent/` | Pi integration, Chat turns, app services, and brokers |
+| `src/local/work-folder*.ts` | work-folder registration, path policy, ignore rules, watching, and appearance |
+| `src/local/checks/`, `src/local/automations/`, `src/local/requests/` | Checks, Automations, and durable request records |
+| `src/local/overview.ts`, `src/local/work-fold-agent-*.ts` | The work-fold agent's overview, attachments, and instructions |
 | [Kernel](../src/local/work-fold-kernel.ts), [CLI](../src/local/cli/), [adapter](../src/local/work-fold-cli-adapter.ts) | Shared context, tasks, and control-plane contracts |
 | `src/shared/` | Shared types and the product identity contract |
 | `desktop/src/` | Electron windows, lifecycle, preloads, native app hosts, and updater |
@@ -138,8 +141,8 @@ for capture stages, coverage and bounds.
 
 Use the [docs map](README.md) to distinguish current contracts from proposals
 and dated release evidence. Files in `docs/reference-skills/` are examples;
-app-generated fold instructions are runtime resources. Neither is an extra
-repository instruction source.
+app-generated work-fold agent instructions are runtime resources. Neither is an
+extra repository instruction source.
 
 ## Verification
 
@@ -148,11 +151,17 @@ repository instruction source.
   It verifies shared files and paths, not model obedience or personal settings.
 - `npm run check` runs repository hygiene plus both TypeScript checks.
 - `npm test` runs the application suite. While editing, run a focused file with
-  `node --import tsx --test tests/documentation-contract.test.ts`, substituting
-  the relevant test file. Use the full suite before handing off behavior changes.
+  `npm test -- tests/documentation-contract.test.ts`, substituting the relevant
+  test files. Use the full suite before handing off behavior changes.
   The runner can divide the discovered test files into four disjoint shards;
   run one with `npm test -- --shard=1/4` (through `4/4`). Every file belongs to exactly
   one shard; an unsharded `npm test` still runs everything.
+- Tests never use your real Pi folder. The runner points `PI_CODING_AGENT_DIR`
+  at a temporary folder for every test process, so no test reads your
+  provider credentials or writes sessions, settings, or locks into `~/.pi`, and
+  it fails the run and names the test file if anything still changes the real
+  folder. Running a test file directly with `node --import tsx --test` skips
+  that isolation; use `npm test -- <file>` instead.
 - `npm ci --prefix services/bridge` and `npm test --prefix services/bridge` run
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
   or Railway account is not required for those tests.
@@ -230,10 +239,10 @@ Repository behavior remains defined by `AGENTS.md`.
 ## Focused harness evaluation
 
 Before proposing a new runtime layer, exercise ordinary content work with the
-existing real-Pi driver in disposable Folders. Keep app state, Pi resources and
+existing real-Pi driver in disposable work-folders. Keep app state, Pi resources and
 reference fixtures separate as above; an isolated profile is not an OS sandbox.
 The installed CLI addresses its running desktop host, so do not accidentally point
-a development Worker at production management commands. Tests needing that lane
+a development Worker at production CLI commands. Tests needing that lane
 must supply a matching development broker/host. `work-fold:drive` alone does not
 start the installed desktop's CLI broker.
 

@@ -9,54 +9,54 @@ import {
 } from "../src/local/cli/protocol.js";
 import { WorkFoldCliKernelAdapter } from "../src/local/work-fold-cli-adapter.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
-import type { SpaceSummary } from "../src/local/space.js";
+import type { WorkFolderSummary } from "../src/local/work-folder.js";
 
-test("WorkFoldCliKernelAdapter resolves --space by exact id before case-insensitive name", async () => {
+test("WorkFoldCliKernelAdapter resolves --work-folder by exact id before case-insensitive name", async () => {
   const alphaRoot = join(process.cwd(), "cli-adapter", "alpha");
   const betaRoot = join(process.cwd(), "cli-adapter", "beta");
   const alphaId = "space-aaaaaaaaaaaaaaaa";
   const betaId = "space-bbbbbbbbbbbbbbbb";
-  const spaces = [
-    space(alphaId, "Primary", alphaRoot),
-    space(betaId, alphaId.toUpperCase(), betaRoot),
+  const workFolders = [
+    workFolder(alphaId, "Primary", alphaRoot),
+    workFolder(betaId, alphaId.toUpperCase(), betaRoot),
   ];
-  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies(spaces)));
+  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies(workFolders)));
   const actor = { kind: "cli" as const, cwd: join(betaRoot, "documents") };
 
-  const byId = await adapter.getContext(actor, { space: ` ${alphaId} ` });
-  assert.equal(byId.space?.id, alphaId, "an exact id must win over another Space's matching name");
+  const byId = await adapter.getContext(actor, { workFolder: ` ${alphaId} ` });
+  assert.equal(byId.workFolder?.id, alphaId, "an exact id must win over another work-folder's matching name");
 
-  const byName = await adapter.getContext(actor, { space: "primary" });
-  assert.equal(byName.space?.id, alphaId);
+  const byName = await adapter.getContext(actor, { workFolder: "primary" });
+  assert.equal(byName.workFolder?.id, alphaId);
 
-  const inferred = await adapter.listSpaces(actor, {});
+  const inferred = await adapter.listWorkFolders(actor, {});
   assert.deepEqual(inferred.map(({ id, active }) => ({ id, active })), [
     { id: alphaId, active: false },
     { id: betaId, active: true },
   ]);
 
-  const selected = await adapter.listSpaces(actor, { space: "PRIMARY" });
+  const selected = await adapter.listWorkFolders(actor, { workFolder: "PRIMARY" });
   assert.deepEqual(selected.map(({ id, active }) => ({ id, active })), [{ id: alphaId, active: true }]);
 });
 
-test("WorkFoldCliKernelAdapter reports missing and ambiguous Space selectors as CLI errors", async () => {
+test("WorkFoldCliKernelAdapter reports missing and ambiguous work-folder selectors as CLI errors", async () => {
   const root = join(process.cwd(), "cli-adapter-errors");
-  const spaces = [
-    space("space-1111111111111111", "Shared", join(root, "one")),
-    space("space-2222222222222222", "SHARED", join(root, "two")),
+  const workFolders = [
+    workFolder("space-1111111111111111", "Shared", join(root, "one")),
+    workFolder("space-2222222222222222", "SHARED", join(root, "two")),
   ];
-  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies(spaces)));
+  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies(workFolders)));
   const actor = { kind: "cli" as const, cwd: root };
 
   await assert.rejects(
-    adapter.getContext(actor, { space: "shared" }),
+    adapter.getContext(actor, { workFolder: "shared" }),
     (error: unknown) => error instanceof WorkFoldCliError
       && error.code === "conflict"
       && error.exitCode === WorkFoldCliExitCode.conflict
       && /ambiguous/i.test(error.message),
   );
   await assert.rejects(
-    adapter.listTasks(actor, { space: "missing" }),
+    adapter.listTasks(actor, { workFolder: "missing" }),
     (error: unknown) => error instanceof WorkFoldCliError
       && error.code === "notFound"
       && error.exitCode === WorkFoldCliExitCode.notFound
@@ -69,35 +69,35 @@ test("WorkFoldCliKernelAdapter flattens scoped kernel tasks", async () => {
   const betaRoot = join(process.cwd(), "cli-adapter-tasks", "beta");
   const alphaId = "space-3333333333333333";
   const betaId = "space-4444444444444444";
-  const spaces = [
-    space(alphaId, "Alpha", alphaRoot),
-    space(betaId, "Beta", betaRoot),
+  const workFolders = [
+    workFolder(alphaId, "Alpha", alphaRoot),
+    workFolder(betaId, "Beta", betaRoot),
   ];
   const timestamps = [new Date("2026-07-11T12:00:00.000Z"), new Date("2026-07-11T12:01:00.000Z")];
   const kernel = new WorkFoldKernel({
-    ...spaceDependencies(spaces),
+    ...workFolderDependencies(workFolders),
     now: () => timestamps.shift() ?? new Date("2026-07-11T12:02:00.000Z"),
   });
-  kernel.startTask({ id: "turn-alpha", kind: "assistant_turn", spaceId: alphaId, actor: { kind: "assistant" } });
-  kernel.startTask({ id: "compact-beta", kind: "compaction", spaceId: betaId, actor: { kind: "assistant" } });
+  kernel.startTask({ id: "turn-alpha", kind: "assistant_turn", workFolderId: alphaId, actor: { kind: "assistant" } });
+  kernel.startTask({ id: "compact-beta", kind: "compaction", workFolderId: betaId, actor: { kind: "assistant" } });
   const adapter = new WorkFoldCliKernelAdapter(kernel);
 
   const tasks = await adapter.listTasks(
     { kind: "cli", cwd: join(alphaRoot, "documents") },
-    { space: "beta" },
+    { workFolder: "beta" },
   );
   assert.deepEqual(tasks, [{
     id: "compact-beta",
     label: "Chat compaction",
     status: "running",
-    spaceId: betaId,
+    workFolderId: betaId,
     updatedAt: "2026-07-11T12:01:00.000Z",
   }]);
 });
 
 test("WorkFoldCliKernelAdapter flattens every capability kind without exposing Skill contents", async () => {
   const root = join(process.cwd(), "cli-adapter-capabilities");
-  const spaceSummary = space("space-5555555555555555", "Capabilities", root);
+  const workFolderSummary = workFolder("space-5555555555555555", "Capabilities", root);
   const projectPackage = "npm:@demo/project-kit@1.0.0";
   const catalog: PiResourceCatalog = {
     projectTrust: { required: true, trusted: true, savedDecision: true },
@@ -169,7 +169,7 @@ test("WorkFoldCliKernelAdapter flattens every capability kind without exposing S
     diagnostics: [],
   };
   const kernel = new WorkFoldKernel({
-    ...spaceDependencies([spaceSummary]),
+    ...workFolderDependencies([workFolderSummary]),
     async loadCapabilityCatalog() { return catalog; },
     async listPackages() {
       return [{
@@ -184,8 +184,8 @@ test("WorkFoldCliKernelAdapter flattens every capability kind without exposing S
   const adapter = new WorkFoldCliKernelAdapter(kernel);
 
   const capabilities = await adapter.listCapabilities(
-    { kind: "cli", cwd: join(process.cwd(), "outside-capability-space") },
-    { space: "capabilities" },
+    { kind: "cli", cwd: join(process.cwd(), "outside-capability-work-folder") },
+    { workFolder: "capabilities" },
   );
   assert.deepEqual(new Set(capabilities.map((item) => item.kind)), new Set([
     "skill",
@@ -198,8 +198,8 @@ test("WorkFoldCliKernelAdapter flattens every capability kind without exposing S
     capabilities.filter((item) => item.kind === "other").map((item) => item.id.split(":", 1)[0]).sort(),
     ["command", "prompt", "theme"],
   );
-  assert.equal(capabilities.find((item) => item.kind === "skill")?.scope, "space");
-  assert.equal(capabilities.find((item) => item.kind === "extension")?.scope, "personal");
+  assert.equal(capabilities.find((item) => item.kind === "skill")?.scope, "work-folder");
+  assert.equal(capabilities.find((item) => item.kind === "extension")?.scope, "everywhere");
   assert.equal(capabilities.find((item) => item.id.startsWith("theme:"))?.scope, "temporary");
   assert.equal(JSON.stringify(capabilities).includes("TOP SECRET SKILL CONTENT"), false);
   assert.equal(JSON.stringify(capabilities).includes("PRIVATE SURFACE CONTENT"), false);
@@ -208,16 +208,16 @@ test("WorkFoldCliKernelAdapter flattens every capability kind without exposing S
 
 test("WorkFoldCliKernelAdapter maps missing cwd capability context to notFound", async () => {
   const root = join(process.cwd(), "cli-adapter-context-required");
-  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies([
-    space("space-6666666666666666", "Only", root),
+  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies([
+    workFolder("space-6666666666666666", "Only", root),
   ])));
 
   await assert.rejects(
-    adapter.listCapabilities({ kind: "cli", cwd: join(process.cwd(), "outside-all-spaces") }, {}),
+    adapter.listCapabilities({ kind: "cli", cwd: join(process.cwd(), "outside-all-work-folders") }, {}),
     (error: unknown) => error instanceof WorkFoldCliError
       && error.code === "notFound"
       && error.exitCode === WorkFoldCliExitCode.notFound
-      && /--space/.test(error.message),
+      && /--work-folder/.test(error.message),
   );
 });
 
@@ -226,18 +226,18 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
   const betaRoot = join(process.cwd(), "cli-adapter-checks", "beta");
   const alphaId = "space-7777777777777777";
   const betaId = "space-8888888888888888";
-  const spaces = [
-    space(alphaId, "Alpha", alphaRoot),
-    space(betaId, "Beta", betaRoot),
+  const workFolders = [
+    workFolder(alphaId, "Alpha", alphaRoot),
+    workFolder(betaId, "Beta", betaRoot),
   ];
-  const calls: Array<{ spaceId: string; spaceRoot: string }> = [];
-  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies(spaces)), {
+  const calls: Array<{ workFolderId: string; workFolderRoot: string }> = [];
+  const adapter = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies(workFolders)), {
     async checksStatusProvider(input) {
       calls.push(input);
       return {
         kind: "work-fold.checks.experimental",
         version: 1,
-        spaceId: input.spaceId,
+        workFolderId: input.workFolderId,
         state: "needs-attention",
         configured: 4,
         proposed: 1,
@@ -251,7 +251,7 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
         running: 1,
         lastRunAt: "2026-08-01T12:00:00-04:00",
         title: "PRIVATE CHECK TITLE",
-        path: "/private/Space/secret.txt",
+        path: "/private/work-folder/secret.txt",
         evidence: "PRIVATE QUOTE",
         decisions: ["accept"],
         sensorParameters: { prompt: "PRIVATE PROMPT" },
@@ -262,14 +262,14 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
 
   const result = await adapter.getChecksStatus(
     { kind: "cli", cwd: join(alphaRoot, "documents") },
-    { space: "beta" },
+    { workFolder: "beta" },
   );
-  assert.deepEqual(calls, [{ spaceId: betaId, spaceRoot: betaRoot }]);
+  assert.deepEqual(calls, [{ workFolderId: betaId, workFolderRoot: betaRoot }]);
   assert.deepEqual(result, {
     kind: "work-fold.checks.experimental",
     version: 1,
     available: true,
-    spaceId: betaId,
+    workFolderId: betaId,
     state: "needs-attention",
     configured: 4,
     proposed: 1,
@@ -291,13 +291,13 @@ test("WorkFoldCliKernelAdapter resolves Check status scope and projects only agg
 
 test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate provider exists", async () => {
   const root = join(process.cwd(), "cli-adapter-checks-unavailable");
-  const spaceSummary = space("space-9999999999999999", "Only", root);
+  const workFolderSummary = workFolder("space-9999999999999999", "Only", root);
   const actor = { kind: "cli" as const, cwd: join(root, "documents") };
   const expected = {
     kind: "work-fold.checks.experimental" as const,
     version: 1 as const,
     available: false,
-    spaceId: spaceSummary.id,
+    workFolderId: workFolderSummary.id,
     state: "unavailable" as const,
     configured: 0,
     proposed: 0,
@@ -312,10 +312,10 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
     lastRunAt: null,
   };
 
-  const withoutProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies([spaceSummary])));
+  const withoutProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies([workFolderSummary])));
   assert.deepEqual(await withoutProvider.getChecksStatus(actor, {}), expected);
 
-  const failedProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies([spaceSummary])), {
+  const failedProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies([workFolderSummary])), {
     async checksStatusProvider() {
       throw new Error(`PRIVATE CHECK FAILURE at ${join(root, "secret.txt")}`);
     },
@@ -324,12 +324,12 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
   assert.deepEqual(failed, expected);
   assert.equal(JSON.stringify(failed).includes("PRIVATE CHECK FAILURE"), false);
 
-  const invalidProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies([spaceSummary])), {
+  const invalidProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies([workFolderSummary])), {
     async checksStatusProvider() {
       return {
         kind: "work-fold.checks.experimental",
         version: 1,
-        spaceId: spaceSummary.id,
+        workFolderId: workFolderSummary.id,
         state: "not-configured",
         configured: -1,
         proposed: 0,
@@ -347,12 +347,12 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
   });
   assert.deepEqual(await invalidProvider.getChecksStatus(actor, {}), expected);
 
-  const inconsistentProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(spaceDependencies([spaceSummary])), {
+  const inconsistentProvider = new WorkFoldCliKernelAdapter(new WorkFoldKernel(workFolderDependencies([workFolderSummary])), {
     async checksStatusProvider() {
       return {
         kind: "work-fold.checks.experimental",
         version: 1,
-        spaceId: spaceSummary.id,
+        workFolderId: workFolderSummary.id,
         state: "stale",
         configured: 1,
         proposed: 0,
@@ -371,22 +371,22 @@ test("WorkFoldCliKernelAdapter reports unavailable status when no safe aggregate
   assert.deepEqual(await inconsistentProvider.getChecksStatus(actor, {}), expected);
 });
 
-function spaceDependencies(spaces: SpaceSummary[]) {
+function workFolderDependencies(workFolders: WorkFolderSummary[]) {
   return {
-    async listSpaces() { return spaces; },
-    async getSpace(spaceId: string) {
-      const spaceSummary = spaces.find((item) => item.id === spaceId);
-      if (!spaceSummary) throw new Error(`Unknown Space: ${spaceId}`);
-      return spaceSummary;
+    async listWorkFolders() { return workFolders; },
+    async getWorkFolder(workFolderId: string) {
+      const workFolderSummary = workFolders.find((item) => item.id === workFolderId);
+      if (!workFolderSummary) throw new Error(`Unknown work-folder: ${workFolderId}`);
+      return workFolderSummary;
     },
   };
 }
 
-function space(id: string, name: string, spaceRoot: string): SpaceSummary {
+function workFolder(id: string, name: string, workFolderRoot: string): WorkFolderSummary {
   return {
     id,
     name,
-    spaceRoot,
+    workFolderRoot,
     location: { kind: "local", storage: "linked" },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-07-11T00:00:00.000Z",

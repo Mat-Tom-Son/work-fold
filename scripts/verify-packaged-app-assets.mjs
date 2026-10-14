@@ -48,7 +48,7 @@ const executablePath = packagedPlatform === "win32"
 assertPath(executablePath, `${identity.productName} executable`);
 assertPath(asarPath, "app.asar");
 assertPath(join(resourcesDir, "web-local", "index.html"), "renderer index");
-assertPath(join(resourcesDir, "web-local", "popover.html"), "management popover renderer");
+assertPath(join(resourcesDir, "web-local", "popover.html"), "work-fold agent popover renderer");
 assertPath(join(resourcesDir, "assets", "icon.png"), "desktop icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate.png"), "menu-bar template icon");
 assertPath(join(resourcesDir, "assets", "iconTemplate@2x.png"), "menu-bar template icon (2x)");
@@ -194,19 +194,24 @@ if (existsSync(asarPath)) {
     "/dist/desktop/desktop/src/preload.cjs",
     "/dist/desktop/desktop/src/model-context-preload.cjs",
     "/dist/desktop/desktop/src/model-context-window.js",
-    "/dist/desktop/desktop/src/management-popover-preload.cjs",
+    "/dist/desktop/desktop/src/work-fold-agent-popover-preload.cjs",
     "/dist/desktop/desktop/src/restricted-app-host.js",
     "/dist/desktop/desktop/src/restricted-app-preload.cjs",
+    "/dist/desktop/restricted-app-kit/kit.css",
+    "/dist/desktop/restricted-app-kit/fonts/inter-latin-wght-normal.woff2",
+    "/dist/desktop/restricted-app-kit/fonts/Inter-LICENSE.txt",
     "/node_modules/@earendil-works/pi-coding-agent/package.json",
     "/node_modules/electron-updater/package.json",
     "/node_modules/jszip/package.json",
     "/resources/included-tools/host.ts",
     "/resources/included-tools/readiness.ts",
+    "/resources/included-tools/input-contracts.mjs",
     ...["computer", "chrome", "web", "mcp", "documents"].map((id) => `/resources/included-tools/${id}/index.ts`),
     "/resources/included-tools/documents/runtime.mjs",
     "/resources/included-tools/documents/worker.mjs",
     "/resources/included-tools/documents/skills/documents/SKILL.md",
-    ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "pi-mcp-adapter", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
+    "/resources/included-tools/skills/set-up-work-folder/SKILL.md",
+    ...["@injaneity/pi-computer-use", "pi-chrome", "pi-web-access", "@earendil-works/pi-mcp", "jiti", "typebox", "docx", "exceljs", "pptxgenjs", "pdf-lib", "pdfjs-dist", "@napi-rs/canvas"].map((name) => `/node_modules/${name}/package.json`),
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/service_worker.js",
     "/node_modules/pi-chrome/extensions/chrome-profile-bridge/browser-extension/host-config.json",
     "/node_modules/@injaneity/pi-computer-use/src/platform/macos/helper-identity.mjs",

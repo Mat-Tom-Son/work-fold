@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { accessSync, constants, existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -19,6 +20,20 @@ interface Options {
 }
 const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const run = promisify(execFile);
+
+/** Installation evidence only; never reads a browser profile. */
+export function googleChromeInstalled(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (platform === "darwin") return ["/Applications/Google Chrome.app", join(homedir(), "Applications/Google Chrome.app")].some(path => existsSync(path));
+  if (platform !== "linux") return false;
+  return (env.PATH ?? "").split(":").filter(Boolean).some(directory => {
+    try { accessSync(join(directory, "google-chrome"), constants.X_OK); return true; } catch { return false; }
+  });
+}
+
+function chromeUserDataRoot(platform: NodeJS.Platform): string {
+  return platform === "linux" ? join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "google-chrome")
+    : join(homedir(), "Library/Application Support/Google/Chrome");
+}
 
 /** Open the pinned Store listing in Google Chrome, never the default browser. */
 export async function openChromeStore(storeId: string | null, platform: NodeJS.Platform = process.platform): Promise<void> {
@@ -43,11 +58,27 @@ export async function openChromeStore(storeId: string | null, platform: NodeJS.P
 /** Register only this app's exact Store origin, never inspect or edit a Chrome profile. */
 export class ChromeNativeHostRegistration {
   constructor(private readonly options: Options) {}
-  async register(explicit: boolean): Promise<void> {
+  /**
+   * `explicit` claims Chrome's registration for this installation; a startup
+   * refresh only renews one this installation already owns. `ifAbsent`
+   * (2026-10-11) registers at launch only when Chrome is set up on this Mac and
+   * no work-fold registration exists yet, so adding the extension first works;
+   * it never replaces another installation's registration.
+   */
+  async register(explicit: boolean, ifAbsent = false): Promise<void> {
     const { distribution } = this.options;
     const platform = this.options.platform ?? process.platform;
     const verifySignature = platform === "darwin" && this.options.verifySignature !== false;
     if (!this.options.enabled) throw new Error("Chrome Store setup is available in the installed work-fold app.");
+    if (ifAbsent && !explicit) {
+      const chromeRoot = this.options.chromeUserDataRoot ?? chromeUserDataRoot(platform);
+      if (!await stat(chromeRoot).then((info) => info.isDirectory(), () => false)) return;
+      const existing = join(chromeRoot, "NativeMessagingHosts", `${distribution.nativeHostName}.json`);
+      const present = await stat(existing).then(() => true, () => false);
+      if (!present) return this.register(true);
+      try { return await this.register(false); }
+      catch { return; /* Another installation's registration stays as it is. */ }
+    }
     if (!distribution.storeId || !/^[a-p]{32}$/.test(distribution.storeId) || !/^[a-z0-9_]+(?:\.[a-z0-9_]+)*$/.test(distribution.nativeHostName)) throw new Error("The Chrome Store connection identity is not available.");
     const origin = `chrome-extension://${distribution.storeId}/`;
     const source = await realpath(join(this.options.sourceDirectory, "work-fold-chrome-host"));

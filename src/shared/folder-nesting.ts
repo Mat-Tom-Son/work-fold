@@ -1,23 +1,23 @@
 
-/** The fields nesting reads; the renderer's and the kernel's Space records both fit. */
+/** The fields nesting reads; the renderer's and the kernel's work-folder records both fit. */
 export interface NestableFolder {
   id: string;
   name: string;
-  spaceRoot: string;
+  workFolderRoot: string;
 }
 
 /**
- * Folders registered inside other Folders (2026-10-01). The registry already
+ * work-folders registered inside other work-folders (2026-10-01). The registry already
  * allows nesting and the host treats each child as separately owned (History,
- * Search, Checks, routings); these helpers give the renderer and the host one
+ * Search, Checks, automations); these helpers give the renderer and the host one
  * shared reading of that shape so the switcher, Files, the composer, and the
  * Workers' turn context agree.
- * The deepest containing Folder is the parent, matching the kernel's
+ * The deepest containing work-folder is the parent, matching the kernel's
  * cwd resolution.
  */
 
 export interface FolderTreeRow<T extends NestableFolder = NestableFolder> {
-  space: T;
+  workFolder: T;
   depth: number;
   parentId: string | null;
 }
@@ -39,49 +39,49 @@ export function folderRootContains(parentRoot: string, childRoot: string): boole
   return child !== parent && child.startsWith(`${parent}/`);
 }
 
-/** Each Folder's nearest containing Folder, or null for a top-level Folder. */
-export function folderParentIds(spaces: readonly NestableFolder[]): Map<string, string | null> {
+/** Each work-folder's nearest containing work-folder, or null for a top-level work-folder. */
+export function folderParentIds(workFolders: readonly NestableFolder[]): Map<string, string | null> {
   const result = new Map<string, string | null>();
-  for (const space of spaces) {
+  for (const workFolder of workFolders) {
     let parent: NestableFolder | null = null;
-    for (const candidate of spaces) {
-      if (candidate.id === space.id || !folderRootContains(candidate.spaceRoot, space.spaceRoot)) continue;
-      if (!parent || comparablePath(candidate.spaceRoot).length > comparablePath(parent.spaceRoot).length) parent = candidate;
+    for (const candidate of workFolders) {
+      if (candidate.id === workFolder.id || !folderRootContains(candidate.workFolderRoot, workFolder.workFolderRoot)) continue;
+      if (!parent || comparablePath(candidate.workFolderRoot).length > comparablePath(parent.workFolderRoot).length) parent = candidate;
     }
-    result.set(space.id, parent?.id ?? null);
+    result.set(workFolder.id, parent?.id ?? null);
   }
   return result;
 }
 
-/** Depth-first rows: top-level Folders A–Z, each followed by its children A–Z. */
-export function folderTreeRows<T extends NestableFolder>(spaces: readonly T[]): FolderTreeRow<T>[] {
-  const parents = folderParentIds(spaces);
+/** Depth-first rows: top-level work-folders A–Z, each followed by its children A–Z. */
+export function folderTreeRows<T extends NestableFolder>(workFolders: readonly T[]): FolderTreeRow<T>[] {
+  const parents = folderParentIds(workFolders);
   const childrenOf = new Map<string | null, T[]>();
-  for (const space of spaces) {
-    const parentId = parents.get(space.id) ?? null;
+  for (const workFolder of workFolders) {
+    const parentId = parents.get(workFolder.id) ?? null;
     const list = childrenOf.get(parentId) ?? [];
-    list.push(space);
+    list.push(workFolder);
     childrenOf.set(parentId, list);
   }
   const rows: FolderTreeRow<T>[] = [];
   const visit = (parentId: string | null, depth: number) => {
     const list = [...(childrenOf.get(parentId) ?? [])].sort((left, right) => left.name.localeCompare(right.name));
-    for (const space of list) {
-      rows.push({ space, depth, parentId });
-      visit(space.id, depth + 1);
+    for (const workFolder of list) {
+      rows.push({ workFolder, depth, parentId });
+      visit(workFolder.id, depth + 1);
     }
   };
   visit(null, 0);
   return rows;
 }
 
-/** The containing Folders of `space`, outermost first. */
-export function folderAncestors<T extends NestableFolder>(space: NestableFolder, spaces: readonly T[]): T[] {
-  const parents = folderParentIds(spaces);
-  const byId = new Map(spaces.map((item) => [item.id, item]));
+/** The containing work-folders of `work-folder`, outermost first. */
+export function folderAncestors<T extends NestableFolder>(workFolder: NestableFolder, workFolders: readonly T[]): T[] {
+  const parents = folderParentIds(workFolders);
+  const byId = new Map(workFolders.map((item) => [item.id, item]));
   const chain: T[] = [];
-  let parentId = parents.get(space.id) ?? null;
-  while (parentId && chain.length < spaces.length) {
+  let parentId = parents.get(workFolder.id) ?? null;
+  while (parentId && chain.length < workFolders.length) {
     const parent = byId.get(parentId);
     if (!parent) break;
     chain.unshift(parent);
@@ -90,26 +90,26 @@ export function folderAncestors<T extends NestableFolder>(space: NestableFolder,
   return chain;
 }
 
-/** The Folders directly inside `space`, A–Z. */
-export function childFolders<T extends NestableFolder>(space: NestableFolder, spaces: readonly T[]): T[] {
-  const parents = folderParentIds(spaces);
-  return spaces
-    .filter((item) => parents.get(item.id) === space.id)
+/** The work-folders directly inside `work-folder`, A–Z. */
+export function childFolders<T extends NestableFolder>(workFolder: NestableFolder, workFolders: readonly T[]): T[] {
+  const parents = folderParentIds(workFolders);
+  return workFolders
+    .filter((item) => parents.get(item.id) === workFolder.id)
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-/** Direct child Folders keyed by their path relative to `space`, as Files names entries. */
-export function childFolderPaths<T extends NestableFolder>(space: NestableFolder, spaces: readonly T[]): Map<string, T> {
+/** Direct child work-folders keyed by their path relative to `work-folder`, as Files names entries. */
+export function childFolderPaths<T extends NestableFolder>(workFolder: NestableFolder, workFolders: readonly T[]): Map<string, T> {
   // Slice the on-disk spelling, not the comparison form: Files and the host
   // name entries with their real case.
-  const root = slashPath(space.spaceRoot);
-  return new Map(childFolders(space, spaces).map((child) => [
-    slashPath(child.spaceRoot).slice(root.length + 1),
+  const root = slashPath(workFolder.workFolderRoot);
+  return new Map(childFolders(workFolder, workFolders).map((child) => [
+    slashPath(child.workFolderRoot).slice(root.length + 1),
     child,
   ]));
 }
 
-/** Every Folder nested anywhere inside `space`. */
-export function descendantFolders<T extends NestableFolder>(space: NestableFolder, spaces: readonly T[]): T[] {
-  return spaces.filter((item) => folderRootContains(space.spaceRoot, item.spaceRoot));
+/** Every work-folder nested anywhere inside `work-folder`. */
+export function descendantFolders<T extends NestableFolder>(workFolder: NestableFolder, workFolders: readonly T[]): T[] {
+  return workFolders.filter((item) => folderRootContains(workFolder.workFolderRoot, item.workFolderRoot));
 }

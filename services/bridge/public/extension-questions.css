@@ -9,7 +9,7 @@
 .extension-question-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .extension-question button { font: inherit; font-size: 12px; line-height: 1.4; padding: 7px 12px; border: 1px solid var(--border, #cbd2cc); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; text-align: left; overflow-wrap: anywhere; transition: background-color 120ms ease; }
 .extension-question button:hover { background: var(--surface-hover, var(--pop-surface-2, #eaf0eb)); }
-.extension-question button.extension-answer { background: var(--accent, var(--pop-accent, #0b6fd6)); border-color: transparent; color: white; }
+.extension-question button.extension-answer { background: var(--accent, var(--pop-accent, #0b6fd6)); border-color: transparent; color: var(--accent-contrast, white); }
 .extension-question button.extension-cancel { border-color: transparent; color: var(--text-muted, #657069); }
 .extension-question :focus-visible { outline: 2px solid var(--accent, var(--pop-accent, #0b6fd6)); outline-offset: 3px; }
 .extension-question :disabled { cursor: default; opacity: .55; }

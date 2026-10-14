@@ -1,12 +1,12 @@
 import type {
-  FoldRoutingDetailResponse,
-  FoldRoutingHistoryResponse,
-  FoldRoutingsResponse,
-  FoldRoutingRunResponse,
-  FoldRoutingEnableResponse,
-  FoldRoutingEnableProposalResponse,
-  FoldRoutingProposalsResponse,
-} from "./components/modals/FoldRoutingsPane";
+  AutomationDetailResponse,
+  AutomationHistoryResponse,
+  AutomationsResponse,
+  AutomationRunResponse,
+  AutomationEnableResponse,
+  AutomationEnableProposalResponse,
+  AutomationProposalsResponse,
+} from "./components/modals/AutomationsPane";
 
 export {};
 
@@ -34,10 +34,10 @@ interface WorkFoldRemoteAccessStatus {
 }
 
 type WorkFoldDesktopMenuCommand =
-  | "new-space"
+  | "new-work-folder"
   | "open-local-folder"
   | "new-chat"
-  | "reload-space-state"
+  | "reload-work-folder-state"
   | "check-for-updates"
   | "open-settings"
   | "open-about"
@@ -45,14 +45,17 @@ type WorkFoldDesktopMenuCommand =
   | "open-skills"
   | "open-extensions"
   | "open-command-palette"
-  | "open-keyboard-shortcuts";
+  | "open-keyboard-shortcuts"
+  | "close-tab"
+  | "toggle-sidebar"
+  | "toggle-agent-panel";
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
 type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
 
 interface WorkFoldDesktopFileMenuRequest {
-  spaceId: string;
+  workFolderId: string;
   path: string;
   kind: "file" | "folder";
   capabilities: {
@@ -70,7 +73,7 @@ interface WorkFoldDesktopFileMenuRequest {
 }
 
 interface WorkFoldRestrictedAppViewRequest {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
@@ -84,11 +87,20 @@ interface WorkFoldRestrictedAppViewRequest {
   active: boolean;
   occluded: boolean;
   theme: "light" | "dark";
+  appearance?: Record<string, string>;
+  openedFrom?: { kind: "notification"; permissionId: string };
+}
+
+interface WorkFoldRestrictedAppAttention {
+  workFolderId: string;
+  appId: string;
+  featureInstallationId: string;
+  count: number;
 }
 
 interface WorkFoldRestrictedAppTabCommand {
   type: "open" | "update" | "close";
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
@@ -105,17 +117,21 @@ interface WorkFoldRestrictedAppViewState {
 }
 
 interface WorkFoldRestrictedAppOwner {
-  spaceId: string;
+  workFolderId: string;
   appId: string;
   featureInstallationId: string;
   digest: string;
   permissionId: string;
+  /** Where the clicked notification opens the app's left-pane view; "/" when the app named none. */
+  route?: string;
+  state?: unknown;
 }
 
 declare global {
   interface Window {
     workFoldDesktop?: {
       desktop: true;
+      clipboard?: import("../../src/shared/clipboard").ClipboardWriter;
       api: {
         baseUrl: string;
         getSessionHeaders: () => Promise<Record<string, string>>;
@@ -133,45 +149,47 @@ declare global {
         }>;
         onRendererRecovered: (listener: () => void) => () => void;
       };
-      space: {
+      workFolder: {
         chooseFolder: () => Promise<{ path: string; folderGrantId: string } | null>;
-        revealFolder: (spaceId: string) => Promise<void>;
-        openPath: (spaceId: string, path: string, action?: WorkFoldDesktopPathAction) => Promise<void>;
-        openPathWith?: (spaceId: string, path: string) => Promise<{ opened: boolean; canceled: boolean; appName: string | null }>;
-        startDrag: (spaceId: string, path: string) => Promise<void>;
-        previewFile: (spaceId: string, path: string) => Promise<boolean>;
+        revealFolder: (workFolderId: string) => Promise<void>;
+        openPath: (workFolderId: string, path: string, action?: WorkFoldDesktopPathAction) => Promise<void>;
+        openPathWith?: (workFolderId: string, path: string) => Promise<{ opened: boolean; canceled: boolean; appName: string | null }>;
+        startDrag: (workFolderId: string, path: string) => Promise<void>;
+        previewFile: (workFolderId: string, path: string) => Promise<boolean>;
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
-        setActiveSpace: (spaceId: string | null) => Promise<void>;
-        onOpenSpace: (listener: (spaceId: string, view?: "checks") => void) => () => void;
+        setActiveWorkFolder: (workFolderId: string | null) => Promise<void>;
+        onOpenWorkFolder: (listener: (workFolderId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
       };
       agent: {
-        openFoldDraft?: (text: string) => Promise<boolean>;
-        openChecks?: (spaceId: string) => Promise<boolean>;
-        onOpenSettings: (listener: (scope?: "management") => void) => () => void;
+        /** The local path of a file dropped on the work-fold agent panel. */
+        getPathForFile?: (file: File) => string;
+        openWorkFoldAgentDraft?: (text: string) => Promise<boolean>;
+        openChecks?: (workFolderId: string) => Promise<boolean>;
+        onOpenSettings: (listener: (scope?: "agent") => void) => () => void;
       };
-      /** Main-window-only routing management; absent from the popover preload. */
-      routings?: {
-        list: () => Promise<FoldRoutingsResponse>;
-        /** Pending `*.work-fold-routing.json` files in the work-fold agent's working folder. */
-        proposals: () => Promise<FoldRoutingProposalsResponse>;
+      /** Main-window-only automation management; absent from the popover preload. */
+      automations?: {
+        list: () => Promise<AutomationsResponse>;
+        /** Pending `*.work-fold-automation.json` files in the work-fold agent's working folder. */
+        proposals: () => Promise<AutomationProposalsResponse>;
         /** Turns on one pending file by absolute path, through the same enable path as the CLI. */
-        enableProposal: (path: string) => Promise<FoldRoutingEnableProposalResponse>;
-        show: (routingId: string) => Promise<FoldRoutingDetailResponse>;
-        history: (routingId: string) => Promise<FoldRoutingHistoryResponse>;
-        enable: (routingId: string) => Promise<FoldRoutingEnableResponse>;
-        run: (routingId: string) => Promise<FoldRoutingRunResponse>;
-        stop: (routingId: string) => Promise<unknown>;
-        disable: (routingId: string) => Promise<unknown>;
-        delete: (routingId: string) => Promise<unknown>;
+        enableProposal: (path: string) => Promise<AutomationEnableProposalResponse>;
+        show: (automationId: string) => Promise<AutomationDetailResponse>;
+        history: (automationId: string) => Promise<AutomationHistoryResponse>;
+        enable: (automationId: string) => Promise<AutomationEnableResponse>;
+        run: (automationId: string) => Promise<AutomationRunResponse>;
+        stop: (automationId: string) => Promise<unknown>;
+        disable: (automationId: string) => Promise<unknown>;
+        delete: (automationId: string) => Promise<unknown>;
       };
-      management?: {
-        openChecks?: (spaceId: string) => Promise<boolean>;
-        openResultFile?: (spaceId: string, path: string) => Promise<void>;
+      workFoldAgent?: {
+        openChecks?: (workFolderId: string) => Promise<boolean>;
+        openResultFile?: (workFolderId: string, path: string) => Promise<void>;
         getPathForFile: (file: File) => string;
         hide: () => void;
         openMainWindow: () => Promise<boolean>;
-        openAssistantSettings: () => Promise<boolean>;
+        openAiModelsSettings: () => Promise<boolean>;
         onStaged: (listener: (items: Array<{ kind: "path" | "text"; value: string }>) => void) => () => void;
       };
       restrictedApps: {
@@ -181,6 +199,8 @@ declare global {
         onTabCommand: (listener: (command: WorkFoldRestrictedAppTabCommand) => void) => () => void;
         onViewState: (listener: (state: WorkFoldRestrictedAppViewState) => void) => () => void;
         onOpenRequest: (listener: (owner: WorkFoldRestrictedAppOwner) => void) => () => void;
+        attentionStates?: () => Promise<WorkFoldRestrictedAppAttention[]>;
+        onAttention?: (listener: (state: WorkFoldRestrictedAppAttention) => void) => () => void;
       };
       window: {
         control?: (action: "state" | "minimize" | "toggle-maximize" | "quit") => Promise<{ maximized: boolean }>;
@@ -224,7 +244,7 @@ declare global {
         onStatusChanged: (listener: (status: WorkFoldRemoteAccessStatus) => void) => () => void;
       };
       menu: {
-        setState: (state: { spaceOpen: boolean }) => void;
+        setState: (state: { workFolderOpen: boolean }) => void;
         popup: (menuId: WorkFoldDesktopMenuId, bounds: { x: number; y: number }) => Promise<void>;
         onCommand: (listener: (command: WorkFoldDesktopMenuCommand) => void) => () => void;
       };

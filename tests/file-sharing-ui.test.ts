@@ -6,12 +6,12 @@ import { refreshSharedPages, setSharedPages, sharedPagesSnapshot, type SharedPag
 import { createDomHarness } from "./support/dom.js";
 
 const publication: SharedPageView = {
-  publicationId: "page-one", kind: "page", spaceId: "space-one", relativePath: "one.md",
+  publicationId: "page-one", kind: "page", workFolderId: "work-folder-one", relativePath: "one.md",
   title: "One", state: "active", live: true, serveRatePerMinute: 60,
   byteBudgetPerDay: 1024 * 1024, snapshotEnabled: false,
   createdAt: "2026-09-24T12:00:00Z", bridgeSlot: "confirmed", viewerPath: "/p/page-one",
 };
-const props = { spaceId: "space-one", path: "one.md", fileName: "one.md" };
+const props = { workFolderId: "work-folder-one", path: "one.md", fileName: "one.md" };
 const status = { configured: true, viewerOrigin: "https://pages-test.example" };
 const response = (value: unknown, httpStatus = 200) => new Response(JSON.stringify(value), { status: httpStatus, headers: { "content-type": "application/json" } });
 const list = (pages: SharedPageView[]) => ({ publications: pages, status: { damaged: false, activeCount: pages.length, pendingBridgeWork: 0 } });

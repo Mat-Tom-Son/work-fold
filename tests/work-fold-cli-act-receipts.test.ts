@@ -21,7 +21,7 @@ test("act receipts append ordered JSON lines and rotate only aged entries", asyn
     assert.equal(await receipts.append({
       requestId,
       command: "chat.send",
-      spaceId: "space-1",
+      workFolderId: "work-folder-1",
       conversationId: "chat-1",
       outcome: "ok",
       taskId: "task-1",
@@ -40,7 +40,7 @@ test("act receipts append ordered JSON lines and rotate only aged entries", asyn
       at: new Date(startTime).toISOString(),
       requestId,
       command: "chat.send",
-      spaceId: "space-1",
+      workFolderId: "work-folder-1",
       conversationId: "chat-1",
       outcome: "ok",
       taskId: "task-1",
@@ -137,7 +137,7 @@ test("readers accept version 1 and 2 lines beside version 3 appends", async () =
       `${JSON.stringify({ v: 1, at: "2026-07-31T12:00:00.000Z", requestId: versionOneId, command: "files.add", outcome: "accepted" })}\n`
         + `${JSON.stringify({
           v: 2, at: "2026-07-31T12:01:00.000Z", requestId: versionTwoId, command: "decision.approve", outcome: "accepted",
-          surface: "unrestricted", decisionId: "act-1", policyId: "policy-1", detail: "space.delete-folder (destroy)",
+          surface: "unrestricted", decisionId: "act-1", policyId: "policy-1", detail: "work-folder.delete-folder (destroy)",
         })}\n`,
       "utf8",
     );

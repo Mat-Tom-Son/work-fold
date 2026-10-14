@@ -15,16 +15,11 @@ export async function captureLinuxSboms(root, output, version) {
   const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, env, encoding: "utf8", maxBuffer: 32 * 1024 * 1024, timeout: 180_000 });
   if (run("cyclonedx-npm", ["--version"]).trim() !== "6.0.1" ||
       !/^cargo-cyclonedx(?:-cyclonedx)? 0\.5\.9\s*$/.test(run("cargo-cyclonedx", ["cyclonedx", "--version"]))) throw new Error("Use the pinned CycloneDX tools from desktop/linux/Dockerfile");
-  // npm flags two reviewed projections as invalid despite the exact installed
-  // versions being intentional. Admit only those; never silence new problems.
+  // Pi 1.1's native MCP graph needs no dependency-error exceptions.
   const listing = spawnSync("npm", ["ls", "--json", "--all"], { cwd: root, env, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
   if (listing.error) throw listing.error;
   const problems = JSON.parse(listing.stdout).problems ?? [];
-  const reviewed = new Set([
-    `invalid: undici@8.10.2 ${join(root, "node_modules/@earendil-works/pi-coding-agent/node_modules/undici")}`,
-    `invalid: @modelcontextprotocol/core@2.0.0 ${join(root, "node_modules/@modelcontextprotocol/core")}`,
-  ]);
-  if (problems.some(problem => !reviewed.has(problem)) || (listing.status !== 0 && !problems.length)) throw new Error("Unexpected npm dependency problems prevent SBOM generation");
+  if (listing.status !== 0 || problems.length) throw new Error("Unexpected npm dependency problems prevent SBOM generation");
   await mkdir(output, { recursive: true });
   // Cargo uses the project path in component IDs. A versioned, exclusively
   // created private workspace keeps those IDs stable without rewriting a BOM.
@@ -32,7 +27,7 @@ export async function captureLinuxSboms(root, output, version) {
   await mkdir(scratch, { mode: 0o700 });
   try {
     const npmFile = join(scratch, "npm.cdx.json");
-    run("cyclonedx-npm", ["--ignore-npm-errors", "--output-reproducible", "--validate", "--output-file", npmFile]);
+    run("cyclonedx-npm", ["--output-reproducible", "--validate", "--output-file", npmFile]);
     const generated = { npm: npmFile };
     for (const [kind, source, name] of [
       ["computer", "node_modules/@injaneity/pi-computer-use/native/linux/bridge-rs", "linux-bridge"],

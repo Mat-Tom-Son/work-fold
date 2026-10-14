@@ -652,7 +652,7 @@ on both desktops, or a concrete revised compatibility scope with evidence.
 ### L1 — Make installed application state real in the tests
 
 Extend the existing smoke harness to optionally retain one explicitly isolated
-application/Pi root. Seed a Folder identity, Chat, History entry, Library item,
+application/Pi root. Seed a Folder identity, Chat, History entry,
 settings, requests and representative installed-app data through supported
 product paths. Use deterministic provider fixtures for repeatable automated
 tests; separately perform one bounded real provider turn in an isolated account
@@ -754,7 +754,7 @@ and stops correctly, with supported profiles and version compatibility recorded.
 ### L8 — Make upgrades and distribution verifiable
 
 Upgrade from one real candidate to a **higher unique version**, reusing L1's
-profile. Check Folder ids, chat content, History, Library, request reconciliation,
+profile. Check Folder ids, chat content, History, request reconciliation,
 settings, connections, installed-app data, CLI/native-host registration and
 credential decryption. Then remove/reinstall without erasing user state. Do not
 compare the entire profile byte-for-byte: caches and reconciliation timestamps
@@ -853,7 +853,7 @@ case is unqualified behavior, not a passing result.
 |---|---|
 | Pi computer runtime and patch | [Linux factory](../resources/included-tools/computer/linux.ts), [dispatch](../resources/included-tools/computer/index.ts), [reviewed patch](../patches/included-tools/pi-computer-use-0.5.1.patch), [manifest](../patches/included-tools/manifest.json) |
 | Host lifecycle and setup | [Host event bus](../resources/included-tools/host.ts), [runtime configuration](../src/local/agent/included-tools.ts), [setup service](../src/local/agent/included-tool-setup.ts), [setup UI](../web-local/src/components/panes/IncludedToolSetup.tsx), [Chrome lease pattern](../src/local/agent/included-chrome-connection.ts) |
-| Desktop and credentials | [Main process](../desktop/src/main.ts), [management window](../desktop/src/management-popover.ts), [secure storage](../desktop/src/secure-storage.ts), [shell environment](../desktop/src/shell-environment.ts) |
+| Desktop and credentials | [Main process](../desktop/src/main.ts), [management window](../desktop/src/work-fold-agent-popover.ts), [secure storage](../desktop/src/secure-storage.ts), [shell environment](../desktop/src/shell-environment.ts) |
 | Chrome and installed CLI | [Native Rust hosts](../desktop/native/linux/src/lib.rs), [Chrome registration](../desktop/src/chrome-native-host.ts), [distribution contract](../src/shared/chrome-distribution.json) |
 | Native build and provenance | [Computer helper build](../scripts/build-computer-helper.mjs), [native hosts build](../scripts/build-linux-native-hosts.mjs), [license extraction](../scripts/cargo-license-notices.mjs), [asset verification](../scripts/verify-packaged-app-assets.mjs) |
 | Packaging and upgrade | [Linux builder](../scripts/build-linux-desktop.mjs), [builder config](../electron-builder.desktop.cjs), [build baseline](../desktop/linux/Dockerfile), [installed smoke](../scripts/linux-installed-smoke.mjs), [DEB lifecycle](../scripts/linux-deb-install-smoke.sh), [RPM lifecycle](../scripts/linux-rpm-install-smoke.sh) |

@@ -1,43 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
-import { buildFixtureFolderAutomations } from "../fixtures/space-fixture";
-import type { FolderAutomationsResponse, FolderAutomationView } from "../../../src/shared/routing-presentation";
+import { buildFixtureFolderAutomations } from "../fixtures/work-folder-fixture";
+import type { FolderAutomationsResponse, FolderAutomationView } from "../../../src/shared/automation-presentation";
 
 const automationsChanged = "work-fold:automations-changed";
 
-/** Refresh Folder views after an Automation action in this renderer. */
+/** Refresh work-folder views after an Automation action in this renderer. */
 export function notifyFolderAutomationsChanged(): void {
   window.dispatchEvent(new Event(automationsChanged));
 }
 
-export function folderAutomationsPath(spaceId: string): string {
-  return `/api/spaces/${encodeURIComponent(spaceId)}/automations`;
+export function folderAutomationsPath(workFolderId: string): string {
+  return `/api/work-folders/${encodeURIComponent(workFolderId)}/automations`;
 }
 
 /**
- * The automations whose trigger or steps name a Folder, cached per Folder
- * (docs/fold-routings.md, F15 as amended 2026-09-24). The active Folder is
+ * The automations whose trigger or steps name a work-folder, cached per work-folder
+ * (docs/automations.md, F15 as amended 2026-09-24). The active work-folder is
  * read when it changes and whenever the window regains focus; the rail entry
  * shows only while its list is non-empty. The preview reads fixture data and
  * never touches the network.
  */
-export function useFolderAutomations(activeSpaceId: string, fixtureMode: boolean) {
-  const [bySpace, setBySpace] = useState<Record<string, FolderAutomationView[]>>(
+export function useFolderAutomations(activeWorkFolderId: string, fixtureMode: boolean) {
+  const [byWorkFolder, setByWorkFolder] = useState<Record<string, FolderAutomationView[]>>(
     () => fixtureMode ? buildFixtureFolderAutomations() : {},
   );
   const requestRef = useRef<Record<string, number>>({});
 
-  const refresh = useCallback(async (spaceId: string): Promise<void> => {
+  const refresh = useCallback(async (workFolderId: string): Promise<void> => {
     if (fixtureMode) return;
-    const request = (requestRef.current[spaceId] ?? 0) + 1;
-    requestRef.current[spaceId] = request;
+    const request = (requestRef.current[workFolderId] ?? 0) + 1;
+    requestRef.current[workFolderId] = request;
     try {
-      const response = await api<FolderAutomationsResponse>(folderAutomationsPath(spaceId));
-      if (requestRef.current[spaceId] !== request) return;
-      setBySpace((current) => sameAutomations(current[spaceId], response.automations)
+      const response = await api<FolderAutomationsResponse>(folderAutomationsPath(workFolderId));
+      if (requestRef.current[workFolderId] !== request) return;
+      setByWorkFolder((current) => sameAutomations(current[workFolderId], response.automations)
         ? current
-        : { ...current, [spaceId]: response.automations });
+        : { ...current, [workFolderId]: response.automations });
     } catch {
       // A failed read keeps the last known list; the next focus retries.
     }
@@ -45,10 +45,10 @@ export function useFolderAutomations(activeSpaceId: string, fixtureMode: boolean
 
   useEffect(() => {
     if (fixtureMode) return;
-    void refresh(activeSpaceId);
-    const onFocus = () => { void refresh(activeSpaceId); };
+    void refresh(activeWorkFolderId);
+    const onFocus = () => { void refresh(activeWorkFolderId); };
     const onChange = () => {
-      for (const spaceId of new Set([activeSpaceId, ...Object.keys(requestRef.current)])) void refresh(spaceId);
+      for (const workFolderId of new Set([activeWorkFolderId, ...Object.keys(requestRef.current)])) void refresh(workFolderId);
     };
     window.addEventListener("focus", onFocus);
     window.addEventListener(automationsChanged, onChange);
@@ -56,9 +56,9 @@ export function useFolderAutomations(activeSpaceId: string, fixtureMode: boolean
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(automationsChanged, onChange);
     };
-  }, [activeSpaceId, fixtureMode, refresh]);
+  }, [activeWorkFolderId, fixtureMode, refresh]);
 
-  return { bySpace, refresh };
+  return { byWorkFolder, refresh };
 }
 
 function sameAutomations(left: FolderAutomationView[] | undefined, right: FolderAutomationView[]): boolean {

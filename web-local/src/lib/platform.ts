@@ -20,7 +20,7 @@ function desktopFileDragHint(path: string, platform: DesktopPlatform = desktopPl
   return `${path} — drag to move`;
 }
 
-function spaceEntryNativePath(rootPath: string, relativePath: string, platform: DesktopPlatform = desktopPlatform()): string {
+function workFolderEntryNativePath(rootPath: string, relativePath: string, platform: DesktopPlatform = desktopPlatform()): string {
   if (!relativePath) return rootPath;
   const separator = platform === "win32" ? "\\" : "/";
   const root = rootPath.replace(/[\\/]+$/, "");
@@ -28,5 +28,5 @@ function spaceEntryNativePath(rootPath: string, relativePath: string, platform: 
   return [root, ...segments].join(separator);
 }
 
-export { desktopFileDragHint, desktopPlatform, isMacOS, typographyFontForPlatform, spaceEntryNativePath };
+export { desktopFileDragHint, desktopPlatform, isMacOS, typographyFontForPlatform, workFolderEntryNativePath };
 export type { DesktopPlatform };

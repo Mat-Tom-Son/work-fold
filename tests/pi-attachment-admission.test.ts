@@ -11,10 +11,10 @@ import { loadConversationContextReferencesForTurn } from "../src/local/conversat
 
 test("native dispatch loads attachments against the actual model and marks length exhaustion incomplete", { timeout: 15_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-admission-"));
-  const agentDir = join(root, "pi"), spaceRoot = join(root, "folder");
-  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(spaceRoot);
-  await writeFile(join(spaceRoot, "oversized.txt"), "DO_NOT_INLINE_THIS ".repeat(16_000));
-  await writeFile(join(spaceRoot, "small.txt"), "SMALL_BODY_MUST_NOT_BE_INLINED");
+  const agentDir = join(root, "pi"), workFolderRoot = join(root, "folder");
+  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(workFolderRoot);
+  await writeFile(join(workFolderRoot, "oversized.txt"), "DO_NOT_INLINE_THIS ".repeat(16_000));
+  await writeFile(join(workFolderRoot, "small.txt"), "SMALL_BODY_MUST_NOT_BE_INLINED");
   const payloads: any[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -39,13 +39,13 @@ test("native dispatch loads attachments against the actual model and marks lengt
       api: "openai-completions", baseUrl: ${JSON.stringify(origin + "/v1")}, apiKey: "synthetic",
       models: [{id:"small",name:"Small fixture",reasoning:false,input:["text"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:32768,maxTokens:1024}]
     }); }`);
-  const client = new PiConversationClient("admission-chat", spaceRoot, { async resolveRuntime() { return {
+  const client = new PiConversationClient("admission-chat", workFolderRoot, { async resolveRuntime() { return {
     agentDir, settingsManager: SettingsManager.inMemory({ defaultProvider: "admission-test", defaultModel: "small", defaultThinkingLevel: "off" }),
   }; } });
   t.after(async () => { await client.stop(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); });
   let admittedBudget = -1;
   const reply = await client.prompt("Inspect my file.", { loadContextAttachments: async (budget) => {
-    admittedBudget = budget; return loadConversationContextReferencesForTurn(spaceRoot, ["oversized.txt", "small.txt"], budget);
+    admittedBudget = budget; return loadConversationContextReferencesForTurn(workFolderRoot, ["oversized.txt", "small.txt"], budget);
   } });
   assert.ok(admittedBudget >= 0 && admittedBudget < 32768);
   assert.equal(reply, "I can read the file by path.");
@@ -69,8 +69,8 @@ test("native dispatch loads attachments against the actual model and marks lengt
 test("native dispatch spills oversized reference metadata while preserving exact user text and all paths", { timeout: 15_000 }, async (t) => {
   const { readFile, readdir } = await import("node:fs/promises");
   const root = await mkdtemp(join(tmpdir(), "work-fold-admission-manifest-"));
-  const agentDir = join(root, "pi"), spaceRoot = join(root, "folder"), sessionDir = join(root, "sessions");
-  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(spaceRoot);
+  const agentDir = join(root, "pi"), workFolderRoot = join(root, "folder"), sessionDir = join(root, "sessions");
+  await mkdir(join(agentDir, "extensions"), { recursive: true }); await mkdir(workFolderRoot);
   const payloads: any[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -88,7 +88,7 @@ test("native dispatch spills oversized reference metadata while preserving exact
   const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   await writeFile(join(agentDir, "extensions", "provider.ts"), `export default function(pi){pi.registerProvider("reference-test",{
     api:"openai-completions",baseUrl:${JSON.stringify(origin + "/v1")},apiKey:"synthetic",models:[{id:"small",name:"Small fixture",reasoning:false,input:["text"],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:32768,maxTokens:1024}]});}`);
-  const client = new PiConversationClient("manifest-chat", spaceRoot, { async resolveRuntime() { return {
+  const client = new PiConversationClient("manifest-chat", workFolderRoot, { async resolveRuntime() { return {
     agentDir, sessionDir, settingsManager: SettingsManager.inMemory({ defaultProvider: "reference-test", defaultModel: "small", defaultThinkingLevel: "off" }),
   }; } });
   t.after(async () => { await client.stop(); await new Promise<void>((resolve) => server.close(() => resolve())); await rm(root, { recursive: true, force: true }); });
@@ -106,7 +106,7 @@ test("native dispatch spills oversized reference metadata while preserving exact
   assert.equal(directories.length, 1);
   const path = join(sessionDir, "attachment-artifacts", directories[0]!, "references.json");
   const manifest = JSON.parse(await readFile(path, "utf8"));
-  assert.equal(manifest.owner.conversationId, "manifest-chat"); assert.equal(manifest.cwd, spaceRoot);
+  assert.equal(manifest.owner.conversationId, "manifest-chat"); assert.equal(manifest.cwd, workFolderRoot);
   assert.deepEqual(manifest.references.map((entry: { path: string }) => entry.path), references);
   const serialized = JSON.stringify(payloads[0]);
   assert.match(serialized, /400 attachment paths/); assert.ok(serialized.includes(path));

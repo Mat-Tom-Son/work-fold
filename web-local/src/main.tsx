@@ -8,19 +8,19 @@ import "@fontsource/poppins/600.css";
 import "@fontsource/poppins/700.css";
 import "./brand.css";
 import "./styles.css";
+import "./components/chat/work-steps.css";
 import "../../services/bridge/public/work-request.css";
 import "../../services/bridge/public/extension-questions.css";
 import "./components/chat/model-context-inspector.css";
-import "./professional-foundation.css";
-import "./professional-shell.css";
-import "./professional-surfaces.css";
-import "./professional-customization.css";
-import "./settings-window.css";
+import "./popover/popover.css";
+import "./panels.css";
 import "./application-appearance.css";
-import "./appearance-settings.css";
-import "./history-review.css";
 import { App } from "./App";
 import { ModelContextInspector } from "./components/chat/ModelContextInspector";
+import { migrateRendererStorage } from "./lib/storage-migration";
+
+// Before any component reads a saved tab, draft, or preference.
+migrateRendererStorage();
 
 const platform = window.workFoldDesktop?.app.platform;
 if (platform) document.documentElement.dataset.platform = platform;

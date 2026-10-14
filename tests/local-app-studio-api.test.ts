@@ -13,15 +13,15 @@ import {
   type LocalAppRetainedData,
   type LocalAppStudioSnapshot,
   type LocalAppUpdatePlan,
-  type LocalAppSpaceRemovalImpact,
+  type LocalAppWorkFolderRemovalImpact,
   type RestrictedAppInstalled,
 } from "../src/local/agent/restricted-app-service.js";
 import { startLocalApi } from "../src/local/server.js";
 import {
-  beginSpaceRemoval,
-  finalizeSpaceRemoval,
-  markSpaceRemovalAppStateRemoved,
-} from "../src/local/space.js";
+  beginWorkFolderRemoval,
+  finalizeWorkFolderRemoval,
+  markWorkFolderRemovalAppStateRemoved,
+} from "../src/local/work-folder.js";
 
 const featureId = "connected-inbox";
 const sourcePath = "apps/connected-inbox";
@@ -29,7 +29,7 @@ const sourcePath = "apps/connected-inbox";
 test("local App Studio API keeps Project, Release, installation, update, and data authority explicit", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-api-"));
   const stateBase = join(sandbox, "state");
-  const spaceBase = join(sandbox, "spaces");
+  const workFolderBase = join(sandbox, "work-folders");
   const restrictedAppRoot = join(stateBase, "restricted-apps");
   const storage = new FileRestrictedAppStorage(join(restrictedAppRoot, "data"));
   const service = await RestrictedAppService.create({ rootPath: restrictedAppRoot, storage });
@@ -37,24 +37,24 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
   const api = await startLocalApi({
     port: 0,
     stateBase,
-    spaceBase,
+    workFolderBase,
     loadEnv: false,
     restrictedAppService: service,
-    beforeRestrictedAppSpaceRevalidation: async (spaceId) => {
-      if (spaceId === removeBeforeRevalidation) {
+    beforeRestrictedAppWorkFolderRevalidation: async (workFolderId) => {
+      if (workFolderId === removeBeforeRevalidation) {
         removeBeforeRevalidation = null;
-        const intent = await beginSpaceRemoval(spaceId, spaceBase);
-        await markSpaceRemovalAppStateRemoved(intent.spaceId);
-        const removal = await finalizeSpaceRemoval(intent.spaceId);
+        const intent = await beginWorkFolderRemoval(workFolderId, workFolderBase);
+        await markWorkFolderRemovalAppStateRemoved(intent.workFolderId);
+        const removal = await finalizeWorkFolderRemoval(intent.workFolderId);
         assert.equal(removal.cleanupPending, false, "the raced target removal must commit before validation resumes");
       }
     },
   });
 
   try {
-    const source = await createSpace(api.origin, "App source");
-    const target = await createSpace(api.origin, "App destination");
-    const studioPath = `/api/spaces/${source.id}/app-studio`;
+    const source = await createWorkFolder(api.origin, "App source");
+    const target = await createWorkFolder(api.origin, "App destination");
+    const studioPath = `/api/work-folders/${source.id}/app-studio`;
 
     const initial = await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath);
     assert.deepEqual(initial.studio, {
@@ -80,7 +80,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       rawRequest(api.origin, `${studioPath}/releases/publish`, { method: "POST", body: { releaseDigest: true } }),
       rawRequest(api.origin, `${studioPath}/installs/prepare`, {
         method: "POST",
-        body: { targetSpaceId: 42, releaseDigest: true },
+        body: { targetWorkFolderId: 42, releaseDigest: true },
       }),
       rawRequest(
         api.origin,
@@ -94,26 +94,21 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     const presentation = {
       title: "Connected Inbox",
-      description: "A local-first inbox built and released from this Space.",
+      description: "A local-first inbox built and released from this work-folder.",
       icon: "mail",
     } as const;
     const declared = await request<{ project: LocalAppProject }>(api.origin, studioPath, {
       method: "PUT",
       body: presentation,
     });
-    assert.equal(declared.project.spaceId, source.id);
+    assert.equal(declared.project.workFolderId, source.id);
     assert.deepEqual(declared.project.presentation, presentation);
 
-    await writePackage(join(source.spaceRoot, ...sourcePath.split("/")), {
+    await writePackage(join(source.workFolderRoot, ...sourcePath.split("/")), {
       packageVersion: "0.1.0",
       marker: "first-reviewed-revision",
     });
-    const firstReview = await inspect(api.origin, source.id);
-    const preview = await request<{ app: RestrictedAppInstalled }>(
-      api.origin,
-      `/api/spaces/${source.id}/restricted-apps`,
-      { method: "POST", body: { sourcePath, expectedDigest: firstReview.digest } },
-    );
+    const preview = { app: await installPreview(service, source) };
     assert.equal(preview.app.runtimeInstanceKind, "development");
     assert.equal(preview.app.releaseDigest, null);
     assert.equal(preview.app.projectId, declared.project.projectId);
@@ -140,7 +135,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       /published Release/i,
       {
         method: "POST",
-        body: { targetSpaceId: target.id, releaseDigest: prepared.release.releaseDigest },
+        body: { targetWorkFolderId: target.id, releaseDigest: prepared.release.releaseDigest },
       },
     );
     assert.deepEqual(
@@ -151,7 +146,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/app-studio/releases/publish`,
+      `/api/work-folders/${target.id}/app-studio/releases/publish`,
       400,
       /does not belong/i,
       { method: "POST", body: { releaseDigest: prepared.release.releaseDigest } },
@@ -167,47 +162,47 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       api.origin,
       `${studioPath}/installs/prepare`,
       404,
-      /Space not found/i,
+      /work-folder not found/i,
       {
         method: "POST",
-        body: { targetSpaceId: "space-0000000000000000", releaseDigest: published.release.releaseDigest },
+        body: { targetWorkFolderId: "space-0000000000000000", releaseDigest: published.release.releaseDigest },
       },
     );
-    const racedTarget = await createSpace(api.origin, "Removed during install preparation");
+    const racedTarget = await createWorkFolder(api.origin, "Removed during install preparation");
     removeBeforeRevalidation = racedTarget.id;
     await expectFailure(
       api.origin,
       `${studioPath}/installs/prepare`,
       404,
-      /Space not found/i,
+      /work-folder not found/i,
       {
         method: "POST",
-        body: { targetSpaceId: racedTarget.id, releaseDigest: published.release.releaseDigest },
+        body: { targetWorkFolderId: racedTarget.id, releaseDigest: published.release.releaseDigest },
       },
     );
     assert.equal(removeBeforeRevalidation, null, "the post-reservation race seam must have run");
     assert.deepEqual(
       (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.operations,
       [],
-      "an install cannot become durable after its target Space removal commits",
+      "an install cannot become durable after its target work-folder removal commits",
     );
     assert.equal(
-      (await request<{ spaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap")).spaces
-        .some((space) => space.id === racedTarget.id),
+      (await request<{ workFolders: Array<{ id: string }> }>(api.origin, "/api/bootstrap")).workFolders
+        .some((workFolder) => workFolder.id === racedTarget.id),
       false,
       "the failed install must observe the committed target removal",
     );
     const install = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetSpaceId: target.id, releaseDigest: published.release.releaseDigest },
+      body: { targetWorkFolderId: target.id, releaseDigest: published.release.releaseDigest },
     });
     assert.equal(install.operation.kind, "install");
-    assert.equal(install.operation.targetSpaceId, target.id);
+    assert.equal(install.operation.targetWorkFolderId, target.id);
     assert.equal(install.operation.releaseDigest, published.release.releaseDigest);
     assert.deepEqual(
-      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
+      (await request<{ impact: LocalAppWorkFolderRemovalImpact }>(
         api.origin,
-        `/api/spaces/${target.id}/app-removal-impact`,
+        `/api/work-folders/${target.id}/app-removal-impact`,
       )).impact,
       {
         activeSourceInstanceCount: 0,
@@ -215,40 +210,40 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
         retainedDataCount: 0,
         incomingPreparedOperationCount: 1,
       },
-      "Space removal preflight must expose an incoming prepared installation before activation",
+      "work-folder removal preflight must expose an incoming prepared installation before activation",
     );
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/app-studio/operations/${install.operation.operationId}`,
+      `/api/work-folders/${target.id}/app-studio/operations/${install.operation.operationId}`,
       404,
       /operation not found/i,
       { method: "DELETE" },
     );
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/app-studio/operations/${install.operation.operationId}/activate`,
+      `/api/work-folders/${target.id}/app-studio/operations/${install.operation.operationId}/activate`,
       404,
       /operation not found/i,
       { method: "POST", body: {} },
     );
     const activated = await request<{
-      instance: { runtimeInstanceId: string; spaceId: string; releaseDigest: string };
+      instance: { runtimeInstanceId: string; workFolderId: string; releaseDigest: string };
       apps: RestrictedAppInstalled[];
     }>(api.origin, `${studioPath}/operations/${install.operation.operationId}/activate`, {
       method: "POST",
       body: {},
     });
     assert.equal(activated.instance.runtimeInstanceId, install.operation.runtimeInstanceId);
-    assert.equal(activated.instance.spaceId, target.id);
+    assert.equal(activated.instance.workFolderId, target.id);
     assert.equal(activated.instance.releaseDigest, published.release.releaseDigest);
     assert.equal(activated.apps.length, 1);
     assertPowersOn(activated.apps[0]!, published.release.releaseDigest);
     await assertConnectionIsUnset(api.origin, target.id, activated.apps[0]!);
     assert.deepEqual(
-      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
+      (await request<{ impact: LocalAppWorkFolderRemovalImpact }>(
         api.origin,
-        `/api/spaces/${target.id}/app-removal-impact`,
+        `/api/work-folders/${target.id}/app-removal-impact`,
       )).impact,
       {
         activeSourceInstanceCount: 0,
@@ -256,41 +251,37 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
         retainedDataCount: 0,
         incomingPreparedOperationCount: 0,
       },
-      "Space removal preflight must expose an active target App Instance",
+      "work-folder removal preflight must expose an active target App Instance",
     );
     assert.equal(
-      (await request<{ impact: LocalAppSpaceRemovalImpact }>(
+      (await request<{ impact: LocalAppWorkFolderRemovalImpact }>(
         api.origin,
-        `/api/spaces/${source.id}/app-removal-impact`,
+        `/api/work-folders/${source.id}/app-removal-impact`,
       )).impact.activeSourceInstanceCount,
       1,
-      "the source Space must expose its active downstream App Instance",
+      "the source work-folder must expose its active downstream App Instance",
     );
 
     const firstTargetList = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
-      `/api/spaces/${target.id}/restricted-apps`,
+      `/api/work-folders/${target.id}/restricted-apps`,
     );
     assert.equal(firstTargetList.apps.length, 1);
     assertPowersOn(firstTargetList.apps[0]!, published.release.releaseDigest);
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}`,
+      `/api/work-folders/${target.id}`,
       400,
       /Uninstall release-backed Apps/i,
       { method: "DELETE" },
     );
 
-    await writePackage(join(source.spaceRoot, ...sourcePath.split("/")), {
+    await writePackage(join(source.workFolderRoot, ...sourcePath.split("/")), {
       packageVersion: "0.2.0",
       marker: "second-reviewed-revision",
     });
-    const secondReview = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/spaces/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: secondReview.digest },
-    });
+    await installPreview(service, source);
     const secondPrepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "2.0.0" },
@@ -333,19 +324,19 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
       },
     );
     assert.equal(update.operation.kind, "update");
-    assert.equal(update.operation.targetSpaceId, target.id);
+    assert.equal(update.operation.targetWorkFolderId, target.id);
     assert.equal(update.operation.plan.canCommit, true);
     assert.equal(update.operation.plan.toReleaseDigest, secondPublished.release.releaseDigest);
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/app-studio/operations/${update.operation.operationId}/activate`,
+      `/api/work-folders/${target.id}/app-studio/operations/${update.operation.operationId}/activate`,
       404,
       /operation not found/i,
       { method: "POST", body: {} },
     );
     const updated = await request<{
-      instance: { runtimeInstanceId: string; spaceId: string; releaseDigest: string };
+      instance: { runtimeInstanceId: string; workFolderId: string; releaseDigest: string };
       apps: RestrictedAppInstalled[];
     }>(api.origin, `${studioPath}/operations/${update.operation.operationId}/activate`, {
       method: "POST",
@@ -372,29 +363,29 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/work-folders/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
       400,
       /retain or purge/i,
       { method: "DELETE", body: {} },
     );
     await expectFailure(
       api.origin,
-      `/api/spaces/${source.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/work-folders/${source.id}/local-app-instances/${installed.runtimeInstanceId}`,
       404,
       /Instance not found/i,
       { method: "DELETE", body: { dataDisposition: "retain" } },
     );
     assert.equal(
-      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/spaces/${target.id}/restricted-apps`)).apps.length,
+      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/work-folders/${target.id}/restricted-apps`)).apps.length,
       1,
-      "a foreign Space cannot uninstall an attached App Instance",
+      "a foreign work-folder cannot uninstall an attached App Instance",
     );
 
     const uninstalled = await request<{
       removed: boolean;
       retainedData: LocalAppRetainedData[];
       cleanupPending: boolean;
-    }>(api.origin, `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`, {
+    }>(api.origin, `/api/work-folders/${target.id}/local-app-instances/${installed.runtimeInstanceId}`, {
       method: "DELETE",
       body: { dataDisposition: "retain" },
     });
@@ -405,7 +396,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     await expectFailure(
       api.origin,
-      `/api/spaces/${source.id}`,
+      `/api/work-folders/${source.id}`,
       400,
       /Purge .* retained local data/i,
       { method: "DELETE" },
@@ -413,7 +404,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(
       (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.project?.projectId,
       declared.project.projectId,
-      "a retained-data blocker must be checked before committing a Space-removal intent",
+      "a retained-data blocker must be checked before committing a work-folder-removal intent",
     );
 
     const retainedDataId = uninstalled.retainedData[0]!.retainedDataId;
@@ -421,18 +412,18 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     assert.equal(retainedExport.backup.appId, installed.manifest.id);
     assert.equal(retainedExport.backup.complete, true);
     assert.deepEqual(retainedExport.backup.data.entries, [{ key: "view-state", value: { selectedFolder: "inbox" } }]);
-    const foreignExport = await fetch(`${api.origin}/api/spaces/${target.id}/app-studio/retained-data/${retainedDataId}`);
-    assert.equal(foreignExport.status, 503, "a foreign Space cannot export retained Project data");
+    const foreignExport = await fetch(`${api.origin}/api/work-folders/${target.id}/app-studio/retained-data/${retainedDataId}`);
+    assert.equal(foreignExport.status, 503, "a foreign work-folder cannot export retained Project data");
     await expectFailure(
       api.origin,
-      `/api/spaces/${target.id}/app-studio/retained-data/${retainedDataId}`,
+      `/api/work-folders/${target.id}/app-studio/retained-data/${retainedDataId}`,
       404,
       /retained .*data not found/i,
       { method: "DELETE" },
     );
-    assert.equal((await storage.usage(owner)).keyCount, 1, "a foreign Space cannot purge another Project's retained data");
+    assert.equal((await storage.usage(owner)).keyCount, 1, "a foreign work-folder cannot purge another Project's retained data");
 
-    const purged = await request<{ purged: boolean; cleanupPending: boolean; trash: Array<{ entryId: string }> }>(
+    const purged = await request<{ purged: boolean; cleanupPending: boolean; recentlyDeleted: Array<{ entryId: string }> }>(
       api.origin,
       `${studioPath}/retained-data/${retainedDataId}`,
       { method: "DELETE" },
@@ -443,33 +434,33 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     // The purge keeps a complete copy in Recently deleted first
     // (docs/receipts-not-gates.md, F20). Retained data has no app to go back
     // into, so the copy is a file the person can save.
-    assert.equal(purged.trash.length, 1);
-    const keptRetained = (await api.trash.list()).entries.filter((entry) => entry.kind === "app-retained");
+    assert.equal(purged.recentlyDeleted.length, 1);
+    const keptRetained = (await api.recentlyDeleted.list()).entries.filter((entry) => entry.kind === "app-retained");
     assert.equal(keptRetained.length, 1);
-    assert.equal(keptRetained[0]?.id, purged.trash[0]?.entryId);
+    assert.equal(keptRetained[0]?.id, purged.recentlyDeleted[0]?.entryId);
     assert.equal(keptRetained[0]?.reason, "apps.retained.purge");
     assert.deepEqual(
-      (await api.trash.readAppData(keptRetained[0]!.id)).data.entries,
+      (await api.recentlyDeleted.readAppData(keptRetained[0]!.id)).data.entries,
       retainedExport.backup.data.entries,
     );
     // Retained data has no app to go back into, so it can only be saved as a
-    // file, and never into a Space or work-fold's own files.
+    // file, and never into a work-folder or work-fold's own files.
     assert.equal(keptRetained[0]!.kind, "app-retained");
     await assert.rejects(
-      api.actFacade.trashRestore({ entry: keptRetained[0]!.id }),
+      api.actFacade.recentlyDeletedRestore({ entry: keptRetained[0]!.id }),
       /no app to go back into|Save a copy/i,
     );
     await assert.rejects(
-      api.actFacade.trashRestore({ entry: keptRetained[0]!.id, toPath: join(source.spaceRoot, "copy.json") }),
-      /outside your Spaces/i,
+      api.actFacade.recentlyDeletedRestore({ entry: keptRetained[0]!.id, toPath: join(source.workFolderRoot, "copy.json") }),
+      /outside your work-folders/i,
     );
     const savedTo = join(sandbox, "saved-app-data.json");
-    const saved = await api.actFacade.trashRestore({ entry: keptRetained[0]!.id, toPath: savedTo });
+    const saved = await api.actFacade.recentlyDeletedRestore({ entry: keptRetained[0]!.id, toPath: savedTo });
     assert.equal(saved.restored.kind, "saved-copy");
     const savedBackup = JSON.parse(await readFile(savedTo, "utf8")) as { data: { entries: unknown[] } };
     assert.deepEqual(savedBackup.data.entries, retainedExport.backup.data.entries);
     assert.equal(
-      (await api.trash.list()).entries.some((entry) => entry.id === keptRetained[0]!.id),
+      (await api.recentlyDeleted.list()).entries.some((entry) => entry.id === keptRetained[0]!.id),
       false,
       "a saved copy leaves Recently deleted",
     );
@@ -480,7 +471,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
 
     const purgeInstall = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetSpaceId: target.id, releaseDigest: secondPublished.release.releaseDigest },
+      body: { targetWorkFolderId: target.id, releaseDigest: secondPublished.release.releaseDigest },
     });
     const purgeActivated = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
@@ -493,10 +484,10 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     const purgeUninstall = await request<{
       removed: boolean;
       retainedData: LocalAppRetainedData[];
-      trash: Array<{ entryId: string; restoreBy: string }>;
+      recentlyDeleted: Array<{ entryId: string; restoreBy: string }>;
     }>(
       api.origin,
-      `/api/spaces/${target.id}/local-app-instances/${purgeApp.runtimeInstanceId}`,
+      `/api/work-folders/${target.id}/local-app-instances/${purgeApp.runtimeInstanceId}`,
       { method: "DELETE", body: { dataDisposition: "purge" } },
     );
     assert.equal(purgeUninstall.removed, true);
@@ -505,42 +496,81 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
     // Uninstall-with-purge keeps a copy of every namespace it destroys
     // (docs/receipts-not-gates.md, F20). The app is gone, so the copy can only
     // be saved as a file.
-    assert.equal(purgeUninstall.trash.length, 1);
-    const keptPurge = (await api.trash.list()).entries
-      .find((entry) => entry.id === purgeUninstall.trash[0]?.entryId);
+    assert.equal(purgeUninstall.recentlyDeleted.length, 1);
+    const keptPurge = (await api.recentlyDeleted.list()).entries
+      .find((entry) => entry.id === purgeUninstall.recentlyDeleted[0]?.entryId);
     assert.equal(keptPurge?.reason, "apps.uninstall.purge");
     assert.equal(keptPurge?.kind, "app-storage");
     assert.deepEqual(
-      (await api.trash.readAppData(keptPurge!.id)).data.entries,
+      (await api.recentlyDeleted.readAppData(keptPurge!.id)).data.entries,
       [{ key: "temporary", value: true }],
     );
     await assert.rejects(
-      api.actFacade.trashRestore({ entry: keptPurge!.id }),
+      api.actFacade.recentlyDeletedRestore({ entry: keptPurge!.id }),
       /no longer installed|Save a copy/i,
     );
 
-    const releaseDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    type ReleaseDeletion = { deletion: { deleted: boolean; cleanupPending: boolean; recentlyDeleted: { entryId: string; restoreBy: string } | null } };
+    const releaseIsListed = async () => (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .some((release) => release.releaseDigest === published.release.releaseDigest);
+    const releaseDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
-    assert.deepEqual(releaseDeletion.deletion, { deleted: true, cleanupPending: false });
-    assert.equal(
-      (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
-        .some((release) => release.releaseDigest === published.release.releaseDigest),
-      false,
+    assert.equal(releaseDeletion.deletion.deleted, true);
+    assert.equal(releaseDeletion.deletion.cleanupPending, false);
+    assert.equal(await releaseIsListed(), false);
+    // Deleting a Release is reversible (docs/receipts-not-gates.md, F20): it
+    // waits in Recently deleted and comes back published, as it was.
+    const keptRelease = releaseDeletion.deletion.recentlyDeleted;
+    assert.ok(keptRelease, "the deleted Release waits in Recently deleted");
+    const listedRelease = (await request<{ entries: Array<{ id: string; kind: string; reason: string; name: string; restorable: string; receiptId: string | null }> }>(
+      api.origin,
+      "/api/settings/recently-deleted",
+    )).entries.find((entry) => entry.id === keptRelease.entryId);
+    assert.equal(listedRelease?.kind, "app-release");
+    assert.equal(listedRelease?.reason, "apps.release.delete");
+    assert.equal(listedRelease?.name, "Connected Inbox 1.0.0");
+    assert.equal(listedRelease?.restorable, "in-place");
+    assert.match(listedRelease?.receiptId ?? "", /\S/, "the deletion's receipt names the entry it produced");
+    const restoredRelease = await request<{ restored: { kind: string; releaseDigest: string; displayVersion: string } }>(
+      api.origin,
+      `/api/settings/recently-deleted/${keptRelease.entryId}/restore`,
+      { method: "POST", body: {} },
     );
-    const repeatedDeletion = await request<{ deletion: { deleted: boolean; cleanupPending: boolean } }>(
+    assert.deepEqual(
+      { kind: restoredRelease.restored.kind, releaseDigest: restoredRelease.restored.releaseDigest, displayVersion: restoredRelease.restored.displayVersion },
+      { kind: "app-release", releaseDigest: published.release.releaseDigest, displayVersion: "1.0.0" },
+    );
+    const back = (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.releases
+      .find((release) => release.releaseDigest === published.release.releaseDigest);
+    assert.equal(back?.state, "published", "the Release returns in the state it was deleted in");
+    assert.equal(
+      (await api.recentlyDeleted.list()).entries.some((entry) => entry.id === keptRelease.entryId),
+      false,
+      "a restored Release leaves Recently deleted",
+    );
+
+    const secondDeletion = await request<ReleaseDeletion>(
+      api.origin,
+      `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
+      { method: "DELETE" },
+    );
+    assert.equal(secondDeletion.deletion.deleted, true);
+    assert.equal(await releaseIsListed(), false);
+    const repeatedDeletion = await request<ReleaseDeletion>(
       api.origin,
       `${studioPath}/releases/${encodeURIComponent(published.release.releaseDigest)}`,
       { method: "DELETE" },
     );
     assert.equal(repeatedDeletion.deletion.deleted, false, "Release deletion is retry-safe after registry commit");
+    assert.equal(repeatedDeletion.deletion.recentlyDeleted, null, "a delete that removed nothing keeps nothing");
 
-    const removedSpace = await request<{ removed: boolean }>(api.origin, `/api/spaces/${target.id}`, {
+    const removedWorkFolder = await request<{ removed: boolean }>(api.origin, `/api/work-folders/${target.id}`, {
       method: "DELETE",
     });
-    assert.equal(removedSpace.removed, true, "the Space is removable after its attached App Instance is explicitly uninstalled");
+    assert.equal(removedWorkFolder.removed, true, "the work-folder is removable after its attached App Instance is explicitly uninstalled");
     assert.deepEqual(
       malformedBodyStatuses,
       [400, 400, 400, 400, 400],
@@ -552,7 +582,7 @@ test("local App Studio API keeps Project, Release, installation, update, and dat
   }
 });
 
-test("target-scoped uninstall survives an unavailable linked source Space", async () => {
+test("target-scoped uninstall survives an unavailable linked source work-folder", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-missing-source-api-"));
   const stateBase = join(sandbox, "state");
   const restrictedAppRoot = join(stateBase, "restricted-apps");
@@ -561,7 +591,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
   const api = await startLocalApi({
     port: 0,
     stateBase,
-    spaceBase: join(sandbox, "managed-spaces"),
+    workFolderBase: join(sandbox, "managed-spaces"),
     loadEnv: false,
     restrictedAppService: service,
   });
@@ -569,10 +599,10 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
   try {
     const linkedRoot = join(sandbox, "linked-app-source");
     await mkdir(linkedRoot, { recursive: true });
-    const source = await registerLinkedSpace(api.origin, linkedRoot);
+    const source = await registerLinkedWorkFolder(api.origin, linkedRoot);
     assert.equal(source.location.storage, "linked");
-    const target = await createSpace(api.origin, "Missing-source destination");
-    const studioPath = `/api/spaces/${source.id}/app-studio`;
+    const target = await createWorkFolder(api.origin, "Missing-source destination");
+    const studioPath = `/api/work-folders/${source.id}/app-studio`;
 
     await request<{ project: LocalAppProject }>(api.origin, studioPath, {
       method: "PUT",
@@ -586,11 +616,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
       packageVersion: "1.0.0",
       marker: "linked-source-release",
     });
-    const review = await inspect(api.origin, source.id);
-    await request<{ app: RestrictedAppInstalled }>(api.origin, `/api/spaces/${source.id}/restricted-apps`, {
-      method: "POST",
-      body: { sourcePath, expectedDigest: review.digest },
-    });
+    await installPreview(service, source);
     const prepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
       method: "POST",
       body: { displayVersion: "1.0.0" },
@@ -601,7 +627,7 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
     });
     const install = await request<{ operation: LocalAppInstallPlan }>(api.origin, `${studioPath}/installs/prepare`, {
       method: "POST",
-      body: { targetSpaceId: target.id, releaseDigest: published.release.releaseDigest },
+      body: { targetWorkFolderId: target.id, releaseDigest: published.release.releaseDigest },
     });
     const activated = await request<{ apps: RestrictedAppInstalled[] }>(
       api.origin,
@@ -614,25 +640,25 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
 
     const movedRoot = join(sandbox, "linked-app-source-moved-away");
     await rename(linkedRoot, movedRoot);
-    const afterMove = await request<{ spaces: Array<{ id: string }> }>(api.origin, "/api/bootstrap");
-    assert.equal(afterMove.spaces.some((space) => space.id === source.id), false);
-    assert.equal(afterMove.spaces.some((space) => space.id === target.id), true);
-    await expectFailure(api.origin, studioPath, 404, /Space not found/i);
+    const afterMove = await request<{ workFolders: Array<{ id: string }> }>(api.origin, "/api/bootstrap");
+    assert.equal(afterMove.workFolders.some((workFolder) => workFolder.id === source.id), false);
+    assert.equal(afterMove.workFolders.some((workFolder) => workFolder.id === target.id), true);
+    await expectFailure(api.origin, studioPath, 404, /work-folder not found/i);
 
     const uninstalled = await request<{ removed: boolean; retainedData: LocalAppRetainedData[] }>(
       api.origin,
-      `/api/spaces/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
+      `/api/work-folders/${target.id}/local-app-instances/${installed.runtimeInstanceId}`,
       { method: "DELETE", body: { dataDisposition: "purge" } },
     );
     assert.equal(uninstalled.removed, true);
     assert.deepEqual(uninstalled.retainedData, []);
     assert.equal((await storage.usage(owner)).keyCount, 0);
     assert.deepEqual(
-      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/spaces/${target.id}/restricted-apps`)).apps,
+      (await request<{ apps: RestrictedAppInstalled[] }>(api.origin, `/api/work-folders/${target.id}/restricted-apps`)).apps,
       [],
     );
 
-    const removedTarget = await request<{ removed: boolean }>(api.origin, `/api/spaces/${target.id}`, {
+    const removedTarget = await request<{ removed: boolean }>(api.origin, `/api/work-folders/${target.id}`, {
       method: "DELETE",
     });
     assert.equal(removedTarget.removed, true);
@@ -642,31 +668,126 @@ test("target-scoped uninstall survives an unavailable linked source Space", asyn
   }
 });
 
-async function createSpace(origin: string, name: string): Promise<{ id: string; spaceRoot: string }> {
-  return (await request<{ space: { id: string; spaceRoot: string } }>(origin, "/api/spaces", {
+test("removing a work-folder keeps its App Studio history in Recently deleted and brings it back with its apps' data", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-local-app-studio-removal-api-"));
+  const stateBase = join(sandbox, "state");
+  const restrictedAppRoot = join(stateBase, "restricted-apps");
+  const storage = new FileRestrictedAppStorage(join(restrictedAppRoot, "data"));
+  const service = await RestrictedAppService.create({ rootPath: restrictedAppRoot, storage });
+  const api = await startLocalApi({
+    port: 0,
+    stateBase,
+    workFolderBase: join(sandbox, "managed-work-folders"),
+    loadEnv: false,
+    restrictedAppService: service,
+  });
+  type Listed = { id: string; kind: string; reason: string; name: string; restorable: string; note?: string; receiptId: string | null };
+  const listed = async () => (await request<{ entries: Listed[] }>(api.origin, "/api/settings/recently-deleted")).entries;
+
+  try {
+    const linkedRoot = join(sandbox, "linked-app-source");
+    await mkdir(linkedRoot, { recursive: true });
+    const source = await registerLinkedWorkFolder(api.origin, linkedRoot);
+    const studioPath = `/api/work-folders/${source.id}/app-studio`;
+    await request<{ project: LocalAppProject }>(api.origin, studioPath, {
+      method: "PUT",
+      body: { title: "Connected Inbox", description: "Kept through removal.", icon: "mail" },
+    });
+    await writePackage(join(linkedRoot, ...sourcePath.split("/")), { packageVersion: "1.0.0", marker: "kept-through-removal" });
+    const preview = await installPreview(service, source);
+    await storage.set(storageOwner(preview), "inbox", { unread: 4 });
+    const prepared = await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/prepare`, {
+      method: "POST",
+      body: { displayVersion: "1.0.0" },
+    });
+    await request<{ release: LocalAppRelease }>(api.origin, `${studioPath}/releases/publish`, {
+      method: "POST",
+      body: { releaseDigest: prepared.release.releaseDigest },
+    });
+
+    const removal = await request<{
+      appRecentlyDeletedEntries: Array<{ entryId: string }>;
+      appStudioRecentlyDeleted: { entryId: string; restoreBy: string } | null;
+    }>(api.origin, `/api/work-folders/${source.id}`, { method: "DELETE" });
+    const studioEntryId = removal.appStudioRecentlyDeleted?.entryId;
+    assert.ok(studioEntryId, "the removal names the App Studio history it kept");
+    assert.equal(removal.appRecentlyDeletedEntries.length, 1, "the preview's data was kept as its own item");
+    const dataEntryId = removal.appRecentlyDeletedEntries[0]!.entryId;
+    assert.equal((await storage.usage(storageOwner(preview))).keyCount, 0, "the live data went with the preview");
+
+    // Until the work-folder is registered again, restore refuses plainly.
+    let entries = await listed();
+    const studioEntry = entries.find((entry) => entry.id === studioEntryId);
+    assert.equal(studioEntry?.kind, "app-studio");
+    assert.equal(studioEntry?.reason, "apps.work-folder.removed");
+    assert.equal(studioEntry?.name, "Connected Inbox");
+    assert.match(studioEntry?.receiptId ?? "", /\S/, "the removal's receipt names the entry it produced");
+    assert.equal(studioEntry?.restorable, "blocked");
+    assert.match(studioEntry?.note ?? "", /Put .* back first/);
+    const dataEntry = entries.find((entry) => entry.id === dataEntryId);
+    assert.equal(dataEntry?.restorable, "save-only");
+    assert.match(dataEntry?.note ?? "", /Restore this work-folder's App Studio history first/);
+    await expectFailure(api.origin, `/api/settings/recently-deleted/${studioEntryId}/restore`, 409, /Put .* back first/, { method: "POST", body: {} });
+
+    // The folder kept its portable identity, so adding it again brings the same work-folder back.
+    const again = await registerLinkedWorkFolder(api.origin, linkedRoot);
+    assert.equal(again.id, source.id);
+    assert.equal((await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio.project, null);
+    entries = await listed();
+    assert.equal(entries.find((entry) => entry.id === studioEntryId)?.restorable, "in-place");
+
+    const restored = await request<{ restored: {
+      kind: string;
+      projectTitle: string | null;
+      previewCount: number;
+      releaseCount: number;
+      droppedOperationCount: number;
+      appDataEntryIds: string[];
+    } }>(api.origin, `/api/settings/recently-deleted/${studioEntryId}/restore`, { method: "POST", body: {} });
+    assert.equal(restored.restored.kind, "app-studio");
+    assert.equal(restored.restored.projectTitle, "Connected Inbox");
+    assert.equal(restored.restored.previewCount, 1);
+    assert.equal(restored.restored.releaseCount, 1);
+    assert.equal(restored.restored.droppedOperationCount, 0);
+    assert.deepEqual(restored.restored.appDataEntryIds, [dataEntryId], "the preview's data goes back into it in the same act");
+
+    const studio = (await request<{ studio: LocalAppStudioSnapshot }>(api.origin, studioPath)).studio;
+    assert.equal(studio.project?.presentation.title, "Connected Inbox");
+    assert.deepEqual(studio.releases.map((release) => [release.releaseDigest, release.state]), [[prepared.release.releaseDigest, "published"]]);
+    const back = studio.previews[0]!;
+    assert.equal(back.featureInstallationId, preview.featureInstallationId);
+    assert.deepEqual(await storage.get(storageOwner(back), "inbox"), { unread: 4 });
+    entries = await listed();
+    assert.equal(entries.some((entry) => entry.id === studioEntryId || entry.id === dataEntryId), false, "both items leave Recently deleted");
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+async function createWorkFolder(origin: string, name: string): Promise<{ id: string; workFolderRoot: string }> {
+  return (await request<{ workFolder: { id: string; workFolderRoot: string } }>(origin, "/api/work-folders", {
     method: "POST",
     body: { name },
-  })).space;
+  })).workFolder;
 }
 
-async function registerLinkedSpace(
+async function registerLinkedWorkFolder(
   origin: string,
-  spaceRoot: string,
-): Promise<{ id: string; spaceRoot: string; location: { storage: "linked" } }> {
+  workFolderRoot: string,
+): Promise<{ id: string; workFolderRoot: string; location: { storage: "linked" } }> {
   return (await request<{
-    space: { id: string; spaceRoot: string; location: { storage: "linked" } };
-  }>(origin, "/api/spaces/local-folder", {
+    workFolder: { id: string; workFolderRoot: string; location: { storage: "linked" } };
+  }>(origin, "/api/work-folders/local-folder", {
     method: "POST",
-    body: { spaceRoot },
-  })).space;
+    body: { workFolderRoot },
+  })).workFolder;
 }
 
-async function inspect(origin: string, spaceId: string): Promise<{ digest: string }> {
-  return (await request<{ review: { digest: string } }>(
-    origin,
-    `/api/spaces/${spaceId}/restricted-apps/inspect`,
-    { method: "POST", body: { sourcePath } },
-  )).review;
+/** Adds the package as a Local preview through the service's own inspect-then-install path. */
+async function installPreview(service: RestrictedAppService, workFolder: { id: string; workFolderRoot: string }): Promise<RestrictedAppInstalled> {
+  const review = await service.inspect({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath });
+  return await service.install({ workFolderId: workFolder.id, workFolderRoot: workFolder.workFolderRoot, sourcePath, expectedDigest: review.digest });
 }
 
 /** An installed or reset Feature comes up with the install defaults (docs/receipts-not-gates.md, F21). */
@@ -680,12 +801,12 @@ function assertPowersOn(app: RestrictedAppInstalled, releaseDigest: string): voi
   assert.equal(app.automations.every((automation) => automation.enabled === true), true);
 }
 
-async function assertConnectionIsUnset(origin: string, spaceId: string, app: RestrictedAppInstalled): Promise<void> {
+async function assertConnectionIsUnset(origin: string, workFolderId: string, app: RestrictedAppInstalled): Promise<void> {
   const response = await request<{
     connections: Array<{ destinationId: string; owner: string; kind: string | null; configured: boolean }>;
   }>(
     origin,
-    `/api/spaces/${spaceId}/restricted-apps/${featureId}/connections?expectedDigest=${app.digest}`,
+    `/api/work-folders/${workFolderId}/restricted-apps/${featureId}/connections?expectedDigest=${app.digest}`,
   );
   assert.deepEqual(response.connections, [{
     destinationId: "mail-api",

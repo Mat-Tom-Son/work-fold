@@ -6,7 +6,7 @@ export function displayModelIdentifier(value: string): string {
     .replace(/\b\w/g, (part) => part.toUpperCase());
 }
 
-export function displayAssistantModelLabel(provider: string, model: string): string {
+export function displayModelLabel(provider: string, model: string): string {
   const providerLabel = displayModelIdentifier(provider);
   const modelLabel = displayModelIdentifier(model);
   return providerLabel && modelLabel

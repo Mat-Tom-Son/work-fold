@@ -98,7 +98,7 @@ export interface WorkFoldCheckAuthorization {
 }
 
 export interface WorkFoldCheckRunRecord {
-  /** One-time review, excluded from live findings, freshness, and routing triggers. */
+  /** One-time review, excluded from live findings, freshness, and automation triggers. */
   trial?: true;
   id: string;
   taskId: string;
@@ -141,7 +141,7 @@ export interface WorkFoldCheckMachineState {
 export interface WorkFoldCheckStatusSnapshot {
   kind: "work-fold.checks.experimental";
   version: typeof workFoldCheckExperimentalSnapshotVersion;
-  spaceId: string;
+  workFolderId: string;
   state: WorkFoldCheckAggregateState;
   configured: number;
   proposed: number;
@@ -166,7 +166,7 @@ export type WorkFoldCheckRendererAuthorityState = "enabled" | "proposed" | "bloc
 export interface WorkFoldCheckRendererOverview {
   kind: "work-fold.checks.renderer";
   version: typeof workFoldCheckExperimentalSnapshotVersion;
-  spaceId: string;
+  workFolderId: string;
   status: WorkFoldCheckStatusSnapshot;
   checks: Array<{
     id: string;
@@ -191,6 +191,6 @@ export interface WorkFoldCheckRendererOverview {
 export interface WorkFoldCheckRendererDecorations {
   kind: "work-fold.checks.decorations";
   version: typeof workFoldCheckExperimentalSnapshotVersion;
-  spaceId: string;
+  workFolderId: string;
   items: Array<{ path: string; count: number }>;
 }

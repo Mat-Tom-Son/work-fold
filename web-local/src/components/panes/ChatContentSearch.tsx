@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { conversationLifecycleView } from "../../lib/chat-lifecycle";
 import { api } from "../../lib/api";
-import type { ChatLifecycleView, ConversationSummary, SpaceSummary } from "../../types";
+import type { ChatLifecycleView, ConversationSummary, WorkFolderSummary } from "../../types";
 
 export interface ChatContentMatch {
   conversationId: string;
@@ -18,9 +18,9 @@ interface ChatSearchResponse {
 }
 
 interface ChatSearchResult {
-  bySpace: Record<string, ChatSearchResponse>;
+  byWorkFolder: Record<string, ChatSearchResponse>;
   truncated: boolean;
-  failedSpaces: number;
+  failedWorkFolders: number;
 }
 
 const searchDebounceMs = 250;
@@ -28,23 +28,23 @@ const searchConcurrency = 3;
 const visibleMatchLimit = 50;
 
 export function ChatContentSearch({
-  spaces,
+  workFolders,
   conversations,
   query,
   now,
   onOpen,
 }: {
-  spaces: SpaceSummary[];
+  workFolders: WorkFolderSummary[];
   conversations: Record<string, ConversationSummary[]>;
   query: string;
   now: number;
-  onOpen: (space: SpaceSummary, conversation: ConversationSummary) => void;
+  onOpen: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => void;
 }) {
   const [state, setState] = useState<{
     status: "idle" | "searching" | "ready" | "error";
     result: ChatSearchResult | null;
   }>({ status: "idle", result: null });
-  const spaceIds = spaces.map((space) => space.id).join("|");
+  const workFolderIds = workFolders.map((workFolder) => workFolder.id).join("|");
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -55,7 +55,7 @@ export function ChatContentSearch({
     const controller = new AbortController();
     setState({ status: "searching", result: null });
     const timer = window.setTimeout(() => {
-      void searchChatTranscripts(spaces, trimmed, controller.signal)
+      void searchChatTranscripts(workFolders, trimmed, controller.signal)
         .then((result) => { if (!controller.signal.aborted) setState({ status: "ready", result }); })
         .catch(() => { if (!controller.signal.aborted) setState({ status: "error", result: null }); });
     }, searchDebounceMs);
@@ -63,26 +63,26 @@ export function ChatContentSearch({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [query, spaceIds]);
+  }, [query, workFolderIds]);
 
   const matches = useMemo(() => {
     if (!state.result) return [];
     const result: Array<{
-      space: SpaceSummary;
+      workFolder: WorkFolderSummary;
       conversation: ConversationSummary;
       match: ChatContentMatch;
     }> = [];
-    for (const space of spaces) {
-      const summaries = new Map((conversations[space.id] ?? []).map((conversation) => [conversation.id, conversation]));
-      for (const match of state.result.bySpace[space.id]?.chats ?? []) {
+    for (const workFolder of workFolders) {
+      const summaries = new Map((conversations[workFolder.id] ?? []).map((conversation) => [conversation.id, conversation]));
+      for (const match of state.result.byWorkFolder[workFolder.id]?.chats ?? []) {
         const conversation = summaries.get(match.conversationId);
         // Search covers every Chat; a snoozed or archived one says so on its row.
         if (!conversation) continue;
-        result.push({ space, conversation, match });
+        result.push({ workFolder, conversation, match });
       }
     }
     return result;
-  }, [state.result, spaces, conversations]);
+  }, [state.result, workFolders, conversations]);
 
   if (state.status === "idle") return null;
   const visible = matches.slice(0, visibleMatchLimit);
@@ -106,11 +106,11 @@ export function ChatContentSearch({
           ? <p className="chat-content-search-note">No Chat transcripts match.</p>
           : (
             <ul>
-              {visible.map(({ space, conversation, match }, index) => (
-                <li key={`${space.id}:${match.conversationId}:${match.createdAt}:${index}`}>
-                  <button type="button" onClick={() => onOpen(space, conversation)}>
+              {visible.map(({ workFolder, conversation, match }, index) => (
+                <li key={`${workFolder.id}:${match.conversationId}:${match.createdAt}:${index}`}>
+                  <button type="button" onClick={() => onOpen(workFolder, conversation)}>
                     <span className="chat-content-search-title">{conversation.title}</span>
-                    <span className="chat-content-search-meta">{[space.name, lifecycleLabel(conversationLifecycleView(conversation, now)), chatRoleLabel(match.role)].filter(Boolean).join(" · ")}</span>
+                    <span className="chat-content-search-meta">{[workFolder.name, lifecycleLabel(conversationLifecycleView(conversation, now)), chatRoleLabel(match.role)].filter(Boolean).join(" · ")}</span>
                     <span className="chat-content-search-preview">{match.preview}</span>
                   </button>
                 </li>
@@ -120,7 +120,7 @@ export function ChatContentSearch({
       {truncated
         ? <p className="chat-content-search-note">Showing the first {visible.length} matches.</p>
         : null}
-      {state.result?.failedSpaces
+      {state.result?.failedWorkFolders
         ? <p className="chat-content-search-note">Some work-folders couldn&rsquo;t be searched.</p>
         : null}
     </section>
@@ -136,35 +136,35 @@ function chatRoleLabel(role: ChatContentMatch["role"]): string {
 }
 
 async function searchChatTranscripts(
-  spaces: SpaceSummary[],
+  workFolders: WorkFolderSummary[],
   query: string,
   signal: AbortSignal,
 ): Promise<ChatSearchResult> {
-  const bySpace: Record<string, ChatSearchResponse> = {};
-  let failedSpaces = 0;
+  const byWorkFolder: Record<string, ChatSearchResponse> = {};
+  let failedWorkFolders = 0;
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(searchConcurrency, spaces.length) }, async () => {
-    while (next < spaces.length) {
-      const space = spaces[next++];
-      if (!space) continue;
+  await Promise.all(Array.from({ length: Math.min(searchConcurrency, workFolders.length) }, async () => {
+    while (next < workFolders.length) {
+      const workFolder = workFolders[next++];
+      if (!workFolder) continue;
       try {
         const result = await api<ChatSearchResponse>(
-          `/api/spaces/${space.id}/search?scope=chats&q=${encodeURIComponent(query)}`,
+          `/api/work-folders/${workFolder.id}/search?scope=chats&q=${encodeURIComponent(query)}`,
           { signal },
         );
-        bySpace[space.id] = result;
+        byWorkFolder[workFolder.id] = result;
       } catch (error) {
         if (signal.aborted) throw error;
-        failedSpaces += 1;
+        failedWorkFolders += 1;
       }
     }
   }));
-  if (spaces.length > 0 && failedSpaces === spaces.length) {
+  if (workFolders.length > 0 && failedWorkFolders === workFolders.length) {
     throw new Error("No Chat transcripts could be searched.");
   }
   return {
-    bySpace,
-    truncated: Object.values(bySpace).some((result) => result.truncated),
-    failedSpaces,
+    byWorkFolder,
+    truncated: Object.values(byWorkFolder).some((result) => result.truncated),
+    failedWorkFolders,
   };
 }

@@ -76,10 +76,6 @@
 .model-context-json mark { background: color-mix(in srgb, var(--mci-accent) 24%, transparent); color: inherit; }
 .model-context-no-payload { margin: 12px 0; max-width: 560px; color: var(--mci-muted); font-size: 12px; }
 .model-context-coverage { flex: none; padding: 7px 22px; border-top: 1px solid var(--mci-border); color: var(--mci-muted); font-size: 10px; }
-.inspect-context-trigger { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 26px; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--ui-text-muted, var(--pop-text-muted, #5b6472)); font: inherit; font-size: 10px; cursor: pointer; white-space: nowrap; }
-.inspect-context-trigger:hover { color: var(--ui-accent, var(--pop-accent, #0b6fd6)); background: rgb(100 120 140 / 8%); }
-.inspect-context-trigger:focus-visible { outline: 2px solid var(--ui-accent, var(--pop-accent, #0b6fd6)); outline-offset: 2px; }
-.inspect-context-trigger.compact { width: 28px; height: 28px; padding: 0; }
 .model-context-settings-entry { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0 8px; border-top: 1px solid var(--ui-border, #dce1d9); }
 .model-context-settings-entry h3 { margin: 0 0 3px; font-size: 13px; }
 .model-context-settings-entry p { margin: 0; font-size: 12px; color: var(--ui-text-muted, #5b6472); }

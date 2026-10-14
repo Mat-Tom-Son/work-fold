@@ -1,6 +1,6 @@
 // Inert local UI fixture only. Domain, transport and Electron tests cover real execution.
 async (page) => {
-  if (page.url() !== 'http://127.0.0.1:4319/?fixture=spaces') throw new Error('Expected the isolated fixture');
+  if (page.url() !== 'http://127.0.0.1:4319/?fixture=work-folders') throw new Error('Expected the isolated fixture');
   await page.reload();
   await page.getByRole('button', { name: 'Quote board', exact: true }).click();
   const app = page.locator('iframe[title="Quote board"]').contentFrame().locator('iframe[title="App content"]').contentFrame();

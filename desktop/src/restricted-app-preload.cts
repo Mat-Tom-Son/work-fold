@@ -4,6 +4,7 @@ const networkChannel = "work-fold:restricted-app:network";
 const tabCommandChannel = "work-fold:restricted-app:tabs";
 const contextChannel = "work-fold:restricted-app:context";
 const storageChannel = "work-fold:restricted-app:storage";
+const attentionChannel = "work-fold:restricted-app:attention";
 const storageChangedChannel = "work-fold:restricted-app:storage-changed";
 const tasksChangedChannel = "work-fold:restricted-app:tasks-changed";
 const checksChangedChannel = "work-fold:restricted-app:checks-changed";
@@ -14,7 +15,6 @@ const assistantTasksChannel = "work-fold:restricted-app:assistant-tasks";
 const assistantInferChannel = "work-fold:restricted-app:assistant-infer";
 const filesChannel = "work-fold:restricted-app:files";
 const notificationsChannel = "work-fold:restricted-app:notifications";
-const maximumFileEnvelopeBytes = 800 * 1024;
 const encoder = new TextEncoder();
 
 function argumentValue(name: string): string {
@@ -28,6 +28,18 @@ function initialState(): unknown {
   const value = argumentValue("state");
   if (!value) return null;
   try { return JSON.parse(value); } catch { return null; }
+}
+
+/** The notification click that opened this left-pane view, or null; the host already checked it. */
+function initialOpenedFrom(): { kind: "notification"; permissionId: string } | null {
+  const value = argumentValue("opened-from");
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { kind?: unknown; permissionId?: unknown };
+    return parsed?.kind === "notification" && typeof parsed.permissionId === "string"
+      ? Object.freeze({ kind: "notification" as const, permissionId: parsed.permissionId })
+      : null;
+  } catch { return null; }
 }
 
 /**
@@ -51,13 +63,18 @@ function deepFreeze<T>(value: T): T {
 }
 
 const limits = initialLimits();
-const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 128 * 1024);
+// The fallbacks match the host defaults (src/local/agent/restricted-app-limits.ts
+// composes the published values); the host re-checks every envelope anyway.
+const networkRequestBytes = nestedPositiveInteger(limits, "network", "maxRequestBytes", 16 * 1024 * 1024);
 const maximumNetworkEnvelopeBytes = networkRequestBytes * 6 + 64 * 1024;
-const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 160 * 1024) + 64 * 1024;
-// JSON escaping can expand one byte into six, so both Assistant envelopes
-// leave that headroom over the published input bound.
-const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 64 * 1024) * 6 + 64 * 1024;
-const maximumInferEnvelopeBytes = nestedPositiveInteger(limits, "inference", "inputBytes", 256 * 1024) * 6 + 128 * 1024;
+const maximumStorageEnvelopeBytes = nestedPositiveInteger(limits, "storage", "maxTransactionBytes", 64 * 1024 * 1024) + 64 * 1024;
+// JSON escaping can expand one byte into six, so the file, Worker-request, and
+// inference envelopes leave that headroom over every published input bound.
+const maximumFileEnvelopeBytes = nestedPositiveInteger(limits, "files", "maxWriteBytes", 64 * 1024 * 1024) * 6 + 64 * 1024;
+const maximumAssistantEnvelopeBytes = nestedPositiveInteger(limits, "assistant", "inputBytes", 4 * 1024 * 1024) * 6 + 64 * 1024;
+const maximumInferEnvelopeBytes = (nestedPositiveInteger(limits, "inference", "instructionsBytes", 1024 * 1024)
+  + nestedPositiveInteger(limits, "inference", "inputBytes", 16 * 1024 * 1024)
+  + nestedPositiveInteger(limits, "inference", "schemaBytes", 1024 * 1024)) * 6 + 64 * 1024;
 
 function nestedPositiveInteger(
   value: unknown,
@@ -79,7 +96,7 @@ function codedError(code: string, message: string): Error {
 }
 
 let context = Object.freeze({
-  spaceId: argumentValue("space-id"),
+  workFolderId: argumentValue("work-folder-id"),
   appId: argumentValue("app-id"),
   digest: argumentValue("digest"),
   mountId: argumentValue("mount-id"),
@@ -87,6 +104,7 @@ let context = Object.freeze({
   appTabId: argumentValue("app-tab-id") || null,
   route: argumentValue("route") || "/",
   state: initialState(),
+  openedFrom: initialOpenedFrom(),
   theme: argumentValue("theme") === "dark" ? "dark" as const : "light" as const,
   active: true,
 });
@@ -135,9 +153,22 @@ const networkRequest = (request: unknown) => {
   }
   return invokeHost(networkChannel, request, maximumNetworkEnvelopeBytes, "NETWORK_FAILED");
 };
+const tabRequest = async (command: Record<string, unknown>): Promise<void> => {
+  const response = await ipcRenderer.invoke(tabCommandChannel, command) as { ok?: unknown; error?: { code?: unknown; message?: unknown } } | undefined;
+  if (response?.ok === true) return;
+  const error = new Error(typeof response?.error?.message === "string" ? response.error.message : "The tab request failed.");
+  Object.defineProperty(error, "code", {
+    value: typeof response?.error?.code === "string" ? response.error.code : "APP_UNAVAILABLE",
+    enumerable: true,
+  });
+  throw error;
+};
+const attentionRequest = (count: unknown) => invokeHost(attentionChannel, { count }, 1_024, "APP_ERROR");
 const storageRequest = (operation: string, fields: Record<string, unknown> = {}) => invokeHost(storageChannel, { operation, ...fields }, maximumStorageEnvelopeBytes, "STORAGE_FAILED");
 const fileRequest = (operation: string, request: unknown) => invokeHost(filesChannel, { operation, request }, maximumFileEnvelopeBytes, "FILE_FAILED");
-const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 4 * 1024, "NOTIFICATION_FAILED");
+// A category id plus an optional route (2,048 characters) and 64 KiB of state;
+// the host re-checks every field (docs/restricted-app-runtime.md).
+const notificationRequest = (request: unknown) => invokeHost(notificationsChannel, request, 80 * 1024, "NOTIFICATION_FAILED");
 
 const storageListeners = new Set<(event: { revision: number; keys: string[]; reset: boolean }) => void>();
 ipcRenderer.on(storageChangedChannel, (_event, value: unknown) => {
@@ -195,7 +226,8 @@ ipcRenderer.on(checksChangedChannel, (_event, value: unknown) => {
   if (!value || typeof value !== "object") return;
   const candidate = value as { revision?: unknown; permissionIds?: unknown };
   if (!Number.isSafeInteger(candidate.revision)) return;
-  const permissionIds = boundedIdList(candidate.permissionIds, 8);
+  // A manifest may declare up to 256 Check-result slots (restrictedAppCheckLimits.permissions).
+  const permissionIds = boundedIdList(candidate.permissionIds, 256);
   if (!permissionIds) return;
   const event = Object.freeze({
     revision: candidate.revision as number,
@@ -212,7 +244,7 @@ const filesChangedListeners = new Set<(event: FilesChangedEvent) => void>();
  * Tells the host whether this app is listening for granted-root changes.
  * Registration is preload-local, so without this notice the host cannot tell
  * a subscribing app from one that never called `files.onChanged` — and a
- * directory permission binds to the whole Space, so it would walk that Space
+ * directory permission binds to the whole work-folder, so it would walk that work-folder
  * on every poll for the life of the view. Sent only when the answer changes.
  */
 let filesSubscribed = false;
@@ -230,7 +262,8 @@ ipcRenderer.on(filesChangedChannel, (_event, value: unknown) => {
   if (!value || typeof value !== "object") return;
   const candidate = value as { revision?: unknown; permissionIds?: unknown; truncated?: unknown };
   if (!Number.isSafeInteger(candidate.revision) || typeof candidate.truncated !== "boolean") return;
-  const permissionIds = boundedIdList(candidate.permissionIds, 16);
+  // A manifest may declare up to 256 file permissions (restrictedAppFilePermissionLimit).
+  const permissionIds = boundedIdList(candidate.permissionIds, 256);
   if (!permissionIds) return;
   const event = Object.freeze({
     revision: candidate.revision as number,
@@ -269,7 +302,7 @@ const appBridge = Object.freeze({
   }),
   tasks: Object.freeze({
     onChanged: (listener: (event: TasksChangedEvent) => void) => {
-      if (typeof listener !== "function") throw new TypeError("Assistant task listener must be a function.");
+      if (typeof listener !== "function") throw new TypeError("Task listener must be a function.");
       tasksListeners.add(listener);
       return () => tasksListeners.delete(listener);
     },
@@ -296,7 +329,7 @@ const appBridge = Object.freeze({
     },
   }),
   notifications: Object.freeze({
-    show: (request: { permissionId: string }) => notificationRequest(request),
+    show: (request: { permissionId: string; route?: string; state?: unknown }) => notificationRequest(request),
   }),
   limits: Object.freeze({
     get: () => limits,
@@ -308,10 +341,14 @@ const appBridge = Object.freeze({
       return () => contextListeners.delete(listener);
     },
   }),
+  attention: Object.freeze({
+    set: (value: { count: number }) => attentionRequest(value?.count),
+    clear: () => attentionRequest(0),
+  }),
   tabs: Object.freeze({
-    open: (tab: { tabId: string; title: string; route: string; state?: unknown }) => ipcRenderer.invoke(tabCommandChannel, { type: "open", ...tab }),
-    update: (tab: { title: string; route: string; state?: unknown }) => ipcRenderer.invoke(tabCommandChannel, { type: "update", ...tab }),
-    close: () => ipcRenderer.invoke(tabCommandChannel, { type: "close" }),
+    open: (tab: { tabId: string; title: string; route: string; state?: unknown }) => tabRequest({ type: "open", ...tab }),
+    update: (tab: { title: string; route: string; state?: unknown }) => tabRequest({ type: "update", ...tab }),
+    close: () => tabRequest({ type: "close" }),
   }),
 });
 
@@ -330,7 +367,7 @@ const synchronousBridgePaths = [
 // last line for anything that reaches them another way.
 const listenerRegistrationMessages: Record<string, string> = {
   "storage.onChanged": "Storage listener must be a function.",
-  "tasks.onChanged": "Assistant task listener must be a function.",
+  "tasks.onChanged": "Task listener must be a function.",
   "checks.onChanged": "Check listener must be a function.",
   "files.onChanged": "File listener must be a function.",
 };
@@ -387,8 +424,21 @@ if (argumentValue("mode") === "ui") {
       event.stopImmediatePropagation();
     }
   };
+  // A file dragged or pasted in from the computer is not the app's to read:
+  // stop it here, before any app listener sees `files`. An app's own drag and
+  // drop of text or elements still reaches it.
+  const carriesFiles = (transfer: DataTransfer | null | undefined) => Boolean(transfer
+    && (transfer.types.includes("Files") || transfer.files.length > 0));
   window.addEventListener("dragover", (event) => event.preventDefault(), true);
-  window.addEventListener("drop", (event) => event.preventDefault(), true);
+  window.addEventListener("drop", (event) => {
+    event.preventDefault();
+    if (carriesFiles(event.dataTransfer)) event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("paste", (event) => {
+    if (!carriesFiles(event.clipboardData)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
   window.addEventListener("click", blockFileAccess, true);
   window.addEventListener("keydown", blockFileAccess, true);
   window.addEventListener("DOMContentLoaded", () => {

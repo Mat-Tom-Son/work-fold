@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { ComputerSessionService } from "../../src/local/agent/computer-session.js";
 import { NativeWaylandTransport } from "../../src/local/agent/wayland-transport.js";
 import { PiConversationClient } from "../../src/local/agent/pi-client.js";
@@ -22,8 +22,8 @@ const run = promisify(execFile);
 const ui = (command: string) => run("python3", ["/work/scripts/linux-wayland-probe/portal-test-ui.py", command], { timeout: 20_000 });
 await ui("desktop-ready");
 const root = await mkdtemp("/tmp/workfold-wayland-pi-");
-const spaceRoot = join(root, "folder"), agentDir = join(root, "pi"), stateRoot = join(root, "state");
-await Promise.all([spaceRoot, agentDir, stateRoot].map(path => mkdir(path, { mode: 0o700 })));
+const workFolderRoot = join(root, "folder"), agentDir = join(root, "pi"), stateRoot = join(root, "state");
+await Promise.all([workFolderRoot, agentDir, stateRoot].map(path => mkdir(path, { mode: 0o700 })));
 const fixture = spawn("python3", ["/work/scripts/linux-wayland-probe/input-fixture.py"], { stdio: "ignore" });
 async function until(check: () => Promise<boolean>, ms = 10_000) {
   const end = Date.now() + ms;
@@ -33,7 +33,7 @@ const events = async () => JSON.parse(await readFile("/tmp/workfold-input-fixtur
 await until(async () => existsSync("/tmp/workfold-input-fixture/events.json") && (await events()).mapped);
 const service = new ComputerSessionService({ launch: () => NativeWaylandTransport.launch("/work/out/included-tools/wayland-helper/work-fold-wayland") });
 const conversationId = `chat-${randomUUID()}`;
-const owner = { scope: "management" as const, conversationId, spaceRoot };
+const owner = { scope: "management" as const, conversationId, workFolderRoot };
 const failures: Error[] = [];
 const semanticText = "café / cafe\u0301 — Grüße; 日本語; 你好; العربية; हिन्दी; 👩🏽‍💻";
 let phase: "semantic" | "visual" = "semantic";
@@ -96,19 +96,19 @@ const server = createServer(async (request, response) => {
 });
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
 const port = (server.address() as { port: number }).port;
-const authStorage = AuthStorage.inMemory();
-const modelRegistry = ModelRegistry.inMemory(authStorage);
-modelRegistry.registerProvider("wayland-fixture", { api: "openai-completions", baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "synthetic",
+const credentials = FileCredentialStore.inMemory();
+const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+await modelRuntime.registerProvider("wayland-fixture", { api: "openai-completions", baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: "synthetic",
   models: [{ id: "wayland-fixture", name: "Wayland scripted fixture", reasoning: false, input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 131072, maxTokens: 1024 }] });
-const client = new PiConversationClient(conversationId, spaceRoot, { resolveRuntime: async () => ({
-  agentDir, authStorage, modelRegistry,
+const client = new PiConversationClient(conversationId, workFolderRoot, { resolveRuntime: async () => ({
+  agentDir, credentials, modelRuntime,
   settingsManager: SettingsManager.inMemory({ defaultProvider: "wayland-fixture", defaultModel: "wayland-fixture", defaultThinkingLevel: "off", retry: { enabled: false } }),
   includedTools: { rootPath: "/work/resources/included-tools", stateRoot,
     helperAppPath: "/work/out/included-tools/computer-helper/linux-bridge", computerSession: service },
 }) });
 try {
-  const semanticResponse = await client.prompt("Edit and save the disposable editor using its exact accessibility controls.", { managementTaskId: `task-${randomUUID()}` });
+  const semanticResponse = await client.prompt("Edit and save the disposable editor using its exact accessibility controls.", { workFoldAgentTaskId: `task-${randomUUID()}` });
   assert.deepEqual(failures, []); assert.equal(requests, 8); assert.equal(imageRequests, 0);
   assert.equal(semanticResponse, "Semantic fixture completed.");
   await until(async () => (await events()).saved);
@@ -123,7 +123,7 @@ try {
   const sharing = service.start();
   await Promise.all([sharing, ui("choose-input")]);
   const accepted = `task-${randomUUID()}`;
-  const response = await client.prompt("Complete the isolated Wayland native acceptance fixture.", { managementTaskId: accepted });
+  const response = await client.prompt("Complete the isolated Wayland native acceptance fixture.", { workFoldAgentTaskId: accepted });
   assert.deepEqual(failures, []); assert.equal(requests, 4); assert.ok(imageRequests >= 2);
   assert.equal(response, "Shared-screen fixture completed.");
   await until(async () => await readFile("/tmp/workfold-input-fixture/saved.txt", "utf8") === "Pi controlled this shared Wayland screen.");

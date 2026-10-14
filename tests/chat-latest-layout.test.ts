@@ -15,7 +15,7 @@ test("Latest occupies its own row instead of covering the scrollable transcript"
   if (!browser) { t.skip("Chromium is required for actual Chat layout coverage."); return; }
   const scratch = await mkdtemp(join(tmpdir(), "work-fold-latest-layout-"));
   t.after(() => rm(scratch, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
-  const sheets = ["brand.css", "styles.css", "professional-foundation.css", "professional-shell.css", "professional-surfaces.css", "professional-customization.css", "settings-window.css", "application-appearance.css"];
+  const sheets = ["brand.css", "styles.css", "application-appearance.css"];
   const css = (await Promise.all(sheets.map((name) => readFile(resolve("web-local/src", name), "utf8")))).join("\n");
   const script = `const results=[];for(const width of [650,420])for(const reading of [15,22]){
     document.querySelector('.chat-panel').style.width=width+'px';document.querySelector('.message-body').style.fontSize=reading+'px';

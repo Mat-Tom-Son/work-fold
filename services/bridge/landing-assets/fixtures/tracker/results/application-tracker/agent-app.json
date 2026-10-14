@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "id": "application-tracker",
+  "title": "Application tracker",
+  "description": "Track local job applications, statuses, and next steps for this work-folder.",
+  "runtime": {
+    "kind": "sandboxed-web",
+    "entry": "index.html"
+  },
+  "ui": {
+    "icon": "checklist"
+  },
+  "tools": [],
+  "automations": [],
+  "permissions": {
+    "network": [],
+    "files": [],
+    "notifications": []
+  }
+}

@@ -3,11 +3,12 @@ import { applyAzureOpenAIDeployments, storedAzureOpenAIConnection } from "./azur
 import { resolvePiRuntime, type PiRuntimeProvider } from "./pi-runtime-config.js";
 
 /** Only these non-secret fields may leave Pi's credential store. */
-export async function getAzureOpenAIConnection(spaceRoot: string, provider?: PiRuntimeProvider): Promise<AzureOpenAIConnection> {
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  const saved = storedAzureOpenAIConnection(runtime.authStorage);
+export async function getAzureOpenAIConnection(workFolderRoot: string, provider?: PiRuntimeProvider): Promise<AzureOpenAIConnection> {
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  const saved = await storedAzureOpenAIConnection(runtime.credentials);
   if (saved) return saved;
-  const env = runtime.authStorage.getProviderEnv(AZURE_OPENAI_PROVIDER);
+  const credential = await runtime.credentials.read(AZURE_OPENAI_PROVIDER);
+  const env = credential?.type === "api_key" ? credential.env : undefined;
   const resource = env?.AZURE_OPENAI_RESOURCE_NAME || process.env.AZURE_OPENAI_RESOURCE_NAME;
   const endpoint = env?.AZURE_OPENAI_BASE_URL || process.env.AZURE_OPENAI_BASE_URL
     || (resource ? `https://${resource}.openai.azure.com` : "");
@@ -25,18 +26,18 @@ export async function getAzureOpenAIConnection(spaceRoot: string, provider?: PiR
 }
 
 export async function saveAzureOpenAIConnection(
-  spaceRoot: string,
+  workFolderRoot: string,
   value: unknown,
   apiKey: string | undefined,
   provider?: PiRuntimeProvider,
 ): Promise<void> {
   const settings = normalizeAzureOpenAIConnection(value);
-  const runtime = await resolvePiRuntime(spaceRoot, provider, { requestProjectTrust: false });
-  const existing = runtime.authStorage.get(AZURE_OPENAI_PROVIDER);
+  const runtime = await resolvePiRuntime(workFolderRoot, provider, { requestProjectTrust: false });
+  const existing = await runtime.credentials.read(AZURE_OPENAI_PROVIDER);
   const key = apiKey?.trim() || (existing?.type === "api_key" ? existing.key : undefined)
     || (process.env.AZURE_OPENAI_API_KEY ? "$AZURE_OPENAI_API_KEY" : undefined);
   if (!key) throw new Error("Enter an Azure OpenAI API key to save this connection.");
-  runtime.authStorage.set(AZURE_OPENAI_PROVIDER, {
+  await runtime.credentials.modify(AZURE_OPENAI_PROVIDER, async () => ({
     type: "api_key",
     key,
     env: {
@@ -47,7 +48,7 @@ export async function saveAzureOpenAIConnection(
       // Explicit identity mappings prevent ambient aliases from rerouting these names.
       AZURE_OPENAI_DEPLOYMENT_NAME_MAP: settings.deployments.map((name) => `${name}=${name}`).join(","),
     },
-  });
-  await runtime.flushAuthStorage();
-  applyAzureOpenAIDeployments(runtime.authStorage, runtime.modelRegistry);
+  }));
+  await runtime.flushCredentials();
+  await applyAzureOpenAIDeployments(runtime.credentials, runtime.modelRuntime);
 }

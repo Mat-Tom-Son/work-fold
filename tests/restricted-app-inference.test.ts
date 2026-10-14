@@ -19,7 +19,7 @@ import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-infer
 import { inferenceReceiptOutcomeLabel } from "../web-local/src/components/panes/RestrictedAppInferenceReceipts.js";
 
 const scope: RestrictedAppInferenceScope = {
-  spaceId: "space-one",
+  workFolderId: "work-folder-one",
   appId: "quotes",
   featureInstallationId: "feature-one",
   digest: "a".repeat(64),
@@ -51,8 +51,8 @@ async function fixture(t: test.TestContext, overrides: RestrictedAppInferenceLim
         throw new RestrictedAppTaskError("TASK_DENIED", "This app's permissions changed. Open the app again.");
       }
     },
-    async infer(spaceId, request) {
-      assert.equal(spaceId, scope.spaceId);
+    async infer(workFolderId, request) {
+      assert.equal(workFolderId, scope.workFolderId);
       calls.push(request);
       if (behavior === "fail") throw new BoundedInferenceError("INFER_MODEL_UNAVAILABLE", "No model.");
       if (behavior === "hold") {
@@ -114,7 +114,7 @@ test("an inference request is parsed against every published bound", () => {
   // Every bound names itself so an app can shrink instead of guessing.
   assert.throws(
     () => parseRestrictedAppInferenceRequest({ ...base, input: "x".repeat(restrictedAppInferenceLimits.inputBytes + 1) }),
-    /262144-byte limit/,
+    new RegExp(`${restrictedAppInferenceLimits.inputBytes}-byte limit`),
   );
 });
 
@@ -151,22 +151,24 @@ test("a schema makes the result validated JSON and the usage cost stays off the 
   assert.equal(receipts.at(-1).surface, "worker");
 });
 
-test("four calls run at once per installation, the fifth waits, and a full queue is refused by name", async (t) => {
+test("the published number of calls run at once per installation, later ones wait, and a full queue is refused by name", async (t) => {
+  const perApp = restrictedAppInferenceLimits.runningPerInstallation;
+  assert.ok(perApp < restrictedAppInferenceLimits.runningMachineWide, "one app cannot take the whole machine");
   const f = await fixture(t, { waitingPerInstallation: 2 });
   f.behave("hold");
-  const running = [0, 1, 2, 3].map(() => f.service.infer(scope, "view", { instructions: "Hold", input: "x" }));
-  await waitUntil(() => f.calls.length === 4);
+  const running = Array.from({ length: perApp }, () => f.service.infer(scope, "view", { instructions: "Hold", input: "x" }));
+  await waitUntil(() => f.calls.length === perApp);
   const waiting = [f.service.infer(scope, "view", { instructions: "Hold", input: "x" }), f.service.infer(scope, "view", { instructions: "Hold", input: "x" })];
   await waitUntil(() => f.service.occupancy(scope.featureInstallationId).waiting === 2);
-  assert.deepEqual(f.service.occupancy(scope.featureInstallationId), { running: 4, waiting: 2 });
+  assert.deepEqual(f.service.occupancy(scope.featureInstallationId), { running: perApp, waiting: 2 });
   const refused = await f.service.infer(scope, "view", { instructions: "Hold", input: "x" }).catch((error) => error);
   assert.equal(codeOf(refused), "INFER_BUSY");
-  assert.match((refused as Error).message, /4 inference calls running and 2 waiting/);
+  assert.match((refused as Error).message, new RegExp(`${perApp} inference calls running and 2 waiting`));
   assert.match((refused as Error).message, /Settings → Automations → Limits/);
   f.behave("reply");
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
-  assert.equal((await Promise.all(running)).length, 4);
-  await waitUntil(() => f.calls.length === 6, "a waiting call starts when a slot frees");
+  assert.equal((await Promise.all(running)).length, perApp);
+  await waitUntil(() => f.calls.length === perApp + 2, "a waiting call starts when a slot frees");
   for (const settle of f.held.splice(0)) settle({ kind: "text", text: "done", truncated: false, model, usage: { inputTokens: 1, outputTokens: 1 } });
   assert.equal((await Promise.all(waiting)).length, 2);
 });
@@ -264,7 +266,7 @@ test("receipts survive a restart, list newest first for the installation, and a 
   assert.equal(new Date(listed[0].at) >= new Date(listed.at(-1)!.at), true, "newest first");
 
   // A code change hides the earlier revision's receipts from the bridge but
-  // leaves the whole installation visible to the Apps tab.
+  // leaves the whole installation visible to Settings → Apps.
   const changed = { ...scope, digest: "c".repeat(64) };
   f.changeScope(changed);
   assert.equal((await f.service.list(changed)).length, 0);
@@ -369,7 +371,7 @@ test("projection preserves revision and ownership pins even when journal IDs col
   const changed = { ...scope, digest: "b".repeat(64) };
   const rows = [accepted, ok,
     { ...accepted, digest: changed.digest }, { ...ok, digest: changed.digest, outcome: "error", errorCode: "INFER_FAILED" },
-    { ...ok, spaceId: "another-space" }, { ...ok, appId: "another-app" }, { ...ok, featureInstallationId: "another-installation" }];
+    { ...ok, workFolderId: "another-work-folder" }, { ...ok, appId: "another-app" }, { ...ok, featureInstallationId: "another-installation" }];
   await writeFile(f.path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n", "utf8");
   f.changeScope(changed);
   await f.restart();
@@ -377,7 +379,7 @@ test("projection preserves revision and ownership pins even when journal IDs col
   assert.deepEqual(revision.map((receipt) => [receipt.digest, receipt.outcome]), [[changed.digest, "error"]]);
   const installation = await f.service.list(changed, { ownership: "installation" });
   assert.deepEqual(installation.map((receipt) => [receipt.digest, receipt.outcome]), [[changed.digest, "error"], [scope.digest, "ok"]]);
-  for (const row of installation) assert.deepEqual([row.spaceId, row.appId, row.featureInstallationId], [scope.spaceId, scope.appId, scope.featureInstallationId]);
+  for (const row of installation) assert.deepEqual([row.workFolderId, row.appId, row.featureInstallationId], [scope.workFolderId, scope.appId, scope.featureInstallationId]);
   installation[0].outcome = "accepted";
   assert.equal((await f.service.list(changed))[0].outcome, "error", "callers cannot mutate the projection");
 });

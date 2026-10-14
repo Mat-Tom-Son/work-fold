@@ -8,7 +8,7 @@
  * caller learns only *that* a root moved and re-reads through the ordinary file
  * broker with the authority it already has.
  *
- * Like the routing folder observer this is a bounded poll rather than an OS
+ * Like the automation folder observer this is a bounded poll rather than an OS
  * watcher: polling works the same on a synchronized drive as on a local disk,
  * where watcher events are lossy. Unlike that observer, a bound reached here
  * degrades to `truncated: true` rather than failing — an app view that cannot
@@ -51,11 +51,11 @@ export interface RestrictedAppFileWatchTarget {
  * file broker, so an app can never learn about a path it could not read.
  */
 export async function observeRestrictedAppGrantRoot(
-  spaceRoot: string,
+  workFolderRoot: string,
   target: RestrictedAppFileWatchTarget,
   limits: RestrictedAppFileWatchLimits = restrictedAppSubscriptionLimits,
 ): Promise<RestrictedAppFileSnapshot> {
-  const root = resolveGrantRoot(spaceRoot, target.grant.root);
+  const root = resolveGrantRoot(workFolderRoot, target.grant.root);
   const before = await lstat(root, { bigint: true });
   if (before.isSymbolicLink()) throw new Error("A granted root cannot be a link.");
   const entries: Record<string, string> = Object.create(null);
@@ -179,11 +179,11 @@ async function walkDirectory(
   return { entries, truncated };
 }
 
-function resolveGrantRoot(spaceRoot: string, root: string): string {
-  const absolute = resolve(spaceRoot, root);
-  const inside = relative(resolve(spaceRoot), absolute);
+function resolveGrantRoot(workFolderRoot: string, root: string): string {
+  const absolute = resolve(workFolderRoot, root);
+  const inside = relative(resolve(workFolderRoot), absolute);
   if (inside && (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside))) {
-    throw new Error("A granted root must stay inside its Space.");
+    throw new Error("A granted root must stay inside its work-folder.");
   }
   return absolute;
 }

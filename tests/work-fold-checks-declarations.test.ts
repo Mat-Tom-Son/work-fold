@@ -43,7 +43,7 @@ test("portable declarations remain inert until exact machine-local authorization
   assert.match(await readFile(written.path, "utf8"), /work-fold\.file-presence/);
 
   const statePath = join(root, "machine-state.json");
-  const store = await WorkFoldCheckStore.create("space-delivery", { path: statePath });
+  const store = await WorkFoldCheckStore.create("work-folder-delivery", { path: statePath });
   assert.deepEqual(store.snapshot().authorizations, {}, "discovery must not grant authority");
   await store.authorize(written.declaration, written.digest, "human", workFoldFilePresenceSensorDigest);
   assert.equal(store.snapshot().authorizations[written.declaration.id]?.declarationDigest, written.digest);

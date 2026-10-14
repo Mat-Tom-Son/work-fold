@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-009
+Merchant: City Copy
+Date: 2026-09-16
+Description: training handouts
+Currency: USD
+Total paid: $87.50
+Payment: paid

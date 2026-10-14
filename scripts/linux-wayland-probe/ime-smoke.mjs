@@ -53,7 +53,7 @@ async function checkComposer() {
     await automation.send('Emulation.setFocusEmulationEnabled', { enabled: true });
     phase = 'onboarding';
     await page.waitForSelector('.onboarding-choose');
-    const registered = JSON.parse((await run(join(packageRoot, 'bin/work-fold'), ['spaces', 'register', '--path', folder, '--json'], { env, timeout: 30_000 })).stdout);
+    const registered = JSON.parse((await run(join(packageRoot, 'bin/work-fold'), ['work-folders', 'register', '--path', folder, '--json'], { env, timeout: 30_000 })).stdout);
     assert.notEqual(registered.ok, false);
     phase = 'Chat navigation';
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -80,7 +80,7 @@ async function checkComposer() {
     await act([{ action: 'typeText', text: 'nihao' }]);
     await until(async () => page.evaluate(() => window.imeEvidence.some(event => event.type === 'compositionstart')), 'Electron did not receive native composition');
     await capture('composer-preedit');
-    await act([{ action: 'keypress', keys: ['space'] }]);
+    await act([{ action: 'keypress', keys: ['work-folder'] }]);
     await until(async () => page.$eval('.space-surface-body:not([hidden]) textarea[aria-label="Message worker"]', field => field.value === '你好'), 'Electron did not commit the Pinyin candidate');
     assert.equal(await page.$$eval('.message.user', nodes => nodes.length), 0, 'Composition must not send a Worker message');
     await capture('composer-committed');
@@ -135,7 +135,7 @@ try {
   assert.equal(preedit.text, '', 'Pinyin must remain uncommitted before selecting a candidate');
   await writeFile(join(root, 'preedit.json'), JSON.stringify(preedit, null, 2));
   await capture('preedit');
-  await act([{ action: 'keypress', keys: ['space'] }]);
+  await act([{ action: 'keypress', keys: ['work-folder'] }]);
   await until(async () => (await events()).text === '你好' && (await events()).preedit === '', 'Pinyin candidate did not commit exact Chinese text');
   await act([{ action: 'keypress', keys: ['Ctrl', 's'] }]);
   await until(async () => (await readFile(join(inputRoot, 'saved.txt'), 'utf8').catch(() => null)) === '你好', 'Committed IME text did not save exactly');

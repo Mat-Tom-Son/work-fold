@@ -12,7 +12,7 @@ import {
 } from "../../../src/shared/publications";
 
 /**
- * Pages your fold serves, as the renderer sees them (docs/fold-publishing.md,
+ * Shared pages, as the renderer sees them (docs/shared-pages.md,
  * rung 2). The closed source set, the ceilings, and the page state come from
  * the shared module the desktop publication service enforces, so the file
  * tab never offers a share the host would refuse.
@@ -28,9 +28,9 @@ export type { WorkFoldPublicationConnection as SharedPageConnection, WorkFoldPub
 export interface SharedPageView {
   publicationId: string;
   kind: "page" | "app";
-  spaceId: string;
-  spaceName?: string;
-  /** Page slots only: the one designated Space-relative file. */
+  workFolderId: string;
+  workFolderName?: string;
+  /** Page slots only: the one designated work-folder-relative file. */
   relativePath?: string;
   /** Hosted-app slots only: the pinned exposure binding. */
   app?: {
@@ -73,22 +73,44 @@ export function pageTitleFromFileName(fileName: string): string {
   return (stem || name.trim() || "Page").slice(0, WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH).trim();
 }
 
-/** The active page slot backed by this exact Space file, if one exists. */
-export function activeSharedPageFor(publications: readonly SharedPageView[] | null, spaceId: string, path: string): SharedPageView | null {
+/** The active page slot backed by this exact work-folder file, if one exists. */
+export function activeSharedPageFor(publications: readonly SharedPageView[] | null, workFolderId: string, path: string): SharedPageView | null {
   if (!publications) return null;
   return publications.find((publication) => (
     publication.kind === "page"
     && publication.state === "active"
-    && publication.spaceId === spaceId
+    && publication.workFolderId === workFolderId
     && publication.relativePath === path
   )) ?? null;
 }
 
-/** Every file in this Space backing an active page slot, for the Files mark and file tabs. */
-export function sharedPathsForSpace(publications: readonly SharedPageView[] | null, spaceId: string): ReadonlySet<string> {
+/**
+ * Whether Settings → Apps offers "Share at your address" for this app: the
+ * same rule the host's viewer adapter applies (docs/shared-pages.md, rung 3) —
+ * an installed App Instance of a prepared Release whose reviewed manifest
+ * declares a viewer surface. Local previews never qualify.
+ */
+export function appCanBeSharedAtAddress(app: {
+  runtimeInstanceKind: "development" | "app";
+  releaseDigest: string | null;
+  manifest: { viewer?: unknown };
+}): boolean {
+  return app.runtimeInstanceKind === "app" && app.releaseDigest !== null && Boolean(app.manifest.viewer);
+}
+
+/** The active app slot exposing this exact App Instance, if one exists. */
+export function activeSharedAppFor(publications: readonly SharedPageView[] | null, appInstanceId: string): SharedPageView | null {
+  if (!publications) return null;
+  return publications.find((publication) => (
+    publication.kind === "app" && publication.state === "active" && publication.app?.appInstanceId === appInstanceId
+  )) ?? null;
+}
+
+/** Every file in this work-folder backing an active page slot, for the Files mark and file tabs. */
+export function sharedPathsForWorkFolder(publications: readonly SharedPageView[] | null, workFolderId: string): ReadonlySet<string> {
   const paths = new Set<string>();
   for (const publication of publications ?? []) {
-    if (publication.kind === "page" && publication.state === "active" && publication.spaceId === spaceId && publication.relativePath) {
+    if (publication.kind === "page" && publication.state === "active" && publication.workFolderId === workFolderId && publication.relativePath) {
       paths.add(publication.relativePath);
     }
   }

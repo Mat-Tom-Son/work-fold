@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-014
+Merchant: Union Stationery
+Date: not printed
+Description: marker packs
+Currency: USD
+Total paid: $36.00
+Payment: paid

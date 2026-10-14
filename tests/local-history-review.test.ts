@@ -6,9 +6,9 @@ import test, { type TestContext } from "node:test";
 
 import { HISTORY_REVIEW_LIMITS } from "../src/shared/history-review.js";
 import { compareHistoryFile, readHistoryFile } from "../src/local/history-review.js";
-import { createSpaceCheckpoint, createSpaceMutationCheckpoint, listSpaceCheckpointPage, listFileVersionPage, type SpaceCheckpoint } from "../src/local/history.js";
-import { configureWorkFoldStateRoot, spaceHistoryRoot } from "../src/local/state-paths.js";
-import { registerLinkedSpace } from "../src/local/space.js";
+import { createWorkFolderCheckpoint, createWorkFolderMutationCheckpoint, listWorkFolderCheckpointPage, listFileVersionPage, type WorkFolderCheckpoint } from "../src/local/history.js";
+import { configureWorkFoldStateRoot, workFolderHistoryRoot } from "../src/local/state-paths.js";
+import { registerLinkedWorkFolder } from "../src/local/work-folder.js";
 
 async function fixture(t: TestContext) {
   const sandbox = await mkdtemp(join(tmpdir(), "history-review-"));
@@ -19,19 +19,19 @@ async function fixture(t: TestContext) {
   return { sandbox, root };
 }
 
-function blobPath(root: string, checkpoint: SpaceCheckpoint, path: string): string {
+function blobPath(root: string, checkpoint: WorkFolderCheckpoint, path: string): string {
   const hash = checkpoint.files.find((file) => file.path === path)!.hashSha256;
-  return join(spaceHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
+  return join(workFolderHistoryRoot(root), "objects", hash.slice(0, 2), hash.slice(2));
 }
 
 test("History reads saved bytes and compares checkpoints or a read-only current observation", async (t) => {
   const { root } = await fixture(t);
   await writeFile(join(root, "note.txt"), "Heading\nold\nend\n");
-  const first = await createSpaceCheckpoint(root);
+  const first = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), "Heading\nnew\nend\n");
-  const second = await createSpaceCheckpoint(root);
+  const second = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), "Heading\ncurrent\nend\n");
-  const manifestNames = await readdir(join(spaceHistoryRoot(root), "checkpoints"));
+  const manifestNames = await readdir(join(workFolderHistoryRoot(root), "checkpoints"));
   const saved = await readHistoryFile(root, { path: "note.txt", checkpointId: first.checkpointId });
   assert.equal(saved.schemaVersion, 1);
   assert.equal(saved.observation.text, "Heading\nold\nend\n");
@@ -49,14 +49,14 @@ test("History reads saved bytes and compares checkpoints or a read-only current 
   assert.equal(current.after.text, "Heading\ncurrent\nend\n");
   assert.match(current.diff.text!, /\+current\n/u);
   assert.equal(await readFile(join(root, "note.txt"), "utf8"), "Heading\ncurrent\nend\n");
-  assert.deepEqual(await readdir(join(spaceHistoryRoot(root), "checkpoints")), manifestNames, "review writes no recovery records");
+  assert.deepEqual(await readdir(join(workFolderHistoryRoot(root), "checkpoints")), manifestNames, "review writes no recovery records");
 });
 
 test("known absence produces additions and deletions, including a deleted current file", async (t) => {
   const { root } = await fixture(t);
-  const empty = await createSpaceCheckpoint(root);
+  const empty = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), "new file");
-  const created = await createSpaceCheckpoint(root);
+  const created = await createWorkFolderCheckpoint(root);
   const addition = await compareHistoryFile(root, { path: "note.txt", fromCheckpointId: empty.checkpointId, toCheckpointId: created.checkpointId });
   assert.equal(addition.before.status, "absent");
   assert.equal(addition.change, "added");
@@ -76,7 +76,7 @@ test("targeted coverage distinguishes captured absence, additive undo, and unobs
   const { root } = await fixture(t);
   await writeFile(join(root, "one.txt"), "one");
   await writeFile(join(root, "other.txt"), "other");
-  const targeted = await createSpaceMutationCheckpoint(root, { paths: ["one.txt", "missing.txt"], deleteOnRestore: ["added"] });
+  const targeted = await createWorkFolderMutationCheckpoint(root, { paths: ["one.txt", "missing.txt"], deleteOnRestore: ["added"] });
   for (const path of ["missing.txt", "added/file.txt"]) {
     assert.equal((await readHistoryFile(root, { path, checkpointId: targeted.checkpointId })).observation.status, "absent");
   }
@@ -88,7 +88,7 @@ test("targeted coverage distinguishes captured absence, additive undo, and unobs
   await mkdir(join(root, "excluded"));
   await writeFile(join(root, "excluded", "note.txt"), "not captured");
   await writeFile(join(root, ".gitignore"), "excluded/\n");
-  const excluded = await createSpaceCheckpoint(root);
+  const excluded = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, ".gitignore"), "");
   const historical = await readHistoryFile(root, { path: "excluded/note.txt", checkpointId: excluded.checkpointId });
   assert.equal(historical.observation.status, "uncaptured");
@@ -103,7 +103,7 @@ test("unavailable, excluded, large, and non-file evidence never becomes absence"
   await mkdir(join(root, "directory"));
   await writeFile(join(root, "large.txt"), "a".repeat(32));
   await writeFile(join(root, "~$lock.docx"), "lock");
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const large = await readHistoryFile(root, { path: "large.txt", checkpointId: checkpoint.checkpointId });
   assert.equal(large.observation.status, "uncaptured");
   assert.equal(large.observation.reason, "skipped_too_large");
@@ -116,7 +116,7 @@ test("binary controls and invalid UTF-8 do not emit lossy text", async (t) => {
   await writeFile(join(root, "binary.dat"), Buffer.from([65, 0, 66]));
   await writeFile(join(root, "invalid.txt"), Buffer.from([0xc3, 0x28]));
   await writeFile(join(root, "bom.txt"), "\ufeffhello\r\n");
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const binary = (await readHistoryFile(root, { path: "binary.dat", checkpointId: checkpoint.checkpointId })).observation;
   assert.equal(binary.status, "binary");
   assert.equal(binary.reason, "binary_content");
@@ -135,7 +135,7 @@ test("binary controls and invalid UTF-8 do not emit lossy text", async (t) => {
 test("missing and corrupted blobs are unavailable, including a false manifest size", async (t) => {
   const { root } = await fixture(t);
   await writeFile(join(root, "note.txt"), "original");
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const saved = blobPath(root, checkpoint, "note.txt");
   await writeFile(saved, "corrupt!");
   const corrupt = (await readHistoryFile(root, { path: "note.txt", checkpointId: checkpoint.checkpointId })).observation;
@@ -149,49 +149,49 @@ test("missing and corrupted blobs are unavailable, including a false manifest si
   assert.equal((await readHistoryFile(root, { path: "note.txt", checkpointId: checkpoint.checkpointId })).observation.reason, "missing_blob");
 });
 
-test("read verifies selected Folder, checkpoint identity, and exact path membership before blobs", async (t) => {
+test("read verifies selected work-folder, checkpoint identity, and exact path membership before blobs", async (t) => {
   const { root, sandbox } = await fixture(t);
   await writeFile(join(root, "note.txt"), "saved");
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const other = join(sandbox, "other");
   await mkdir(other);
   await writeFile(join(other, "note.txt"), "other secret");
-  const otherCheckpoint = await createSpaceCheckpoint(other);
-  await assert.rejects(readHistoryFile(root, { path: "note.txt", checkpointId: otherCheckpoint.checkpointId }), /not found in this Folder/u);
+  const otherCheckpoint = await createWorkFolderCheckpoint(other);
+  await assert.rejects(readHistoryFile(root, { path: "note.txt", checkpointId: otherCheckpoint.checkpointId }), /not found in this work-folder/u);
   await assert.rejects(readHistoryFile(root, { path: "note.txt", checkpointId: checkpoint.files[0]!.hashSha256 }), /not found/u);
   assert.equal((await readHistoryFile(root, { path: "unrelated.txt", checkpointId: checkpoint.checkpointId })).observation.text, undefined);
-  const manifest = join(spaceHistoryRoot(root), "checkpoints", `${checkpoint.checkpointId}.json`);
+  const manifest = join(workFolderHistoryRoot(root), "checkpoints", `${checkpoint.checkpointId}.json`);
   await writeFile(manifest, JSON.stringify({ ...checkpoint, checkpointId: otherCheckpoint.checkpointId }));
   await assert.rejects(readHistoryFile(root, { path: "note.txt", checkpointId: checkpoint.checkpointId }), /not found/u);
   await writeFile(manifest, JSON.stringify({ ...checkpoint, files: [{ ...checkpoint.files[0], hashSha256: "../../outside" }] }));
   assert.equal((await readHistoryFile(root, { path: "note.txt", checkpointId: checkpoint.checkpointId })).observation.reason, "invalid_checkpoint");
 });
 
-test("protected metadata, traversal, links and newly registered nested Folders are refused", async (t) => {
+test("protected metadata, traversal, links and newly registered nested work-folders are refused", async (t) => {
   const { root, sandbox } = await fixture(t);
   await mkdir(join(root, "child"));
   await writeFile(join(root, "child", "note.txt"), "belongs to child");
-  const checkpoint = await createSpaceCheckpoint(root);
-  for (const path of ["../outside.txt", "/absolute.txt", "child/../../outside.txt", "C:\\outside.txt", ".", ".pi/config.json", ".work-fold/space.json", ".workspace/secret", "child/.PI/config", "bad\nname.txt"]) {
+  const checkpoint = await createWorkFolderCheckpoint(root);
+  for (const path of ["../outside.txt", "/absolute.txt", "child/../../outside.txt", "C:\\outside.txt", ".", ".pi/config.json", ".work-fold/work-folder.json", ".workspace/secret", "child/.PI/config", "bad\nname.txt"]) {
     await assert.rejects(readHistoryFile(root, { path, checkpointId: checkpoint.checkpointId }));
   }
   await symlink(join(root, "child"), join(root, "linked"));
   await symlink(join(sandbox, "does-not-exist"), join(root, "dangling"));
   await assert.rejects(readHistoryFile(root, { path: "linked/note.txt", checkpointId: checkpoint.checkpointId }), /symbolic/u);
   await assert.rejects(readHistoryFile(root, { path: "dangling/note.txt", checkpointId: checkpoint.checkpointId }), /symbolic/u);
-  await registerLinkedSpace(root);
-  await registerLinkedSpace(join(root, "child"));
-  await assert.rejects(readHistoryFile(root, { path: "child/note.txt", checkpointId: checkpoint.checkpointId }), /another registered Space/u);
-  await assert.rejects(compareHistoryFile(root, { path: "child/note.txt", fromCheckpointId: checkpoint.checkpointId }), /another registered Space/u);
+  await registerLinkedWorkFolder(root);
+  await registerLinkedWorkFolder(join(root, "child"));
+  await assert.rejects(readHistoryFile(root, { path: "child/note.txt", checkpointId: checkpoint.checkpointId }), /another registered work-folder/u);
+  await assert.rejects(compareHistoryFile(root, { path: "child/note.txt", fromCheckpointId: checkpoint.checkpointId }), /another registered work-folder/u);
   if (await readFile(join(root, "CHILD", "note.txt")).then(() => true, () => false)) {
-    await assert.rejects(compareHistoryFile(root, { path: "CHILD/note.txt", fromCheckpointId: checkpoint.checkpointId }), /another registered Space/u);
+    await assert.rejects(compareHistoryFile(root, { path: "CHILD/note.txt", fromCheckpointId: checkpoint.checkpointId }), /another registered work-folder/u);
   }
 });
 
 test("oversized saved and current files report limits without claiming digest verification", async (t) => {
   const { root } = await fixture(t);
   await writeFile(join(root, "large.txt"), "x".repeat(HISTORY_REVIEW_LIMITS.maxFileBytes + 1));
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const read = await readHistoryFile(root, { path: "large.txt", checkpointId: checkpoint.checkpointId });
   assert.equal(read.observation.status, "too_large");
   assert.equal(read.observation.text, undefined);
@@ -208,11 +208,12 @@ test("diff budgets distinguish long lines, many lines, and expensive comparisons
   const scenarios = [
     { before: "a".repeat(HISTORY_REVIEW_LIMITS.maxLineCharacters + 1), after: "different", reason: "long_line" },
     { before: "a\n".repeat(HISTORY_REVIEW_LIMITS.maxDiffLines + 1), after: "different", reason: "line_limit" },
-    { before: "a\n".repeat(1_000), after: "b\n".repeat(1_000), reason: "computation_limit" },
+    // Every line differs, so the table spans both files; one row past the cell budget.
+    { before: "a\n".repeat(Math.ceil(Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells)) + 10), after: "b\n".repeat(Math.ceil(Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells)) + 10), reason: "computation_limit" },
   ];
   for (const scenario of scenarios) {
     await writeFile(join(root, "note.txt"), scenario.before);
-    const checkpoint = await createSpaceCheckpoint(root);
+    const checkpoint = await createWorkFolderCheckpoint(root);
     await writeFile(join(root, "note.txt"), scenario.after);
     const comparison = await compareHistoryFile(root, { path: "note.txt", fromCheckpointId: checkpoint.checkpointId });
     assert.equal(comparison.change, "modified");
@@ -225,17 +226,19 @@ test("diff budgets distinguish long lines, many lines, and expensive comparisons
 
 test("diff output and JSON payload stay bounded and mark truncation explicitly", async (t) => {
   const { root } = await fixture(t);
-  const before = `${"\\".repeat(1_000)}\n`.repeat(100);
-  const after = `${'"'.repeat(1_000)}\n`.repeat(100);
+  // Within the file and cell budgets, but every line changes, so the diff text outgrows its own budget.
+  const lines = Math.floor(Math.min(HISTORY_REVIEW_LIMITS.maxFileBytes / 1_001, Math.sqrt(HISTORY_REVIEW_LIMITS.maxDiffCells) - 1));
+  const before = `${"\\".repeat(1_000)}\n`.repeat(lines);
+  const after = `${'"'.repeat(1_000)}\n`.repeat(lines);
   await writeFile(join(root, "note.txt"), before);
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), after);
   const comparison = await compareHistoryFile(root, { path: "note.txt", fromCheckpointId: checkpoint.checkpointId });
   assert.equal(comparison.diff.status, "limited");
   assert.equal(comparison.diff.reason, "output_limit");
   assert.equal(comparison.diff.truncated, true);
   assert.ok(Buffer.byteLength(comparison.diff.text!) <= HISTORY_REVIEW_LIMITS.maxDiffBytes);
-  assert.ok(Buffer.byteLength(JSON.stringify(comparison)) < 1024 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(comparison)) < 4 * (Buffer.byteLength(before) + Buffer.byteLength(after)) + 2 * HISTORY_REVIEW_LIMITS.maxDiffBytes);
   assert.equal(comparison.before.text, before, "saved text is still complete");
   assert.equal(comparison.after.text, after, "observed text is still complete");
 });
@@ -244,7 +247,7 @@ test("diff context and line positions are correct for separated hunks and newlin
   const { root } = await fixture(t);
   const before = Array.from({ length: 25 }, (_, index) => `line ${index + 1}\n`);
   await writeFile(join(root, "note.txt"), before.join(""));
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   const after = [...before]; after[1] = "changed 2\n"; after[23] = "changed 24\n";
   await writeFile(join(root, "note.txt"), after.join(""));
   const compared = await compareHistoryFile(root, { path: "note.txt", fromCheckpointId: checkpoint.checkpointId });
@@ -259,7 +262,7 @@ test("diff context and line positions are correct for separated hunks and newlin
 test("a detected outside write during current reading returns unavailable with no mixed text", async (t) => {
   const { root } = await fixture(t);
   await writeFile(join(root, "note.txt"), "checkpoint-before\n");
-  const checkpoint = await createSpaceCheckpoint(root);
+  const checkpoint = await createWorkFolderCheckpoint(root);
   await writeFile(join(root, "note.txt"), "current-before\n");
   const handle = await open(join(root, "note.txt"), "r");
   const prototype = Object.getPrototypeOf(handle) as FileHandle;
@@ -285,9 +288,9 @@ test("a detected outside write during current reading returns unavailable with n
 
 test("verified UTF-8 byte ranges retrieve an entire large snapshot without restoring it", async (t) => {
   const {root}=await fixture(t);
-  const original=`header\n${"abc😀é\n".repeat(24000)}tail`;
+  const original=`header\n${"abc😀é\n".repeat(Math.ceil(HISTORY_REVIEW_LIMITS.maxFileBytes / 10) + 1_000)}tail`;
   await writeFile(join(root,"large.txt"),original);
-  const checkpoint=await createSpaceCheckpoint(root);
+  const checkpoint=await createWorkFolderCheckpoint(root);
   await writeFile(join(root,"large.txt"),"current stays intact");
   let offset=0; let reconstructed=""; let hash: string | undefined; let pages=0;
   while(true) {
@@ -312,19 +315,19 @@ test("verified UTF-8 byte ranges retrieve an entire large snapshot without resto
 test("History pages expose all retained checkpoints and versions beyond the former scan ceiling", async (t) => {
   const {root}=await fixture(t);
   await writeFile(join(root,"note.txt"),"old version");
-  const old=await createSpaceCheckpoint(root);
+  const old=await createWorkFolderCheckpoint(root);
   await writeFile(join(root,"note.txt"),"recent version");
-  const recent=await createSpaceCheckpoint(root);
-  const directory=join(spaceHistoryRoot(root),"checkpoints");
+  const recent=await createWorkFolderCheckpoint(root);
+  const directory=join(workFolderHistoryRoot(root),"checkpoints");
   // Separate retained manifests reproduce a large journal without thousands of captures.
   for(let index=0;index<1001;index++) {
     const checkpointId=`cp-page-fixture-${String(index).padStart(6,"0")}`;
     await writeFile(join(directory,`${checkpointId}.json`),JSON.stringify({...recent,checkpointId,createdAt:new Date(Date.parse(recent.createdAt)+index+1).toISOString()}));
   }
-  const first=await listSpaceCheckpointPage(root,{limit:50});
+  const first=await listWorkFolderCheckpointPage(root,{limit:50});
   assert.equal(first.checkpoints.length,50); assert.equal(first.total,1003); assert.ok(first.nextCursor);
   let cursor=first.nextCursor; const ids=first.checkpoints.map(checkpoint=>checkpoint.checkpointId);
-  while(cursor) { const page=await listSpaceCheckpointPage(root,{cursor,limit:200}); assert.equal(page.sourceVersion,first.sourceVersion); ids.push(...page.checkpoints.map(checkpoint=>checkpoint.checkpointId)); cursor=page.nextCursor; }
+  while(cursor) { const page=await listWorkFolderCheckpointPage(root,{cursor,limit:200}); assert.equal(page.sourceVersion,first.sourceVersion); ids.push(...page.checkpoints.map(checkpoint=>checkpoint.checkpointId)); cursor=page.nextCursor; }
   assert.equal(ids.length,1003); assert.equal(new Set(ids).size,1003); assert.ok(ids.includes(old.checkpointId));
   const versionFirst=await listFileVersionPage(root,"note.txt",{limit:1});
   assert.equal(versionFirst.total,2); assert.ok(versionFirst.nextCursor);
@@ -332,11 +335,11 @@ test("History pages expose all retained checkpoints and versions beyond the form
   assert.equal(versionLast.versions[0]!.hashSha256,old.files[0]!.hashSha256); assert.equal(versionLast.nextCursor,null);
   await assert.rejects(listFileVersionPage(root,"other.txt",{cursor:versionFirst.nextCursor!}),/another selection/);
   await rm(join(directory,`${recent.checkpointId}.json`));
-  await assert.rejects(listSpaceCheckpointPage(root,{cursor:first.nextCursor!}),/History changed/);
+  await assert.rejects(listWorkFolderCheckpointPage(root,{cursor:first.nextCursor!}),/History changed/);
 });
 
 test("History range reads honor cancellation before reading saved content", async (t) => {
   const {root}=await fixture(t); await writeFile(join(root,"note.txt"),"saved");
-  const checkpoint=await createSpaceCheckpoint(root); const controller=new AbortController(); controller.abort();
+  const checkpoint=await createWorkFolderCheckpoint(root); const controller=new AbortController(); controller.abort();
   await assert.rejects(readHistoryFile(root,{path:"note.txt",checkpointId:checkpoint.checkpointId,offsetBytes:0,signal:controller.signal}),{name:"AbortError"});
 });

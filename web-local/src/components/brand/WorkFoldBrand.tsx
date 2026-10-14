@@ -2,20 +2,6 @@ import type * as React from "react";
 import { productName } from "../../constants";
 import lockupBlackUrl from "../../assets/brand/work-fold-lockup-black.png";
 import lockupWhiteUrl from "../../assets/brand/work-fold-lockup-white.png";
-import markUrl from "../../assets/brand/work-fold-mark.png";
-
-export function WorkFoldMark({ className = "" }: { className?: string }) {
-  return (
-    <img
-      className={["work-fold-mark", className].filter(Boolean).join(" ")}
-      src={markUrl}
-      alt=""
-      aria-hidden="true"
-      draggable={false}
-    />
-  );
-}
-
 export function WorkFoldLockup({ className = "", animated = false }: { className?: string; animated?: boolean }) {
   // The provided horizontal lockups are single images: black carries light
   // themes, white carries dark themes.

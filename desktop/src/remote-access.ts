@@ -21,27 +21,38 @@ import type {
   WorkFoldViewerAppServeResult,
   WorkFoldViewerPageServeResult,
 } from "../../src/local/publications.js";
-import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal } from "../../src/local/remote-management.js";
+import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrincipal, WorkFoldRemoteWatchProgress } from "../../src/local/remote-work-fold-agent.js";
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsStore } from "./settings.js";
 
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
 const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
+/**
+ * The relay's bound on one device response envelope: base64url ciphertext of
+ * at most 3 MiB × 1.4 characters (`maximumResponseEnvelopeBytes` in
+ * services/bridge/server.mjs), which is about 3.15 MiB of response JSON. The
+ * relay treats a larger frame as a protocol error and closes the device
+ * socket after a few, so the desktop checks first (docs/browser-apps.md).
+ */
+export const maximumRemoteResponseCiphertextCharacters = Math.floor(3 * 1024 * 1024 * 1.4);
+/** The typed refusal a paired browser receives instead of an oversized response. */
+export const remoteResponseTooLargeCode = "RESPONSE_TOO_LARGE";
 const maximumProtocolErrorFramesPerConnection = 1;
 const operationSet = new Set<WorkFoldRemoteOperation>([
   "management.summary", "management.chats", "management.transcript", "management.rename", "management.delete", "management.send", "management.request",
   "management.stop", "management.watch", "management.glance", "management.glanceSeen",
   "management.work", "management.answer", "management.continue", "management.extensionAnswer",
-  "spaces.list", "spaces.tree", "spaces.filePreview", "apps.list", "apps.read",
+  "pages.list", "pages.link",
+  "work-folders.list", "work-folders.tree", "work-folders.filePreview", "apps.list", "apps.read",
   "apps.actions.request", "apps.actions.get", "apps.actions.list", "apps.actions.cancel",
 ]);
 /**
- * The serialized glance digest is bounded to 64 KB (docs/fold-glance.md) so it
+ * The serialized overview digest is bounded to 64 KB (docs/work-fold-agent-overview.md) so it
  * always fits the existing per-operation and queued-byte budgets. The digest's
  * own caps keep it far below this; exceeding the bound is answered with an
  * honest typed refusal, never a silently trimmed digest presented as complete.
  */
-const maximumRemoteGlanceProjectionBytes = 64 * 1024;
+const maximumRemoteOverviewProjectionBytes = 64 * 1024;
 
 export interface RemoteAccessStatus {
   configured: boolean;
@@ -51,8 +62,8 @@ export interface RemoteAccessStatus {
   url: string | null;
   /**
    * The origin published pages are served from: `pages-<slug>` under the same
-   * base domain (docs/fold-publishing.md, "Origin isolation"). Share links
-   * compose against this origin; the management client never serves on it.
+   * base domain (docs/shared-pages.md, "Origin isolation"). Share links
+   * compose against this origin; the paired web client never serves on it.
    */
   viewerOrigin: string | null;
   lastError: string | null;
@@ -105,7 +116,7 @@ export interface RemoteAccountRemovalSteps {
 }
 
 /**
- * The publishing ladder's desktop serving hook (docs/fold-publishing.md,
+ * The publishing ladder's desktop serving hook (docs/shared-pages.md,
  * rung 2), implemented by `src/local/publications.ts`. `servePage` performs
  * the effect-time recheck, identity checks, bounded render, and publication-
  * key encryption; this client only wraps the result in a device-signed
@@ -116,7 +127,7 @@ export interface RemoteAccountRemovalSteps {
 export interface RemoteViewerPageProvider {
   servePage(publicationId: string): Promise<WorkFoldViewerPageServeResult>;
   /**
-   * Rung 3 (docs/fold-publishing.md): one relayed viewer-app call — declared
+   * Rung 3 (docs/shared-pages.md): one relayed viewer-app call — declared
    * entry, placed release asset, or viewer-readable data read — served through the
    * publication service's effect-time recheck and the desktop-enforced
    * viewer-safe broker subset. A desktop without the hook ignores
@@ -129,7 +140,7 @@ export interface RemoteViewerPageProvider {
   /**
    * Bridge-relayed budget-exhaustion notice for one publication: viewers are
    * seeing the vague "resting" page, and the publisher's precise reason is
-   * recorded as a health note the glance surfaces. Content-free and
+   * recorded as a health note the overview surfaces. Content-free and
    * best-effort; an older desktop without the hook simply never learns.
    */
   noteResting?(publicationId: string, reason: "serve-rate" | "byte-budget"): Promise<unknown> | unknown;
@@ -180,6 +191,7 @@ export class RemoteAccessClient {
   #allGrantOperationFence = 0;
   #grantOperationFences = new Map<string, number>();
   #activeTasks = new Map<string, Map<string, TrackedRemoteTask>>();
+  #watches = new Map<string, { grantId: string; controller: AbortController }>();
 
   constructor(options: {
     settingsStore: SecureSettingsStore;
@@ -214,6 +226,7 @@ export class RemoteAccessClient {
   stop(): void {
     this.#stopped = true;
     this.#lifecycleGeneration += 1;
+    this.#abortWatches();
     const generation = this.#lifecycleGeneration;
     if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
     if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
@@ -230,6 +243,7 @@ export class RemoteAccessClient {
   async recoverConnection(): Promise<void> {
     if (this.#stopped) return;
     this.#lifecycleGeneration += 1;
+    this.#abortWatches();
     const generation = this.#lifecycleGeneration;
     if (this.#reconnectTimer) this.#timers.clearTimeout(this.#reconnectTimer);
     if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
@@ -643,6 +657,9 @@ export class RemoteAccessClient {
     const input = parseRequestPayload(payload);
     const remoteOperation = operationName(envelope.header.operation);
     const principal: WorkFoldRemotePrincipal = { browserId: grant.browserId, grantId: grant.id, requestId: operation.requestId };
+    if (remoteOperation === "management.watch") {
+      return this.#executeWatch(grant, operation, input, principal, operationFence, cacheKey);
+    }
     const lifecycleGeneration = this.#lifecycleGeneration;
     const actionAuthority = { assertCurrent: () => {
       if (!this.#isCurrentGeneration(lifecycleGeneration) || !this.#operationFenceIsCurrent(grant.id, operationFence)) {
@@ -654,28 +671,19 @@ export class RemoteAccessClient {
       // Re-read immediately before execution so disabling or revoking cannot
       // leave a stale envelope authorized in a queued microtask.
       if (!await this.#currentOperationAuthority(grant, operationFence)) return;
-      // Live-watch progress ticks ride the operation's event envelopes with
-      // strictly increasing sequences. Each tick is serialized behind the
-      // previous one and re-checks grant authority before it leaves the
-      // desktop, so revocation silences an in-flight watch immediately.
-      let nextSequence = 2;
-      let emitChain: Promise<void> = Promise.resolve();
-      const emitProgress = (progress: unknown) => {
-        emitChain = emitChain.then(async () => {
-          const authority = await this.#currentOperationAuthority(grant, operationFence);
-          if (!authority) return;
-          this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence++, true, { progress }, "operation.event");
-        }).catch(() => {});
-      };
       let ok = true;
       let responsePayload: unknown;
       try {
-        const value = remoteOperation === "management.watch" && this.#facade.watch
-          ? await this.#facade.watch(input, principal, emitProgress)
-          : await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
+        let value = await this.#facade.execute(remoteOperation, input, principal, actionAuthority);
+        if (remoteOperation === "pages.link") {
+          // Link material crosses only this signed encrypted response. The
+          // configured address owns the isolated viewer origin, never input
+          // from the browser or a publication's authored content.
+          value = { ...objectValue(value, "Page link"), viewerOrigin: statusView(settings, this.#connection, this.#lastError).viewerOrigin };
+        }
         if (remoteOperation === "management.glance"
-          && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteGlanceProjectionBytes) {
-          throw new Error("The glance digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
+          && Buffer.byteLength(JSON.stringify(value ?? null), "utf8") > maximumRemoteOverviewProjectionBytes) {
+          throw new Error("The overview digest exceeded its 64 KB remote bound. Open work-fold on the desktop to see it.");
         }
         if (remoteOperation === "management.send") {
           this.rememberActiveTask(grant.id, value, principal);
@@ -692,22 +700,79 @@ export class RemoteAccessClient {
       // requested. Re-read settings and both fence scopes at the serialized
       // completion point so a same-grant/all-grants revoke wins, while an
       // unrelated browser mutation cannot discard this result.
-      // Drain in-flight progress ticks so the completion's sequence stays
-      // strictly above every event the bridge will relay.
-      await emitChain;
       const completion = await this.#currentOperationAuthority(grant, operationFence);
       if (!completion) return;
       const response = this.sendEncrypted(
         completion.settings,
         completion.grant,
         operation,
-        nextSequence,
+        2,
         ok,
         responsePayload,
         "operation.complete",
       );
       this.remember(cacheKey, response);
     });
+  }
+
+  async #executeWatch(
+    grant: RemoteBrowserGrantSettings,
+    operation: ReturnType<typeof parseOperation>,
+    input: unknown,
+    principal: WorkFoldRemotePrincipal,
+    operationFence: RemoteOperationFence,
+    cacheKey: string,
+  ): Promise<void> {
+    const lifecycleGeneration = this.#lifecycleGeneration;
+    const watch = { grantId: grant.id, controller: new AbortController() };
+    const current = () => !watch.controller.signal.aborted && this.#isCurrentGeneration(lifecycleGeneration);
+    const admitted = await this.#withAuthority(async () => {
+      const authority = await this.#currentOperationAuthority(grant, operationFence);
+      if (!authority || !current()) return false;
+      this.#watches.set(cacheKey, watch);
+      this.sendEncrypted(authority.settings, authority.grant, operation, 1, true, { status: "running" }, "operation.event");
+      return true;
+    });
+    if (!admitted) return;
+    let nextSequence = 2;
+    let acceptingProgress = true;
+    let emitChain: Promise<void> = Promise.resolve();
+    const emitProgress = (progress: WorkFoldRemoteWatchProgress) => {
+      if (!acceptingProgress || !current()) return;
+      emitChain = emitChain.then(async () => {
+        const authority = await this.#currentOperationAuthority(grant, operationFence);
+        if (!authority || !current()) return;
+        this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence++, true, { progress }, "operation.event");
+      }).catch(() => {});
+    };
+    try {
+      if (!current()) return;
+      let ok = true;
+      let payload: unknown;
+      try {
+        // A watch owns a subscription, not the authority queue. Stop and
+        // revocation must remain able to settle the turn it is observing.
+        const pending = this.#facade.watch
+          ? this.#facade.watch(input, principal, emitProgress, watch.controller.signal)
+          : this.#facade.execute("management.watch", input, principal);
+        payload = { result: await waitForRemoteWatch(pending, watch.controller.signal) };
+      } catch (error) {
+        ok = false;
+        payload = { error: errorMessage(error) };
+      }
+      acceptingProgress = false;
+      await emitChain;
+      await this.#withAuthority(async () => {
+        const authority = await this.#currentOperationAuthority(grant, operationFence);
+        if (!authority || !current()) return;
+        const response = this.sendEncrypted(authority.settings, authority.grant, operation, nextSequence, ok, payload, "operation.complete");
+        this.remember(cacheKey, response);
+      });
+    } finally {
+      acceptingProgress = false;
+      if (this.#watches.get(cacheKey) === watch) this.#watches.delete(cacheKey);
+      watch.controller.abort();
+    }
   }
 
   sendEncrypted(
@@ -719,6 +784,13 @@ export class RemoteAccessClient {
     payload: unknown,
     type: "operation.event" | "operation.complete",
   ): RemoteEnvelope {
+    let plaintext = JSON.stringify(payload);
+    const fits = remoteResponseCiphertextCharacters(plaintext) <= maximumRemoteResponseCiphertextCharacters;
+    if (!fits) {
+      // The relay would refuse this frame, and repeated refusals close the
+      // device socket. Answer with a small typed refusal instead.
+      plaintext = JSON.stringify({ error: remoteResponseTooLargeMessage(operation.operation), code: remoteResponseTooLargeCode });
+    }
     const header = {
       type: "work-fold.remote-response.v1",
       accountId: settings.accountId,
@@ -728,11 +800,11 @@ export class RemoteAccessClient {
       requestId: operation.requestId,
       generation: grant.generation,
       sequence,
-      ok,
+      ok: ok && fits,
       eventKind: type,
       createdAt: new Date().toISOString(),
     };
-    const envelope = encryptEnvelope(settings.deviceEncryptionPrivateJwk, grant.encryptionPublicJwk, grant.id, header, payload);
+    const envelope = encryptEnvelope(settings.deviceEncryptionPrivateJwk, grant.encryptionPublicJwk, grant.id, header, plaintext);
     envelope.signature = signP1363(settings.deviceSigningPrivateJwk, signedEnvelopeText(envelope));
     this.send({ type, envelope });
     return envelope;
@@ -752,10 +824,18 @@ export class RemoteAccessClient {
 
   #fenceGrantOperations(grantId: string): void {
     this.#grantOperationFences.set(grantId, (this.#grantOperationFences.get(grantId) ?? 0) + 1);
+    this.#abortWatches(grantId);
   }
 
   #fenceAllGrantOperations(): void {
     this.#allGrantOperationFence += 1;
+    this.#abortWatches();
+  }
+
+  #abortWatches(grantId?: string): void {
+    for (const watch of this.#watches.values()) {
+      if (!grantId || watch.grantId === grantId) watch.controller.abort();
+    }
   }
 
   #operationFenceIsCurrent(grantId: string, fence: RemoteOperationFence): boolean {
@@ -1175,12 +1255,36 @@ function operationName(value: unknown): WorkFoldRemoteOperation {
   return value as WorkFoldRemoteOperation;
 }
 
-function encryptEnvelope(privateJwk: JsonWebKey, publicJwk: JsonWebKey, grantId: string, header: Record<string, unknown>, payload: unknown): RemoteEnvelope {
+/**
+ * The base64url ciphertext length of a response whose JSON is `plaintext`:
+ * AES-GCM keeps the plaintext length and appends a 16-byte tag.
+ */
+function remoteResponseCiphertextCharacters(plaintext: string): number {
+  return Math.ceil(((Buffer.byteLength(plaintext, "utf8") + 16) * 4) / 3);
+}
+
+function remoteResponseTooLargeMessage(operation: string): string {
+  switch (operation) {
+    case "work-folders.filePreview":
+      return "This file is too large to open in the browser. Open it on your desktop.";
+    case "apps.read":
+      return "This part of the app is too large to open in the browser. Open the app on your desktop.";
+    case "apps.actions.request":
+    case "apps.actions.get":
+    case "apps.actions.list":
+    case "apps.actions.cancel":
+      return "This result is too large to show in the browser. Open the app on your desktop to see it.";
+    default:
+      return "This is too large to show in the browser. Open work-fold on your desktop to see it.";
+  }
+}
+
+function encryptEnvelope(privateJwk: JsonWebKey, publicJwk: JsonWebKey, grantId: string, header: Record<string, unknown>, plaintext: string): RemoteEnvelope {
   const key = transportKey(privateJwk, publicJwk, grantId);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(Buffer.from(canonicalize(header)));
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final(), cipher.getAuthTag()]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
   return { header, iv: iv.toString("base64url"), ciphertext: encrypted.toString("base64url"), signature: "" };
 }
 
@@ -1311,6 +1415,21 @@ function freshTimestamp(value: unknown): boolean {
   const time = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(time) && Math.abs(Date.now() - time) <= 5 * 60_000;
 }
+
+async function waitForRemoteWatch(pending: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  let abort!: () => void;
+  const cancelled = new Promise<unknown>((resolve) => {
+    abort = () => resolve({ state: "cancelled", settled: false });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try {
+    return await Promise.race([pending, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
+
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error ?? "unknown error"); }
 
 function remoteRequestKey(grantId: string, requestId: string): string {
@@ -1348,10 +1467,10 @@ function remoteStopWasAccepted(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const stopped = (value as { stopped?: unknown }).stopped;
   if (!stopped || typeof stopped !== "object" || Array.isArray(stopped)) return false;
-  const result = stopped as { managementAborted?: unknown; children?: unknown };
+  const result = stopped as { workFoldAgentAborted?: unknown; children?: unknown };
   const children = Array.isArray(result.children) ? result.children : [];
   const childrenStopped = children.every((child) => child && typeof child === "object" && (child as { aborted?: unknown }).aborted === true);
-  return childrenStopped && (result.managementAborted === true || children.length > 0);
+  return childrenStopped && (result.workFoldAgentAborted === true || children.length > 0);
 }
 
 function remoteRequestIsActive(value: unknown): boolean {

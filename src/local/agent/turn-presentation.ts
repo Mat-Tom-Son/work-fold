@@ -1,12 +1,13 @@
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { containsReservedSpacePathSegment } from "../space-path-policy.js";
+import { containsReservedWorkFolderPathSegment } from "../work-folder-path-policy.js";
 import {
   maxAssistantPresentationSegments,
   maxChatToolEditDiffBytes,
   type AssistantPresentation,
   type AssistantPresentationSegment,
   type ChatToolEdit,
+  type ChatToolImage,
 } from "../../shared/chat-presentation.js";
 
 export function turnPresentation(
@@ -54,12 +55,12 @@ export function parseAssistantPresentation(value: unknown, content: string): Ass
 }
 
 /** Conservative admission: ambiguous native path spellings simply keep generic tool activity. */
-export function localEditPath(spaceRoot: string, value: unknown): string | undefined {
+export function localEditPath(workFolderRoot: string, value: unknown): string | undefined {
   if (typeof value !== "string" || !value.length || value.length > 4_096
     || /[\u0000-\u001f\u007f\\]/u.test(value) || /^[~@]|^[A-Za-z][A-Za-z\d+.-]*:/u.test(value)
-    || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/u.test(value) || containsReservedSpacePathSegment(value)) return undefined;
+    || /[\u00a0\u2000-\u200a\u202f\u205f\u3000]/u.test(value) || containsReservedWorkFolderPathSegment(value)) return undefined;
   try {
-    const root = resolve(spaceRoot);
+    const root = resolve(workFolderRoot);
     const target = resolve(root, value);
     const path = relative(root, target).split(sep).join("/");
     if (!isPortableEditPath(path) || lstatSync(root).isSymbolicLink()) return undefined;
@@ -78,14 +79,15 @@ export function localEditPath(spaceRoot: string, value: unknown): string | undef
   }
 }
 
-/** Child Folder transcripts travel independently, even after their registration is removed. */
+/** Child work-folder transcripts travel independently, even after their registration is removed. */
 function hasPortableFolderIdentity(path: string): boolean {
   for (const entry of readdirSync(path)) {
     if (entry.toLowerCase() !== ".work-fold") continue;
     const metadata = join(path, entry);
     // Never follow a purported identity's symlink just to decide presentation scope.
     if (lstatSync(metadata).isSymbolicLink()) return true;
-    if (readdirSync(metadata).some((name) => name.toLowerCase() === "space.json")) return true;
+    // `space.json` is the name a folder from before 2026-10-10 still carries until it is opened.
+    if (readdirSync(metadata).some((name) => ["work-folder.json", "space.json"].includes(name.toLowerCase()))) return true;
   }
   return false;
 }
@@ -110,6 +112,23 @@ export function projectNativeEdit(path: string, details: unknown, remainingBytes
   };
 }
 
+/** The picture a completed generate_image step made, from its tool details or a stored log. */
+export function parseChatToolImage(value: unknown): ChatToolImage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const id = record.id ?? record.imageId;
+  const name = record.name;
+  const mimeType = record.mimeType;
+  if (typeof id !== "string" || !/^[0-9a-f]{32}$/.test(id)) return undefined;
+  if (typeof name !== "string" || !name.trim() || name.length > 200 || /[\\/\u0000-\u001f]/.test(name)) return undefined;
+  if (typeof mimeType !== "string" || !/^image\/(png|jpeg|webp|gif)$/.test(mimeType)) return undefined;
+  const size = (value: unknown) => (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 100_000 ? value : undefined);
+  const path = typeof record.path === "string" && record.path && !record.path.startsWith("/") && !record.path.split("/").includes("..") && record.path.length <= 4096 ? record.path : undefined;
+  const width = size(record.width);
+  const height = size(record.height);
+  return { id, name, mimeType, ...(width ? { width } : {}), ...(height ? { height } : {}), ...(path ? { path } : {}) };
+}
+
 export function parseChatToolEdit(value: unknown): ChatToolEdit | undefined {
   if (!isRecord(value) || !isPortableEditPath(value.path) || typeof value.diff !== "string" || !value.diff.length
     || value.diff.length > maxChatToolEditDiffBytes || Buffer.byteLength(value.diff, "utf8") > maxChatToolEditDiffBytes || typeof value.truncated !== "boolean"
@@ -125,7 +144,7 @@ export function parseChatToolEdit(value: unknown): ChatToolEdit | undefined {
 function isPortableEditPath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 4_096
     && !isAbsolute(value) && !/[\u0000-\u001f\u007f\\:]/u.test(value)
-    && !containsReservedSpacePathSegment(value)
+    && !containsReservedWorkFolderPathSegment(value)
     && value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 

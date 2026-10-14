@@ -100,3 +100,21 @@ test("desktop Pi OAuth rejects a cancelled required prompt", async () => {
     /sign-in cancelled/i,
   );
 });
+
+test("desktop provider setup forwards browser failures and cancels callback prompts without reading the clipboard", async () => {
+  let reads = 0;
+  const controller = new AbortController();
+  const hooks = createDesktopPiOAuthHooks({
+    openExternal: async () => { throw new Error("browser failed"); },
+    readClipboard() { reads += 1; return "must-not-read"; }, writeClipboard() {},
+    async showMessageBox(options) {
+      assert.equal(options.signal, controller.signal);
+      assert.match(options.message, /full callback URL/);
+      controller.abort();
+      return { response: 0 };
+    },
+  });
+  await assert.rejects(hooks.openUrl({ url: "https://example.invalid" }), /browser failed/);
+  await assert.rejects(hooks.manualCodeInput!(controller.signal, { message: "Paste the full callback URL" }), { name: "AbortError" });
+  assert.equal(reads, 0);
+});

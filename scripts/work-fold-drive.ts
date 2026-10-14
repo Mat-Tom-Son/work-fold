@@ -7,15 +7,15 @@
  * a structured turn report so an agent or script can assert on the outcome.
  *
  * Usage:
- *   tsx scripts/work-fold-drive.ts --space-root <folder> --prompt "..." [options]
+ *   tsx scripts/work-fold-drive.ts --work-folder-root <folder> --prompt "..." [options]
  *
  * Options:
- *   --space-root <path> Folder to open as the Space (created if missing).
- *   --space-id <id>     Reuse an already-registered space instead.
+ *   --work-folder-root <path> Folder to open as the work-folder (created if missing).
+ *   --work-folder-id <id>     Reuse an already-registered work-folder instead.
  *   --prompt <text>         Prompt text. Use --prompt-file for long prompts.
  *   --prompt-file <path>    Read the prompt from a file ("-" for stdin).
  *   --conversation <id>     Continue an existing conversation (default: new).
- *   --context <space-path>  Space-relative file to attach as chat context
+ *   --context <work-folder-path>  work-folder-relative file to attach as chat context
  *                           (repeatable).
  *   --attach <origin>       Drive an already-running local API (e.g.
  *                           http://127.0.0.1:4327) instead of starting one
@@ -39,8 +39,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 interface DriveArgs {
-  space?: string;
-  spaceId?: string;
+  workFolder?: string;
+  workFolderId?: string;
   prompt?: string;
   promptFile?: string;
   conversation?: string;
@@ -79,8 +79,8 @@ interface TurnReport {
   outcome: "completed" | "error" | "timeout";
   durationMs: number;
   origin: string;
-  spaceId: string;
-  spaceRoot: string;
+  workFolderId: string;
+  workFolderRoot: string;
   conversationId: string;
   prompt: string;
   assistantText: string;
@@ -92,7 +92,7 @@ interface TurnReport {
 
 function usage(message?: string): never {
   if (message) console.error(`work-fold-drive: ${message}`);
-  console.error('Usage: tsx scripts/work-fold-drive.ts --space-root <folder> --prompt "..." [--json] [--timeout <s>]');
+  console.error('Usage: tsx scripts/work-fold-drive.ts --work-folder-root <folder> --prompt "..." [--json] [--timeout <s>]');
   console.error("Run with --help (or read the header of this file) for all options.");
   process.exit(3);
 }
@@ -108,8 +108,8 @@ function parseArgs(argv: string[]): DriveArgs {
       return value;
     };
     switch (flag) {
-      case "--space-root": args.space = next(); break;
-      case "--space-id": args.spaceId = next(); break;
+      case "--work-folder-root": args.workFolder = next(); break;
+      case "--work-folder-id": args.workFolderId = next(); break;
       case "--prompt": args.prompt = next(); break;
       case "--prompt-file": args.promptFile = next(); break;
       case "--conversation": args.conversation = next(); break;
@@ -124,7 +124,7 @@ function parseArgs(argv: string[]): DriveArgs {
       default: usage(`unknown option ${flag}`);
     }
   }
-  if (!args.space && !args.spaceId) usage("--space-root <folder> or --space-id <id> is required");
+  if (!args.workFolder && !args.workFolderId) usage("--work-folder-root <folder> or --work-folder-id <id> is required");
   if (!args.prompt && !args.promptFile) usage('--prompt "..." or --prompt-file <path> is required');
   if (args.port !== undefined && (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535)) usage("--port must be 0-65535");
   if (!Number.isFinite(args.timeoutSeconds) || args.timeoutSeconds <= 0) usage("--timeout must be a positive number of seconds");
@@ -158,13 +158,13 @@ async function api<T>(origin: string, method: string, path: string, body?: unkno
 /** Subscribe to the conversation SSE stream. Resolves once connected. */
 async function openChatStream(
   origin: string,
-  spaceId: string,
+  workFolderId: string,
   conversationId: string,
   onEvent: (event: ChatEvent) => void,
 ): Promise<{ done: Promise<"done" | "closed">; close: () => void }> {
   const controller = new AbortController();
   const response = await fetch(
-    `${origin}/api/spaces/${encodeURIComponent(spaceId)}/conversations/${encodeURIComponent(conversationId)}/events`,
+    `${origin}/api/work-folders/${encodeURIComponent(workFolderId)}/conversations/${encodeURIComponent(conversationId)}/events`,
     { signal: controller.signal },
   );
   if (!response.ok || !response.body) throw new Error(`Chat event stream failed (${response.status}).`);
@@ -225,7 +225,7 @@ function renderMarkdownReport(report: TurnReport): string {
   const outcomeLabel = report.outcome === "completed" ? "completed" : report.outcome === "timeout" ? "TIMED OUT" : "ERRORED";
   lines.push(`# work-fold turn report — ${outcomeLabel} in ${(report.durationMs / 1000).toFixed(1)}s`);
   lines.push("");
-  lines.push(`- Space: ${report.spaceId} (${report.spaceRoot})`);
+  lines.push(`- work-folder: ${report.workFolderId} (${report.workFolderRoot})`);
   lines.push(`- Conversation: ${report.conversationId}`);
   lines.push(`- API: ${report.origin}`);
   lines.push("");
@@ -233,7 +233,7 @@ function renderMarkdownReport(report: TurnReport): string {
   lines.push("");
   lines.push(report.prompt);
   lines.push("");
-  lines.push("## Assistant response");
+  lines.push("## agent response");
   lines.push("");
   lines.push(report.assistantText || "(no assistant text)");
   lines.push("");
@@ -277,8 +277,8 @@ async function main(): Promise<void> {
     narrate(`work-fold-drive: attached to ${origin}`);
   } else {
     if (args.agentDir) process.env.PI_CODING_AGENT_DIR = resolve(args.agentDir);
-    if (args.spaceId && !process.env.WORKFOLD_STATE_DIR) {
-      usage("--space-id with an in-process server requires WORKFOLD_STATE_DIR, or use --attach");
+    if (args.workFolderId && !process.env.WORKFOLD_STATE_DIR) {
+      usage("--work-folder-id with an in-process server requires WORKFOLD_STATE_DIR, or use --attach");
     }
     const stateBase = process.env.WORKFOLD_STATE_DIR?.trim()
       ? resolve(process.env.WORKFOLD_STATE_DIR)
@@ -291,26 +291,26 @@ async function main(): Promise<void> {
   }
 
   try {
-    let space: { id: string; spaceRoot: string };
-    if (args.spaceId) {
-      const result = await api<{ spaces: Array<{ id: string; spaceRoot: string }> }>(origin, "GET", "/api/bootstrap");
-      const selected = result.spaces.find((item) => item.id === args.spaceId);
-      if (!selected) throw new Error(`Space not found: ${args.spaceId}`);
-      space = selected;
+    let workFolder: { id: string; workFolderRoot: string };
+    if (args.workFolderId) {
+      const result = await api<{ workFolders: Array<{ id: string; workFolderRoot: string }> }>(origin, "GET", "/api/bootstrap");
+      const selected = result.workFolders.find((item) => item.id === args.workFolderId);
+      if (!selected) throw new Error(`work-folder not found: ${args.workFolderId}`);
+      workFolder = selected;
     } else {
-      const spaceRoot = resolve(args.space!);
-      if (!existsSync(spaceRoot)) await mkdir(spaceRoot, { recursive: true });
-      const result = await api<{ space: { id: string; spaceRoot: string } }>(
-        origin, "POST", "/api/spaces/local-folder", { spaceRoot },
+      const workFolderRoot = resolve(args.workFolder!);
+      if (!existsSync(workFolderRoot)) await mkdir(workFolderRoot, { recursive: true });
+      const result = await api<{ workFolder: { id: string; workFolderRoot: string } }>(
+        origin, "POST", "/api/work-folders/local-folder", { workFolderRoot },
       );
-      space = result.space;
+      workFolder = result.workFolder;
     }
-    narrate(`work-fold-drive: Space ${space.id} at ${space.spaceRoot}`);
+    narrate(`work-fold-drive: work-folder ${workFolder.id} at ${workFolder.workFolderRoot}`);
 
     let conversationId = args.conversation;
     if (!conversationId) {
       const created = await api<{ conversation: { id: string } }>(
-        origin, "POST", `/api/spaces/${encodeURIComponent(space.id)}/conversations`, { title: "work-fold-drive turn" },
+        origin, "POST", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations`, { title: "work-fold-drive turn" },
       );
       conversationId = created.conversation.id;
     }
@@ -318,7 +318,7 @@ async function main(): Promise<void> {
 
     const events: ChatEvent[] = [];
     let sawError = false;
-    const stream = await openChatStream(origin, space.id, conversationId, (event) => {
+    const stream = await openChatStream(origin, workFolder.id, conversationId, (event) => {
       events.push(event);
       if (event.type === "error") sawError = true;
       if (event.type === "status" && event.message) narrate(`  [status] ${event.message}`);
@@ -329,7 +329,7 @@ async function main(): Promise<void> {
     });
 
     const startedAt = Date.now();
-    await api(origin, "POST", `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    await api(origin, "POST", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations/${encodeURIComponent(conversationId)}/messages`, {
       content: prompt,
       ...(args.context.length ? { contextPaths: args.context } : {}),
     });
@@ -347,13 +347,13 @@ async function main(): Promise<void> {
     if (timeoutHandle) clearTimeout(timeoutHandle);
     if (outcome === "timeout") {
       narrate(`work-fold-drive: timed out after ${args.timeoutSeconds}s, aborting turn`);
-      await api(origin, "POST", `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversationId)}/abort`, {}).catch(() => undefined);
+      await api(origin, "POST", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations/${encodeURIComponent(conversationId)}/abort`, {}).catch(() => undefined);
     }
     stream.close();
     const durationMs = Date.now() - startedAt;
 
     const { messages } = await api<{ messages: Array<{ role: string; content: string }> }>(
-      origin, "GET", `/api/spaces/${encodeURIComponent(space.id)}/conversations/${encodeURIComponent(conversationId)}`,
+      origin, "GET", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations/${encodeURIComponent(conversationId)}`,
     );
     const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
     const assistantEvent = [...events].reverse().find((event) => event.type === "assistant_message");
@@ -363,8 +363,8 @@ async function main(): Promise<void> {
       outcome: timedOut ? "timeout" : sawError ? "error" : "completed",
       durationMs,
       origin,
-      spaceId: space.id,
-      spaceRoot: space.spaceRoot,
+      workFolderId: workFolder.id,
+      workFolderRoot: workFolder.workFolderRoot,
       conversationId,
       prompt,
       assistantText: lastAssistant?.content ?? assistantEvent?.text ?? "",

@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { normalizeWorkFoldCheckTargetPath } from "../../shared/checks.js";
-import { resolveSpacePath } from "../space.js";
+import { resolveWorkFolderPath } from "../work-folder.js";
+
+/** One whole-file replacement; matches the largest file a text review reads. */
+const maximumCorrectionBytes = 16 * 1024 * 1024;
 
 export interface CheckCorrectionProposal {
   kind: "work-fold.check-correction";
@@ -25,7 +28,7 @@ export function normalizeCheckCorrection(value: unknown): CheckCorrectionProposa
   const record = object(value);
   exactKeys(record, ["kind", "version", "findingId", "fingerprint", "path", "beforeHash", "replacement"]);
   if (record.kind !== "work-fold.check-correction" || record.version !== 1) throw new Error("Unsupported Check correction proposal.");
-  if (typeof record.replacement !== "string" || Buffer.byteLength(record.replacement, "utf8") > 128 * 1024 || record.replacement.includes("\0") || Buffer.from(record.replacement, "utf8").toString("utf8") !== record.replacement) throw new Error("A correction must contain at most 128 KiB of valid UTF-8 text.");
+  if (typeof record.replacement !== "string" || Buffer.byteLength(record.replacement, "utf8") > maximumCorrectionBytes || record.replacement.includes("\0") || Buffer.from(record.replacement, "utf8").toString("utf8") !== record.replacement) throw new Error("A correction must contain at most 16 MiB of valid UTF-8 text.");
   return { kind: "work-fold.check-correction", version: 1,
     findingId: text(record.findingId, 160), fingerprint: fingerprint(record.fingerprint),
     path: normalizeWorkFoldCheckTargetPath(record.path), beforeHash: hash(record.beforeHash), replacement: record.replacement };
@@ -49,35 +52,36 @@ export async function readCheckCorrectionProposal(path: string): Promise<CheckCo
   const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const info = await handle.stat();
-    if (!info.isFile() || info.size > 1024 * 1024) throw new Error("Correction proposal must be a regular JSON file no larger than 1 MiB.");
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    // Room for a full-size replacement after JSON escaping.
+    if (!info.isFile() || info.size > 8 * maximumCorrectionBytes) throw new Error("Correction proposal must be a regular JSON file no larger than 128 MiB.");
+    const buffer = Buffer.alloc(info.size + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
     }
-    if (length > 1024 * 1024) throw new Error("Correction proposal is oversized.");
+    if (length > info.size) throw new Error("Correction proposal changed while being read.");
     return normalizeCheckCorrection(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length))));
   } finally { await handle.close(); }
 }
 
 /** Writes only through the handle whose exact bytes were reviewed. The caller
- * holds the Space History/ownership lease and has journaled a safety checkpoint. */
+ * holds the work-folder History/ownership lease and has journaled a safety checkpoint. */
 export async function writeCheckCorrection(root: string, proposal: CheckCorrectionProposal): Promise<void> {
-  const absolute = resolveSpacePath(root, proposal.path);
+  const absolute = resolveWorkFolderPath(root, proposal.path);
   const handle = await open(absolute, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
   try {
     const before = await handle.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.size > 128 * 1024) throw new Error("Correction target must be an ordinary unlinked text file no larger than 128 KiB.");
-    const buffer = Buffer.alloc(128 * 1024 + 1);
+    if (!before.isFile() || before.nlink !== 1 || before.size > maximumCorrectionBytes) throw new Error("Correction target must be an ordinary unlinked text file no larger than 16 MiB.");
+    const buffer = Buffer.alloc(before.size + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
     }
-    const named = await lstat(resolveSpacePath(root, proposal.path));
+    const named = await lstat(resolveWorkFolderPath(root, proposal.path));
     const current = await handle.stat();
     if (length !== before.size || [named, current].some((info) => !info.isFile() || info.dev !== before.dev || info.ino !== before.ino || info.mtimeMs !== before.mtimeMs || info.ctimeMs !== before.ctimeMs)
       || createHash("sha256").update(buffer.subarray(0, length)).digest("hex") !== proposal.beforeHash) throw new Error("The file changed since this correction was prepared. Ask for a fresh correction.");

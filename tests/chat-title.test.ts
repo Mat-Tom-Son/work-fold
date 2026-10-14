@@ -16,7 +16,7 @@ test("successful first turns name chats with the conversation's active Pi model"
   const client = await readFile(resolve("src/local/agent/pi-client.ts"), "utf8");
   const server = await readFile(resolve("src/local/server.ts"), "utf8");
   assert.match(client, /const model = session\.model;/);
-  assert.match(client, /session\.agent\.streamFn\(model,/);
+  assert.match(client, /session\.agent\.streamFunction\(model,/);
   assert.match(client, /maxTokens: Math\.min\(model\.maxTokens > 0 \? model\.maxTokens : 2_048, 2_048\)/);
   assert.match(client, /maxRetries: 0/);
   assert.match(client, /\.\.\.\(titleReasoning \? \{ reasoning: titleReasoning \} : \{\}\)/);
@@ -25,6 +25,6 @@ test("successful first turns name chats with the conversation's active Pi model"
   assert.doesNotMatch(client, /completeSimple\(model,/);
   assert.match(server, /await client\.generateConversationTitle\(firstUserMessage, finalText\)/);
   assert.doesNotMatch(server, /generateConversationTitle\(firstUserMessage, finalText\)\.catch/);
-  assert.match(server, /await markConversationTitleAttempted\(spaceRoot, conversationId\)/);
+  assert.match(server, /await markConversationTitleAttempted\(workFolderRoot, conversationId\)/);
   assert.doesNotMatch(server, /modelTitle \?\? conversationTitleFromFirstUserMessage/);
 });

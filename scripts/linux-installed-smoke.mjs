@@ -46,6 +46,8 @@ export async function prepareFixture(root, phase) {
     assert.ok((await lstat(join(root, directory))).isDirectory(), `Retained ${directory} must exist`);
     assert.equal(await realpath(join(root, directory)), join(root, directory), "Fixture directories must not be symlinks");
   }
+  // Retained 0.4.x fixtures use the pre-migration field; the app itself migrates its owned stores.
+  fixture.workFolderId ??= fixture.spaceId;
   return fixture;
 }
 
@@ -97,7 +99,7 @@ async function startProvider(nonce, live) {
       if (replies.length === 0) {
         assert.ok(payload.tools?.some(tool => tool.function?.name === "bash"), "Pi must expose its native shell tool");
         tool = { name: "bash", arguments: { command: wantsWrite
-          ? 'work-fold files create --space "Linux test folder" --path worker-created.txt --json'
+          ? 'work-fold files create --work-folder "Linux test folder" --path worker-created.txt --json'
           : 'work-fold context --json', timeout: 20 } };
       } else {
         const content = replies[0].content;
@@ -105,7 +107,7 @@ async function startProvider(nonce, live) {
         assert.match(text, /^\s*\{/, `Worker shell did not return CLI JSON: ${text.slice(0, 240)}`);
         const receipt = JSON.parse(text);
         assert.equal(receipt.ok, true, "The Worker's inherited CLI must answer successfully");
-        assert.ok(receipt.data.space.id);
+        assert.ok(receipt.data.workFolder.id);
         if (wantsWrite) {
           assert.equal(receipt.command, "files.create");
           assert.equal(receipt.data.path, "worker-created.txt");
@@ -118,7 +120,7 @@ async function startProvider(nonce, live) {
           }
         } else {
           assert.equal(receipt.command, "context");
-          assert.equal(receipt.data.cwd, receipt.data.space.spaceRoot, "Worker CLI resolves its Folder after relaunch");
+          assert.equal(receipt.data.cwd, receipt.data.workFolder.workFolderRoot, "Worker CLI resolves its Folder after relaunch");
         }
       }
       if (tool) {
@@ -279,44 +281,44 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
     if (values["expect-version"]) assert.equal(version.data.version, values["expect-version"]);
     const source = join(root, "Linux-ready.txt");
     if (phase === "seed") {
-      await command("spaces", "register", "--path", folder);
-      const manifest = JSON.parse(await readFile(join(folder, ".work-fold/space.json"), "utf8"));
-      fixture.spaceId = manifest.id;
-      assert.equal(typeof fixture.spaceId, "string");
+      await command("work-folders", "register", "--path", folder);
+      const manifest = JSON.parse(await readFile(join(folder, ".work-fold/work-folder.json"), "utf8"));
+      fixture.workFolderId = manifest.id;
+      assert.equal(typeof fixture.workFolderId, "string");
       await writeFile(source, note);
-      await command("files", "add", "--space", fixture.spaceId, "--from", source);
-      await command("library", "add", "--from", source);
-      await command("spaces", "assistant", "model", "--space", fixture.spaceId, "--provider", provider, "--model", live?.model ?? model);
-      const created = await command("chat", "create", "--space", fixture.spaceId);
+      await command("files", "add", "--work-folder", fixture.workFolderId, "--from", source);
+
+      await command("work-folders", "worker", "model", "--work-folder", fixture.workFolderId, "--provider", provider, "--model", live?.model ?? model);
+      const created = await command("chat", "create", "--work-folder", fixture.workFolderId);
       fixture.conversationId = created.data.conversation.id;
-      await command("chat", "rename", "--space", fixture.spaceId, "--conversation", fixture.conversationId, "--title", "Linux persistence fixture");
+      await command("chat", "rename", "--work-folder", fixture.workFolderId, "--conversation", fixture.conversationId, "--title", "Linux persistence fixture");
     } else {
-      const manifest = JSON.parse(await readFile(join(folder, ".work-fold/space.json"), "utf8"));
-      assert.equal(manifest.id, fixture.spaceId, "Portable Folder identity survives");
-      const conversations = (await command("chats", "list", "--space", fixture.spaceId)).data.conversations;
+      const manifest = JSON.parse(await readFile(join(folder, ".work-fold/work-folder.json"), "utf8"));
+      assert.equal(manifest.id, fixture.workFolderId, "Portable Folder identity survives");
+      const conversations = (await command("chats", "list", "--work-folder", fixture.workFolderId)).data.conversations;
       assert.ok(conversations.some(chat => chat.id === fixture.conversationId && chat.title === "Linux persistence fixture"), "Chat identity/title survive");
-      const history = (await command("history", "list", "--space", fixture.spaceId)).data.checkpoints;
+      const history = (await command("history", "list", "--work-folder", fixture.workFolderId)).data.checkpoints;
       assert.ok(history.some(item => item.checkpointId === fixture.checkpointId), "History checkpoint survives");
       if (fixture.workerCheckpointId) assert.ok(history.some(item => item.checkpointId === fixture.workerCheckpointId), "The Worker's CLI restore point survives");
-      const result = (await command("chat", "result", "--space", fixture.spaceId, "--conversation", fixture.conversationId)).data;
+      const result = (await command("chat", "result", "--work-folder", fixture.workFolderId, "--conversation", fixture.conversationId)).data;
       assert.ok(result.messages.some(message => message.content.includes(`LINUX_SMOKE_WRITE_${fixture.nonce}`)), "User message survives");
       assert.ok(result.messages.some(message => message.content.includes(`Linux fixture completed ${fixture.nonce}`)), "Worker result survives");
       const request = await command("requests", "show", "--request", fixture.requestId);
       assert.equal(request.data.request.state, "done", "Durable request survives reconciliation");
       assert.equal(await readFile(join(folder, "worker-created.txt"), "utf8"), workerNote);
     }
-    const selected = (await command("spaces", "assistant", "show", "--space", fixture.spaceId)).data.model;
+    const selected = (await command("work-folders", "worker", "show", "--work-folder", fixture.workFolderId)).data.model;
     assert.deepEqual(selected, { provider, id: live?.model ?? model }, "Folder model choice is preserved");
     const livePrompt = !live ? "" : phase === "seed"
       ? `\nUse the native write tool to create worker-created.txt with exactly this text (including the final newline): ${JSON.stringify(workerNote)}. After the tool succeeds, reply exactly: Linux fixture completed ${fixture.nonce}. /no_think`
       : `\nRead worker-created.txt to confirm it exists. Then reply exactly: Linux fixture completed ${fixture.nonce}. /no_think`;
-    const sent = await command("chat", "send", "--space", fixture.spaceId, "--conversation", fixture.conversationId,
+    const sent = await command("chat", "send", "--work-folder", fixture.workFolderId, "--conversation", fixture.conversationId,
       "--message", `LINUX_SMOKE_${phase === "seed" ? "WRITE" : "RESUME"}_${fixture.nonce}${livePrompt}`);
     let settled;
     const deadline = Date.now() + (live ? liveTurnTimeoutMs : 30_000);
     do {
       try {
-        settled = await command("chat", "wait", "--space", fixture.spaceId, "--task", sent.data.taskId, "--timeout", "30");
+        settled = await command("chat", "wait", "--work-folder", fixture.workFolderId, "--task", sent.data.taskId, "--timeout", "30");
       } catch (error) {
         // A CLI wait timeout does not retry the accepted model turn. Continue
         // following that same task while the real local model is processing.
@@ -332,25 +334,21 @@ export async function runInstalledSmoke(args = process.argv.slice(2)) {
     if (!live && phase === "seed") {
       fixture.workerCheckpointId = peer.workerCheckpoint();
       assert.equal(typeof fixture.workerCheckpointId, "string");
-      const history = (await command("history", "list", "--space", fixture.spaceId)).data.checkpoints;
+      const history = (await command("history", "list", "--work-folder", fixture.workFolderId)).data.checkpoints;
       assert.ok(history.some(item => item.checkpointId === fixture.workerCheckpointId), "The Worker's CLI restore point exists in History");
     }
     assert.equal(await readFile(join(folder, "Linux-ready.txt"), "utf8"), note);
-    const library = (await command("library", "list")).data.items;
-    assert.ok(library.some(item => item.path === "Linux-ready.txt" && item.sizeBytes === Buffer.byteLength(note)), "Library entry survives");
-    const copied = (await command("library", "copy", "--item", "Linux-ready.txt", "--space", fixture.spaceId)).data.copied;
-    assert.equal(await readFile(join(folder, copied), "utf8"), note, "Library bytes survive, not only its index entry");
-    const capabilities = await command("capabilities", "list", "--space", fixture.spaceId);
+    const capabilities = await command("capabilities", "list", "--work-folder", fixture.workFolderId);
     assert.match(JSON.stringify(capabilities), /included-tools/);
     await assertRendererSandbox(child.pid);
     if (phase === "seed") {
-      fixture.checkpointId = (await command("history", "save", "--space", fixture.spaceId, "--label", "Linux persistence fixture")).data.checkpoint.checkpointId;
+      fixture.checkpointId = (await command("history", "save", "--work-folder", fixture.workFolderId, "--label", "Linux persistence fixture")).data.checkpoint.checkpointId;
       fixture.requestId = settled.data.request.id;
       fixture.version = version.data;
       fixture.complete = true;
       await writeFile(join(root, markerName), JSON.stringify(fixture, null, 2) + "\n", { mode: 0o600 });
     }
-    successMessage = `PASS ${values.development ? "development" : "installed"} Linux ${phase}: sandboxed renderer, real Pi turn with ${live ? `real local Ollama model ${live.model}` : "local synthetic provider and Worker-inherited CLI"}, Folder identity, Chat, History, Library, request, model choice and exact file bytes${retained ? "; profile retained" : "; disposable profile"}`;
+    successMessage = `PASS ${values.development ? "development" : "installed"} Linux ${phase}: sandboxed renderer, real Pi turn with ${live ? `real local Ollama model ${live.model}` : "local synthetic provider and Worker-inherited CLI"}, Folder identity, Chat, History, request, model choice and exact file bytes${retained ? "; profile retained" : "; disposable profile"}`;
   } finally {
     try {
       if (child?.pid) {

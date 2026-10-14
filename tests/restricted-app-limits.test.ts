@@ -4,14 +4,16 @@ import test from "node:test";
 import {
   buildRestrictedAppLimits,
   restrictedAppAssistantEnvelopeBytes,
+  restrictedAppFileEnvelopeBytes,
   restrictedAppInferenceEnvelopeBytes,
   restrictedAppNetworkEnvelopeBytes,
   restrictedAppStorageEnvelopeBytes,
 } from "../src/local/agent/restricted-app-limits.js";
 import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-inference.js";
 import { restrictedAppAssistantLimits, restrictedAppSubscriptionLimits } from "../src/shared/restricted-app-tasks.js";
-import { RestrictedAppNetworkBroker } from "../src/local/agent/restricted-app-connections.js";
-import { RestrictedAppFileBroker } from "../src/local/agent/restricted-app-files.js";
+import { workFoldRequestLimits } from "../src/shared/work-fold-limits.js";
+import { RestrictedAppNetworkBroker, restrictedAppNetworkDefaultLimits } from "../src/local/agent/restricted-app-connections.js";
+import { RestrictedAppFileBroker, restrictedAppFileDefaultLimits } from "../src/local/agent/restricted-app-files.js";
 import { restrictedAppStorageLimits } from "../src/local/agent/restricted-app-storage.js";
 import {
   parseRestrictedAppManifest,
@@ -83,23 +85,41 @@ test("published limits are composed from the live brokers rather than restated",
     fileMaxFiles: restrictedAppSubscriptionLimits.fileMaxFiles,
   });
   // F29's envelope numbers are the report verb's numbers, not a second set.
-  assert.equal(limits.assistant.summaryBytes, 32 * 1024);
-  assert.equal(limits.assistant.dataBytes, 256 * 1024);
-  assert.equal(limits.inference.inputBytes, 256 * 1024);
-  assert.equal(limits.assistant.inputBytes, 64 * 1024);
-  assert.equal(limits.inference.runningPerInstallation, 4);
-  assert.equal(limits.assistant.runningPerInstallation, 4);
+  assert.equal(limits.assistant.summaryBytes, workFoldRequestLimits.maxResultSummaryBytes);
+  assert.equal(limits.assistant.dataBytes, workFoldRequestLimits.maxResultDataBytes);
+});
+
+test("the AI lanes' bounds keep memory finite rather than ration the app", () => {
+  // These are the owner's chosen generous values: the context window and the
+  // model's own output limit are the real bounds on a model call, and a
+  // request quota no longer exists at all.
+  assert.equal(restrictedAppInferenceLimits.instructionsBytes, 1024 * 1024);
+  assert.equal(restrictedAppInferenceLimits.inputBytes, 16 * 1024 * 1024);
+  assert.equal(restrictedAppInferenceLimits.schemaBytes, 1024 * 1024);
+  assert.equal(restrictedAppInferenceLimits.defaultOutputBytes, restrictedAppInferenceLimits.maxOutputBytes);
+  assert.equal(restrictedAppInferenceLimits.maxOutputBytes, 16 * 1024 * 1024);
+  assert.deepEqual(
+    [restrictedAppInferenceLimits.runningPerInstallation, restrictedAppInferenceLimits.waitingPerInstallation, restrictedAppInferenceLimits.runningMachineWide],
+    [16, 256, 32],
+  );
+  assert.equal(restrictedAppAssistantLimits.inputBytes, 4 * 1024 * 1024);
+  assert.equal(restrictedAppAssistantLimits.resultBytes, 32 * 1024 * 1024);
+  assert.equal(restrictedAppAssistantLimits.runningPerInstallation, 32);
+  assert.equal(Object.hasOwn(restrictedAppAssistantLimits, "records"), false, "there is no rolling request quota");
 });
 
 test("default broker bounds are the ones apps are told about", () => {
   const network = new RestrictedAppNetworkBroker({ credentials: emptyCredentials as never });
   const files = new RestrictedAppFileBroker();
-  assert.deepEqual(network.limits, { maxRequestBytes: 128 * 1024, maxResponseBytes: 256 * 1024, timeoutMs: 15_000, maxRedirects: 3 });
-  assert.deepEqual(files.limits, { maxReadBytes: 512 * 1024, maxWriteBytes: 512 * 1024, maxListEntries: files.limits.maxListEntries });
+  assert.deepEqual(network.limits, { ...restrictedAppNetworkDefaultLimits });
+  assert.deepEqual(network.limits, { maxRequestBytes: 16 * 1024 * 1024, maxResponseBytes: 64 * 1024 * 1024, timeoutMs: 120_000, maxRedirects: 3 });
+  assert.deepEqual(files.limits, { ...restrictedAppFileDefaultLimits });
+  assert.deepEqual(files.limits, { maxReadBytes: 64 * 1024 * 1024, maxWriteBytes: 64 * 1024 * 1024, maxListEntries: 10_000 });
 });
 
 test("the published automation interval range is the range the manifest parser enforces", () => {
   const { minimum, maximum } = restrictedAppAutomationIntervalMinutes;
+  assert.deepEqual({ minimum, maximum }, { minimum: 1, maximum: 366 * 24 * 60 }, "one minute to a leap year");
   const build = (intervalMinutes: number) => ({
     version: 2,
     id: "interval-app",
@@ -187,11 +207,19 @@ test("bridge envelopes preserve every request allowed by the published byte limi
   assert.ok(transactionBytes <= restrictedAppStorageLimits.transactionBytes);
   assert.ok(Buffer.byteLength(JSON.stringify(transaction)) <= restrictedAppStorageEnvelopeBytes);
 
-  // The published inference input bound must stay reachable for text that
-  // escapes into six bytes per character, instructions and schema included.
+  // A file write's published bound stays reachable for text that escapes badly.
+  const maxWriteBytes = restrictedAppFileDefaultLimits.maxWriteBytes;
+  const fileEnvelope = JSON.stringify({
+    operation: "write",
+    request: { grantId: "exports", path: "report.txt", encoding: "utf8", data: "\0".repeat(maxWriteBytes), mode: "replace" },
+  });
+  assert.ok(Buffer.byteLength(fileEnvelope) <= restrictedAppFileEnvelopeBytes(maxWriteBytes));
+
+  // The published inference bounds must stay reachable together for text that
+  // escapes into six bytes per character: instructions, input, and schema.
   const inferenceEnvelope = JSON.stringify({
     request: {
-      instructions: "x".repeat(restrictedAppInferenceLimits.instructionsBytes),
+      instructions: "\u0001".repeat(restrictedAppInferenceLimits.instructionsBytes),
       input: "\0".repeat(restrictedAppInferenceLimits.inputBytes),
       maxOutputBytes: restrictedAppInferenceLimits.maxOutputBytes,
     },
@@ -206,6 +234,6 @@ test("bridge envelopes preserve every request allowed by the published byte limi
   });
   assert.ok(
     Buffer.byteLength(assistantEnvelope) <= restrictedAppAssistantEnvelopeBytes,
-    "JSON escaping must not make an allowed Assistant request input fail in the preload",
+    "JSON escaping must not make an allowed Worker request input fail in the preload",
   );
 });

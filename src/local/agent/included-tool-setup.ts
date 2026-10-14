@@ -18,7 +18,7 @@ function computerStatus(summary: ComputerSessionSummary, accessibility?: Include
 }
 
 /** Explicit projection: native leases, profile identities and bootstrap proofs stay in the host. */
-function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
+function chromeStatus(summary?: ChromeConnectionSummary, environment?: { browserInstalled: boolean; extensionSeen: boolean }): IncludedToolStatus {
   const source = summary ?? { state: "native_host_missing", checkedAt: new Date().toISOString() };
   const chrome: ChromeConnectionSummary = {
     state: source.state, checkedAt: source.checkedAt,
@@ -39,7 +39,9 @@ function chromeStatus(summary?: ChromeConnectionSummary): IncludedToolStatus {
     detail: chrome.problem === "transport_unavailable" ? "The local Chrome connection could not start. Another local browser automation host may be using its port. Quit that host, then restart work-fold."
       : chrome.problem === "native_host_unavailable" ? "The Chrome native helper could not be registered. Open Chrome setup to repair the connection."
       : chrome.state === "not_connected" && chrome.hasSelection ? "Open Chrome. Your selected profile reconnects automatically."
+      : environment && !environment.browserInstalled && chrome.state !== "connected" ? "Install Google Chrome to let your Worker browse with it."
       : details[chrome.state], checkedAt: chrome.checkedAt, chrome,
+    ...(environment ? { chromeSetup: { browserInstalled: environment.browserInstalled, extensionSeen: environment.extensionSeen } } : {}),
   };
 }
 
@@ -50,19 +52,23 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
   let mcp: IncludedToolStatus;
   try {
     const config = await loadIncludedMcpConfig({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd } : {}) });
-    const count = Object.values(config.mcpServers).filter((server) => !server.disabled).length;
+    const count = config.servers.filter((server) => server.config.enabled !== false).length;
     mcp = { id: "mcp", state: count ? "unknown" : "setup_required", checkedAt: new Date().toISOString(),
       detail: count ? "Service connections are configured. Each connection is verified when you use it or choose Check in its details." : "No service connections are configured. Add a connection to use its tools.", facts: { connections: String(count) } };
   } catch {
     mcp = { id: "mcp", state: "unavailable", checkedAt: new Date().toISOString(), detail: "Service connection configuration could not be read. Open its settings to check the configuration." };
   }
+  const braveCredential = await runtime.credentials.read("work-fold:web:brave");
   return includedToolDefinitions.map(({ id }) => {
     if (id === "mcp") return mcp;
-    if (id === "chrome") return chromeStatus(runtime.config.includedTools?.chromeConnection?.status());
+    if (id === "chrome") {
+      const connection = runtime.config.includedTools?.chromeConnection;
+      return chromeStatus(connection?.status(), connection?.environment?.());
+    }
     if (id === "computer" && runtime.config.includedTools?.computerSession) return computerStatus(
       runtime.config.includedTools.computerSession.status(), includedToolObservation(runtime, id));
     const now = new Date().toISOString();
-    if (id === "web") return runtime.authStorage.get("work-fold:web:brave")?.type === "api_key"
+    if (id === "web") return braveCredential?.type === "api_key"
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
     const checked = includedToolObservation(runtime, id);
@@ -74,7 +80,7 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
 export type IncludedSetupAction = ChromeSetupAction | "start-check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck" | "connect-brave" | "disconnect-brave" | "share-screen" | "stop-sharing";
 export interface IncludedSetupResult { status: IncludedToolStatus }
 
-/** Trusted local setup only. Secrets and permission prompts never enter an Assistant turn. */
+/** Trusted local setup only. Secrets and permission prompts never enter a turn. */
 export async function setupIncludedTool(cwd: string, id: IncludedToolId, action: IncludedSetupAction, input: { secret?: string }, provider?: PiRuntimeProvider, signal?: AbortSignal): Promise<IncludedSetupResult> {
   const runtime = await resolvePiRuntime(cwd, provider, { requestProjectTrust: false });
   const config = runtime.config.includedTools;
@@ -102,7 +108,7 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     }
     // Its app-owned observation already accounts for profile generation and
     // handshake freshness. Never retain a second five-minute Ready cache.
-    return { status: chromeStatus(summary) };
+    return { status: chromeStatus(summary, service.environment?.()) };
   }
   // Starting an explicit recheck invalidates earlier evidence even if this
   // attempt throws before it can produce a new structured result.
@@ -112,11 +118,11 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
     if (action === "connect-brave") {
       const secret = input.secret?.trim();
       if (!secret || secret.length > 4096) throw new Error("Enter a valid Brave Search API key.");
-      runtime.authStorage.set("work-fold:web:brave", { type: "api_key", key: secret });
-      await runtime.flushAuthStorage();
+      await runtime.credentials.modify("work-fold:web:brave", async () => ({ type: "api_key", key: secret }));
+      await runtime.flushCredentials();
     } else if (action === "disconnect-brave") {
-      runtime.authStorage.logout("work-fold:web:brave");
-      await runtime.flushAuthStorage();
+      await runtime.credentials.delete("work-fold:web:brave");
+      await runtime.flushCredentials();
     } else if (action !== "check") throw new Error("Unknown web setup action.");
     status = (await listIncludedToolStatus(cwd, provider)).find((item) => item.id === id)!;
   } else if (id === "computer") {

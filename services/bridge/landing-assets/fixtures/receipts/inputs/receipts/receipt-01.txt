@@ -1,0 +1,8 @@
+SAMPLE RECEIPT — fictional demonstration
+Receipt number: SEP-001
+Merchant: Northbank Office
+Date: 2026-09-02
+Description: printer paper
+Currency: USD
+Total paid: $28.49
+Payment: paid

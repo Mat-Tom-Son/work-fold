@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # This deliberately installs/removes packages only in the disposable Ubuntu
-# build image. Never point it at an ordinary workstation or a personal profile.
+# build image. Never point it at an ordinary workstation or a everywhere profile.
 test "${WORKFOLD_CONTAINER_INSTALL_TEST:-}" = 1
 test -f /.dockerenv || test -f /run/.containerenv
 package=$(realpath -- "$1")
@@ -43,4 +43,4 @@ apt-get install --yes "$package"
 test "$(cat /usr/bin/work-fold)" = unrelated-cli
 dpkg --purge work-fold-desktop
 test "$(cat /usr/bin/work-fold)" = unrelated-cli
-echo 'PASS DEB install/replacement/removal/reinstall, persistent Pi/Chat/History/Library/request state, packaged credential stores and unrelated CLI ownership'
+echo 'PASS DEB install/replacement/removal/reinstall, persistent Pi/Chat/History/request state, packaged credential stores and unrelated CLI ownership'

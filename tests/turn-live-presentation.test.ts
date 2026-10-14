@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PiConversationClient, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { appendMessage, readConversation } from "../src/local/agent/chat-store.js";
 import { boundedLiveTurnPresentation } from "../src/local/agent/turn-live-presentation.js";
@@ -112,18 +112,18 @@ test("reconnect snapshots restore live steps and edit evidence without replay or
     });
   });
   await new Promise<void>((resolve) => providerServer.listen(0, "127.0.0.1", resolve));
-  const authStorage = AuthStorage.inMemory({ live: { type: "api_key", key: "synthetic" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("live", { api: "openai-completions", baseUrl: `http://127.0.0.1:${(providerServer.address() as AddressInfo).port}/v1`, apiKey: "synthetic", models: [{ id: "live", name: "Live", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] });
+  const authStorage = FileCredentialStore.inMemory({ live: { type: "api_key", key: "synthetic" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("live", { api: "openai-completions", baseUrl: `http://127.0.0.1:${(providerServer.address() as AddressInfo).port}/v1`, apiKey: "synthetic", models: [{ id: "live", name: "Live", reasoning: true, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] });
   const settingsManager = SettingsManager.inMemory({ defaultProvider: "live", defaultModel: "live", defaultThinkingLevel: "low" });
   const turnStore = await WorkFoldTurnStore.create({ stateRoot: join(root, "state") });
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "folders"), loadEnv: false, turnStore,
-    piRuntimeProvider: { async resolveRuntime() { return { agentDir, authStorage, modelRegistry, settingsManager }; } } });
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "folders"), loadEnv: false, turnStore,
+    piRuntimeProvider: { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } } });
   t.after(async () => { held?.response.end(); await api.close(); providerServer.closeAllConnections(); await new Promise<void>((resolve) => providerServer.close(() => resolve())); await rm(root, { recursive: true, force: true }); });
-  const created = await json(api.origin, "/api/spaces", { name: "Reconnect" });
-  await writeFile(join(created.space.spaceRoot, "notes.txt"), "before\n");
-  const conversation = await json(api.origin, `/api/spaces/${created.space.id}/conversations`, {});
-  const base = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+  const created = await json(api.origin, "/api/work-folders", { name: "Reconnect" });
+  await writeFile(join(created.workFolder.workFolderRoot, "notes.txt"), "before\n");
+  const conversation = await json(api.origin, `/api/work-folders/${created.workFolder.id}/conversations`, {});
+  const base = `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
   const accepted = await json(api.origin, `${base}/messages`, { content: "Update and check notes.txt.", requestId: "reconnect-request", userMessageId: "reconnect-user" });
   await until(() => !!held);
   const first = await snapshot(api.origin + base + "/events", "0");
@@ -140,7 +140,7 @@ test("reconnect snapshots restore live steps and edit evidence without replay or
   assert.equal(first.presentation.workTrail.find((entry: any) => entry.id === thought.id).startedAt, thought.startedAt);
   assert.ok(thought.order > edit.order);
   assert.equal(requests, 2, "reconnect never starts a provider or tool attempt");
-  assert.equal(await readFile(join(created.space.spaceRoot, "notes.txt"), "utf8"), "after\n");
+  assert.equal(await readFile(join(created.workFolder.workFolderRoot, "notes.txt"), "utf8"), "after\n");
   held!.send({ content: "The file is updated." }); held!.send({}, "stop"); held!.response.end("data: [DONE]\n\n");
   await until(() => turnStore.get(accepted.taskId)?.status === "succeeded");
   const saved = (await json(api.origin, base)).messages.find((message: any) => message.turnId === accepted.taskId && message.role === "assistant");

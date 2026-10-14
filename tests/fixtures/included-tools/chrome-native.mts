@@ -11,7 +11,7 @@ const port = (reservation.address() as { port: number }).port;
 await new Promise<void>(resolve => reservation.close(() => resolve()));
 process.env.PI_CHROME_BRIDGE_PORT = String(port);
 process.env.PI_CODING_AGENT_DIR = join(root, "agent");
-const { AuthStorage, createAgentSession, createEventBus, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
+const { FileCredentialStore, createAgentSession, createEventBus, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
 const jiti = createJiti(import.meta.url, { moduleCache: true, fsCache: false });
 const chrome = await jiti.import<any>(new URL("../../../resources/included-tools/chrome/index.ts", import.meta.url).pathname);
 const config = { companionPath: join(root, "companion") }, url = `http://127.0.0.1:${port}`;
@@ -37,15 +37,15 @@ async function makeSession(name: string) {
   const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, settingsManager, eventBus, noContextFiles: true, noSkills: true, noThemes: true, noPromptTemplates: true,
     extensionFactories: [{ path: join(root, `${name}.ts`), factory: chrome.default }] });
   await resourceLoader.reload(); assert.deepEqual(resourceLoader.getExtensions().errors, []);
-  const authStorage = AuthStorage.inMemory();
-  const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, authStorage, modelRegistry: ModelRegistry.inMemory(authStorage), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
+  const authStorage = FileCredentialStore.inMemory();
+  const { session } = await createAgentSession({ cwd, agentDir: process.env.PI_CODING_AGENT_DIR, resourceLoader, settingsManager, modelRuntime: await ModelRuntime.create({ credentials: authStorage, modelsPath: null }), sessionManager: SessionManager.inMemory(), noTools: "builtin" });
   await session.bindExtensions({ mode: "rpc" }); sessions.push(session); return { session, cwd };
 }
 function call(session: any, name: string, args: any) { const tool = session.agent.state.tools.find((item: any) => item.name === name); assert.ok(tool); return tool.execute("fixture", args); }
 async function stop(session: any) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "exit" }); session.dispose(); sessions.splice(sessions.indexOf(session), 1); }
 try {
   assert.equal((await chrome.probeIncludedChrome(config)).state, "setup_required");
-  const a = await makeSession("space-a"), b = await makeSession("space-b");
+  const a = await makeSession("work-folder-a"), b = await makeSession("work-folder-b");
   await assert.rejects(stat(config.companionPath));
   await assert.rejects(call(a.session, "chrome_tab", { action: "list" }), /Connect Chrome in Skills & Extensions/);
   await assert.rejects(fetch(url + "/status"));
@@ -85,13 +85,14 @@ try {
   const artifactB = fullText.match(/saved to: (.*?) —/)?.[1]; assert.ok(artifactB);
   assert.deepEqual(JSON.parse(await readFile(artifactB, "utf8")), fullSnapshot);
   const actionResult = { result: { clicked: true, actionEvidence: "ACTION_OUTCOME_MARKER" }, snapshot: fullSnapshot };
-  const actionCall = call(b.session, "chrome_click", { targetId: "4102", uid: "e1", includeSnapshot: true }); command = await next(); await reply(command, actionResult);
+  const actionCall = call(b.session, "chrome_click", { input: { targetId: "4102", uid: "e1", includeSnapshot: true } }); command = await next(); await reply(command, actionResult);
   const actionText = (await actionCall).content[0].text;
   assert.match(actionText, /Complete captured action result and snapshot JSON/);
   const actionArtifact = actionText.match(/saved to: (.*?) —/)?.[1]; assert.ok(actionArtifact);
   assert.deepEqual(JSON.parse(await readFile(actionArtifact, "utf8")), actionResult, "large action observations must retain their action outcome without replay");
   for (const name of ["chrome_click", "chrome_fill"]) {
-    const fallback = call(a.session, name, { targetId: "4101", selector: "#field", text: "hello" });
+    const args = { targetId: "4101", selector: "#field", text: "hello" };
+    const fallback = call(a.session, name, name === "chrome_click" ? { input: args } : args);
     command = await next();
     await reply(command, { input: "dom-fallback", valueMatches: false, submitted: false, reason: "hidden tab: trusted input was not dispatched" });
     const text = (await fallback).content[0].text;
@@ -166,7 +167,7 @@ try {
   const stoppingB = stop(b.session); command = await next(); await reply(command, {}); await stoppingB;
   await assert.rejects(readFile(artifactB, "utf8"));
   await assert.rejects(fetch(url + "/status"));
-  console.log("PASS native Chrome: lazy credential, persistent companion identity, authenticated transport and actual restricted-app broker refusal, native Pi image result, no Space capture files, two-session disposal");
+  console.log("PASS native Chrome: lazy credential, persistent companion identity, authenticated transport and actual restricted-app broker refusal, native Pi image result, no work-folder capture files, two-session disposal");
 } finally {
   for (const session of sessions) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "reload" }); session.dispose(); }
   await rm(root, { recursive: true, force: true });

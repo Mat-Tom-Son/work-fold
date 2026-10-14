@@ -1,25 +1,24 @@
 # Chrome extension distribution
 
-Status: implemented in source. The public
-[Chrome Store item](https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk)
-was verified on 2026-09-23: version 1.0.0, updated September 15, 2026. Its listing
-currently describes Apple-silicon Mac support. Linux installed-Store acceptance
-and the corresponding listing update remain release requirements; availability
-in the Store does not establish a working Linux connection.
-
-The source now builds **1.0.1**, an unpublished candidate that keeps new groups
-in the target tab's existing window. The previous grouping call implicitly moved
-tabs into Chrome's current window, which reproduced Linux background-capture
-timeouts. The local 1.0.1 candidate passes real native connection, unfocused
-target-pixel capture, two-Chat ownership, cleanup and browser/host restart on
-Chrome for Testing 154.0.8037.57 Stable (X11 and private GNOME Wayland) and
-155.0.8059.12 Beta (X11). Public Store 1.0.0 retains the failure; Store
-publication and acceptance of the approved update remain separate work.
+Status: published in the Chrome Web Store as
+[work-fold](https://chromewebstore.google.com/detail/ophmjbphcjmjcpcdpmfehbldiomkepgk)
+(item `ophmjbphcjmjcpcdpmfehbldiomkepgk`), which the desktop setup and the
+website's **Add work-fold to Chrome** link open. Each extension update goes
+through Google's review before Chrome delivers it.
 
 ## Installation and updates
 
-**Skills & Extensions → Chrome → Connect Chrome** registers the app's signed
-native helper and opens the exact Chrome Web Store listing. The person adds
+Chrome setup in work-fold (Skills & Extensions → Chrome, or first run's
+optional **Let your Worker use your Mac** step) shows two steps: **Add the
+work-fold extension** (**Open Chrome Web Store** registers the app's signed
+native helper and opens the exact Chrome Web Store listing) and **Choose Connect
+in the extension**. Either order works (2026-10-11): at launch the installed app
+registers its native helper when Chrome is set up on the Mac and no work-fold
+registration exists yet, never replacing another installation's, and it
+accepts **Connect** chosen in a freshly added extension without an earlier
+Connect Chrome in work-fold. Setup marks the first step done once the extension
+has reached work-fold, and says to install Google Chrome when no Chrome app is
+installed; it never reads a Chrome profile to find out. The person adds
 **work-fold**, then chooses **Connect** in that profile. The first installation
 opens this small setup page once; extension updates do not reopen it or connect
 another profile. The UI shows Connected only after the authenticated HTTP
@@ -98,9 +97,12 @@ missing verification does not repeat a successful input. The
 desktop observes compatible polls, accepted results and active-command
 heartbeats rather than mistaking a long operation for a lost connection.
 Desktop status refreshes do
-not upgrade an installed extension. Companion-side fixes require the reviewed
-1.0.2 ZIP to be approved and installed separately; the Store item remains
-unpublished until Google accepts that submission.
+not upgrade an installed extension. A companion-side fix ships as a new Store
+version (the app currently pins companion 1.0.2 in
+`src/shared/chrome-distribution.json`); after Google approves it, Chrome
+updates installed copies on its own schedule, and the bridge version check
+asks for **Update Chrome extension** when an older companion lacks a required
+capability. App-side setup changes need no Store update.
 
 ## Build and publication
 
@@ -112,7 +114,7 @@ The optional public key, when supplied, must derive the pinned item ID. A Store
 upload can omit `manifest.key`; the Store signs it using its assigned identity.
 No private signing key belongs in this repository. Production native builds and
 the connector build reject missing Store identity. `--draft` permits a missing
-identity only for an unpublished first upload; it is not a publication lane.
+identity only for a first upload of a new item; it is not a publication lane.
 
 The Store listing must disclose broad site/debugger permissions, requested page
 and interaction data, and transfer through the desktop to the configured model
@@ -121,10 +123,10 @@ documented MV3 exception; it is not represented as an absence of supplied code.
 No extension script is downloaded for execution in the extension context.
 The [privacy policy](../PRIVACY.md) must be public and current before submission.
 
-Publication requires the registered publisher account, final ZIP, listing and
-privacy fields, truthful screenshots, and Google review. Google controls the
-review outcome. Verify the final approved Store installation with the signed
-desktop before describing onboarding as production-complete.
+Each Store update requires the registered publisher account, final ZIP, listing
+and privacy fields, truthful screenshots, and Google review. Google controls the
+review outcome. Verify an approved Store installation with the signed desktop
+before describing a changed onboarding flow as production-complete.
 
 ## Verification
 
@@ -156,3 +158,7 @@ tab stays unfocused, rather than merely returning a nonempty image.
 References: [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
 [MV3 requirements](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements),
 [privacy fields](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy).
+
+### Linux candidate setup (2026-10-14)
+
+Linux uses the same current Store companion and protocol. Installation checks look for the Google Chrome executable on PATH; opening the listing waits only for OS launch, so a cold browser cannot hold the setup lock. Native registration lives under `$XDG_CONFIG_HOME/google-chrome/NativeMessagingHosts` (or `~/.config/google-chrome/NativeMessagingHosts`). A first startup may register an absent host only when that Chrome directory exists; it preserves another installation’s registration. Explicit Connect remains the ownership/repair action. Development and custom-data-profile hosts cannot replace the normal registration.

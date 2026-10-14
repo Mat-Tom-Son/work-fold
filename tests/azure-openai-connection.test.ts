@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { stream } from "@earendil-works/pi-ai/api/azure-openai-responses";
 import { AZURE_OPENAI_DEPLOYMENTS_ENV, AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, parseAzureDeploymentNames } from "../src/shared/azure-openai.js";
 import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "../src/local/agent/azure-openai-connection.js";
@@ -31,56 +31,60 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   const agentDir = join(root, "agent");
   await mkdir(agentDir);
   const authPath = join(agentDir, "auth.json");
-  const authStorage = AuthStorage.create(authPath);
-  const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+  const authStorage = FileCredentialStore.create(authPath);
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: join(agentDir, "models.json") });
   const settingsManager = SettingsManager.inMemory();
-  const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, authStorage, modelRegistry, settingsManager }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), spaceBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
+  const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } };
+  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
   t.after(() => api.close());
   const configure = (azure: unknown, apiKey?: string, providerId = AZURE_OPENAI_PROVIDER) => fetch(`${api.origin}/api/agent/configure`, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "management", provider: providerId, model: "team", azure, ...(apiKey ? { apiKey } : {}) }),
+    body: JSON.stringify({ scope: "agent", provider: providerId, model: "team", azure, ...(apiKey ? { apiKey } : {}) }),
   });
   const azure = { baseUrl: "https://example.openai.azure.com", deployments: ["team", "fast", "gpt"] };
   const saved = await configure(azure, "synthetic-azure-secret");
   assert.equal(saved.status, 200, await saved.clone().text());
   assert.doesNotMatch(await saved.text(), /synthetic-azure-secret/);
   // Reopen the persisted store, as on relaunch.
-  const reopened = AuthStorage.create(authPath);
-  const credential = reopened.get(AZURE_OPENAI_PROVIDER);
+  const reopened = FileCredentialStore.create(authPath);
+  const credential = await reopened.read(AZURE_OPENAI_PROVIDER);
   assert.equal(credential?.type, "api_key");
   assert.equal(credential?.type === "api_key" && credential.env?.AZURE_OPENAI_BASE_URL, "https://example.openai.azure.com/openai/v1");
   assert.ok(credential?.type === "api_key");
   assert.deepEqual(JSON.parse(credential.env![AZURE_OPENAI_DEPLOYMENTS_ENV]!), azure.deployments);
-  const freshRegistry = ModelRegistry.create(reopened, join(agentDir, "models.json"));
-  const freshProvider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, authStorage: reopened, modelRegistry: freshRegistry, settingsManager }; } };
+  const freshRegistry = await ModelRuntime.create({ credentials: reopened, modelsPath: join(agentDir, "models.json") });
+  const freshProvider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: reopened, modelRuntime: freshRegistry, settingsManager }; } };
   const runtime = await resolvePiRuntime(root, freshProvider, { requestProjectTrust: false });
-  for (const name of azure.deployments) assert.equal(runtime.modelRegistry.find(AZURE_OPENAI_PROVIDER, name)?.id, name);
+  for (const name of azure.deployments) assert.equal(runtime.modelRuntime.getModel(AZURE_OPENAI_PROVIDER, name)?.id, name);
   assert.deepEqual((await listPiModels(root, freshProvider)).filter((model) => model.provider === AZURE_OPENAI_PROVIDER).map((model) => model.id).sort(), [...azure.deployments].sort());
   const restored = await getPiSetupStatus(root, freshProvider);
   assert.equal(restored.model, "team");
   assert.equal(restored.configured, true);
-  assert.ok(freshRegistry.find("openai", "gpt-4.1"), "other providers retain their catalogs");
+  assert.ok(freshRegistry.getModel("openai", "gpt-4.1"), "other providers retain their catalogs");
   const client = new PiConversationClient("azure-deployment-test", root, freshProvider);
   try {
     assert.deepEqual((await client.getState()).model, { provider: AZURE_OPENAI_PROVIDER, id: "team", name: "team" });
   } finally { await client.stop(); }
-  authStorage.set(AZURE_OPENAI_PROVIDER, { ...credential, env: { ...credential.env, UNRELATED_SECRET: "private-environment-value" } });
-  const loaded = await fetch(`${api.origin}/api/agent/models?scope=management`);
+  await authStorage.modify(AZURE_OPENAI_PROVIDER, async () => ({ ...credential, env: { ...credential.env, UNRELATED_SECRET: "private-environment-value" } }));
+  const loaded = await fetch(`${api.origin}/api/agent/models?scope=agent`);
   const loadedText = await loaded.text();
   assert.doesNotMatch(loadedText, /synthetic-azure-secret|private-environment-value|UNRELATED_SECRET/);
   assert.deepEqual(JSON.parse(loadedText).azure, normalizeAzureOpenAIConnection(azure));
 
   const changed = { ...azure, baseUrl: "https://other.services.ai.azure.com/openai/v1/responses" };
-  const updated = await configure(changed);
+  const updated = await fetch(`${api.origin}/api/agent/configure`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ scope: "agent", provider: AZURE_OPENAI_PROVIDER, azure: changed }),
+  });
   assert.equal(updated.status, 200, await updated.clone().text());
-  assert.equal(await authStorage.getApiKey(AZURE_OPENAI_PROVIDER), "synthetic-azure-secret");
-  assert.equal(authStorage.getProviderEnv(AZURE_OPENAI_PROVIDER)?.UNRELATED_SECRET, "private-environment-value");
-  const beforeInvalid = authStorage.get(AZURE_OPENAI_PROVIDER);
+  assert.equal((await updated.json()).status.model, "team", "connection updates preserve the saved model without submitting it");
+  assert.equal((await modelRuntime.getAuth(AZURE_OPENAI_PROVIDER))?.auth.apiKey, "synthetic-azure-secret");
+  assert.equal(((await authStorage.read(AZURE_OPENAI_PROVIDER)) as any)?.env?.UNRELATED_SECRET, "private-environment-value");
+  const beforeInvalid = await authStorage.read(AZURE_OPENAI_PROVIDER);
   assert.equal((await configure({ ...azure, deployments: ["broken=value"] }, "replacement-secret")).status, 400);
-  assert.deepEqual(authStorage.get(AZURE_OPENAI_PROVIDER), beforeInvalid);
+  assert.deepEqual(await authStorage.read(AZURE_OPENAI_PROVIDER), beforeInvalid);
   assert.equal((await configure({ ...azure, deployments: ["unselected"] }, "replacement-secret")).status, 400);
-  assert.deepEqual(authStorage.get(AZURE_OPENAI_PROVIDER), beforeInvalid);
+  assert.deepEqual(await authStorage.read(AZURE_OPENAI_PROVIDER), beforeInvalid);
   assert.equal((await configure(azure, "replacement-secret", "openai")).status, 400);
 
   // Exercise the installed Azure adapter without making any network or paid model call.
@@ -92,11 +96,10 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   }) as typeof fetch;
   try {
     for (const id of azure.deployments) {
-      const model = modelRegistry.find(AZURE_OPENAI_PROVIDER, id)!;
-      const auth = await modelRegistry.getApiKeyAndHeaders(model);
-      assert.equal(auth.ok, true);
-      if (!auth.ok) throw new Error(auth.error);
-      const result = await stream(model, { messages: [{ role: "user", content: "Synthetic request", timestamp: 0 }] }, { ...auth, maxRetries: 0 }).result();
+      const model = modelRuntime.getModel(AZURE_OPENAI_PROVIDER, id)!;
+      const auth = await modelRuntime.getAuth(model);
+      assert.ok(auth);
+      const result = await modelRuntime.stream(model, { messages: [{ role: "user", content: "Synthetic request", timestamp: 0 }] }, { maxRetries: 0 }).result();
       assert.equal(result.stopReason, "error");
     }
     assert.deepEqual(requests.map((request) => request.model), ["team", "fast", "gpt"]);
@@ -109,39 +112,39 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   try {
     await saveAzureOpenAIConnection(root, { ...azure, deployments: ["team", "new-deployment"] }, undefined, provider);
     assert.deepEqual((await getAzureOpenAIConnection(root, provider)).deployments, ["team", "new-deployment"]);
-    assert.equal(modelRegistry.find(AZURE_OPENAI_PROVIDER, "fast"), undefined);
-    assert.equal(authStorage.getProviderEnv(AZURE_OPENAI_PROVIDER)?.AZURE_OPENAI_DEPLOYMENT_NAME_MAP, "team=team,new-deployment=new-deployment");
+    assert.equal(modelRuntime.getModel(AZURE_OPENAI_PROVIDER, "fast"), undefined);
+    assert.equal((await authStorage.read(AZURE_OPENAI_PROVIDER) as { env?: Record<string, string> })?.env?.AZURE_OPENAI_DEPLOYMENT_NAME_MAP, "team=team,new-deployment=new-deployment");
   } finally {
     if (previousMapping === undefined) delete process.env.AZURE_OPENAI_DEPLOYMENT_NAME_MAP;
     else process.env.AZURE_OPENAI_DEPLOYMENT_NAME_MAP = previousMapping;
   }
   const removed = await fetch(`${api.origin}/api/agent/auth`, {
     method: "DELETE", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ scope: "management", provider: AZURE_OPENAI_PROVIDER }),
+    body: JSON.stringify({ scope: "agent", provider: AZURE_OPENAI_PROVIDER }),
   });
   assert.equal(removed.status, 200);
-  assert.equal(authStorage.get(AZURE_OPENAI_PROVIDER), undefined);
-  assert.equal(modelRegistry.find(AZURE_OPENAI_PROVIDER, "team"), undefined);
-  assert.ok(modelRegistry.find(AZURE_OPENAI_PROVIDER, "gpt-4.1"), "removing app settings restores native catalog");
+  assert.equal(await authStorage.read(AZURE_OPENAI_PROVIDER), undefined);
+  assert.equal(modelRuntime.getModel(AZURE_OPENAI_PROVIDER, "team"), undefined);
+  assert.ok(modelRuntime.getModel(AZURE_OPENAI_PROVIDER, "gpt-4.1"), "removing app settings restores native catalog");
 });
 
 test("Chat titles use the active Azure deployment and its stored connection without unsupported minimal reasoning", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-azure-title-"));
   const agentDir = join(root, "agent");
-  const spaceRoot = join(root, "space");
-  await mkdir(spaceRoot, { recursive: true });
-  const authStorage = AuthStorage.inMemory();
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
+  const workFolderRoot = join(root, "work-folder");
+  await mkdir(workFolderRoot, { recursive: true });
+  const authStorage = FileCredentialStore.inMemory();
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
   const provider: PiRuntimeProvider = { async resolveRuntime() {
-    return { agentDir, authStorage, modelRegistry,
+    return { agentDir, credentials: authStorage, modelRuntime,
       preferredModel: { provider: AZURE_OPENAI_PROVIDER, id: "gpt-4.1" },
       settingsManager: SettingsManager.inMemory({ defaultThinkingLevel: "medium", retry: { enabled: false } }),
     };
   } };
-  await saveAzureOpenAIConnection(spaceRoot, {
+  await saveAzureOpenAIConnection(workFolderRoot, {
     baseUrl: "https://title-fixture.openai.azure.com", deployments: ["gpt-4.1", "gpt-5.2", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-6-astra", "gpt-6.1-sol", "team-review"],
   }, "synthetic-title-key", provider);
-  const client = new PiConversationClient("azure-title-chat", spaceRoot, provider);
+  const client = new PiConversationClient("azure-title-chat", workFolderRoot, provider);
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; key: string | null; body: any }> = [];
   let incompleteTitle = false;

@@ -73,18 +73,18 @@ export function createLocalEventChannel(parent: LocalEventSink, subscriptionId: 
 
 export type LocalEventTarget =
   | { kind: "control" }
-  | { kind: "files"; spaceId: string }
-  | { kind: "chat"; spaceId: string; conversationId: string }
-  | { kind: "management"; conversationId: string };
+  | { kind: "files"; workFolderId: string }
+  | { kind: "chat"; workFolderId: string; conversationId: string }
+  | { kind: "agent"; conversationId: string };
 
 export function localEventTarget(path: string): LocalEventTarget | null {
-  if (path === "/api/management/control-events") return { kind: "control" };
-  const files = /^\/api\/spaces\/([A-Za-z0-9_-]+)\/file-events$/.exec(path);
-  if (files) return { kind: "files", spaceId: files[1]! };
-  const chat = /^\/api\/spaces\/([A-Za-z0-9_-]+)\/conversations\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})\/events$/.exec(path);
-  if (chat) return { kind: "chat", spaceId: chat[1]!, conversationId: chat[2]! };
-  const management = /^\/api\/management\/conversations\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})\/events$/.exec(path);
-  return management ? { kind: "management", conversationId: management[1]! } : null;
+  if (path === "/api/work-fold-agent/control-events") return { kind: "control" };
+  const files = /^\/api\/work-folders\/([A-Za-z0-9_-]+)\/file-events$/.exec(path);
+  if (files) return { kind: "files", workFolderId: files[1]! };
+  const chat = /^\/api\/work-folders\/([A-Za-z0-9_-]+)\/conversations\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})\/events$/.exec(path);
+  if (chat) return { kind: "chat", workFolderId: chat[1]!, conversationId: chat[2]! };
+  const agentMatch = /^\/api\/work-fold-agent\/conversations\/([A-Za-z0-9][A-Za-z0-9_.-]{0,127})\/events$/.exec(path);
+  return agentMatch ? { kind: "agent", conversationId: agentMatch[1]! } : null;
 }
 
 export function parseLocalEventSubscriptions(value: unknown): LocalEventSubscription[] {

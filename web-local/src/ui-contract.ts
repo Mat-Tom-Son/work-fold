@@ -1,4 +1,4 @@
-import { WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
+import { WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE, WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
 
 export const primaryNavigation = [
   { id: "files", label: "Files" },
@@ -7,12 +7,12 @@ export const primaryNavigation = [
 ] as const;
 
 export const welcomeActions = {
-  create: "Create a work-folder",
-  linkFolder: "Turn an existing folder into a work-folder",
+  create: "Create new work-folder",
+  linkFolder: "Use existing folder",
 } as const;
 
 /**
- * Settings → Shared pages (docs/fold-publishing.md, rung 2): the
+ * Settings → Shared Pages (docs/shared-pages.md, rung 2): the
  * publications list with its budgets, tallies, and page state, the
  * transient share-link reveal, stop sharing, and the in-place Budgets and
  * Sleep copy controls (amended 2026-09-24) that narrow or widen under a
@@ -20,9 +20,11 @@ export const welcomeActions = {
  * tab. Copy never says host, hosting, or website, and "publish" stays
  * reserved for App Studio's local Release transition.
  */
-export const foldPublicationsSettings = {
-  heading: "Pages Your Fold Serves",
+export const publicationsSettings = {
+  heading: "Shared Pages",
   linkMeaning: "Anyone with the link can read this page.",
+  /** App rows: the viewer reads; it never writes, acts, or reaches connections. */
+  appLinkMeaning: "Anyone with the link can view this app.",
   revealLink: "Show Link",
   hideLink: "Hide Link",
   copyLink: "Copy Link",
@@ -37,6 +39,7 @@ export const foldPublicationsSettings = {
   budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
   stopSharing: "Stop Sharing",
   stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
+  stopSharingAppConfirm: "Stop sharing this app? Every copy of its link stops working, and sharing again mints a new link.",
   emptyNoAddress: "Set up web access to share pages.",
   webAccess: "Web Access",
   empty: "No pages are shared. Share a file from its tab.",
@@ -51,7 +54,7 @@ export const foldPublicationsSettings = {
 } as const;
 
 /**
- * Sharing a file from its tab or the Files menu (docs/fold-publishing.md,
+ * Sharing a file from its tab or the Files menu (docs/shared-pages.md,
  * amended 2026-09-24): the click shares and says so; the popover holds the
  * link. No confirmation — sharing is receipted and Stop sharing undoes it.
  */
@@ -61,7 +64,7 @@ export const fileSharing = {
   sharedToast: (title: string) => `Shared "${title}"`,
   stoppedToast: (title: string) => `Stopped sharing "${title}"`,
   linkCopied: "Link Copied",
-  linkInSettings: "Show the link in Settings → Shared pages.",
+  linkInSettings: "Show the link in Settings → Shared Pages.",
   openSharedPages: "Open Shared Pages",
   noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
   webAccess: "Web Access",
@@ -72,7 +75,27 @@ export const fileSharing = {
 } as const;
 
 /**
- * Settings → Recently deleted (docs/receipts-not-gates.md, F20).
+ * Putting an installed app at the person's address from its details in
+ * Settings → Apps (docs/shared-pages.md, rung 3). Like sharing a file, the
+ * click shares and says so; the link itself is revealed in Settings → Shared
+ * Pages, and Stop Sharing there undoes it.
+ */
+export const appSharing = {
+  share: "Share at your address",
+  shared: "At your address",
+  sharedToast: (title: string) => `${title} is at your address. Show its link in Settings → Shared Pages.`,
+  openSharedPages: "Open Shared Pages",
+  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
+  webAccess: "Web Access",
+  previewDisabled: "Sharing is disabled in the preview",
+  /** What the share exposes, from the app's reviewed viewer declaration. */
+  viewerNote: (entry: string, readable: readonly string[]) => readable.length
+    ? `Sharing shows ${entry} to anyone with the link. Viewers can read ${readable.join(", ")} in this app's data, and never write, act, or reach connections.`
+    : `Sharing shows ${entry} to anyone with the link. Viewers read none of this app's data, and never write, act, or reach connections.`,
+} as const;
+
+/**
+ * Settings → Recently Deleted (docs/receipts-not-gates.md, F20).
  * Nothing work-fold deletes is gone at the moment it happens: History covers
  * what it can, and this is where the rest waits.
  */
@@ -96,51 +119,52 @@ export const recentlyDeletedSettings = {
  * Deleting a folder from Files (docs/receipts-not-gates.md, F20). The confirm
  * is the one moment the person decides, so it states what actually happens:
  * History keeps what it can, whatever History cannot keep moves into Recently
- * deleted, and both are recoverable. The word "removed" without that is a
+ * Deleted, and both are recoverable. The word "removed" without that is a
  * promise of finality the product no longer makes.
  */
 export const deleteFolderConfirm = {
   title: (name: string) => `Delete ${name}?`,
-  body: "Everything in it goes to History, or to Recently deleted if History cannot keep a copy. You can bring it back for 30 days.",
-  confirmLabel: "Delete Folder",
+  body: "Everything in it goes to History, or to Recently Deleted if History cannot keep a copy. You can bring it back for 30 days.",
+  confirmLabel: "Delete work-folder",
 } as const;
 
 /**
  * Settings → Automations → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates: they exist so a runaway stops and so
  * envelopes stay sane. Every message that names a limit names this section,
- * so every number an app or a routing can hit has a row here. The numbers are
+ * so every number an app or an automation can hit has a row here. The numbers are
  * read from the same frozen contracts the host enforces, never retyped.
  */
-export const foldLimitsSettings = {
+export const workFoldLimitsSettings = {
   heading: "Limits",
-  assistantHeading: "App Requests",
+  appRequestsHeading: "Worker Requests",
   requestsHeading: "Requests",
   continuationsHeading: "Continuations",
   continuationsLabel: "Continue requests when their child results arrive",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
-  routingsHeading: "Routings",
-  automationsHeading: "App Automations",
+  automationsHeading: "Automations",
+  appAutomationsHeading: "App Automations",
   deletedHeading: "Recently Deleted",
   deletedLink: "Open Recently Deleted",
   frozenNote: "",
 } as const;
 
 /**
- * Settings → Web access: what pairing a browser means. Pairing is
+ * Settings → Web Access: what pairing a browser means. Pairing is
  * an identity act on this desktop, never a gate on work; a paired browser
- * holds the fold's full authority (docs/receipts-not-gates.md).
+ * holds the work-fold agent's full authority (docs/receipts-not-gates.md).
  */
 export const remoteAccessSettings = {
   pairedBrowserTrust: "Paired browsers can read or change accessible files and run local commands.",
 } as const;
 
 /**
- * The Folder-owned Automations tab (docs/fold-routings.md, F15 as amended
+ * A work-folder's own Automations tab (docs/automations.md, F15 as amended
  * 2026-09-24): a read-mostly window onto the automations whose trigger or
- * steps name this Folder. Settings → Automations stays the management home;
- * the rail entry exists only while at least one automation touches the Folder.
+ * steps name this work-folder. Settings → Automations stays the place to manage
+ * them; the rail entry exists only while at least one automation touches the
+ * work-folder.
  */
 export const folderAutomations = {
   rail: "Automations",
@@ -166,8 +190,12 @@ export const folderAutomations = {
   lastRun: (when: string) => `Last run ${when}`,
   notRunYet: "Not Run Yet",
   failed: "Failed",
+  partlyDone: "Partly done",
   allAutomations: "All Automations",
   noneLeft: "No automations touch this work-folder.",
+  goneHere: "This automation no longer touches this work-folder.",
+  count: (count: number) => count === 1 ? "1 automation" : `${count} automations`,
+  open: (title: string) => `Open ${title}`,
   runRequested: "Run Requested",
   turnedOn: "Automation turned on",
   turnedOff: "Automation turned off",

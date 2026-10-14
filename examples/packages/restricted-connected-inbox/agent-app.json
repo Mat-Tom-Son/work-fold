@@ -2,7 +2,7 @@
   "version": 2,
   "id": "restricted-connected-inbox",
   "title": "Connected inbox",
-  "description": "An interactive Space-bound inbox and local service console.",
+  "description": "An interactive work-folder-bound inbox and local service console.",
   "runtime": {
     "kind": "sandboxed-web",
     "entry": "index.html",

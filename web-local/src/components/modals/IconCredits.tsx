@@ -3,6 +3,13 @@ export function IconCredits() {
     <details className="capability-technical-details icon-credits">
       <summary>Icon Credits</summary>
       <p>
+        Globe Code artwork by <a href="https://github.com/lucide-icons/lucide" target="_blank" rel="noreferrer">Lucide Icons and contributors</a>, copyright © 2026,
+        under the <a href="https://lucide.dev/license" target="_blank" rel="noreferrer">ISC License</a>.
+        Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted,
+        provided that the copyright notice and this permission notice appear in all copies.
+        The artwork is provided “as is” without warranties; its authors are not liable for damages arising from its use.
+      </p>
+      <p>
         Chrome, Computer Control, Web, and Documents icons by the{" "}
         <a href="https://github.com/Arcticons-Team/Arcticons" target="_blank" rel="noreferrer">Arcticons Team and contributors</a>,{" "}
         licensed under <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noreferrer">CC BY-SA 4.0</a>.

@@ -7,7 +7,7 @@ import { listRestrictedAppInferenceReceipts } from "../../lib/restricted-apps";
 import type { RestrictedAppInstalled } from "../../types";
 
 /**
- * Short answers this app asked the Assistant for (docs/receipts-not-gates.md,
+ * Short answers this app asked the agent for (docs/receipts-not-gates.md,
  * F22). `assistant.infer` needs no grant beyond installation, so disclosure is
  * after the fact: this is the reader for it. Each row says when, from where,
  * how it ended, how much text went in and came back, which model actually ran,

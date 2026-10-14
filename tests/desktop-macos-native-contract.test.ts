@@ -5,22 +5,22 @@ import test from "node:test";
 const main = await readFile(new URL("../desktop/src/main.ts", import.meta.url), "utf8");
 const preload = await readFile(new URL("../desktop/src/preload.cts", import.meta.url), "utf8");
 
-test("Darwin file menus require the trusted main renderer and canonical Space validation", () => {
+test("Darwin file menus require the trusted main renderer and canonical work-folder validation", () => {
   assert.match(
     main,
-    /ipcMain\.handle\("work-fold:space:popup-file-menu"[\s\S]*?assertTrustedMainRenderer\(event\)[\s\S]*?process\.platform !== "darwin"[\s\S]*?parseNativeFileMenuRequest\(value\)[\s\S]*?validateNativeFileMenuEntry\(request\)[\s\S]*?popupNativeFileMenu\(request\)/,
+    /ipcMain\.handle\("work-fold:work-folder:popup-file-menu"[\s\S]*?assertTrustedMainRenderer\(event\)[\s\S]*?process\.platform !== "darwin"[\s\S]*?parseNativeFileMenuRequest\(value\)[\s\S]*?validateNativeFileMenuEntry\(request\)[\s\S]*?popupNativeFileMenu\(request\)/,
   );
-  assert.match(main, /validateNativeFileMenuEntry[\s\S]*?resolveSpaceItem\(request\.spaceId, request\.path\)/);
+  assert.match(main, /validateNativeFileMenuEntry[\s\S]*?resolveWorkFolderItem\(request\.workFolderId, request\.path\)/);
 });
 
-test("Finder and Open Recent recreate the Mac window before routing a queued Space", () => {
+test("Finder and Open Recent recreate the Mac window before automation a queued work-folder", () => {
   assert.match(
     main,
-    /drainPendingMacOpenPaths[\s\S]*?while \(pendingMacOpenPaths\.length\)[\s\S]*?await ensureMainWindow\(\)[\s\S]*?registeredSpaceIdForOpenPath\(path\)[\s\S]*?work-fold:space:open-space/,
+    /drainPendingMacOpenPaths[\s\S]*?while \(pendingMacOpenPaths\.length\)[\s\S]*?await ensureMainWindow\(\)[\s\S]*?registeredWorkFolderIdForOpenPath\(path\)[\s\S]*?work-fold:work-folder:open-work-folder/,
   );
-  assert.match(main, /registeredSpaceIdForOpenPath[\s\S]*?info\.isDirectory\(\)[\s\S]*?realpath\(space\.spaceRoot\)[\s\S]*?samePath\(openedRoot, registeredRoot\)/);
-  assert.match(main, /request = \{ token: randomUUID\(\), spaceId \}[\s\S]*?work-fold:space:open-space/);
-  assert.match(preload, /deliveredTokens[\s\S]*?work-fold:space:take-open-space[\s\S]*?then\(deliver\)/);
+  assert.match(main, /registeredWorkFolderIdForOpenPath[\s\S]*?info\.isDirectory\(\)[\s\S]*?realpath\(workFolder\.workFolderRoot\)[\s\S]*?samePath\(openedRoot, registeredRoot\)/);
+  assert.match(main, /request = \{ token: randomUUID\(\), workFolderId \}[\s\S]*?work-fold:work-folder:open-work-folder/);
+  assert.match(preload, /deliveredTokens[\s\S]*?work-fold:work-folder:take-open-work-folder[\s\S]*?then\(deliver\)/);
 });
 
 test("the interactive local API is app-lifetime state rather than BrowserWindow state", () => {
@@ -39,7 +39,7 @@ test("ad hoc Mac smoke builds use a separate identity and never start the produc
 
 test("the Mac Quit item enters the deferred graceful coordinator instead of a native-role reentrant quit", () => {
   const macMenu = main.slice(main.indexOf("function macApplicationMenu"), main.indexOf("function macWindowMenu"));
-  assert.match(main, /id: "quit-space"[\s\S]*?accelerator: "Command\+Q"[\s\S]*?click: requestApplicationQuit/);
+  assert.match(main, /id: "quit-work-folder"[\s\S]*?accelerator: "Command\+Q"[\s\S]*?click: requestApplicationQuit/);
   assert.doesNotMatch(macMenu, /\{ role: "quit" \}/);
   assert.match(main, /app\.on\("before-quit"[\s\S]*?shouldPreventNativeQuit\(\)[\s\S]*?event\.preventDefault\(\)[\s\S]*?quitCoordinator\.requestQuit\(\)/);
 });

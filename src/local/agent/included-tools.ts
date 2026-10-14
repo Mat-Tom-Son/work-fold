@@ -1,8 +1,8 @@
-import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
+import { includedNativeMcpOptions } from "./included-mcp-setup.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createEventBus, DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createCodemodeExtension, createToolSearchExtension, createEventBus, DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ResolvedPiRuntime } from "./pi-runtime-config.js";
 import type { NativeResource } from "./resource-lifecycle.js";
 
@@ -10,6 +10,7 @@ import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 import type { ComputerSessionService, ComputerTurn, NativeComputerOwner } from "./computer-session.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
+import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
@@ -30,7 +31,7 @@ export function includedToolsRoot(): string {
     }
     dir = dirname(dir);
   }
-  throw new Error("The included Assistant tools could not be located.");
+  throw new Error("The included Skills & Extensions could not be located.");
 }
 
 /** Pi itself evaluates the same exact +path/-path filters used for user-added resources. */
@@ -39,22 +40,32 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
   if (!config) return [];
   const paths = includedToolDefinitions.map((item) => join(config.rootPath, item.id, "index.ts"));
   const skillRoot = join(config.rootPath, "documents", "skills");
+  // Skills work-fold itself ships, such as Set up for me, belong to no single included tool.
+  const bundledSkillRoot = join(config.rootPath, "skills");
+  const bundledSkills = existsSync(bundledSkillRoot) ? [bundledSkillRoot] : [];
   const global = runtime.settingsManager.getGlobalSettings();
-  const settings = SettingsManager.inMemory({ extensions: [...paths, ...(global.extensions ?? [])], skills: [skillRoot, ...(global.skills ?? [])] }, { projectTrusted: false });
+  const settings = SettingsManager.inMemory({ extensions: [...paths, ...(global.extensions ?? [])], skills: [skillRoot, ...bundledSkills, ...(global.skills ?? [])] }, { projectTrusted: false });
   const manager = new DefaultPackageManager({ cwd, agentDir: runtime.agentDir, settingsManager: settings });
   const native = await manager.resolve(async () => "skip");
   return [
     ...native.extensions.filter((item) => paths.includes(item.path)).map((item) => ({ ...item, kind: "extensions" as const, included: includedToolDefinitions.find((definition) => join(config.rootPath, definition.id, "index.ts") === item.path), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
     ...native.skills.filter((item) => item.path.startsWith(`${skillRoot}/`)).map((item) => ({ ...item, kind: "skills" as const, included: includedToolDefinitions.find((definition) => definition.id === "documents"), metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
+    ...native.skills.filter((item) => bundledSkills.length > 0 && item.path.startsWith(`${bundledSkillRoot}/`)).map((item) => ({ ...item, kind: "skills" as const, bundled: true as const, metadata: { ...item.metadata, source: "Included with work-fold", scope: "user" as const } })),
   ];
 }
 
 /** A per-runtime native event bus; no process-global current Chat or renderer capability. */
 export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", computer?: { owner: NativeComputerOwner; turn(): ComputerTurn | undefined }) {
   const config = runtime.config.includedTools;
-  if (!config) return {};
+  const extensionFactories = [
+    { name: "tool_input_feedback", builtin: true, factory: toolInputFeedbackExtension },
+    { name: "codemode", builtin: true, replaceable: true, factory: createCodemodeExtension() },
+    { name: "tool_search", builtin: true, replaceable: true, factory: createToolSearchExtension() },
+  ];
+  if (!config) return { extensionFactories };
   const resources = await resolveIncludedResources(cwd, runtime);
   const eventBus = createEventBus();
+  const mcpOptions = await includedNativeMcpOptions({ agentDir: runtime.agentDir, mcpCredentialBackend: runtime.config.mcpCredentialBackend, ...(runtime.projectTrust.trusted ? { cwd: resolve(cwd) } : {}) }, runtime.credentials, mode);
   eventBus.on("work-fold:extension-host:v1", (value) => {
     if (!value || typeof value !== "object" || Reflect.get(value, "version") !== 1) return;
     Reflect.set(value, "context", {
@@ -70,16 +81,17 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
         reportChromeConnectionObservation: config.chromeConnection.reportChromeConnectionObservation,
         beginChromeWork: config.chromeConnection.beginChromeWork,
       } : {}),
-      getMcpConfig: () => loadIncludedMcpConfig({ agentDir: runtime.agentDir, ...(runtime.projectTrust.trusted ? { cwd: resolve(cwd) } : {}) }),
+      getMcpOptions: () => mcpOptions,
       // Credentials are read only when an operation actually needs them.
       getSearchConfig: async () => {
-        const credential = runtime.authStorage.get("work-fold:web:brave");
+        const credential = await runtime.credentials.read("work-fold:web:brave");
         return credential?.type === "api_key" ? { provider: "brave", apiKey: credential.key } : { provider: "duckduckgo" };
       },
     });
   });
   return {
     eventBus,
+    extensionFactories,
     additionalExtensionPaths: [...resources.filter((item) => item.kind === "extensions" && item.enabled).map((item) => item.path), ...(runtime.config.additionalExtensionPaths ?? [])],
     additionalSkillPaths: [...resources.filter((item) => item.kind === "skills" && item.enabled).map((item) => item.path), ...(runtime.config.additionalSkillPaths ?? [])],
   };

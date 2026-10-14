@@ -17,23 +17,12 @@ export function filePreviewMarkup(preview) {
   throw new Error("The file preview is unavailable.");
 }
 
-export function createFilePreview({ fetchPreview, available, online, container = null, askAboutFile = null, onClose = null }) {
-  const dialog = document.createElement(container ? "section" : "dialog");
-  dialog.className = container ? "file-preview-inline" : "file-preview-dialog";
-  if (container) dialog.hidden = true;
+export function createFilePreview({ fetchPreview, available, online }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "file-preview-dialog";
   dialog.setAttribute("aria-labelledby", "file-preview-title");
   dialog.innerHTML = '<header><div><h2 id="file-preview-title"></h2><p class="file-preview-location"></p></div><button type="button" class="file-preview-close" aria-label="Close preview">✕</button></header><div class="file-preview-content" tabindex="0" aria-live="polite"></div><footer><span class="file-preview-status"></span><button class="quiet" type="button" data-refresh>Refresh</button></footer>';
-  if (container) {
-    dialog.querySelector("h2").id = "space-file-preview-title";
-    dialog.setAttribute("aria-labelledby", "space-file-preview-title");
-  }
-  (container ?? document.body).append(dialog);
-  if (askAboutFile) {
-    const ask = document.createElement("button");
-    ask.type = "button"; ask.className = "quiet"; ask.textContent = "Ask about this file";
-    ask.addEventListener("click", () => { if (selected) askAboutFile({ ...selected }); });
-    dialog.querySelector("footer").append(ask);
-  }
+  document.body.append(dialog);
   const content = dialog.querySelector(".file-preview-content");
   const status = dialog.querySelector(".file-preview-status");
   const refresh = dialog.querySelector("[data-refresh]");
@@ -46,10 +35,8 @@ export function createFilePreview({ fetchPreview, available, online, container =
   function close() {
     clear(); selected = null;
     opened = false;
-    if (container) dialog.hidden = true;
-    else if (dialog.open) dialog.close();
+    if (dialog.open) dialog.close();
     if (opener?.isConnected) opener.focus({ preventScroll: true });
-    onClose?.();
   }
   async function load() {
     clear();
@@ -61,9 +48,9 @@ export function createFilePreview({ fetchPreview, available, online, container =
     const requestVersion = version;
     const target = selected;
     try {
-      const preview = await fetchPreview(target.spaceId, target.path);
+      const preview = await fetchPreview(target.workFolderId, target.path);
       if (requestVersion !== version || !opened || !online()) return;
-      if (preview.spaceId !== target.spaceId || preview.path !== target.path) throw new Error("The file preview does not match the selected file.");
+      if (preview.workFolderId !== target.workFolderId || preview.path !== target.path) throw new Error("The file preview does not match the selected file.");
       content.innerHTML = filePreviewMarkup(preview);
       const image = content.querySelector("img");
       image?.addEventListener("error", () => { if (requestVersion === version) content.textContent = "This image could not be displayed. Open it on your desktop."; }, { once: true });
@@ -80,10 +67,9 @@ export function createFilePreview({ fetchPreview, available, online, container =
       opener = document.activeElement;
       selected = { ...target };
       dialog.querySelector("h2").textContent = target.path.split("/").at(-1);
-      dialog.querySelector(".file-preview-location").textContent = `${target.spaceName} · ${target.path}`;
+      dialog.querySelector(".file-preview-location").textContent = `${target.workFolderName} · ${target.path}`;
       opened = true;
-      if (container) dialog.hidden = false;
-      else if (!dialog.open) dialog.showModal();
+      if (!dialog.open) dialog.showModal();
       await load();
     },
     connectionChanged(connected) {

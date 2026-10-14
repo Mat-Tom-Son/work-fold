@@ -51,7 +51,7 @@ test("Check declarations reject ambient, executable, and hidden target authority
   for (const targets of [
     [{ kind: "tree", role: "primary", path: ".", recursive: true, extensions: [".md"] }],
     [{ kind: "file", role: "primary", path: "../outside.txt" }],
-    [{ kind: "file", role: "primary", path: ".workspace/space.json" }],
+    [{ kind: "file", role: "primary", path: ".workspace/work-folder.json" }],
     [{ kind: "file", role: "primary", path: ".pi/AGENTS.md" }],
     [{ kind: "file", role: "primary", path: "docs/report.txt:alternate" }],
     [{ kind: "file", role: "primary", path: "docs/CON.txt" }],

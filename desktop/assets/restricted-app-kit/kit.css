@@ -1,0 +1,221 @@
+/*
+ * work-fold app kit. Opt in with:
+ *   <link rel="stylesheet" href="/__work-fold/kit.css">
+ *   <body class="wf-app">
+ * Every color, font, and radius comes from the --wf-* variables work-fold puts
+ * into the view, so the app follows the theme and the work-folder's accent.
+ * Selectors use :where() and carry no specificity: an app's own rules win.
+ */
+
+:where(:root) {
+  color-scheme: var(--wf-color-scheme, light dark);
+}
+
+:where(.wf-app) {
+  margin: 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 12px;
+  background: var(--wf-surface, Canvas);
+  color: var(--wf-text, CanvasText);
+  font-family: var(--wf-font, system-ui, sans-serif);
+  font-size: var(--wf-font-size, 14px);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+:where(.wf-app) :where(*, *::before, *::after) {
+  box-sizing: border-box;
+}
+
+:where(.wf-app) ::selection {
+  background: var(--wf-accent-soft, Highlight);
+}
+
+/* Text */
+
+:where(.wf-title) {
+  margin: 0 0 8px;
+  font-size: 1.15em;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+:where(.wf-heading) {
+  margin: 16px 0 6px;
+  color: var(--wf-text-muted, GrayText);
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+:where(.wf-muted) { color: var(--wf-text-muted, GrayText); }
+:where(.wf-small) { font-size: 0.85em; }
+
+/* Controls */
+
+:where(.wf-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--wf-radius-sm, 5px);
+  background: var(--wf-surface-subtle, ButtonFace);
+  color: var(--wf-text, ButtonText);
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background-color 110ms ease-out, color 110ms ease-out;
+}
+
+:where(.wf-button):hover:not(:disabled) { background: var(--wf-surface-hover, ButtonFace); }
+:where(.wf-button-primary) { background: var(--wf-accent-soft, Highlight); color: var(--wf-accent-text, HighlightText); }
+:where(.wf-button-primary):hover:not(:disabled) { background: var(--wf-accent, Highlight); color: var(--wf-on-accent, HighlightText); }
+:where(.wf-button-quiet) { background: transparent; color: var(--wf-text-muted, ButtonText); }
+:where(.wf-button-danger) { color: var(--wf-danger, #c42b1c); }
+:where(.wf-button):disabled { opacity: 0.45; cursor: default; }
+
+:where(.wf-input, .wf-select, .wf-textarea) {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--wf-border, ButtonBorder);
+  border-radius: var(--wf-radius-sm, 5px);
+  background: var(--wf-surface, Field);
+  color: var(--wf-text, FieldText);
+  font: inherit;
+}
+
+:where(.wf-textarea) { min-height: 72px; resize: vertical; }
+:where(.wf-input, .wf-select, .wf-textarea)::placeholder { color: var(--wf-text-subtle, GrayText); }
+
+:where(.wf-button, .wf-input, .wf-select, .wf-textarea, .wf-row):focus-visible {
+  outline: 2px solid var(--wf-focus, Highlight);
+  outline-offset: 1px;
+}
+
+:where(.wf-field) {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+:where(.wf-toolbar) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+/* Lists */
+
+:where(.wf-list) {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:where(.wf-row) {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--wf-radius-md, 7px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+:where(.wf-row):hover { background: var(--wf-surface-hover, ButtonFace); }
+:where(.wf-row)[aria-current="true"], :where(.wf-row)[aria-current="page"], :where(.wf-row.is-selected) {
+  background: var(--wf-accent-soft, Highlight);
+}
+
+:where(.wf-row-title) {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:where(.wf-row-meta) {
+  overflow: hidden;
+  color: var(--wf-text-muted, GrayText);
+  font-size: 0.85em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Containers */
+
+:where(.wf-card) {
+  padding: 12px;
+  border: 1px solid var(--wf-border, ButtonBorder);
+  border-radius: var(--wf-radius-lg, 10px);
+  background: var(--wf-surface, Canvas);
+}
+
+:where(.wf-divider) {
+  height: 1px;
+  margin: 10px 0;
+  border: 0;
+  background: var(--wf-border, ButtonBorder);
+}
+
+:where(.wf-empty) {
+  display: grid;
+  gap: 4px;
+  place-items: center;
+  padding: 28px 12px;
+  color: var(--wf-text-muted, GrayText);
+  text-align: center;
+}
+
+/* Status */
+
+:where(.wf-badge) {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--wf-surface-subtle, ButtonFace);
+  color: var(--wf-text-muted, GrayText);
+  font-size: 0.78em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:where(.wf-badge-accent) { background: var(--wf-accent-soft, Highlight); color: var(--wf-accent-text, HighlightText); }
+:where(.wf-badge-success) { color: var(--wf-success, #0f7b0f); }
+:where(.wf-badge-danger) { color: var(--wf-danger, #c42b1c); }
+:where(.wf-badge-attention) { color: var(--wf-attention, #9d5d00); }
+
+:where(.wf-spinner) {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--wf-border, ButtonBorder);
+  border-top-color: var(--wf-accent, Highlight);
+  border-radius: 50%;
+  animation: wf-spin 0.8s linear infinite;
+}
+
+@keyframes wf-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.wf-spinner) { animation-duration: 2.4s; }
+  :where(.wf-button, .wf-row) { transition: none; }
+}

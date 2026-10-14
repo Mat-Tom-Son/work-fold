@@ -2,9 +2,9 @@ import { resolve } from "node:path";
 import type { ComputerHostFacilities, ComputerSessionOwner, ComputerSessionSummary, SharedScreenAction, SharedScreenObservation } from "../../shared/computer-session.js";
 import type { WaylandTransport } from "./wayland-transport.js";
 
-export interface NativeComputerOwner extends ComputerSessionOwner { spaceRoot: string }
+export interface NativeComputerOwner extends ComputerSessionOwner { workFolderRoot: string }
 export interface ComputerTurn { taskId: string; cancelled: boolean; settled?: boolean }
-const ownerKey = (owner: NativeComputerOwner) => JSON.stringify([owner.scope, owner.spaceId, resolve(owner.spaceRoot), owner.conversationId]);
+const ownerKey = (owner: NativeComputerOwner) => JSON.stringify([owner.scope, owner.workFolderId, resolve(owner.workFolderRoot), owner.conversationId]);
 const id = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9-]{36}$/.test(value);
 const conversationId = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/.test(value);
 
@@ -31,7 +31,7 @@ export class ComputerSessionService {
   status(): ComputerSessionSummary {
     const owner = this.#owner;
     return { state: this.#state,
-      ...(owner ? { owner: { scope: owner.scope, conversationId: owner.conversationId, ...(owner.spaceId ? { spaceId: owner.spaceId } : {}) } } : {}),
+      ...(owner ? { owner: { scope: owner.scope, conversationId: owner.conversationId, ...(owner.workFolderId ? { workFolderId: owner.workFolderId } : {}) } } : {}),
       capture: this.#state === "active", pointer: this.#state === "active" && (this.#devices & 2) !== 0,
       keyboard: this.#state === "active" && (this.#devices & 1) !== 0,
       controlInUse: Boolean(this.#lease || this.#busyTask), detail: this.#detail, checkedAt: new Date().toISOString() };
@@ -116,7 +116,7 @@ export class ComputerSessionService {
   }
 
   forSession(owner: NativeComputerOwner, turn: () => ComputerTurn | undefined): ComputerHostFacilities {
-    if (!conversationId(owner.conversationId) || (owner.scope === "space" ? !conversationId(owner.spaceId) : owner.scope !== "management" || owner.spaceId !== undefined)) throw new Error("Desktop control requires a valid Chat identity.");
+    if (!conversationId(owner.conversationId) || (owner.scope === "work-folder" ? !conversationId(owner.workFolderId) : owner.scope !== "management" || owner.workFolderId !== undefined)) throw new Error("Desktop control requires a valid Chat identity.");
     const run = <T>(signal: AbortSignal | undefined, operation: (transport: WaylandTransport, lease: string, target: string) => Promise<T>): Promise<T> => {
       const accepted = turn();
       if (!accepted || !conversationId(accepted.taskId) || accepted.cancelled || accepted.settled) return Promise.reject(new Error("Desktop control requires this Chat's live accepted turn."));
@@ -133,7 +133,7 @@ export class ComputerSessionService {
         const transport = this.#transport!, target = this.#target!;
         if (this.#lease && (this.#lease.taskId !== accepted.taskId || !this.#matches(owner))) throw new Error("Another Chat is using the desktop. Wait for its turn to finish, then try again.");
         this.#busyTask = accepted.taskId;
-        this.#owner = { ...owner, spaceRoot: resolve(owner.spaceRoot) };
+        this.#owner = { ...owner, workFolderRoot: resolve(owner.workFolderRoot) };
         try {
           if (!this.#lease) {
             const result = await transport.call<{ lease: string; targetId: string }>("begin", { turn: accepted.taskId }, signal);

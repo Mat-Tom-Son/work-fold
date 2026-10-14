@@ -38,9 +38,9 @@ async function fixture(t: test.TestContext) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-turn-usage-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const agentDir = join(root, "agent");
-  const spaceRoot = join(root, "space");
+  const workFolderRoot = join(root, "work-folder");
   await mkdir(join(agentDir, "extensions"), { recursive: true });
-  await mkdir(spaceRoot, { recursive: true });
+  await mkdir(workFolderRoot, { recursive: true });
   const model = (id: string, cost: string) =>
     `{ id: "${id}", name: "${id}", reasoning: false, input: ["text"], cost: ${cost}, contextWindow: 32768, maxTokens: 1024 }`;
   await writeFile(join(agentDir, "extensions", "usage-provider.ts"),
@@ -59,7 +59,7 @@ async function fixture(t: test.TestContext) {
     client(conversationId: string, modelId: string) {
       const settingsManager = SettingsManager.inMemory({ defaultProvider: "usage-provider", defaultModel: modelId, defaultThinkingLevel: "off" });
       const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, settingsManager }; } };
-      const client = new PiConversationClient(conversationId, spaceRoot, provider);
+      const client = new PiConversationClient(conversationId, workFolderRoot, provider);
       t.after(() => client.stop());
       return client;
     },

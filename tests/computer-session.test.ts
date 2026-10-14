@@ -19,7 +19,7 @@ class Transport implements WaylandTransport {
   onClose(listener: () => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   async close() { if (this.closed) return; this.closed = true; for (const listener of this.listeners) listener(); }
 }
-const owner = (): NativeComputerOwner => ({ scope: "space", spaceId: randomUUID(), conversationId: `chat-${randomUUID()}`, spaceRoot: "/disposable/folder" });
+const owner = (): NativeComputerOwner => ({ scope: "work-folder", workFolderId: randomUUID(), conversationId: `chat-${randomUUID()}`, workFolderRoot: "/disposable/folder" });
 const turn = (): ComputerTurn => ({ taskId: `task-${randomUUID()}`, cancelled: false });
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 
@@ -45,7 +45,7 @@ test("app-wide sharing hands off between Folder Chats and management without ano
   await assert.rejects(facilities.listSharedScreens(), /accepted turn/);
   assert.equal((await competing.listSharedScreens())[0].id, transport.target);
   next.settled = true; await service.releaseTurn(next.taskId);
-  const management = { scope: "management" as const, conversationId: "management-chat", spaceRoot: "/management" };
+  const management = { scope: "management" as const, conversationId: "agent-chat", workFolderRoot: "/management" };
   const managementTurn = turn();
   await service.forSession(management, () => managementTurn).listSharedScreens();
   assert.equal(service.status().owner?.scope, "management");

@@ -23,7 +23,7 @@ export interface DomHarness {
 }
 
 const globalKeys = [
-  "Element", "Event", "FocusEvent", "HTMLElement", "KeyboardEvent", "MouseEvent", "Node",
+  "CustomEvent", "Element", "Event", "FocusEvent", "HTMLElement", "KeyboardEvent", "MouseEvent", "Node",
   "cancelAnimationFrame", "document", "getComputedStyle", "navigator", "requestAnimationFrame", "window",
 ] as const;
 

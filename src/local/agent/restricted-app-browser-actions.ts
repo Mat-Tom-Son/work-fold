@@ -12,10 +12,12 @@ import { parseAppPlatformArtifactDigest } from "./app-platform-artifact.js";
  * a request that would exceed a running slot is refused with the limit named,
  * never parked for a person. `running` spans every installation on this
  * machine; `runningPerInstallation` keeps one app from starving the rest.
+ * There is no request quota: retention and the journal's size ceiling, which
+ * prunes old settled records, keep the journal bounded.
  */
 export const browserAppActionLimits = Object.freeze({
-  inputBytes: 16 * 1024, resultBytes: 128 * 1024, records: 1000, fileBytes: 64 * 1024 * 1024,
-  runningPerInstallation: 2, runningPerBrowser: 16, running: 4, requestAgeMs: 15 * 60_000, retentionMs: 24 * 60 * 60_000,
+  inputBytes: 4 * 1024 * 1024, resultBytes: 4 * 1024 * 1024, fileBytes: 256 * 1024 * 1024,
+  runningPerInstallation: 8, runningPerBrowser: 16, running: 16, requestAgeMs: 15 * 60_000, retentionMs: 24 * 60 * 60_000,
 });
 const limits = browserAppActionLimits;
 const schema = "work-fold.browser-app-actions.v1";
@@ -93,7 +95,7 @@ export class BrowserAppActionService {
       if (bytesRead !== stat.size) invalid("The app action journal changed while reading.");
       const value: unknown = JSON.parse(bytes.subarray(0, bytesRead).toString("utf8"));
       exact(value, ["schema", "records"]);
-      if (value.schema !== schema || !Array.isArray(value.records) || value.records.length > limits.records) invalid("The app action journal is invalid.");
+      if (value.schema !== schema || !Array.isArray(value.records)) invalid("The app action journal is invalid.");
       service.#records = value.records.map(parseRecord);
       if (new Set(service.#records.map((record) => record.receipt.id)).size !== service.#records.length
         || new Set(service.#records.map(requestKey)).size !== service.#records.length) invalid("The app action journal has duplicate identities.");
@@ -150,7 +152,6 @@ export class BrowserAppActionService {
       if (active.length >= limits.running) conflict(`App actions are busy (${limits.running} running on this computer). Run this request again when one finishes.`);
       const records = this.#records.filter((record) => live(record.receipt.status) || now.getTime() - Date.parse(record.receipt.updatedAt) <= limits.retentionMs);
       this.#cancelled = new Set([...this.#cancelled].filter((id) => records.some((record) => record.receipt.id === id)));
-      if (records.length >= limits.records) conflict("The app action list is full. Try again later.");
       // A request runs on admission: acceptance is durable before dispatch, the
       // receipt id becomes the invocation id, and a retry returns this record.
       const at = now.toISOString();
@@ -294,12 +295,9 @@ export class BrowserAppActionService {
 
   async #replace(record: ActionRecord): Promise<void> { await this.#save(this.#records.map((item) => item.receipt.id === record.receipt.id ? record : item)); }
 
-  async #save(records: ActionRecord[]): Promise<void> {
+  async #save(next: ActionRecord[]): Promise<void> {
     if (this.#unavailable) unavailable();
-    const serialized = JSON.stringify({ schema, records });
-    // Reserve escaped result JSON and terminal metadata before admitting any work.
-    const reserved = records.filter((record) => live(record.receipt.status)).length * (2 * limits.resultBytes + 1024);
-    if (Buffer.byteLength(serialized) + reserved > limits.fileBytes) conflict("The app action journal is full. Try again later.");
+    const { records, serialized } = this.#fitJournal(next);
     const temp = `${this.#path}.${randomUUID()}.tmp`;
     try {
       const handle = await open(temp, "wx", 0o600);
@@ -315,6 +313,36 @@ export class BrowserAppActionService {
       for (const run of this.#active.values()) run.controller.abort();
       unavailable();
     } finally { await rm(temp, { force: true }); }
+  }
+
+  /**
+   * Reserves room for every live action's escaped result before admitting
+   * work, then keeps the journal under its ceiling by dropping the oldest
+   * settled records whose request is outside the replay window — a replay of
+   * one of those is refused as too old, so nothing runs twice. It refuses only
+   * when live and replayable records alone fill the journal.
+   */
+  #fitJournal(records: ActionRecord[]): { records: ActionRecord[]; serialized: string } {
+    const reserved = (list: ActionRecord[]) => list.filter((record) => live(record.receipt.status)).length * (2 * limits.resultBytes + 1024);
+    const room = limits.fileBytes - reserved(records);
+    const whole = serializedWithin({ schema, records }, room);
+    if (whole !== null) return { records, serialized: whole };
+    const now = this.#now().getTime();
+    const sizes = records.map((record) => Buffer.byteLength(JSON.stringify(record), "utf8") + 1);
+    let total = Buffer.byteLength(JSON.stringify({ schema, records: [] }), "utf8") + sizes.reduce((sum, size) => sum + size, 0);
+    const dropped = new Set<number>();
+    const prunable = records.map((record, index) => ({ record, index }))
+      .filter(({ record }) => !live(record.receipt.status) && now - Date.parse(record.requestedAt) > limits.requestAgeMs)
+      .sort((left, right) => Date.parse(left.record.receipt.updatedAt) - Date.parse(right.record.receipt.updatedAt));
+    for (const { index } of prunable) {
+      if (total <= room) break;
+      dropped.add(index);
+      total -= sizes[index]!;
+    }
+    const kept = records.filter((_record, index) => !dropped.has(index));
+    const serialized = serializedWithin({ schema, records: kept }, room);
+    if (serialized === null) conflict("The app action journal is full. Run this request again when a running action finishes.");
+    return { records: kept, serialized };
   }
 
   #run<T>(operation: () => Promise<T>): Promise<T> {
@@ -340,7 +368,7 @@ function assertScope(record: ActionRecord, scope: RestrictedAppTaskScope, owner:
   if (!same(record.scope, scope) || !same(record.owner, owner)) denied("This request belongs to a different app revision, permission selection, or browser.");
 }
 function validateScope(value: unknown): asserts value is RestrictedAppTaskScope {
-  exact(value, ["spaceId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
+  exact(value, ["workFolderId", "appId", "featureInstallationId", "digest", "authorityDigest"]);
   if (Object.values(value).some((item) => typeof item !== "string" || !item.length || item.length > 200)
     || !/^[a-f0-9]{64}$/.test(String(value.digest)) || !/^[a-f0-9]{64}$/.test(String(value.authorityDigest))) invalid("The app scope is invalid.");
 }
@@ -351,6 +379,12 @@ function validateOwner(value: unknown): asserts value is BrowserAppActionOwner {
 function boundedJson(value: unknown, maximum: number): string {
   try { const result = JSON.stringify(value); if (result !== undefined && Buffer.byteLength(result) <= maximum) return result; } catch {}
   invalid("The app value is invalid or exceeds its size limit.");
+}
+/** The serialized document when it fits `maximum` UTF-8 bytes, otherwise null (including past V8's string limit). */
+function serializedWithin(value: unknown, maximum: number): string | null {
+  let serialized: string;
+  try { serialized = JSON.stringify(value); } catch { return null; }
+  return Buffer.byteLength(serialized, "utf8") <= maximum ? serialized : null;
 }
 function validateInput(declaration: RestrictedAppToolDeclaration, json: string): void {
   try { validateRestrictedAppValue(declaration.inputSchema, JSON.parse(json), "App action input"); }

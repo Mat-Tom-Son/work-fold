@@ -165,7 +165,7 @@ export interface RestrictedAppAutomationDeclaration {
 
 /**
  * The reviewed viewer surface for "an app at your address"
- * (docs/fold-publishing.md, rung 3). `entry` names the packaged document the
+ * (docs/shared-pages.md, rung 3). `entry` names the packaged document the
  * viewer plane serves to link holders; `readable` names the exact
  * instance-owned storage key prefixes ("collections") viewers may read.
  * This declaration is the complete viewer-readable surface: the desktop
@@ -180,7 +180,35 @@ export interface RestrictedAppViewerDeclaration {
   readable: string[];
 }
 
-export const restrictedAppViewerReadableLimits = { prefixes: 16, prefixLength: 64 } as const;
+/**
+ * How much one app revision may declare. These counts keep a manifest finite;
+ * they are not a budget, and every declared power still has its own grant.
+ */
+export const restrictedAppManifestLimits = Object.freeze({
+  tools: 256,
+  networkDestinations: 256,
+  filePermissions: 256,
+  notificationCategories: 256,
+  automations: 256,
+  viewerReadablePrefixes: 256,
+  /** Tool and schema descriptions reach the model, so they get room to explain. */
+  descriptionCharacters: 16_384,
+});
+
+/**
+ * The closed JSON-Schema subset tool inputs and results, Worker actions,
+ * and inference results share. Depth guards the recursive validator's stack;
+ * the rest only keep one schema finite.
+ */
+export const restrictedAppJsonSchemaLimits = Object.freeze({
+  depth: 32,
+  properties: 1_024,
+  enumValues: 1_024,
+  maxItems: 100_000,
+  maxLength: 16 * 1024 * 1024,
+});
+
+export const restrictedAppViewerReadableLimits = { prefixes: restrictedAppManifestLimits.viewerReadablePrefixes, prefixLength: 64 } as const;
 
 /** Storage key prefixes a person can read in review copy: printable, no separators to spoof. */
 const viewerReadablePrefixPattern = /^[a-z0-9][a-z0-9._/-]{0,63}$/;
@@ -212,7 +240,7 @@ export interface RestrictedAppManifest {
 }
 
 /** The reviewed maximum number of file permissions one app revision may declare. */
-export const restrictedAppFilePermissionLimit = 16;
+export const restrictedAppFilePermissionLimit = restrictedAppManifestLimits.filePermissions;
 
 export interface RestrictedAppAssistantAction {
   id: string;
@@ -222,7 +250,7 @@ export interface RestrictedAppAssistantAction {
   /**
    * The shape the app wants back as `result.data` (F29). Declaring it is what
    * lets a reported result carry structured details at all; without it a task
-   * result is a summary, an outcome, and any files the Assistant named.
+   * result is a summary, an outcome, and any files the agent named.
    */
   outputSchema?: RestrictedAppJsonSchema;
 }
@@ -301,14 +329,14 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
       0,
       restrictedAppMaximumCornerRadius,
     );
-  const tools = arrayValue(manifest.tools, "Restricted app tools", 0, 16)
+  const tools = arrayValue(manifest.tools, "Restricted app tools", 0, restrictedAppManifestLimits.tools)
     .map((tool, index) => parseTool(tool, index));
-  if (tools.length && !worker) throw new Error("Restricted apps that expose Assistant tools must declare a sandboxed worker entry.");
+  if (tools.length && !worker) throw new Error("Restricted apps that expose Skills & Extensions must declare a sandboxed worker entry.");
   assertUnique(tools.map((tool) => tool.name), "Restricted app tool name");
   assertUnique(tools.map((tool) => tool.action), "Restricted app tool action");
 
   const permissions = objectValue(manifest.permissions, "Restricted app permissions", ["network", "files", "notifications", "checks"]);
-  const network = arrayValue(permissions.network, "Restricted app network permissions", 0, 16)
+  const network = arrayValue(permissions.network, "Restricted app network permissions", 0, restrictedAppManifestLimits.networkDestinations)
     .map((destination, index) => parseNetworkDestination(destination, index));
   assertUnique(network.map((destination) => destination.id), "Restricted app network permission id");
   const files = permissions.files === undefined
@@ -318,7 +346,7 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(files.map((declaration) => declaration.id), "Restricted app file permission id");
   const notifications = permissions.notifications === undefined
     ? []
-    : arrayValue(permissions.notifications, "Restricted app notification permissions", 0, 8)
+    : arrayValue(permissions.notifications, "Restricted app notification permissions", 0, restrictedAppManifestLimits.notificationCategories)
       .map((declaration, index) => parseNotificationDeclaration(declaration, index));
   assertUnique(notifications.map((declaration) => declaration.id), "Restricted app notification permission id");
 
@@ -329,8 +357,8 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
   assertUnique(checks.map((item) => item.id), "Restricted app Check permission id");
 
   const assistantActions = manifest.assistantActions === undefined ? []
-    : arrayValue(manifest.assistantActions, "Restricted app Assistant actions", 0, null).map((value) => {
-      const label = "Restricted app Assistant action";
+    : arrayValue(manifest.assistantActions, "Restricted app Worker actions", 0, null).map((value) => {
+      const label = "Restricted app Worker action";
       const action = objectValue(value, label, ["id", "title", "instructions", "inputSchema", "outputSchema"]);
       return { id: idValue(action.id, `${label} id`), title: notificationTextValue(action.title, `${label} title`, 80),
         instructions: stringValue(action.instructions, `${label} instructions`, null),
@@ -339,11 +367,11 @@ export function parseRestrictedAppManifest(value: unknown): RestrictedAppManifes
         // and therefore its identity, do not move when this field is added.
         ...(action.outputSchema === undefined ? {} : { outputSchema: parseJsonSchema(action.outputSchema, `${label} output schema`, 0) }) };
     });
-  assertUnique(assistantActions.map((item) => item.id), "Restricted app Assistant action id");
+  assertUnique(assistantActions.map((item) => item.id), "Restricted app Worker action id");
 
   const description = optionalStringValue(manifest.description, "Restricted app description", 280);
-  const automations = arrayValue(manifest.automations, "Restricted app automations", 0, 16)
-    .map((automation, index) => parseAutomationDeclaration(automation, index, { network, files, notifications }));
+  const automations = arrayValue(manifest.automations, "Restricted app automations", 0, restrictedAppManifestLimits.automations)
+    .map((automation, index) => parseAppAutomationDeclaration(automation, index, { network, files, notifications }));
   assertUnique(automations.map((automation) => automation.id), "Restricted app automation id");
   if (automations.length && !worker) {
     throw new Error("Restricted apps that declare automations must declare a sandboxed worker entry.");
@@ -383,7 +411,7 @@ export function parseRestrictedAppJsonSchema(value: unknown, label = "Restricted
 }
 
 /**
- * The reviewed viewer surface (docs/fold-publishing.md, rung 3). The entry is
+ * The reviewed viewer surface (docs/shared-pages.md, rung 3). The entry is
  * a packaged HTML document like the runtime entry; readable prefixes are a
  * bounded, deduplicated, sorted list so the declaration — and therefore the
  * exposure pins derived from it — has exactly one canonical spelling.
@@ -409,7 +437,7 @@ function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration 
 
 /**
  * The complete viewer-readable surface as exposure pins
- * (`publish.viewer.expose`, hosted-app shape; docs/fold-publishing.md): one
+ * (`publish.viewer.expose`, hosted-app shape; docs/shared-pages.md): one
  * canonical string list the review copy can render and a serve-time recheck
  * can compare exactly. An app without a viewer declaration has no viewer
  * surface and cannot be put at an address.
@@ -418,7 +446,7 @@ export function restrictedAppViewerSurfacePins(viewer: RestrictedAppViewerDeclar
   return [`entry:${viewer.entry}`, ...viewer.readable.map((prefix) => `data:${prefix}`)];
 }
 
-function parseAutomationDeclaration(
+function parseAppAutomationDeclaration(
   value: unknown,
   index: number,
   declaredPermissions: RestrictedAppManifest["permissions"],
@@ -432,9 +460,9 @@ function parseAutomationDeclaration(
   const intervalMinutes = intervalMinutesValue(trigger.intervalMinutes, `${label} interval`);
 
   const permissions = objectValue(automation.permissions, `${label} permissions`, ["network", "files", "notifications"]);
-  const network = parseAutomationPermissionIds(permissions.network, `${label} network permissions`, declaredPermissions.network);
-  const files = parseAutomationPermissionIds(permissions.files, `${label} file permissions`, declaredPermissions.files);
-  const notifications = parseAutomationPermissionIds(
+  const network = parseAppAutomationPermissionIds(permissions.network, `${label} network permissions`, declaredPermissions.network);
+  const files = parseAppAutomationPermissionIds(permissions.files, `${label} file permissions`, declaredPermissions.files);
+  const notifications = parseAppAutomationPermissionIds(
     permissions.notifications,
     `${label} notification permissions`,
     declaredPermissions.notifications,
@@ -457,12 +485,15 @@ function parseAutomationDeclaration(
   };
 }
 
-function parseAutomationPermissionIds<T extends { id: string }>(
+function parseAppAutomationPermissionIds<T extends { id: string }>(
   value: unknown,
   label: string,
   declarations: T[],
 ): string[] {
-  const ids = arrayValue(value, label, 0, 16).map((id) => idValue(id, `${label} id`));
+  // An automation may use every permission of its kind an app can declare.
+  const maximum = Math.max(restrictedAppManifestLimits.networkDestinations, restrictedAppManifestLimits.filePermissions,
+    restrictedAppManifestLimits.notificationCategories);
+  const ids = arrayValue(value, label, 0, maximum).map((id) => idValue(id, `${label} id`));
   assertUnique(ids, `${label} id`);
   const declaredIds = new Set(declarations.map((declaration) => declaration.id));
   const unknown = ids.find((id) => !declaredIds.has(id));
@@ -470,7 +501,8 @@ function parseAutomationPermissionIds<T extends { id: string }>(
   return ids;
 }
 
-export const restrictedAppAutomationIntervalMinutes = { minimum: 15, maximum: 1_440 } as const;
+/** One minute to a leap year. Automation interval schedules share this range. */
+export const restrictedAppAutomationIntervalMinutes = { minimum: 1, maximum: 366 * 24 * 60 } as const;
 
 function intervalMinutesValue(value: unknown, label: string): number {
   const { minimum, maximum } = restrictedAppAutomationIntervalMinutes;
@@ -533,7 +565,7 @@ function parseTool(value: unknown, index: number): RestrictedAppToolDeclaration 
   if (!toolNamePattern.test(name)) throw new Error(`${label} name is invalid.`);
   return {
     name,
-    description: stringValue(tool.description, `${label} description`, 500),
+    description: stringValue(tool.description, `${label} description`, restrictedAppManifestLimits.descriptionCharacters),
     action: idValue(tool.action, `${label} action`),
     inputSchema: parseJsonSchema(tool.inputSchema, `${label} input schema`, 0),
     resultSchema: parseJsonSchema(tool.resultSchema, `${label} result schema`, 0),
@@ -601,7 +633,7 @@ function parseNetworkDestination(value: unknown, index: number): RestrictedAppNe
   }
   // Extra request headers are reviewed per destination so an app can satisfy an
   // ordinary API contract without gaining a general header channel. The
-  // forbidden set keeps hop-by-hop, routing, and credential-bearing names out,
+  // forbidden set keeps hop-by-hop, automation, and credential-bearing names out,
   // and a destination may not name the header its own credential occupies.
   const requestHeaders = destination.requestHeaders === undefined
     ? []
@@ -635,7 +667,7 @@ function isForbiddenRequestHeader(header: string): boolean {
 }
 
 function parseJsonSchema(value: unknown, label: string, depth: number): RestrictedAppJsonSchema {
-  if (depth > 6) throw new Error(`${label} exceeds the maximum nesting depth.`);
+  if (depth > restrictedAppJsonSchemaLimits.depth) throw new Error(`${label} exceeds the maximum nesting depth.`);
   const schema = objectValue(value, label, [
     "type", "description", "properties", "required", "additionalProperties", "items", "enum",
     "minLength", "maxLength", "minimum", "maximum", "minItems", "maxItems",
@@ -646,11 +678,11 @@ function parseJsonSchema(value: unknown, label: string, depth: number): Restrict
     throw new Error(`${label} type is unsupported.`);
   }
   const result: RestrictedAppJsonSchema = { type };
-  const description = optionalStringValue(schema.description, `${label} description`, 500);
+  const description = optionalStringValue(schema.description, `${label} description`, restrictedAppManifestLimits.descriptionCharacters);
   if (description) result.description = description;
 
   if (schema.enum !== undefined) {
-    const values = arrayValue(schema.enum, `${label} enum`, 1, 32);
+    const values = arrayValue(schema.enum, `${label} enum`, 1, restrictedAppJsonSchemaLimits.enumValues);
     if (values.some((item) => item !== null && typeof item !== "string" && typeof item !== "number" && typeof item !== "boolean")) {
       throw new Error(`${label} enum may contain only primitive JSON values.`);
     }
@@ -664,7 +696,7 @@ function parseJsonSchema(value: unknown, label: string, depth: number): Restrict
 
   if (type === "object") {
     if (schema.additionalProperties !== false) throw new Error(`${label} must set additionalProperties to false.`);
-    const properties = objectValue(schema.properties ?? {}, `${label} properties`, undefined, 32);
+    const properties = objectValue(schema.properties ?? {}, `${label} properties`, undefined, restrictedAppJsonSchemaLimits.properties);
     const parsedProperties: Record<string, RestrictedAppJsonSchema> = {};
     for (const [name, property] of Object.entries(properties)) {
       if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) throw new Error(`${label} property name is invalid: ${name}`);
@@ -687,17 +719,19 @@ function parseJsonSchema(value: unknown, label: string, depth: number): Restrict
   if (type === "array") {
     if (schema.items === undefined) throw new Error(`${label} must declare array items.`);
     result.items = parseJsonSchema(schema.items, `${label} items`, depth + 1);
-    copyBound(schema, result, "minItems", label, 0, 100);
-    copyBound(schema, result, "maxItems", label, 0, 100);
-    if ((result.minItems ?? 0) > (result.maxItems ?? 100)) throw new Error(`${label} item bounds are invalid.`);
+    const { maxItems } = restrictedAppJsonSchemaLimits;
+    copyBound(schema, result, "minItems", label, 0, maxItems);
+    copyBound(schema, result, "maxItems", label, 0, maxItems);
+    if ((result.minItems ?? 0) > (result.maxItems ?? maxItems)) throw new Error(`${label} item bounds are invalid.`);
   } else if (schema.items !== undefined || schema.minItems !== undefined || schema.maxItems !== undefined) {
     throw new Error(`${label} array keywords require type array.`);
   }
 
   if (type === "string") {
-    copyBound(schema, result, "minLength", label, 0, 10_000);
-    copyBound(schema, result, "maxLength", label, 0, 10_000);
-    if ((result.minLength ?? 0) > (result.maxLength ?? 10_000)) throw new Error(`${label} string bounds are invalid.`);
+    const { maxLength } = restrictedAppJsonSchemaLimits;
+    copyBound(schema, result, "minLength", label, 0, maxLength);
+    copyBound(schema, result, "maxLength", label, 0, maxLength);
+    if ((result.minLength ?? 0) > (result.maxLength ?? maxLength)) throw new Error(`${label} string bounds are invalid.`);
   } else if (schema.minLength !== undefined || schema.maxLength !== undefined) {
     throw new Error(`${label} string keywords require type string.`);
   }

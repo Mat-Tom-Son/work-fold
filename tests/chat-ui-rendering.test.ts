@@ -9,18 +9,18 @@ import {
   readStoredPendingChatSend,
   writeStoredPendingChatSend,
 } from "../web-local/src/lib/format.js";
-import { collectSpacePathCandidates, spacePathCandidate } from "../web-local/src/lib/space-path-links.js";
+import { collectWorkFolderPathCandidates, workFolderPathCandidate } from "../web-local/src/lib/work-folder-path-links.js";
 
 test("blank Chat tabs keep independent drafts while saved conversations keep stable keys", () => {
-  const firstDraft = chatDraftStorageKey("space-1", null, "chat:space-1:draft:first");
-  const secondDraft = chatDraftStorageKey("space-1", null, "chat:space-1:draft:second");
+  const firstDraft = chatDraftStorageKey("work-folder-1", null, "chat:work-folder-1:draft:first");
+  const secondDraft = chatDraftStorageKey("work-folder-1", null, "chat:work-folder-1:draft:second");
 
   assert.notEqual(firstDraft, secondDraft);
   assert.equal(
-    chatDraftStorageKey("space-1", "conversation-1", "chat:space-1:draft:first"),
-    chatDraftStorageKey("space-1", "conversation-1", "chat:space-1:draft:second"),
+    chatDraftStorageKey("work-folder-1", "conversation-1", "chat:work-folder-1:draft:first"),
+    chatDraftStorageKey("work-folder-1", "conversation-1", "chat:work-folder-1:draft:second"),
   );
-  assert.equal(chatDraftStorageKey("space-1", null), "work-fold.space.chat-draft:space-1:new-chat");
+  assert.equal(chatDraftStorageKey("work-folder-1", null), "work-fold.work-folder.chat-draft:work-folder-1:new-chat");
 });
 
 test("pending Chat sends preserve one stable acceptance identity across renderer recovery", () => {
@@ -43,15 +43,17 @@ test("pending Chat sends preserve one stable acceptance identity across renderer
       userMessageId: "message-recovery-1",
       content: "Continue exactly once.",
       createdAt: "2026-08-13T12:00:00.000Z",
-      selectedPath: "notes.md",
       contextPaths: ["notes.md"],
       transientConversation: false,
       draftStorageKey: "draft-key",
     };
-    assert.equal(writeStoredPendingChatSend("space-1", "chat-1", pending), true);
-    assert.deepEqual(readStoredPendingChatSend("space-1", "chat-1"), pending);
-    clearStoredPendingChatSend("space-1", "chat-1");
-    assert.equal(readStoredPendingChatSend("space-1", "chat-1"), null);
+    assert.equal(writeStoredPendingChatSend("work-folder-1", "chat-1", pending), true);
+    assert.deepEqual(readStoredPendingChatSend("work-folder-1", "chat-1"), pending);
+    // A send saved before 2026-10-11 still carries the file selected in Files; it reads back without it.
+    assert.equal(writeStoredPendingChatSend("work-folder-1", "chat-1", { ...pending, selectedPath: "notes.md" } as typeof pending), true);
+    assert.deepEqual(readStoredPendingChatSend("work-folder-1", "chat-1"), pending);
+    clearStoredPendingChatSend("work-folder-1", "chat-1");
+    assert.equal(readStoredPendingChatSend("work-folder-1", "chat-1"), null);
   } finally {
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
@@ -121,8 +123,8 @@ test("Chat title rendering ignores only the initial placeholder and accepts gene
   ]), "New Chat");
 });
 
-test("assistant Markdown discovers relative Space links and common code paths", () => {
-  const candidates = collectSpacePathCandidates([
+test("assistant Markdown discovers relative work-folder links and common code paths", () => {
+  const candidates = collectWorkFolderPathCandidates([
     "Open [App](web-local/src/App.tsx) and [product notes](<docs/Product notes.md>).",
     "Then inspect `src/local/server.ts:42:7`, README.md#L12, and scripts/release.ps1.",
     "Leave [the web](https://example.com/docs/file.ts) external.",
@@ -135,8 +137,8 @@ test("assistant Markdown discovers relative Space links and common code paths", 
     "README.md",
     "scripts/release.ps1",
   ]);
-  assert.equal(spacePathCandidate("./web-local/src/App.tsx:120", { allowSpaces: true }), "web-local/src/App.tsx");
-  assert.equal(spacePathCandidate("README.md#installation", { allowSpaces: true }), "README.md");
-  assert.equal(spacePathCandidate("https://example.com/file.ts", { allowSpaces: true }), null);
-  assert.equal(spacePathCandidate("../outside.ts", { allowSpaces: true }), null);
+  assert.equal(workFolderPathCandidate("./web-local/src/App.tsx:120", { allowWorkFolders: true }), "web-local/src/App.tsx");
+  assert.equal(workFolderPathCandidate("README.md#installation", { allowWorkFolders: true }), "README.md");
+  assert.equal(workFolderPathCandidate("https://example.com/file.ts", { allowWorkFolders: true }), null);
+  assert.equal(workFolderPathCandidate("../outside.ts", { allowWorkFolders: true }), null);
 });

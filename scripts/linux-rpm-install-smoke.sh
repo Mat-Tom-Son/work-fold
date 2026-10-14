@@ -38,4 +38,4 @@ dnf install -y "$upgrade"
 runuser -u smoke -- dbus-run-session -- xvfb-run -a node /work/scripts/linux-installed-smoke.mjs /opt/work-fold/work-fold-desktop /usr/bin/work-fold --profile-root "$profile" --phase verify --expect-version "$(rpm -qp --qf '%{VERSION}' "$upgrade")"
 runuser -u smoke -- bash /work/scripts/linux-credentials-smoke.sh "$credentials" verify "$asar"
 dnf remove -y work-fold-desktop
-echo 'PASS RPM install/replacement/removal/reinstall, persistent Pi/Chat/History/Library/request state, packaged credential stores and launcher ownership'
+echo 'PASS RPM install/replacement/removal/reinstall, persistent Pi/Chat/History/request state, packaged credential stores and launcher ownership'

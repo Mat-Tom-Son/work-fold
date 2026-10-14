@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -5,17 +6,18 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { AuthStorage, ModelRegistry, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PiConversationClient, type PiChatEvent } from "../src/local/agent/pi-client.js";
 import { ModelContextInspector } from "../src/local/agent/model-context-inspector.js";
+import { toolFailureGuidance } from "../src/local/agent/tool-input-feedback.js";
 
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 /** A real Pi serializer talks only to this local deterministic provider. */
-async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string; instructions?: string } = {}) {
+async function fixture(t: test.TestContext, options: { vision?: boolean; blockImages?: boolean; tool?: string; arguments?: Record<string, unknown>; fail?: boolean; instructions?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-native-feedback-"));
   const agentDir = join(root, "pi");
-  const spaceRoot = join(root, "space");
+  const workFolderRoot = join(root, "work-folder");
   const requests: any[] = [];
   const failures: unknown[] = [];
   const server = createServer(async (request, response) => {
@@ -31,7 +33,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
       })}\n\n`);
       const hasToolResult = body.messages.some((message: any) => message.role === "tool");
       const isTitle = JSON.stringify(body.messages).includes("Write a specific 3 to 7 word title");
-      const isInference = JSON.stringify(body.messages).includes("You are answering one bounded request from a Space app");
+      const isInference = JSON.stringify(body.messages).includes("You are answering one bounded request from a work-folder app");
       const isCheck = body.tools?.some((tool: any) => tool.function?.name === "submit_review");
       if (isCheck) {
         send({ role: "assistant", tool_calls: [{ index: 0, id: "review-1", type: "function", function: {
@@ -40,7 +42,7 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
         send({}, "tool_calls");
       } else if (!hasToolResult && !isTitle && !isInference) {
         send({ role: "assistant", tool_calls: [{ index: 0, id: "observe-1", type: "function", function: {
-          name: options.tool ?? "observe_fixture", arguments: JSON.stringify(options.tool === "read" ? { path: "preview.png" } : {}),
+          name: options.tool ?? "observe_fixture", arguments: JSON.stringify(options.arguments ?? (options.tool === "read" ? { path: "preview.png" } : {})),
         } }] });
         send({}, "tool_calls");
       } else {
@@ -55,13 +57,13 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   await mkdir(join(agentDir, "extensions"), { recursive: true });
-  await mkdir(spaceRoot, { recursive: true });
-  await writeFile(join(spaceRoot, "preview.png"), Buffer.from(png, "base64"));
+  await mkdir(workFolderRoot, { recursive: true });
+  await writeFile(join(workFolderRoot, "preview.png"), Buffer.from(png, "base64"));
   await writeFile(join(agentDir, "extensions", "observations.ts"), `
     export default function(pi) {
       pi.registerTool({ name: "observe_fixture", label: "Observe fixture", description: "Read explicit fixture evidence",
         parameters: { type: "object", properties: {}, additionalProperties: false },
-        async execute() { return {
+        async execute() { ${options.fail ? 'throw new Error("The fixture may have partially executed; inspect its receipt.");' : ""} return {
           content: [{type:"text",text:"Observed rows 1–3: total=6; other rows uninspected."},
             {type:"image",data:${JSON.stringify(png)},mimeType:"image/png"}],
           details: { privateMetadata: "DETAILS_ARE_NOT_MODEL_CONTENT" }
@@ -72,19 +74,19 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
       pi.on("before_provider_request", (event) => ({ ...event.payload, user: "NATIVE_PAYLOAD_HOOK" }));
     }
   `);
-  const authStorage = AuthStorage.inMemory({ "feedback-test": { type: "api_key", key: "local-fixture-key" } });
-  const modelRegistry = ModelRegistry.inMemory(authStorage);
-  modelRegistry.registerProvider("feedback-test", {
+  const authStorage = FileCredentialStore.inMemory({ "feedback-test": { type: "api_key", key: "local-fixture-key" } });
+  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  modelRuntime.registerProvider("feedback-test", {
     api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, apiKey: "local-fixture-key",
     models: [{ id: "fixture", name: "Feedback fixture", reasoning: false, input: options.vision === false ? ["text"] : ["text", "image"],
       contextWindow: 128000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
   });
   const inspector = new ModelContextInspector();
   inspector.setEnabled(true);
-  const client = new PiConversationClient("feedback-chat", spaceRoot, {
+  const client = new PiConversationClient("feedback-chat", workFolderRoot, {
     async resolveRuntime() {
-      return { agentDir, authStorage, modelRegistry, modelContextInspector: inspector,
-        assistantInstructions: options.instructions ?? "PERSONAL_INSTRUCTIONS_SURVIVE",
+      return { agentDir, credentials: authStorage, modelRuntime, modelContextInspector: inspector,
+        workerInstructions: options.instructions ?? "PERSONAL_INSTRUCTIONS_SURVIVE",
         preferredModel: { provider: "feedback-test", id: "fixture" },
         settingsManager: SettingsManager.inMemory({ images: { blockImages: options.blockImages ?? false }, retry: { enabled: false }, defaultThinkingLevel: "off" }),
       };
@@ -98,12 +100,12 @@ async function fixture(t: test.TestContext, options: { vision?: boolean; blockIm
     await rm(root, { recursive: true, force: true });
     assert.deepEqual(failures, []);
   });
-  return { client, inspector, requests, events, spaceRoot };
+  return { client, inspector, requests, events, workFolderRoot };
 }
 
 test("native extension text and images reach the next provider request without work-fold result metadata", async (t) => {
   const { client, requests, events, inspector } = await fixture(t);
-  assert.equal(await client.prompt("Inspect the fixture.", { managementTaskId: "task-fixture" }), "Inspected the returned evidence.");
+  assert.equal(await client.prompt("Inspect the fixture.", { workFoldAgentTaskId: "task-fixture" }), "Inspected the returned evidence.");
   assert.equal(requests.length, 2);
   const next = JSON.stringify(requests[1]);
   assert.match(next, /Observed rows 1–3: total=6/);
@@ -123,6 +125,33 @@ test("native extension text and images reach the next provider request without w
   assert.doesNotMatch(details, /local-fixture-key/);
 });
 
+test("built-in input-validation failures reach the next request with corrective guidance once", async (t) => {
+  const { client, requests, events } = await fixture(t, { tool: "read", arguments: {} });
+  await client.prompt("Exercise a missing required input.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /Validation failed.*read/s);
+  assert.match(result, /path/);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
+  assert.ok(events.some(event => event.type === "tool" && event.phase === "error"));
+});
+
+test("Extension execution failures retain the original uncertainty and corrective guidance once", async (t) => {
+  const { client, requests } = await fixture(t, { fail: true });
+  await client.prompt("Exercise an uncertain execution failure.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /may have partially executed; inspect its receipt/);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
+  assert.match(result, /If execution may have had effects, inspect the outcome/);
+});
+
+test("codemode nested input failures use the same correction path", async (t) => {
+  const { client, requests } = await fixture(t, { tool: "codemode", arguments: { code: "return await tools.read({});" } });
+  await client.prompt("Exercise a nested missing input.");
+  const result = requests[1].messages.find((message: any) => message.role === "tool").content;
+  assert.match(result, /Validation failed.*read/s);
+  assert.equal(result.split(toolFailureGuidance).length - 1, 1);
+});
+
 test("Pi's built-in read composes image inspection through the same native provider path", async (t) => {
   const { client, requests } = await fixture(t, { tool: "read" });
   await client.prompt("Inspect preview.png.");
@@ -137,7 +166,7 @@ test("the inspector retains the full native system prompt beyond 32 KiB without 
   await client.prompt("Inspect the fixture with a long project guide.");
   const first = inspector.list().at(-1)!;
   const detail = inspector.get(first.id)!;
-  const prompt = (detail.assembled.value as any).systemPrompt;
+  const prompt = getCurrentSystemPrompt((detail.assembled.value as any).messages);
   assert.ok(Buffer.byteLength(prompt) > 32 * 1024);
   assert.ok(prompt.includes(instructions));
   assert.equal(requests[0].messages.find((message: any) => message.role === "system").content, prompt);
@@ -164,7 +193,7 @@ test("Pi's actual provider conversion omits unsupported images and preserves use
 
 test("auxiliary title calls are recorded with their own context and no borrowed task", async (t) => {
   const { client, requests, inspector } = await fixture(t);
-  await client.prompt("Inspect the fixture.", { managementTaskId: "original-task" });
+  await client.prompt("Inspect the fixture.", { workFoldAgentTaskId: "original-task" });
   assert.equal(await client.generateConversationTitle("Fixture request", "Fixture answer"), "A verified fixture result");
   assert.equal(requests.length, 3);
   assert.doesNotMatch(JSON.stringify(requests[2]), /Observed rows|PERSONAL_INSTRUCTIONS_SURVIVE|NATIVE_CONTEXT_HOOK/);
@@ -176,7 +205,7 @@ test("auxiliary title calls are recorded with their own context and no borrowed 
 
 test("overlapping title, Check and app inference contexts retain separate purposes without Chat instructions", async (t) => {
   const { client, inspector } = await fixture(t);
-  await client.prompt("Inspect the fixture.", { managementTaskId: "parent-turn" });
+  await client.prompt("Inspect the fixture.", { workFoldAgentTaskId: "parent-turn" });
   inspector.clear();
   await Promise.all([
     client.generateConversationTitle("Only title input", "Only title reply"),

@@ -1,14 +1,16 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type * as React from "react";
+import { LayoutPanelLeft } from "lucide-react";
+import { GlobeCode } from "../chrome/GlobeCodeIcon";
 import {
   ArrowClockwise20Regular,
   ArrowLeft20Regular,
   Checkmark16Regular,
   Dismiss20Regular,
-  Apps20Regular,
   Delete20Regular,
   Flash20Regular,
   Info20Regular,
+  Keyboard20Regular,
   PaintBrush20Regular,
   Power20Regular,
   Sparkle20Regular,
@@ -17,9 +19,10 @@ import {
 } from "@fluentui/react-icons";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
+import { copyToClipboard } from "../../lib/clipboard";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
-import type { AgentStatus, DesktopUpdateStatus, SpaceSummary } from "../../types";
-import { foldPublicationsSettings, remoteAccessSettings } from "../../ui-contract";
+import type { AgentStatus, DesktopUpdateStatus, WorkFolderSummary } from "../../types";
+import { publicationsSettings, remoteAccessSettings } from "../../ui-contract";
 import {
   pageByteBudgetMaximumMiB,
   pageServeRateMaximum,
@@ -29,22 +32,23 @@ import {
   type SharedPagesResponse,
   type SharedPageView,
 } from "../../lib/page-sharing";
-import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/space-fixture";
+import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
 import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
-import { AssistantSetupPane, type AssistantModelScope } from "../panes/AssistantSetupPane";
+import { AiModelsPane, type ModelScope } from "../panes/AiModelsPane";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
-import { FoldLimitsPane } from "./FoldLimitsPane";
+import { WorkFoldLimitsPane } from "./WorkFoldLimitsPane";
 import { SettingsAppsPane, type RestrictedAppsState } from "./SettingsAppsPane";
+import { KeyboardShortcutsPane } from "./KeyboardShortcutsPane";
 import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
-import { FoldRoutingsPane } from "./FoldRoutingsPane";
-import { FoldRecentlyDeletedPane } from "./RecentlyDeletedPane";
+import { AutomationsPane } from "./AutomationsPane";
+import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "assistant" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "about";
-export type FoldSettingsSection = "routings" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "about";
+export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
+export type SettingsSection = "automations" | "deleted" | "limits";
+type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -53,33 +57,33 @@ type SettingsTabId = "appearance" | "assistant" | "web-access" | "shared-pages" 
  * with the "deleted" section opens Recently deleted and otherwise opens
  * Automations (where Limits now sits).
  */
-export function settingsTabForPage(page: SettingsPage, section?: FoldSettingsSection): SettingsTabId {
+export function settingsTabForPage(page: SettingsPage, section?: SettingsSection): SettingsTabId {
   if (page === "remote") return "web-access";
   if (page === "general" || page === "desktop") return section === "deleted" ? "recently-deleted" : "automations";
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spaces = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialAssistantScope, focusAssistantModel = false, focusAssistantInstructions = false, onAgentConfigured, onAssistantChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFolder, workFolders = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialModelScope, focusAiModel = false, focusWorkerInstructions = false, onAgentConfigured, onModelChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
-  onCustomizeSpace?: (spaceId: string) => void;
-  space: SpaceSummary | null;
-  /** Settings → Apps lists every installed app by Folder (the Folder-owned Apps tab was retired 2026-09-25). */
-  spaces?: SpaceSummary[];
+  onCustomizeWorkFolder?: (workFolderId: string) => void;
+  workFolder: WorkFolderSummary | null;
+  /** Settings → Apps lists every installed app by work-folder (the work-folder-owned Apps tab was retired 2026-09-25). */
+  workFolders?: WorkFolderSummary[];
   restrictedApps?: RestrictedAppsState | null;
   onChangeApp?: (app: RestrictedAppInstalled) => void;
-  onOpenAppBuildChat?: (spaceId: string, conversationId: string) => void;
-  onOpenAppResultFile?: (spaceId: string, path: string) => void;
-  onOpenAppStudio?: (spaceId: string, runtimeInstanceId?: string) => void;
+  onOpenAppBuildChat?: (workFolderId: string, conversationId: string) => void;
+  onOpenAppResultFile?: (workFolderId: string, path: string) => void;
+  onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
   /** Older callers named a section of the former Desktop tab. */
-  initialSection?: FoldSettingsSection;
-  initialAssistantScope?: AssistantModelScope;
-  focusAssistantModel?: boolean;
-  focusAssistantInstructions?: boolean;
+  initialSection?: SettingsSection;
+  initialModelScope?: ModelScope;
+  focusAiModel?: boolean;
+  focusWorkerInstructions?: boolean;
   onAgentConfigured: (status: AgentStatus) => void;
-  onAssistantChanged?: (scope: AssistantModelScope, status: AgentStatus) => void;
+  onModelChanged?: (scope: ModelScope, status: AgentStatus) => void;
   onClose: () => void;
   onBackToCustomization?: () => void;
   updateStatus: DesktopUpdateStatus | null;
@@ -87,7 +91,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 }) {
   const [narrowNavigation, setNarrowNavigation] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [page, setPage] = useState<SettingsTabId>(() => settingsTabForPage(initialPage, initialSection));
-  const [assistantVisited, setAssistantVisited] = useState(initialPage === "assistant");
+  const [aiModelsVisited, setAiModelsVisited] = useState(initialPage === "ai-models");
   const contentRef = useRef<HTMLDivElement>(null);
   const [closeToTray, setCloseToTray] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [closeToTrayBusy, setCloseToTrayBusy] = useState(false);
@@ -98,7 +102,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 
   useEffect(() => { setPage(settingsTabForPage(initialPage, initialSection)); }, [initialPage, initialSection]);
   useEffect(() => {
-    if (page === "assistant") setAssistantVisited(true);
+    if (page === "ai-models") setAiModelsVisited(true);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   }, [page]);
   useEffect(() => {
@@ -138,12 +142,13 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
 
   const tabs: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
-    { id: "assistant", label: "AI Models", icon: <Sparkle20Regular /> },
-    { id: "web-access", label: "Web Access", icon: <Window20Regular /> },
+    { id: "ai-models", label: "AI Models", icon: <Sparkle20Regular /> },
+    { id: "web-access", label: "Web Access", icon: <GlobeCode size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
-    { id: "apps", label: "Apps", icon: <Apps20Regular /> },
+    { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
+    { id: "shortcuts", label: "Shortcut Keys", icon: <Keyboard20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
   ];
   const closeWindowControl = closeToTray?.supported ? (
@@ -170,10 +175,10 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
       <section ref={dialogRef} tabIndex={-1} className="settings-modal settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title settings-title">
           <div className="settings-title-copy">
-            {onBackToCustomization ? <button className="minimal-icon-button settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
+            {onBackToCustomization ? <button className="ui-control ui-control--icon settings-customization-back" type="button" onClick={onBackToCustomization} aria-label="Back to Customize work-folder" title="Back to Customize work-folder"><ArrowLeft20Regular /></button> : null}
             <div><h2 id="settings-title">Settings</h2></div>
           </div>
-          <button ref={closeRef} className="minimal-icon-button settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
+          <button ref={closeRef} className="ui-control ui-control--icon settings-close-button" type="button" onClick={onClose} aria-label="Close settings"><Dismiss20Regular /></button>
         </div>
         <div className="settings-form" onKeyDown={settingsRovingKeyDown}>
           <div className="settings-tabs" role="tablist" aria-label="Settings sections" aria-orientation={narrowNavigation ? "horizontal" : "vertical"}>
@@ -197,12 +202,12 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
           <div className="settings-content" ref={contentRef}>
             {page === "appearance" ? (
               <div className="settings-tab-panel" id="settings-panel-appearance" role="tabpanel" aria-labelledby="settings-tab-appearance">
-                <AppearanceSettingsPane appearance={appearance} space={space} onCustomizeSpace={onCustomizeSpace} interfaceExtra={closeWindowControl} />
+                <AppearanceSettingsPane appearance={appearance} workFolder={workFolder} onCustomizeWorkFolder={onCustomizeWorkFolder} interfaceExtra={closeWindowControl} />
               </div>
             ) : null}
-            {page === "assistant" || assistantVisited ? (
-              <div hidden={page !== "assistant"} className="settings-tab-panel" id="settings-panel-assistant" role="tabpanel" aria-labelledby="settings-tab-assistant">
-                <AssistantSetupPane active={page === "assistant"} space={space} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialAssistantScope} focusModelOnOpen={focusAssistantModel} focusInstructionsOnOpen={focusAssistantInstructions} onConfigured={onAgentConfigured} onAssistantChanged={onAssistantChanged} />
+            {page === "ai-models" || aiModelsVisited ? (
+              <div hidden={page !== "ai-models"} className="settings-tab-panel" id="settings-panel-ai-models" role="tabpanel" aria-labelledby="settings-tab-ai-models">
+                <AiModelsPane active={page === "ai-models"} workFolder={workFolder} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialModelScope} focusModelOnOpen={focusAiModel} focusInstructionsOnOpen={focusWorkerInstructions} onConfigured={onAgentConfigured} onModelChanged={onModelChanged} />
               </div>
             ) : null}
             {page === "web-access" ? (
@@ -212,23 +217,28 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
             ) : null}
             {page === "shared-pages" ? (
               <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
-                <FoldPublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
+                <PublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
               </div>
             ) : null}
             {page === "automations" ? (
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
-                <FoldRoutingsPane />
-                <FoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+                <AutomationsPane />
+                <WorkFoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
               </div>
             ) : null}
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
-                <SettingsAppsPane spaces={spaces} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} onOpenSharedPages={() => setPage("shared-pages")} onOpenWebAccess={() => setPage("web-access")} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
               <div className="settings-tab-panel" id="settings-panel-recently-deleted" role="tabpanel" aria-labelledby="settings-tab-recently-deleted">
-                <FoldRecentlyDeletedPane />
+                <RecentlyDeletedPane />
+              </div>
+            ) : null}
+            {page === "shortcuts" ? (
+              <div className="settings-tab-panel" id="settings-panel-shortcuts" role="tabpanel" aria-labelledby="settings-tab-shortcuts">
+                <KeyboardShortcutsPane />
               </div>
             ) : null}
             {page === "about" ? (
@@ -240,7 +250,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeSpace, space, spac
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
                   <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
-                  {onUpdateAction && updateStatus?.supported ? <button className="secondary-button" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
+                  {onUpdateAction && updateStatus?.supported ? <button className="ui-control" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
                 </section>
               </div>
             ) : null}
@@ -362,8 +372,8 @@ function RemoteAccessPane() {
         </div>
         {status?.url ? <code className="remote-access-url">{status.url}</code> : null}
         <div className="remote-access-actions">
-          {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
-          {status?.configured ? <button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run("toggle", () => remote.setEnabled(!status.enabled))}>{status.enabled ? "Disable" : "Enable"} web access</button> : null}
+          {status?.configured ? <button className="ui-control" type="button" disabled={Boolean(busy) || !status.enabled} onClick={() => void run("open", async () => remote.open())}>Open address</button> : null}
+          {status?.configured ? <button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void run("toggle", () => remote.setEnabled(!status.enabled))}>{status.enabled ? "Disable" : "Enable"} web access</button> : null}
         </div>
         {status?.lastError ? <span className="settings-inline-error" role="alert">{status.lastError}</span> : null}
       </section>
@@ -375,7 +385,7 @@ function RemoteAccessPane() {
           <label className="settings-field"><span>{status?.configured ? "New password" : "Password"}</span><input type="password" value={password} autoComplete="new-password" minLength={8} maxLength={256} placeholder="At least 8 characters" disabled={Boolean(busy)} onChange={(event) => { setPassword(event.target.value); setError(null); setNotice(null); }} /></label>
           <label className="settings-field"><span>Confirm password</span><input type="password" value={confirmation} autoComplete="new-password" minLength={8} maxLength={256} disabled={Boolean(busy)} onChange={(event) => { setConfirmation(event.target.value); setError(null); setNotice(null); }} /></label>
         </div>
-        <div className="settings-actions">{notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}<button className="primary-button" type="button" disabled={Boolean(busy) || !remoteSettingsChanged} onClick={() => void save()}>{busy === "save" ? "Saving…" : status?.configured ? "Save changes" : "Create private address"}</button></div>
+        <div className="settings-actions">{notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}<button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy) || !remoteSettingsChanged} onClick={() => void save()}>{busy === "save" ? "Saving…" : status?.configured ? "Save changes" : "Create private address"}</button></div>
         {error ? <span className="settings-inline-error" role="alert">{error}</span> : null}
       </section>
 
@@ -384,11 +394,11 @@ function RemoteAccessPane() {
           <div className="settings-section-heading"><h3 id="paired-browsers-title">Paired Browsers</h3><span>{status.approvedBrowsers.length}</span></div>
           <p>{remoteAccessSettings.pairedBrowserTrust}</p>
           {status.approvedBrowsers.length ? <div className="remote-browser-list">{status.approvedBrowsers.map((browser) => (
-            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
+            <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
           ))}</div> : <div className="remote-browser-empty">No browser is paired yet.</div>}
           <div className="remote-access-danger-actions">
-            <button className="secondary-button danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
-            <button className="secondary-button danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
           </div>
         </section>
       ) : null}
@@ -410,17 +420,17 @@ function shortReleaseDigest(value: string): string {
 }
 
 /**
- * Settings → Shared pages (docs/fold-publishing.md, plan item 5; amended
+ * Settings → Shared pages (docs/shared-pages.md, plan item 5; amended
  * 2026-09-24). Each row carries one quiet page state word — Live, Asleep,
  * Resting, Not available, Stopped — with the precise reason as its tooltip;
- * with the main-window glance panel gone, this row is where a page's
+ * with the main-window overview panel gone, this row is where a page's
  * problems show. Revealing a link is a transient on-demand composition
  * against the viewer origin. Stop sharing, Budgets, and Sleep copy are
  * receipted acts on the renderer session: budgets narrow or widen in place
  * and the sleep copy turns on or off, while the slot, key, and link stay the
  * same (docs/receipts-not-gates.md, F19). A new page starts from a file's tab.
  */
-function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
+function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
   const remote = fixtureMode ? undefined : window.workFoldDesktop?.remoteAccess;
   const [data, setData] = useState<SharedPagesResponse | null>(() => (
     fixtureMode ? { publications: buildFixturePublications(), status: { damaged: false, activeCount: 4, pendingBridgeWork: 1 } } : null
@@ -467,7 +477,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
   async function run(key: string, operation: () => Promise<void>) {
     if (busy) return;
     if (fixtureMode && !key.startsWith("reveal-")) {
-      showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" });
+      showToast({ text: publicationsSettings.previewDisabled, tone: "info" });
       return;
     }
     setBusy(key);
@@ -485,7 +495,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
 
   async function revealLink(publication: SharedPageView) {
     if (!viewerOrigin) {
-      setActionError(foldPublicationsSettings.noAddress);
+      setActionError(publicationsSettings.noAddress);
       return;
     }
     await run(`reveal-${publication.publicationId}`, async () => {
@@ -510,7 +520,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
     const byteBudgetMiB = Number(editingBudgets.byteBudgetMiB);
     if (!Number.isInteger(serveRate) || serveRate < 1 || serveRate > pageServeRateMaximum
       || !Number.isFinite(byteBudgetMiB) || byteBudgetMiB <= 0 || byteBudgetMiB > pageByteBudgetMaximumMiB) {
-      setActionError(foldPublicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
+      setActionError(publicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
       return;
     }
     const byteBudget = Math.max(1, Math.round(byteBudgetMiB * 1024 * 1024));
@@ -528,7 +538,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
         await api(`/api/settings/publications/${publication.publicationId}/widen`, { method: "POST", body: higher });
       }
       setEditingBudgets(null);
-      setNotice(foldPublicationsSettings.saved);
+      setNotice(publicationsSettings.saved);
     });
   }
 
@@ -540,7 +550,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
           : `/api/settings/publications/${publication.publicationId}/snapshot-off`,
         { method: "POST", body: enabled ? { snapshotEnabled: true } : {} },
       );
-      setNotice(foldPublicationsSettings.saved);
+      setNotice(publicationsSettings.saved);
     });
   }
 
@@ -554,7 +564,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
   };
 
   return (
-    <section className="settings-section" aria-label={foldPublicationsSettings.heading}>
+    <section className="settings-section" aria-label={publicationsSettings.heading}>
       {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
       {data?.status.damaged ? (
         <span className="settings-inline-error" role="alert">
@@ -565,54 +575,69 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
       {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
       {data && !shown.length && !hasAddress ? (
-        <div className="remote-browser-empty fold-publication-empty">
-          <span>{foldPublicationsSettings.emptyNoAddress}</span>
-          <button className="secondary-button" type="button" onClick={onOpenWebAccess}>{foldPublicationsSettings.webAccess}</button>
+        <div className="remote-browser-empty publication-empty">
+          <span>{publicationsSettings.emptyNoAddress}</span>
+          <button className="ui-control" type="button" onClick={onOpenWebAccess}>{publicationsSettings.webAccess}</button>
         </div>
       ) : null}
-      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{foldPublicationsSettings.empty}</div> : null}
+      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{publicationsSettings.empty}</div> : null}
       {shown.length ? (
-        <div className="remote-browser-list fold-publication-list">
+        <div className="publication-list">
           {shown.map((publication) => {
             const health = sharedPageHealth(publication, connection);
             const editing = editingBudgets?.publicationId === publication.publicationId ? editingBudgets : null;
             return (
-              <div className="fold-publication-row" key={publication.publicationId}>
-                <div className="remote-browser-row">
-                  <div className="fold-publication-summary" title={health.reason}>
-                    <span className="fold-publication-title">
-                      <strong>{publication.title}</strong>
-                      <span className={`fold-publication-state ${health.state}`}>{foldPublicationsSettings.states[health.state]}</span>
-                    </span>
+              <div className="publication-row" key={publication.publicationId}>
+                <div className="publication-summary" title={health.reason}>
+                  <span className="publication-title">
+                    <strong>{publication.title}</strong>
+                    <span className={`publication-state ${health.state}`}>{publicationsSettings.states[health.state]}</span>
+                  </span>
+                  <small>
+                    {publication.kind === "app" && publication.app
+                      ? <>{publication.workFolderName ?? publication.workFolderId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
+                      : <>{publication.workFolderName ?? publication.workFolderId}: {publication.relativePath}</>}
+                  </small>
+                  {publication.kind === "app" && publication.app ? (
                     <small>
-                      {publication.kind === "app" && publication.app
-                        ? <>{publication.spaceName ?? publication.spaceId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
-                        : <>{publication.spaceName ?? publication.spaceId}: {publication.relativePath}</>}
+                      Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
                     </small>
-                    {publication.kind === "app" && publication.app ? (
-                      <small>
-                        Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
-                      </small>
+                  ) : null}
+                  <small className="publication-usage">{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
+                  <small>{countersLine(publication)}</small>
+                </div>
+                {publication.state === "active" ? (
+                  <div className="publication-footer">
+                    {/* Sleep copies are a page-only lane: an app at your address is
+                        structurally snapshotless, so app rows carry no toggle. The
+                        retention disclosure rides on the label's tooltip. */}
+                    {publication.kind === "page" ? (
+                      <label className="publication-sleep-copy" title={publicationsSettings.snapshotLabel}>
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          checked={publication.snapshotEnabled}
+                          disabled={Boolean(busy)}
+                          onChange={(event) => setSleepCopy(publication, event.target.checked)}
+                        />
+                        {" "}{publicationsSettings.sleepCopy}
+                      </label>
                     ) : null}
-                    <small>{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
-                    <small>{countersLine(publication)}</small>
-                  </div>
-                  {publication.state === "active" ? (
-                    <div className="settings-actions">
+                    <div className="settings-actions publication-actions">
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
                         disabled={Boolean(busy) || !viewerOrigin}
-                        title={viewerOrigin ? undefined : foldPublicationsSettings.noAddress}
+                        title={viewerOrigin ? undefined : publicationsSettings.noAddress}
                         onClick={() => {
                           if (revealed?.publicationId === publication.publicationId) setRevealed(null);
                           else void revealLink(publication);
                         }}
                       >
-                        {revealed?.publicationId === publication.publicationId ? foldPublicationsSettings.hideLink : foldPublicationsSettings.revealLink}
+                        {revealed?.publicationId === publication.publicationId ? publicationsSettings.hideLink : publicationsSettings.revealLink}
                       </button>
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
                         aria-expanded={Boolean(editing)}
                         disabled={Boolean(busy)}
@@ -626,15 +651,15 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           });
                         }}
                       >
-                        {foldPublicationsSettings.budgets}
+                        {publicationsSettings.budgets}
                       </button>
                       <button
-                        className="secondary-button danger"
+                        className="ui-control danger"
                         type="button"
                         disabled={Boolean(busy)}
                         onClick={() => {
-                          if (fixtureMode) { showToast({ text: foldPublicationsSettings.previewDisabled, tone: "info" }); return; }
-                          if (!window.confirm(foldPublicationsSettings.stopSharingConfirm)) return;
+                          if (fixtureMode) { showToast({ text: publicationsSettings.previewDisabled, tone: "info" }); return; }
+                          if (!window.confirm(publication.kind === "app" ? publicationsSettings.stopSharingAppConfirm : publicationsSettings.stopSharingConfirm)) return;
                           setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
                           void run(`revoke-${publication.publicationId}`, async () => {
                             await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
@@ -642,30 +667,36 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                           });
                         }}
                       >
-                        {foldPublicationsSettings.stopSharing}
+                        {publicationsSettings.stopSharing}
                       </button>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
                 {revealed?.publicationId === publication.publicationId ? (
-                  <div className="fold-publication-link">
+                  <div className="publication-link">
                     <code className="remote-access-url">{revealed.link}</code>
                     <div className="settings-actions">
                       <button
-                        className="secondary-button"
+                        className="ui-control"
                         type="button"
-                        onClick={() => { void navigator.clipboard?.writeText(revealed.link).catch(() => undefined); setNotice("Link Copied"); }}
+                        onClick={() => {
+                          setNotice(null);
+                          setActionError(null);
+                          void copyToClipboard({ text: revealed.link })
+                            .then(() => setNotice("Link Copied"))
+                            .catch((caught) => setActionError(errorText(caught)));
+                        }}
                       >
-                        {foldPublicationsSettings.copyLink}
+                        {publicationsSettings.copyLink}
                       </button>
                     </div>
-                    <small>{foldPublicationsSettings.linkMeaning}</small>
+                    <small>{publication.kind === "app" ? publicationsSettings.appLinkMeaning : publicationsSettings.linkMeaning}</small>
                   </div>
                 ) : null}
                 {editing ? (
-                  <div className="fold-publication-budgets">
+                  <div className="publication-budgets">
                     <label className="settings-field">
-                      <span>{foldPublicationsSettings.servesPerMinute}</span>
+                      <span>{publicationsSettings.servesPerMinute}</span>
                       <input
                         type="number"
                         min={1}
@@ -677,7 +708,7 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       />
                     </label>
                     <label className="settings-field">
-                      <span>{foldPublicationsSettings.mibPerDay}</span>
+                      <span>{publicationsSettings.mibPerDay}</span>
                       <input
                         type="number"
                         min={1}
@@ -689,26 +720,11 @@ function FoldPublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtur
                       />
                     </label>
                     <div className="settings-actions">
-                      <button className="primary-button" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
-                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : foldPublicationsSettings.saveBudgets}
+                      <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
+                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : publicationsSettings.saveBudgets}
                       </button>
                     </div>
                   </div>
-                ) : null}
-                {/* Sleep copies are a page-only lane: an app at your address is
-                    structurally snapshotless, so app rows carry no toggle. The
-                    retention disclosure rides on the label's tooltip. */}
-                {publication.kind === "page" && publication.state === "active" ? (
-                  <label className="fold-publication-sleep-copy" title={foldPublicationsSettings.snapshotLabel}>
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      checked={publication.snapshotEnabled}
-                      disabled={Boolean(busy)}
-                      onChange={(event) => setSleepCopy(publication, event.target.checked)}
-                    />
-                    {" "}{foldPublicationsSettings.sleepCopy}
-                  </label>
                 ) : null}
               </div>
             );

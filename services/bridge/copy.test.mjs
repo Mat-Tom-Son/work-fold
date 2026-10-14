@@ -4,7 +4,7 @@ import test from "node:test";
 
 // The bridge deploys separately from the desktop release lanes, so nothing
 // else keeps the remote client's copy aligned with the desktop vocabulary.
-// These are static string pins over the shipped client source: the fold
+// These are static string pins over the shipped client source: the work-fold agent
 // naming rows plus the copy rows that are load-bearing and must not drift.
 
 async function clientSource(file) {
@@ -46,11 +46,11 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes("Confirm that the same six digits appear in the desktop prompt."));
   assert.ok(app.includes("<span>Waiting for your desktop…</span>"));
 
-  // The screens name themselves: the door asks the question, and Needs you
-  // and the folder view carries the selected folder title.
+  // The door asks the question; Shared pages lives in the footer.
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
   assert.equal(app.includes('id="context-needs"'), false);
-  assert.ok(app.includes('<h1 id="space-title" tabindex="-1">Folder</h1>'));
+  assert.ok(app.includes('id="shared-pages-toggle"'));
+  assert.equal(app.includes('id="work-folder-title"'), false);
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
   // address line, the recent-chat tail, the back affordance, the composer
@@ -89,7 +89,8 @@ test("remote questions live in their owning Chats", async () => {
     "pending-decision",
   ]) assert.equal(app.includes(retired), false, `retired decision copy still present: ${retired}`);
   assert.ok(app.includes('id="request-work"'));
-  assert.ok(app.includes('class="chat-waiting">Needs your answer'));
+  assert.ok(app.includes('renderWorkRequest(document.querySelector("#request-work")'));
+  assert.equal(app.includes('class="chat-waiting"'), false);
   assert.equal(app.includes('data-nav-context="needs"'), false);
 
   // Person-facing copy never carries the retired gate vocabulary
@@ -108,22 +109,20 @@ test("remote questions live in their owning Chats", async () => {
 
 test("the remote client does not fetch or acknowledge a hidden activity feed", async () => {
   const app = await clientSource("app.js");
-  assert.doesNotMatch(app, /remote\("management\.glance(?:Seen)?"/);
+  assert.doesNotMatch(app, /remote\("management\.overview(?:Seen)?"/);
   assert.doesNotMatch(app, /id="fold-home"|Since you last looked|Nothing needs you right now/);
 });
 
-test("remote client navigation keeps folders in a compact picker", async () => {
+test("remote client navigation focuses on chats and shared pages", async () => {
   const app = await clientSource("app.js");
   const styles = await clientSource("app.css");
-  const dateGroups = await clientSource("date-groups.js");
 
-  // Three screens, New chat as the door; the retired hashes land there too.
-  assert.match(app, /const contextNames = \["new", "chat", "spaces"\];/);
-  // The internal folder browser retains its route; `#files` still lands there.
-  assert.match(app, /if \(raw === "files"\) return \{ context: "spaces"/);
+  // Two screens, New chat as the door; retired hashes land there too.
+  assert.match(app, /const contextNames = \["new", "chat"\];/);
+  assert.doesNotMatch(app, /id="context-work-folders"|id="file-tree"|loadWorkFolders|loadTree|renderWorkspace|folder-picker/);
   assert.match(app, /contextNames\.includes\(raw\) \? raw : "new"/);
-  assert.match(app, /requested === "home" \|\| requested === "chats"\) return "new"/);
-  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"[\s\S]*?id="context-spaces"/);
+  assert.match(app, /requested === "files" \|\| requested === "work-folders"\) return "new"/);
+  assert.match(app, /id="context-new"[\s\S]*?id="context-chat"/);
   assert.match(app, /id="new-composer-slot"[\s\S]*?id="messages"[\s\S]*?id="chat-composer-slot"/);
 
   // The sidebar exists once in the DOM and is both the desktop column and the
@@ -135,11 +134,11 @@ test("remote client navigation keeps folders in a compact picker", async () => {
   assert.equal(app.includes("tab-bar"), false);
   assert.equal(styles.includes(".tab-bar"), false);
 
-  // Expanded order: New chat, the grouped chat list, a Folders picker, and
+  // Expanded order: New chat, the plain chat list, Shared pages, and
   // Settings. Online presence stays out of the way; offline remains visible.
-  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?id="folder-picker-button"[\s\S]*?id="folder-picker"[\s\S]*?id="account-settings"[\s\S]*?id="desktop-presence"/);
-  assert.ok(app.includes('import { groupConversationsByDate } from "./date-groups.js";'));
-  assert.match(dateGroups, /"Today"[\s\S]*?"Yesterday"[\s\S]*?"Earlier this week"[\s\S]*?"Last week"[\s\S]*?"Older"/);
+  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?id="shared-pages-toggle"[\s\S]*?id="shared-pages-popup"[\s\S]*?id="account-settings"[\s\S]*?id="desktop-presence"/);
+  assert.ok(app.includes('<p class="chat-list-heading">Chats</p>'));
+  assert.doesNotMatch(app, /chat-group-heading|chat-working|chat-waiting/);
   assert.ok(app.includes("No chats yet"));
   assert.ok(app.includes("Older chats hidden"));
 
@@ -152,7 +151,7 @@ test("remote client navigation keeps folders in a compact picker", async () => {
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Folders", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Shared pages", "Settings"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }
@@ -180,12 +179,11 @@ test("remote client navigation keeps folders in a compact picker", async () => {
   // Presence only appears for an offline desktop.
   assert.ok(app.includes('const label = online ? "" : "Desktop offline"'));
   assert.ok(app.includes("presence.hidden = online"));
-  assert.ok(app.includes("toggleFolderPicker"));
-  assert.ok(app.includes("closeFolderPicker"));
-  assert.ok(app.includes("Folder ID: ${space.id}"));
+  assert.ok(app.includes('remote("pages.list")'));
+  assert.ok(app.includes('remote("pages.link", { publicationId })'));
   assert.match(styles, /\[data-tip\]\[aria-expanded="true"\]:hover::after \{ opacity: 0; \}/);
   // Component layout rules use display values, so their semantic hidden
   // states need explicit higher-specificity guards in both sidebar modes.
   assert.match(styles, /#desktop-presence\[hidden\] \{ display: none; \}/);
-  assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.folder-picker\[hidden\] \{ display: none; \}/);
+  assert.match(styles, /\.shared-pages-popup\[hidden\] \{ display: none; \}/);
 });

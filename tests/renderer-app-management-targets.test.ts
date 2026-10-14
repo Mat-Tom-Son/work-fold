@@ -5,7 +5,7 @@ import * as apps from "../web-local/src/lib/restricted-apps.js";
 import type { RestrictedAppInstalled } from "../web-local/src/types.js";
 
 test("every desktop app management helper retains its exact installation and revision", async (context) => {
-  const app = { spaceId: "source", manifest: { id: "quotes" }, digest: "a".repeat(64),
+  const app = { workFolderId: "source", manifest: { id: "quotes" }, digest: "a".repeat(64),
     featureInstallationId: "feature-installation_preview" } as RestrictedAppInstalled;
   const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", { configurable: true, value: {
@@ -19,7 +19,7 @@ test("every desktop app management helper retains its exact installation and rev
     assert.equal(target.featureInstallationId, app.featureInstallationId, `${options?.method} ${url.pathname}`);
     assert.equal(target.expectedDigest, app.digest);
     assert.equal((options?.headers as Record<string, string>)["x-work-fold-session"], "test-session");
-    assert.ok(url.pathname.startsWith("/api/spaces/source/restricted-apps/quotes"));
+    assert.ok(url.pathname.startsWith("/api/work-folders/source/restricted-apps/quotes"));
     requests.push(`${options?.method} ${url.pathname}`);
     return new Response(JSON.stringify({ app, context: {}, connections: [], usage: {}, runs: [], backup: {}, recovery: null, removed: true, connection: {}, tasks: [], detail: {}, task: {} }));
   });
@@ -51,5 +51,5 @@ test("every desktop app management helper retains its exact installation and rev
   await apps.readRestrictedAppAssistantTask(app, "request-one");
   await apps.cancelRestrictedAppAssistantTask(app, "request-one");
   assert.equal(requests.length, 27);
-  assert.ok(requests.includes("POST /api/spaces/source/restricted-apps/quotes/assistant-tasks/request-one/cancel"));
+  assert.ok(requests.includes("POST /api/work-folders/source/restricted-apps/quotes/assistant-tasks/request-one/cancel"));
 });

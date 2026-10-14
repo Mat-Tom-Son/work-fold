@@ -14,7 +14,7 @@ export async function handleAction(action, input) {
 }
 
 export async function handleAutomation(event) {
-  if (event.automationId !== "refresh-inbox" || event.handler !== "refresh-inbox") {
+  if (event.appAutomationId !== "refresh-inbox" || event.handler !== "refresh-inbox") {
     throw new Error("Unknown automation.");
   }
   let network;

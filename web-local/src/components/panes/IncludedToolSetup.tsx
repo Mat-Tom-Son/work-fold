@@ -1,6 +1,6 @@
 import { IncludedMcpSetup } from "./IncludedMcpSetup";
 import { IncludedChromeSetup } from "./IncludedChromeSetup";
-import { IncludedWaylandSetup } from "./IncludedWaylandSetup";
+import { IncludedComputerSetup } from "./IncludedComputerSetup";
 import { useEffect, useRef, useState } from "react";
 import type { IncludedToolDefinition, IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
@@ -9,14 +9,15 @@ import "./included-tool-setup.css";
 
 type Result = { status: IncludedToolStatus };
 
-type SetupProps = { spaceId: string; tool: IncludedToolDefinition; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
+type SetupProps = { workFolderId: string; tool: IncludedToolDefinition; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void };
 
 export function IncludedToolSetup(props: SetupProps) {
-  if (props.tool.id === "chrome") return <IncludedChromeSetup spaceId={props.spaceId} enabled={props.enabled} onStatusChange={props.onStatusChange} />;
-  return <IncludedToolSetupSession key={`${props.spaceId}:${props.tool.id}`} {...props} />;
+  if (props.tool.id === "chrome") return <IncludedChromeSetup workFolderId={props.workFolderId} enabled={props.enabled} onStatusChange={props.onStatusChange} />;
+  if (props.tool.id === "computer") return <IncludedComputerSetup key={props.workFolderId} workFolderId={props.workFolderId} enabled={props.enabled} onStatusChange={props.onStatusChange} />;
+  return <IncludedToolSetupSession key={`${props.workFolderId}:${props.tool.id}`} {...props} />;
 }
 
-function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: SetupProps) {
+function IncludedToolSetupSession({ workFolderId, tool, enabled, onStatusChange }: SetupProps) {
   const [status, setStatus] = useState<IncludedToolStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ source: "read" | "action"; message: string } | null>(null);
@@ -35,7 +36,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
       if (cancelled || request.current || document.visibilityState === "hidden") return;
       const revision = statusRevision.current;
       const read = ++readRevision;
-      void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(spaceId)}`, { signal: controller.signal })
+      void api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?workFolderId=${encodeURIComponent(workFolderId)}`, { signal: controller.signal })
       .then(({ tools }) => {
         if (cancelled || read !== readRevision || statusRevision.current !== revision) return;
         const next = tools.find((item) => item.id === tool.id) ?? null;
@@ -50,7 +51,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => { cancelled = true; alive.current = false; controller.abort(); request.current?.abort(); window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
-  }, [spaceId, tool.id]);
+  }, [workFolderId, tool.id]);
 
   async function act(action: string) {
     if (request.current) return;
@@ -60,7 +61,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
     setStatus(null); statusListener.current?.(null);
     setBusy(true); setError(null);
     try {
-      const result = await api<Result>("/api/agent/included-tools/setup", { method: "POST", signal: controller.signal, body: { spaceId, id: tool.id, action, ...(action === "connect-brave" ? { secret } : {}) } });
+      const result = await api<Result>("/api/agent/included-tools/setup", { method: "POST", signal: controller.signal, body: { workFolderId, id: tool.id, action, ...(action === "connect-brave" ? { secret } : {}) } });
       if (alive.current && !controller.signal.aborted) { setStatus(result.status); statusListener.current?.(result.status); setSecret(""); }
     } catch (caught) {
       if (alive.current && !controller.signal.aborted) {
@@ -68,7 +69,7 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
         // A failed check must not keep a previously successful badge. Read the
         // host's remaining evidence; transport errors alone prove no readiness.
         try {
-          const { tools } = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?spaceId=${encodeURIComponent(spaceId)}`, { signal: controller.signal });
+          const { tools } = await api<{ tools: IncludedToolStatus[] }>(`/api/agent/included-tools?workFolderId=${encodeURIComponent(workFolderId)}`, { signal: controller.signal });
           if (alive.current && !controller.signal.aborted) {
             const next = tools.find((item) => item.id === tool.id) ?? null;
             setStatus(next); statusListener.current?.(next);
@@ -82,32 +83,13 @@ function IncludedToolSetupSession({ spaceId, tool, enabled, onStatusChange }: Se
   const linuxComputer = tool.id === "computer" && (window.workFoldDesktop?.app.platform === "linux" || status?.facts?.platform === "linux");
   const waylandComputer = linuxComputer && Boolean(status?.computerSession);
   const needsSetup = enabled && status?.state === "setup_required";
-  const requirement = enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
+  const requirement = tool.id !== "mcp" && enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
-    {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" && !waylandComputer ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
-    {!waylandComputer && (requirement || linuxComputer && status?.detail) ? <p>{requirement || status?.detail}</p> : null}
-    {enabled && tool.id === "mcp" && status?.facts?.connections !== undefined && status.facts.connections !== "0" ? <p>Configured connections are checked when used. Open each connection below to verify it now.</p> : null}
-    {enabled && tool.id === "computer" && !waylandComputer && status?.state === "unknown" ? <p>The helper starts when you use Computer Control. Being idle does not mean its permissions were lost.</p> : null}
+    {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="ui-control" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}
+    {requirement ? <p>{requirement}</p> : null}
     {enabled && status?.stale && status.state === "ready" ? <p>Last verified {new Date(status.checkedAt).toLocaleString()}. This is an earlier successful check, not a live connection. Readiness refreshes when you use this tool.</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
-    {tool.id === "computer" ? <>
-      {enabled && status?.state === "unknown" ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("start-check")}>Start and Check</button> : null}
-      {waylandComputer ? <IncludedWaylandSetup key={spaceId} spaceId={spaceId} enabled={enabled} onStatusChange={next => {
-        statusRevision.current += 1; setStatus(next); statusListener.current?.(next);
-      }} /> : null}
-      {needsSetup && !linuxComputer ? <button className="professional-button professional-button-primary" type="button" disabled={busy} onClick={() => void act("request-permissions")}>Set Up Permissions</button> : null}
-      <details className="included-tool-optional"><summary>Permissions</summary>
-        {waylandComputer ? <p>One chat controls the desktop at a time. Typing goes to the focused app. Locking, sleep, or quitting work-fold ends sharing.</p> : null}
-        {waylandComputer ? <button type="button" className="professional-button professional-button-secondary" disabled={busy || !enabled} onClick={() => void act("start-check")}>{busy ? "Checking…" : "Check accessibility"}</button> : null}
-        {!linuxComputer ? <div className="included-tool-actions">
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("accessibility")}>Accessibility</button>
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("screen-recording")}>Screen Recording</button>
-          <button className="professional-button professional-button-secondary" type="button" disabled={busy || !enabled} onClick={() => void act("recheck")}>Repair and Recheck</button>
-        </div> : null}
-        {status?.facts ? <dl className="included-tool-facts">{Object.entries(status.facts).map(([key, value]) => <div key={key}><dt>{key === "accessibility" ? "Accessibility" : key === "screenRecording" ? "Screen Recording" : key}</dt><dd>{typeof value === "boolean" ? value ? "Allowed" : "Not verified" : value}</dd></div>)}</dl> : null}
-      </details>
-    </> : null}
-    {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API Key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="professional-button professional-button-primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="professional-button professional-button-secondary" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
-    {tool.id === "mcp" ? <IncludedMcpSetup spaceId={spaceId} enabled={enabled} /> : null}
+    {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API Key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="ui-control ui-control--primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="ui-control" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
+    {tool.id === "mcp" ? <IncludedMcpSetup workFolderId={workFolderId} enabled={enabled} /> : null}
   </section>;
 }

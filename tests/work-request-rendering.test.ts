@@ -22,7 +22,7 @@ test("the desktop work presentation shows the question, origin, whole-work Stop 
   assert.match(html, />Stop</);
   assert.doesNotMatch(html, /<script>/);
   const completed = { ...view(), state: "partial" as const, label: "Partly finished", canStop: false, questions: [], questionCount: 0,
-    result: { outcome: "partial" as const, summary: "One quote is still missing.", files: [{ spaceId: "quotes", spaceName: "Supplier quotes", path: "comparison.md", sizeBytes: 42 }] } };
+    result: { outcome: "partial" as const, summary: "One quote is still missing.", files: [{ workFolderId: "quotes", workFolderName: "Supplier quotes", path: "comparison.md", sizeBytes: 42 }] } };
   const result = renderToStaticMarkup(React.createElement(WorkRequest, { work: completed, error: null, busy: false, act: async () => true, refresh: async () => {}, showResultSummary: true }));
   assert.match(result, /Partly finished/); assert.match(result, /One quote is still missing/); assert.match(result, /comparison.md/); assert.match(result, /Open file/);
   assert.doesNotMatch(result, />Stop</);
@@ -63,8 +63,8 @@ test("paired questions preserve focus and draft across refresh, failure and retr
     renderWorkRequest(container, saved, { act });
     assert.equal(container.querySelector('[aria-label="Your saved answer"]')?.textContent, "Canadian dollars");
     assert.equal(container.querySelector("textarea"), null, "recovery previews the saved answer instead of collecting another one");
-    renderWorkRequest(container, { ...work, questions: [], questionCount: 0, result: { summary: "Comparison ready", files: [{ spaceId: "quotes", spaceName: "Quotes", path: "comparison.md" }] } }, {
-      act, openFile: async () => { throw new Error("This file moved. Open its Space to find it."); },
+    renderWorkRequest(container, { ...work, questions: [], questionCount: 0, result: { summary: "Comparison ready", files: [{ workFolderId: "quotes", workFolderName: "Quotes", path: "comparison.md" }] } }, {
+      act, openFile: async () => { throw new Error("This file moved. Open its work-folder to find it."); },
     });
     (container.querySelector(".work-file-button") as HTMLButtonElement).click();
     await new Promise((resolve) => setImmediate(resolve));

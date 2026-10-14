@@ -1,10 +1,11 @@
+import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
-import { DefaultResourceLoader, createAgentSession, SessionManager, SettingsManager, AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
-import { createMcpAdapter } from 'pi-mcp-adapter';
+import { DefaultResourceLoader, createAgentSession, SessionManager, SettingsManager, FileCredentialStore, ModelRuntime, createMcpExtension, createCodemodeExtension, createToolSearchExtension } from '@earendil-works/pi-coding-agent';
+import { includedNativeMcpOptions } from '../../../src/local/agent/included-mcp-setup.js';
 const root=await mkdtemp(join(tmpdir(),'work-fold-mcp-native-'));
 const nativeAgentDir=join(root,'pi');
 process.env.PI_CODING_AGENT_DIR=join(root,'ambient-pi');
@@ -20,33 +21,67 @@ const sessions:any[]=[];
 async function shutdown(s:any){await s.extensionRunner.emit({type:'session_shutdown',reason:'shutdown'});s.dispose();}
 const pause=(ms=50)=>new Promise(r=>setTimeout(r,ms));
 const logs=async()=> (await readFile(log,'utf8').catch(()=>'' )).trim().split('\n').filter(Boolean).map(l=>JSON.parse(l));
-try{
- const config={mcpServers:{local:{command:process.execPath,args:[serverPath],lifecycle:'lazy' as const},remote:{url:`http://127.0.0.1:${(http.address() as any).port}/mcp`,auth:false as const,lifecycle:'lazy' as const}},settings:{sampling:false,ui:false,notifyOnStartupConnect:false,directTools:true,strictDirectToolArguments:true}};
- async function loader(name:string,eager=false){const cwd=join(root,name);await mkdir(cwd,{recursive:true});const settings=SettingsManager.inMemory({retry:{enabled:false}});const resourceLoader=new DefaultResourceLoader({cwd,agentDir:nativeAgentDir!,settingsManager:settings,noContextFiles:true,noSkills:true,noThemes:true,noPromptTemplates:true,extensionFactories:[{path:join(root,`fixture-${name}.ts`),factory:createMcpAdapter({agentDir:nativeAgentDir,config:eager?{...config,mcpServers:{...config.mcpServers,local:{...config.mcpServers.local,lifecycle:'eager'}}}:config,initializeAtLoad:false,bootstrapLazyServers:false,hostSetupOnly:true,hostSetupMessage:"Open Skills & Extensions → Service connections."})}]});await resourceLoader.reload();assert.equal(resourceLoader.getExtensions().errors.length,0,JSON.stringify(resourceLoader.getExtensions().errors));return {cwd,settings,resourceLoader};}
- const catalog=await loader('catalog',true);await pause(150);assert.equal((await logs()).length,0);assert.equal(httpLog.length,0);console.log('PASS native catalog import does not spawn configured eager servers');
- async function session(name:string){const l=await loader(name);const authStorage=AuthStorage.inMemory();const modelRegistry=ModelRegistry.inMemory(authStorage);const {session}=await createAgentSession({cwd:l.cwd,agentDir:nativeAgentDir,authStorage,modelRegistry,resourceLoader:l.resourceLoader,settingsManager:l.settings,sessionManager:SessionManager.inMemory(),noTools:'builtin'});await session.bindExtensions({mode:'rpc'});sessions.push(session);return session;}
- const a=await session('a');const b=await session('b');await pause(150);assert.equal((await logs()).length,0);assert.equal(httpLog.length,0);console.log('PASS native two-session cold-cache startup leaves lazy servers stopped');
- const gateway=a.agent.state.tools.find((t:any)=>t.name==='mcp');assert.doesNotMatch(gateway.description,/auth-start|auth-complete/);
- for(const action of ['auth-start','auth-complete','install']){const r=await gateway.execute('blocked',{action,server:'local',args:{code:'PRIVATE-CODE'}});assert.equal(r.details.error,'host_setup_required');assert.doesNotMatch(JSON.stringify(r),/PRIVATE-CODE/);}
- assert.equal((await logs()).length,0);assert.equal(httpLog.length,0);console.log('PASS model auth/install setup actions stay on trusted host surface without code echo or network');
- async function call(s:any,args:any,signal?:AbortSignal){const tool=s.agent.state.tools.find((t:any)=>t.name==='mcp');assert.ok(tool,'mcp gateway registered');return await tool.execute('test-'+Math.random(),args,signal);}
- const undiscovered=await call(a,{search:'echo',server:'local'});assert.match(undiscovered.content[0].text,/Discovery is incomplete.*local/s);assert.match(undiscovered.content[0].text,/mcp\(\{ connect:/);assert.deepEqual(undiscovered.details.undiscoveredServers,['local']);assert.equal((await logs()).length,0);
- let result=await call(a,{connect:'local'});assert.ok(!result.isError,JSON.stringify(result));result=await call(a,{tool:'echo',server:'local',args:{note:'local-one'}});assert.match(JSON.stringify(result),/local-one/);assert.equal((await logs()).filter(x=>x.started).length,1);console.log('PASS stdio initialize/discover/invoke through native tool wrapper');
- const direct=a.agent.state.tools.find((t:any)=>t.name==='local_echo');assert.ok(direct,'direct tool synchronized into native Pi');const before=(await logs()).filter(x=>x.method==='tools/call').length;let invalid;try{const args=direct.prepareArguments?await direct.prepareArguments({note:123}):{note:123};invalid=await direct.execute('invalid',args);}catch(e){invalid=e;}assert.match(String(invalid?.message??JSON.stringify(invalid)),/string|invalid|validation/i);assert.equal((await logs()).filter(x=>x.method==='tools/call').length,before);console.log('PASS advertised direct-tool schema rejects wrong type before transport');
- result=await call(b,{connect:'remote'});assert.ok(!result.isError,JSON.stringify(result));result=await call(b,{tool:'echo',server:'remote',args:{note:'http-two'}});assert.match(JSON.stringify(result),/http-two/);console.log('PASS Streamable HTTP initialize/discover/invoke through native wrapper');
- assert.match(result.content.map((x:any)=>x.text??'').join('\n'),/NATIVE_CURSOR_EVIDENCE/);
- const beforeStructured=httpLog.filter(x=>x.method==='tools/call').length;
- const structured=await call(b,{tool:'echo',server:'remote',args:{note:'large-structured'}});
- assert.equal(httpLog.filter(x=>x.method==='tools/call').length,beforeStructured+1,'structured evidence must not replay the call');
- const visibleStructured=structured.content.map((x:any)=>x.text??'').join('\n');assert.match(visibleStructured,/Full text saved to:/);
- const structuredPath=visibleStructured.match(/Full text saved to: (.*?) —/)?.[1];assert.ok(structuredPath);
- const savedStructured=await readFile(structuredPath,'utf8');assert.match(savedStructured,/NATIVE_CURSOR_EVIDENCE/);assert.match(savedStructured,/"id": 4999/);
- const discovered=await call(a,{search:'echo',server:'local'});assert.doesNotMatch(discovered.content[0].text,/Discovery is incomplete/);
- console.log('PASS native MCP structured cursors, complete spill without replay, and cold discovery guidance');
-
- const controller=new AbortController();const slow=call(a,{tool:'slow',server:'local',args:{}},controller.signal).catch(e=>e);await pause(100);controller.abort();await slow;await pause(100);assert.ok((await logs()).some(x=>x.method==='notifications/cancelled'));console.log('PASS cancellation reaches stdio MCP peer');
- await shutdown(a);await pause(100);result=await call(b,{tool:'echo',server:'remote',args:{note:'second-survives'}});assert.match(JSON.stringify(result),/second-survives/);console.log('PASS disposing one session preserves the other session transport');
- assert.equal(await readFile(join(process.env.PI_CODING_AGENT_DIR,'mcp-cache.json'),'utf8').catch(()=>null),null);
- console.log('PASS native caches respect explicit agentDir, leaving ambient Pi state untouched');
+try {
+ await writeFile(join(nativeAgentDir, 'mcp.json'), JSON.stringify({ mcpServers: {
+   local: { command: process.execPath, args: [serverPath], exposure: 'direct' },
+   remote: { url: `http://127.0.0.1:${(http.address() as any).port}/mcp`, exposure: 'deferred' },
+ } }));
+ const credentials = FileCredentialStore.inMemory();
+ const fauxs = new Map<any, ReturnType<typeof fauxProvider>>();
+ async function loader(name: string, mode: 'catalog' | 'session') {
+   const cwd = join(root, name); await mkdir(cwd, {recursive: true});
+   const settings = SettingsManager.inMemory({ defaultTools: ['+codemode', '+tool_search'] });
+   const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: nativeAgentDir, settingsManager: settings,
+     noContextFiles: true, noSkills: true, noThemes: true, noPromptTemplates: true,
+     extensionFactories: [createCodemodeExtension(), createToolSearchExtension(), createMcpExtension(await includedNativeMcpOptions({agentDir: nativeAgentDir}, credentials, mode))],
+   });
+   await resourceLoader.reload(); assert.deepEqual(resourceLoader.getExtensions().errors, []);
+   return {cwd, settings, resourceLoader};
+ }
+ const catalog = await loader('catalog', 'catalog'); await pause(100);
+ assert.equal((await logs()).length, 0); assert.equal(httpLog.length, 0);
+ console.log('PASS native catalog import does not spawn configured servers');
+ async function session(name: string) {
+   const l = await loader(name, 'session');
+   const faux = fauxProvider(); const modelRuntime = await ModelRuntime.create({credentials, modelsPath: null});
+   modelRuntime.registerNativeProvider(faux.provider);
+   const {session} = await createAgentSession({cwd: l.cwd, agentDir: nativeAgentDir,
+     modelRuntime, model: faux.getModel(), resourceLoader: l.resourceLoader,
+     settingsManager: l.settings, sessionManager: SessionManager.inMemory(l.cwd),
+   });
+   fauxs.set(session, faux); sessions.push(session); await session.bindExtensions({mode: 'rpc'});
+   for(let n=0; n<100 && !session.getCallableToolNames().includes('mcp__local__echo'); n++) await pause(10);
+   return session;
+ }
+ const a = await session('a'), b = await session('b');
+ assert.ok(a.getCallableToolNames().includes('mcp__local__echo'));
+ assert.ok(a.getActiveToolNames().includes('codemode'));
+ assert.ok(a.getActiveToolNames().includes('tool_search'));
+ const call = (s: any, name: string, args: any, signal?: AbortSignal) => {
+   const tool = s.agent.state.tools.find((t: any) => t.name === name); assert.ok(tool, name);
+   return tool.execute('fixture-'+Math.random(), args, signal);
+ };
+ let result = await call(a, 'mcp__local__echo', {note: 'local-one'});
+ assert.match(JSON.stringify(result), /local-one/);
+ console.log('PASS stdio initialize/discover/invoke through native tool wrapper');
+ const events: any[] = []; a.subscribe((event: any) => events.push(event));
+ const code = "const matches = await searchTools('echo', {namespace:'remote'}); text(matches); text((await tools.mcp__remote__echo({note:'large-structured'})).structuredContent.nextCursor); text((await models.getModelsOfType('image')).length); text((await models.getModelsOfType('classifier')).length);";
+ fauxs.get(a)!.setResponses([fauxAssistantMessage(fauxToolCall('codemode', {code}, {id:'script-1'})), fauxAssistantMessage('Done.')]);
+ await a.prompt('Run the fixture script.');
+ result = a.messages.find((m:any)=>m.role==='toolResult' && m.toolCallId==='script-1');
+ assert.match(JSON.stringify(result), /NATIVE_CURSOR_EVIDENCE/);
+ assert.equal(httpLog.filter(x=>x.method==='tools/call').length, 1, 'structured calls never replay');
+ assert.ok(result.details.calls.some((c:any)=>c.name==='mcp__remote__echo'));
+ assert.ok(events.some(e=>e.type==='tool_execution_end' && e.parentToolCallId));
+ console.log('PASS native codemode discovery, structured cursors, nested tool events and image/classifier catalogs');
+ const controller = new AbortController();
+ const slow = call(a, 'mcp__local__slow', {}, controller.signal).catch(e=>e);
+ await pause(70); controller.abort(); await slow; await pause(70);
+ assert.ok((await logs()).some(x=>x.method==='notifications/cancelled'));
+ console.log('PASS cancellation reaches stdio MCP peer');
+ await shutdown(a);
+ result = await call(b, 'mcp__local__echo', {note: 'second-survives'}); assert.match(JSON.stringify(result), /second-survives/);
+ console.log('PASS disposing one session preserves the other session transport');
+ assert.equal(await readFile(join(process.env.PI_CODING_AGENT_DIR!, 'mcp-auth.json'),'utf8').catch(()=>null), null);
  console.log('ALL NATIVE MCP CHECKS PASSED');
-}finally{for(const s of sessions)await shutdown(s);http.closeAllConnections();await new Promise<void>(r=>http.close(()=>r()));await pause(200);await rm(root,{recursive:true,force:true});}
+} finally { for(const s of sessions) await shutdown(s); http.closeAllConnections(); await new Promise<void>(r=>http.close(()=>r())); await pause(100); await rm(root,{recursive:true,force:true}); }

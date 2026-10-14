@@ -39,7 +39,7 @@ for directory in "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR" "$workfo
 done
 chmod 700 "$XDG_RUNTIME_DIR"
 # A private bus with no service directories makes Secret Service genuinely
-# unavailable. Do not change the host's service activation or personal keyring.
+# unavailable. Do not change the host's service activation or everywhere keyring.
 cat > "$workfold_keyring_fixture/no-secret-service.conf" <<'BUS'
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>

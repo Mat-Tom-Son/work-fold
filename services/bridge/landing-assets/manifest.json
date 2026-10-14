@@ -1,0 +1,583 @@
+{
+  "date": "2026-10-09",
+  "desktop": {
+    "version": "0.4.50",
+    "release": "https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/tag/v0.4.50",
+    "capture": "Native macOS window in an isolated profile, 2880 × 1724 pixels; resized to 1x and 2x WebP. No UI pixels were generated or retouched."
+  },
+  "worker": {
+    "provider": "openrouter",
+    "model": "z-ai/glm-5.2"
+  },
+  "verification": {
+    "receipts": {
+      "inputsUnchanged": true,
+      "csvRows": 15,
+      "xlsxTotalCents": 106379
+    },
+    "job-search": {
+      "inputsUnchanged": true
+    },
+    "downloads": {
+      "all31FilesUnchanged": true,
+      "sixFolders": true,
+      "duplicatesPreserved": true
+    }
+  },
+  "banners": {
+    "generator": "built-in image_gen",
+    "prompts": "banner-prompts.json"
+  },
+  "workflows": [
+    {
+      "slug": "receipts",
+      "title": "Receipts — September",
+      "request": "fixtures/receipts/request.txt",
+      "inputs": [
+        {
+          "path": "brief.md",
+          "sha256": "a8885b3df8d89c1cd9e48db1a91e435d9fae9cc630132b9c6adc6ffa739cb3e8"
+        },
+        {
+          "path": "receipts/receipt-01.txt",
+          "sha256": "77313402c95b3b37187cd5a8e9d8f614a748fd6cebb3a19abbe0f374ef3d713a"
+        },
+        {
+          "path": "receipts/receipt-02.txt",
+          "sha256": "8a980f1c7ca3420ecc2bd072262e7a93e1af9ac168653c137d90e7e88c69f2fe"
+        },
+        {
+          "path": "receipts/receipt-03.txt",
+          "sha256": "b23f56961ffcb9b62d068fe51908fc45aceafded90e6a97e55f2edd1a89b9f40"
+        },
+        {
+          "path": "receipts/receipt-04.txt",
+          "sha256": "0149b972ad55864b5cd856bdedc2f2a2de507225efa04744bd46696a9dea5a07"
+        },
+        {
+          "path": "receipts/receipt-05.txt",
+          "sha256": "e40dae78ff0edb7e721e9839268f635ed6c6c5e360b5fcc6a45ee3e12cd3a6e8"
+        },
+        {
+          "path": "receipts/receipt-06.txt",
+          "sha256": "0f3996d0a45db624aceecc25d0ed13ad0e70eebc22f1fe0cc7fe48b936ded66e"
+        },
+        {
+          "path": "receipts/receipt-07.txt",
+          "sha256": "6012eb1d1905d38aab06b1d03758f3a6489291edace06199cb5fc1f1e5ce153b"
+        },
+        {
+          "path": "receipts/receipt-08.txt",
+          "sha256": "06cc14c1f61dd99a9b4decb0d1bb8b2c3b9f4bc4c1941ca5e6f5a63e4f4a055b"
+        },
+        {
+          "path": "receipts/receipt-09.txt",
+          "sha256": "5d214ee0dbac2202d87483d52226b0e6ef96317709c3b71d93b37793a973f448"
+        },
+        {
+          "path": "receipts/receipt-10.txt",
+          "sha256": "a26b48c96a6578121930e121603b1dc2f6dbdc5c2f28078315e042bd7df5c447"
+        },
+        {
+          "path": "receipts/receipt-11.txt",
+          "sha256": "4ff259969c6c7c03eb09fdb578d673126e004d642a07f0e62e5ee62e13691da2"
+        },
+        {
+          "path": "receipts/receipt-12.txt",
+          "sha256": "e16f4649024c853e2331f64bf6a2678ce68e548ab683eacd6689adf79d8e668d"
+        },
+        {
+          "path": "receipts/receipt-13.txt",
+          "sha256": "93ff10a6a97c4ede07d8d1763727fa8b9ccfea14a61a2c606a735ba346e99c71"
+        },
+        {
+          "path": "receipts/receipt-14.txt",
+          "sha256": "d8d979d40c071bfd4e3a9cfd5136fa880f7d2ff422e31237537799916693a24c"
+        }
+      ],
+      "results": [
+        {
+          "path": "receipts-summary.md",
+          "sha256": "3a4a8395e949849ad476e958332e646283c7ffa5c4c9960421e8ab11251ac226"
+        },
+        {
+          "path": "september-receipts.csv",
+          "sha256": "99a21a3cd35856c1904fef1b8088beb1f5d65ca3c58169e481ebb78d76dd42b3"
+        },
+        {
+          "path": "september-receipts.xlsx",
+          "sha256": "8f04f57715343c4bd7184df8fb216ec3aced6eda5604b12309b9e00c293855b0"
+        }
+      ],
+      "run": {
+        "taskId": "turn-0bb37fc8-eab2-4b75-82d9-21b7e91d6264",
+        "conversationId": "chat-9a5a2fe4-2f3e-449b-b22c-a7242894977d",
+        "state": "succeeded",
+        "endedAt": "2026-10-09T17:52:39.644Z"
+      }
+    },
+    {
+      "slug": "job-search",
+      "title": "Job search — next step",
+      "request": "fixtures/job-search/request.txt",
+      "inputs": [
+        {
+          "path": "resume-original.md",
+          "sha256": "6f6b7629983b82aba8ae598d8b0519c91f463e3af2fc0731bd9a451c38464825"
+        },
+        {
+          "path": "job-description.md",
+          "sha256": "9b66db35e837e339d4d6f9e70c6ec6897f4f1ac4ddf61d4ce5ea19f0b24e7348"
+        }
+      ],
+      "results": [
+        {
+          "path": "application/application-notes.md",
+          "sha256": "af4f4a5445271bd18ef9813c2a2e09f9df5ebafc4b0598bb04245ad1cfd7c96a"
+        },
+        {
+          "path": "application/cover-letter.md",
+          "sha256": "0f8245c93d858c8865132b5d822a326d0da425185bb806eee1190fa563dda76d"
+        },
+        {
+          "path": "application/resume-tailored.md",
+          "sha256": "a662adec55f644f7e16795bb6a9d533bea59458ed0b3ef50eeea9703ba947da7"
+        }
+      ],
+      "run": {
+        "taskId": "turn-df29a053-1046-49e7-955f-8145b41fb371",
+        "conversationId": "chat-f503d092-c64f-4be1-a6ad-833713906491",
+        "state": "succeeded",
+        "endedAt": "2026-10-09T17:51:46.516Z"
+      }
+    },
+    {
+      "slug": "downloads",
+      "title": "Downloads — a little order",
+      "request": "fixtures/downloads/request.txt",
+      "inputs": [
+        {
+          "path": "organizing-brief.md",
+          "sha256": "6ca5356c6c9fbf68ac465e43961948c637f30372ceaddd304a11849ddc712e3e"
+        },
+        {
+          "path": "Downloads/scan_1.txt",
+          "sha256": "25435eaf537bd64532a8dd480dc613436b48bd250aaf34c40407999342dfda3f"
+        },
+        {
+          "path": "Downloads/scan_2.txt",
+          "sha256": "d8134230040b78444529ba49adc3231dafa6a1acee793055b65a5710d3d911b3"
+        },
+        {
+          "path": "Downloads/scan_3.txt",
+          "sha256": "91915f2de4154b63bbc230f3718ec9d3ef49984a32b4689325aa16ea26360a9f"
+        },
+        {
+          "path": "Downloads/scan_4.txt",
+          "sha256": "408c96d1eb70a74ca0c778be6e87c7b31347791e38a3e1a15de4f4d5bd413372"
+        },
+        {
+          "path": "Downloads/scan_5.txt",
+          "sha256": "c003409e2ab9052a8ea1aa2b3bdd45331229af13167295f92c8b26fc57c0aafe"
+        },
+        {
+          "path": "Downloads/scan_6.txt",
+          "sha256": "9460f833a532ccf0a56739adaf7f651a87818dcfec83109f1fc99fa444e37963"
+        },
+        {
+          "path": "Downloads/image-1.svg",
+          "sha256": "739def43ab24d7c5c153759abddb653df1316e2023c75f548e823dd54bc61d06"
+        },
+        {
+          "path": "Downloads/image-2.svg",
+          "sha256": "2e5e5f887d70f9698cecf389b72a68829b903019c60dff16b4a845b7d36e2cd5"
+        },
+        {
+          "path": "Downloads/image-3.svg",
+          "sha256": "d60a641a18120ef6c69958110b1782dbdd48cbc0def3746edf9442f5cfa795af"
+        },
+        {
+          "path": "Downloads/image-4.svg",
+          "sha256": "faca4d369f3348403a875430d1863247f1beb09c33593305474e655983450704"
+        },
+        {
+          "path": "Downloads/image-5.svg",
+          "sha256": "2a7cca88dda35442cc14bc218c262ba5e295bf83ce55ce5d68856152d3e8974f"
+        },
+        {
+          "path": "Downloads/image-6.svg",
+          "sha256": "f242c73e196963cd5ab45ac7f45ff04b49f171819578cb64766a7cb0128c7d14"
+        },
+        {
+          "path": "Downloads/export (1).csv",
+          "sha256": "7a65dc0f0b32bce31a7129e40a41f172722bf74fdde35d2f75c20cfc2fac158b"
+        },
+        {
+          "path": "Downloads/export (2).csv",
+          "sha256": "0269c0e3fb01b9e25d6ab6c0666bbc57da62cec4ca5e93ab928ce03d4e4bf9c0"
+        },
+        {
+          "path": "Downloads/export (3).csv",
+          "sha256": "649935fba0b3e69554735e0036a3b21a095da1bcfdee7989cb541969f4f06acc"
+        },
+        {
+          "path": "Downloads/export (4).csv",
+          "sha256": "1cbcc9410e280d25e82963ab8720e6e6e933cb8575a3d248828015c3fe3587db"
+        },
+        {
+          "path": "Downloads/export (5).csv",
+          "sha256": "a37669e5dc54c65452e694c35055e41a9d96ac45fc12f0d82ce14da532f98ea2"
+        },
+        {
+          "path": "Downloads/notes1.md",
+          "sha256": "12b5350e9c961f0f2e16e01744de0b2a636fe2bed50223ceb157be67668d7783"
+        },
+        {
+          "path": "Downloads/notes final copy.md",
+          "sha256": "12b5350e9c961f0f2e16e01744de0b2a636fe2bed50223ceb157be67668d7783"
+        },
+        {
+          "path": "Downloads/notes3.md",
+          "sha256": "270aee4fc226822ecf863eafba5fa3881ee9144bb0c17d3e89fd863f66ad686e"
+        },
+        {
+          "path": "Downloads/notes4.md",
+          "sha256": "b70779c72d82397179d2f1c422bf192f5ee09b4d7639eb0302b9340585b96f02"
+        },
+        {
+          "path": "Downloads/notes5.md",
+          "sha256": "d6290ce46f02fc6f62ed837e5007649bbb9a9871480e4559f0be4f7acfe5a30e"
+        },
+        {
+          "path": "Downloads/notes6.md",
+          "sha256": "46541f730499c16d05335dfe4f8ecbd854e5a48159f69f0e38c9d0551f183a8c"
+        },
+        {
+          "path": "Downloads/guide-1.html",
+          "sha256": "41fcae916e300cfbdddacb8be7a599fc24a89d07929ce324e17bd662ec419d55"
+        },
+        {
+          "path": "Downloads/guide-2.html",
+          "sha256": "ebc3a403b29face7faeb47faffceefde2acabf6ad571496016fe45ec110f83e7"
+        },
+        {
+          "path": "Downloads/guide-3.html",
+          "sha256": "277b84dc62d9b8a101e874f284d945bd648aa6583200fe11ab37e34033adf399"
+        },
+        {
+          "path": "Downloads/guide-4.html",
+          "sha256": "025c1caa232f075c9f25cdf224d3de61322d3430bb471d0e91e377d7f211b1f2"
+        },
+        {
+          "path": "Downloads/guide-5.html",
+          "sha256": "4bce98be88722287fa20d12b3f0ead5510e38a6a4cbe1ca8bfa126b2414d204c"
+        },
+        {
+          "path": "Downloads/old-plan-1.txt",
+          "sha256": "2de8c781338c866b5027d1f5770b5ef50ba0e1a429f9ea111e30eddb1bfc58ec"
+        },
+        {
+          "path": "Downloads/old-plan-2.txt",
+          "sha256": "0b3dcce6c77e0b4e06d2158bd033bebe846dd2683ada71157d32694775a3aa77"
+        },
+        {
+          "path": "Downloads/old-plan-3.txt",
+          "sha256": "44decb45b8fa45c004839d8ef05da155785e64dd17457fad1dcd20a4ddc45590"
+        }
+      ],
+      "results": [
+        {
+          "path": "Downloads/Archives/old-plan-1.txt",
+          "sha256": "2de8c781338c866b5027d1f5770b5ef50ba0e1a429f9ea111e30eddb1bfc58ec"
+        },
+        {
+          "path": "Downloads/Archives/old-plan-2.txt",
+          "sha256": "0b3dcce6c77e0b4e06d2158bd033bebe846dd2683ada71157d32694775a3aa77"
+        },
+        {
+          "path": "Downloads/Archives/old-plan-3.txt",
+          "sha256": "44decb45b8fa45c004839d8ef05da155785e64dd17457fad1dcd20a4ddc45590"
+        },
+        {
+          "path": "Downloads/Images/image-1.svg",
+          "sha256": "739def43ab24d7c5c153759abddb653df1316e2023c75f548e823dd54bc61d06"
+        },
+        {
+          "path": "Downloads/Images/image-2.svg",
+          "sha256": "2e5e5f887d70f9698cecf389b72a68829b903019c60dff16b4a845b7d36e2cd5"
+        },
+        {
+          "path": "Downloads/Images/image-3.svg",
+          "sha256": "d60a641a18120ef6c69958110b1782dbdd48cbc0def3746edf9442f5cfa795af"
+        },
+        {
+          "path": "Downloads/Images/image-4.svg",
+          "sha256": "faca4d369f3348403a875430d1863247f1beb09c33593305474e655983450704"
+        },
+        {
+          "path": "Downloads/Images/image-5.svg",
+          "sha256": "2a7cca88dda35442cc14bc218c262ba5e295bf83ce55ce5d68856152d3e8974f"
+        },
+        {
+          "path": "Downloads/Images/image-6.svg",
+          "sha256": "f242c73e196963cd5ab45ac7f45ff04b49f171819578cb64766a7cb0128c7d14"
+        },
+        {
+          "path": "Downloads/Notes/notes final copy.md",
+          "sha256": "12b5350e9c961f0f2e16e01744de0b2a636fe2bed50223ceb157be67668d7783"
+        },
+        {
+          "path": "Downloads/Notes/notes1.md",
+          "sha256": "12b5350e9c961f0f2e16e01744de0b2a636fe2bed50223ceb157be67668d7783"
+        },
+        {
+          "path": "Downloads/Notes/notes3.md",
+          "sha256": "270aee4fc226822ecf863eafba5fa3881ee9144bb0c17d3e89fd863f66ad686e"
+        },
+        {
+          "path": "Downloads/Notes/notes4.md",
+          "sha256": "b70779c72d82397179d2f1c422bf192f5ee09b4d7639eb0302b9340585b96f02"
+        },
+        {
+          "path": "Downloads/Notes/notes5.md",
+          "sha256": "d6290ce46f02fc6f62ed837e5007649bbb9a9871480e4559f0be4f7acfe5a30e"
+        },
+        {
+          "path": "Downloads/Notes/notes6.md",
+          "sha256": "46541f730499c16d05335dfe4f8ecbd854e5a48159f69f0e38c9d0551f183a8c"
+        },
+        {
+          "path": "Downloads/Receipts/scan_1.txt",
+          "sha256": "25435eaf537bd64532a8dd480dc613436b48bd250aaf34c40407999342dfda3f"
+        },
+        {
+          "path": "Downloads/Receipts/scan_2.txt",
+          "sha256": "d8134230040b78444529ba49adc3231dafa6a1acee793055b65a5710d3d911b3"
+        },
+        {
+          "path": "Downloads/Receipts/scan_3.txt",
+          "sha256": "91915f2de4154b63bbc230f3718ec9d3ef49984a32b4689325aa16ea26360a9f"
+        },
+        {
+          "path": "Downloads/Receipts/scan_4.txt",
+          "sha256": "408c96d1eb70a74ca0c778be6e87c7b31347791e38a3e1a15de4f4d5bd413372"
+        },
+        {
+          "path": "Downloads/Receipts/scan_5.txt",
+          "sha256": "c003409e2ab9052a8ea1aa2b3bdd45331229af13167295f92c8b26fc57c0aafe"
+        },
+        {
+          "path": "Downloads/Receipts/scan_6.txt",
+          "sha256": "9460f833a532ccf0a56739adaf7f651a87818dcfec83109f1fc99fa444e37963"
+        },
+        {
+          "path": "Downloads/Reference/guide-1.html",
+          "sha256": "41fcae916e300cfbdddacb8be7a599fc24a89d07929ce324e17bd662ec419d55"
+        },
+        {
+          "path": "Downloads/Reference/guide-2.html",
+          "sha256": "ebc3a403b29face7faeb47faffceefde2acabf6ad571496016fe45ec110f83e7"
+        },
+        {
+          "path": "Downloads/Reference/guide-3.html",
+          "sha256": "277b84dc62d9b8a101e874f284d945bd648aa6583200fe11ab37e34033adf399"
+        },
+        {
+          "path": "Downloads/Reference/guide-4.html",
+          "sha256": "025c1caa232f075c9f25cdf224d3de61322d3430bb471d0e91e377d7f211b1f2"
+        },
+        {
+          "path": "Downloads/Reference/guide-5.html",
+          "sha256": "4bce98be88722287fa20d12b3f0ead5510e38a6a4cbe1ca8bfa126b2414d204c"
+        },
+        {
+          "path": "Downloads/Spreadsheets/export (1).csv",
+          "sha256": "7a65dc0f0b32bce31a7129e40a41f172722bf74fdde35d2f75c20cfc2fac158b"
+        },
+        {
+          "path": "Downloads/Spreadsheets/export (2).csv",
+          "sha256": "0269c0e3fb01b9e25d6ab6c0666bbc57da62cec4ca5e93ab928ce03d4e4bf9c0"
+        },
+        {
+          "path": "Downloads/Spreadsheets/export (3).csv",
+          "sha256": "649935fba0b3e69554735e0036a3b21a095da1bcfdee7989cb541969f4f06acc"
+        },
+        {
+          "path": "Downloads/Spreadsheets/export (4).csv",
+          "sha256": "1cbcc9410e280d25e82963ab8720e6e6e933cb8575a3d248828015c3fe3587db"
+        },
+        {
+          "path": "Downloads/Spreadsheets/export (5).csv",
+          "sha256": "a37669e5dc54c65452e694c35055e41a9d96ac45fc12f0d82ce14da532f98ea2"
+        },
+        {
+          "path": "organization-log.md",
+          "sha256": "72ecf1fb29c1640c7ff63cee7e2c86028a294c19013212398adfdec609ed8311"
+        }
+      ],
+      "run": {
+        "taskId": "turn-cf502dfa-af05-4e9f-b03b-b1b91892ac23",
+        "conversationId": "chat-9c368051-0813-4bc7-916e-c961721a95e2",
+        "state": "succeeded",
+        "endedAt": "2026-10-09T17:51:49.652Z"
+      }
+    },
+    {
+      "slug": "tracker",
+      "title": "Job search — applications",
+      "request": "fixtures/tracker/request.txt",
+      "inputs": [
+        {
+          "path": "applications.csv",
+          "sha256": "0c879dbf25d644c0c6f84db33106d234550b90e000489aca0fe35b009356aa99"
+        },
+        {
+          "path": "project-notes.md",
+          "sha256": "c787efc5a54e2b447c3180859f772fbb42346e0638c08fc7c178c43ec80fdc21"
+        }
+      ],
+      "results": [
+        {
+          "path": "application-tracker/agent-app.json",
+          "sha256": "6c67af3c34af10a2edc01b77d03188442dd83d0d31c26dec4f314fc0fd18186b"
+        },
+        {
+          "path": "application-tracker/app.js",
+          "sha256": "54413c2c699b5b6ff65857716803ff89919f45745cafb69a40e4d404c4160c50"
+        },
+        {
+          "path": "application-tracker/index.html",
+          "sha256": "4b9bb88dfa7082750d68a29d739b95440eff63a9948c2129576892195a7d672c"
+        },
+        {
+          "path": "application-tracker/package.json",
+          "sha256": "65f29fe82b5d4527951f9242581357263bd2fee148487d1059236fcc8bea039d"
+        },
+        {
+          "path": "application-tracker/styles.css",
+          "sha256": "ef0601b0608fe46691b96b6e9b070c07660b432b774cf396e1b0c355caca6a95"
+        }
+      ],
+      "run": {
+        "taskId": "turn-79bf6b7a-4add-4c5a-9977-90fbdd9d72ed",
+        "conversationId": "chat-2bc50a9b-f230-483d-8a1b-444f5af3afdb",
+        "state": "succeeded",
+        "endedAt": "2026-10-09T17:54:08.484Z"
+      },
+      "review": "Worker-built app; filter focus and matching were corrected during local review. Status, next step and notes were checked for persistence in the actual native host."
+    },
+    {
+      "slug": "orders",
+      "title": "Purchase Orders — autumn workshop",
+      "request": "fixtures/orders/request.txt",
+      "inputs": [
+        {
+          "path": "approved-order.md",
+          "sha256": "37675d2d9278515b55cb5eb18ce0587693b62a4a618129fe9ce600aac498356f"
+        },
+        {
+          "path": "vendors.md",
+          "sha256": "308b3a2ca61eb6972d67bf045659cc8450514da8e46fcfa464391ee3d153df51"
+        }
+      ],
+      "results": [
+        {
+          "path": "email-drafts/Cedar-Workshop-email.md",
+          "sha256": "de0eec318c4ef6c6946f964be2c0a1fe180f84478441e2697cb5a277c4cb94e5"
+        },
+        {
+          "path": "email-drafts/Paper-Finch-email.md",
+          "sha256": "97ca010e016967dfb3f5ee31514118862fc3fbb93d9c77fa14d57599fdfda90b"
+        },
+        {
+          "path": "order-register.md",
+          "sha256": "6b0e2fe30dcb20026e7d229a00c0d6ae6366dfff3ff78274b0fd7df393e991b8"
+        },
+        {
+          "path": "purchase-orders/PO-NB-2026-014-Paper-Finch.md",
+          "sha256": "87b83f22c3020fda9b5a7c3c7e9cd95058236cd706056f1a0580e4f1371df151"
+        },
+        {
+          "path": "purchase-orders/PO-NB-2026-015-Cedar-Workshop.md",
+          "sha256": "9e156f7361de82a5ea81716dc94aeb679931d78625d136e3c7af6c2806dad467"
+        }
+      ],
+      "run": {
+        "date": "2026-10-03",
+        "note": "Reused the saved real purchase-order run."
+      }
+    }
+  ],
+  "screens": [
+    {
+      "path": "public/screens/work-receipts-1440.webp",
+      "width": 1440,
+      "height": 862,
+      "sha256": "0ce0d589acadb76cf0a3ac014ebd8e7d00619afc9bbf80de748fc1f85a40f54b",
+      "bytes": 107970
+    },
+    {
+      "path": "public/screens/work-receipts-2880.webp",
+      "width": 2880,
+      "height": 1724,
+      "sha256": "d6ab1e2953dc78125def7f280abff3bb7d216e8a49c10ed4f9b298c76fb65864",
+      "bytes": 272520
+    },
+    {
+      "path": "public/screens/work-job-search-1440.webp",
+      "width": 1440,
+      "height": 862,
+      "sha256": "eb6cd54ce607f9fe1d1aef6547c438430f49fe56ca739effb15d2a205f664642",
+      "bytes": 95184
+    },
+    {
+      "path": "public/screens/work-job-search-2880.webp",
+      "width": 2880,
+      "height": 1724,
+      "sha256": "5ca640843369280dfac34e841188f93821c89a59b67980900903d8fc12092bc8",
+      "bytes": 241868
+    },
+    {
+      "path": "public/screens/work-downloads-1440.webp",
+      "width": 1440,
+      "height": 862,
+      "sha256": "432112faf1d05b2084a70a7ff9dde89104bffc574aa41f8048b3de4dcc9ca3f2",
+      "bytes": 82452
+    },
+    {
+      "path": "public/screens/work-downloads-2880.webp",
+      "width": 2880,
+      "height": 1724,
+      "sha256": "4906df8d581d8b017d662db11673e0ccc380d451c61e12d3cbc4c2ebcd9b873c",
+      "bytes": 203008
+    },
+    {
+      "path": "public/screens/work-tracker-1440.webp",
+      "width": 1440,
+      "height": 862,
+      "sha256": "eeea0289186294f4f4bc55051b4726a126ba06c6805e791565b11bc11ca13c8f",
+      "bytes": 56958
+    },
+    {
+      "path": "public/screens/work-tracker-2880.webp",
+      "width": 2880,
+      "height": 1724,
+      "sha256": "59892a1b0c16f6f3340d1ec7768befc1de7aef4072ae536b14771d001c6f011f",
+      "bytes": 156024
+    },
+    {
+      "path": "public/screens/work-orders-1440.webp",
+      "width": 1440,
+      "height": 862,
+      "sha256": "b6d92bfc978b3f7f373fb55e2d21101affbf9614cae2d0988ded78ed80c2deda",
+      "bytes": 87164
+    },
+    {
+      "path": "public/screens/work-orders-2880.webp",
+      "width": 2880,
+      "height": 1724,
+      "sha256": "778d9b47e7889ca2835d20dccbfb029550c681fed630367046f98c02d18ac94f",
+      "bytes": 207980
+    }
+  ]
+}

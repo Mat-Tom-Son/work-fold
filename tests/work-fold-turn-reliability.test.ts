@@ -20,22 +20,22 @@ test("renderer turn acceptance is idempotent across retries and app restarts", a
   }\n`, "utf8");
   const provider = { async resolveRuntime() { return { agentDir }; } };
 
-  const first = await startLocalApi({ port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: provider });
-  const created = await json(first.origin, "/api/spaces", {
+  const first = await startLocalApi({ port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: provider });
+  const created = await json(first.origin, "/api/work-folders", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "Reliable Space" }),
-  }) as { space: { id: string; spaceRoot: string } };
+    body: JSON.stringify({ name: "Reliable work-folder" }),
+  }) as { workFolder: { id: string; workFolderRoot: string } };
   const conversationCreate = {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ conversationId: "chat-reliable-client-1" }),
   };
-  const conversation = await json(first.origin, `/api/spaces/${created.space.id}/conversations`, conversationCreate) as { conversation: { id: string } };
-  const conversationReplay = await json(first.origin, `/api/spaces/${created.space.id}/conversations`, conversationCreate) as { conversation: { id: string } };
+  const conversation = await json(first.origin, `/api/work-folders/${created.workFolder.id}/conversations`, conversationCreate) as { conversation: { id: string } };
+  const conversationReplay = await json(first.origin, `/api/work-folders/${created.workFolder.id}/conversations`, conversationCreate) as { conversation: { id: string } };
   assert.equal(conversation.conversation.id, "chat-reliable-client-1");
   assert.equal(conversationReplay.conversation.id, conversation.conversation.id);
-  const messagePath = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}/messages`;
+  const messagePath = `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}/messages`;
   const body = {
     content: "/reliable",
     contextPaths: [],
@@ -58,12 +58,12 @@ test("renderer turn acceptance is idempotent across retries and app restarts", a
   assert.equal(replay.taskId, accepted.taskId);
   assert.equal(replay.message.id, accepted.message.id);
   await waitForAsync(async () => {
-    const transcript = await json(first.origin, `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string }> };
+    const transcript = await json(first.origin, `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string }> };
     return transcript.messages.filter((message) => message.role === "assistant").length === 1;
   });
   await first.close();
 
-  const restarted = await startLocalApi({ port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: provider });
+  const restarted = await startLocalApi({ port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "content"), loadEnv: false, piRuntimeProvider: provider });
   try {
     const afterRestart = await json(restarted.origin, messagePath, {
       method: "POST",
@@ -72,7 +72,7 @@ test("renderer turn acceptance is idempotent across retries and app restarts", a
     }) as { taskId: string; replayed: boolean };
     assert.equal(afterRestart.replayed, true);
     assert.equal(afterRestart.taskId, accepted.taskId);
-    const transcript = await json(restarted.origin, `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string; requestId?: string }> };
+    const transcript = await json(restarted.origin, `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string; requestId?: string }> };
     assert.equal(transcript.messages.filter((message) => message.role === "user" && message.requestId === body.requestId).length, 1);
     assert.equal(transcript.messages.filter((message) => message.role === "assistant").length, 1);
   } finally {
@@ -84,13 +84,13 @@ test("startup converts an orphaned running turn into a durable interruption with
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-turn-recovery-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   const stateRoot = join(sandbox, "state");
-  const initial = await startLocalApi({ port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "content"), loadEnv: false });
-  const created = await json(initial.origin, "/api/spaces", {
+  const initial = await startLocalApi({ port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "content"), loadEnv: false });
+  const created = await json(initial.origin, "/api/work-folders", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "Recovery Space" }),
-  }) as { space: { id: string; spaceRoot: string } };
-  const conversation = await json(initial.origin, `/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    body: JSON.stringify({ name: "Recovery work-folder" }),
+  }) as { workFolder: { id: string; workFolderRoot: string } };
+  const conversation = await json(initial.origin, `/api/work-folders/${created.workFolder.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
   await initial.close();
 
   const content = "Do not run this twice.";
@@ -101,8 +101,8 @@ test("startup converts an orphaned running turn into a durable interruption with
     contextPaths: [],
     selectedPath: null,
     actorKind: "assistant",
-    continuedFromManagementTaskId: null,
-    managementAttachments: [],
+    continuedFromWorkFoldAgentTaskId: null,
+    workFoldAgentAttachments: [],
   })).digest("hex");
   const store = await WorkFoldTurnStore.create({ stateRoot });
   const accepted = await store.accept({
@@ -110,11 +110,11 @@ test("startup converts an orphaned running turn into a durable interruption with
     requestDigest,
     userMessageId,
     userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-    spaceId: created.space.id,
+    workFolderId: created.workFolder.id,
     conversationId: conversation.conversation.id,
     actorKind: "assistant",
   });
-  await appendMessage(created.space.spaceRoot, conversation.conversation.id, {
+  await appendMessage(created.workFolder.workFolderRoot, conversation.conversation.id, {
     id: userMessageId,
     role: "user",
     content,
@@ -125,16 +125,16 @@ test("startup converts an orphaned running turn into a durable interruption with
   await store.markRunning(accepted.record.turnId);
   await store.checkpoint(accepted.record.turnId, "A partial answer saved before the crash.");
 
-  const recovered = await startLocalApi({ port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "content"), loadEnv: false });
+  const recovered = await startLocalApi({ port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "content"), loadEnv: false });
   try {
-    const transcriptPath = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+    const transcriptPath = `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
     const transcript = await json(recovered.origin, transcriptPath) as { messages: Array<any> };
     const interruption = transcript.messages.find((message) => message.turnId === accepted.record.turnId && message.role === "assistant");
     assert.equal(interruption.content, "A partial answer saved before the crash.");
     assert.equal(interruption.interruption.reason, "app_interrupted");
     assert.match(interruption.interruption.message, /not run again/i);
 
-    const status = await recovered.actFacade.turnStatus({ space: created.space.id, taskId: accepted.record.turnId });
+    const status = await recovered.actFacade.turnStatus({ workFolder: created.workFolder.id, taskId: accepted.record.turnId });
     assert.equal(status.task.state, "failed");
     assert.equal(status.task.messageId, interruption.id);
 
@@ -161,13 +161,13 @@ test("an explicit retry resumes a durable acceptance that never reached the tran
   await writeFile(join(agentDir, "extensions", "resume.ts"), `export default function (pi) {
     pi.registerCommand("resume-once", { description: "Resume accepted turn", handler: async () => "Resumed exactly once." });
   }\n`, "utf8");
-  const initial = await startLocalApi({ port: 0, stateBase: stateRoot, spaceBase: join(sandbox, "content"), loadEnv: false });
-  const created = await json(initial.origin, "/api/spaces", {
+  const initial = await startLocalApi({ port: 0, stateBase: stateRoot, workFolderBase: join(sandbox, "content"), loadEnv: false });
+  const created = await json(initial.origin, "/api/work-folders", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "Pre-persist Recovery Space" }),
-  }) as { space: { id: string; spaceRoot: string } };
-  const conversation = await json(initial.origin, `/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    body: JSON.stringify({ name: "Pre-persist Recovery work-folder" }),
+  }) as { workFolder: { id: string; workFolderRoot: string } };
+  const conversation = await json(initial.origin, `/api/work-folders/${created.workFolder.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
   await initial.close();
 
   const content = "/resume-once";
@@ -181,12 +181,12 @@ test("an explicit retry resumes a durable acceptance that never reached the tran
       contextPaths: [],
       selectedPath: null,
       actorKind: "assistant",
-      continuedFromManagementTaskId: null,
-      managementAttachments: [],
+      continuedFromWorkFoldAgentTaskId: null,
+      workFoldAgentAttachments: [],
     })).digest("hex"),
     userMessageId,
     userMessageCreatedAt: "2026-08-13T12:00:00.000Z",
-    spaceId: created.space.id,
+    workFolderId: created.workFolder.id,
     conversationId: conversation.conversation.id,
     actorKind: "assistant",
   });
@@ -194,12 +194,12 @@ test("an explicit retry resumes a durable acceptance that never reached the tran
   const recovered = await startLocalApi({
     port: 0,
     stateBase: stateRoot,
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
   });
   try {
-    const result = await json(recovered.origin, `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}/messages`, {
+    const result = await json(recovered.origin, `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content, requestId, userMessageId }),
@@ -207,10 +207,10 @@ test("an explicit retry resumes a durable acceptance that never reached the tran
     assert.equal(result.taskId, accepted.record.turnId);
     assert.equal(result.replayed, false);
     await waitForAsync(async () => {
-      const transcript = await json(recovered.origin, `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string }> };
+      const transcript = await json(recovered.origin, `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string }> };
       return transcript.messages.some((message) => message.role === "assistant");
     });
-    const transcript = await json(recovered.origin, `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string; turnId?: string }> };
+    const transcript = await json(recovered.origin, `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`) as { messages: Array<{ role: string; turnId?: string }> };
     assert.equal(transcript.messages.filter((message) => message.role === "user" && message.turnId === accepted.record.turnId).length, 1);
     assert.equal(transcript.messages.filter((message) => message.role === "assistant" && message.turnId === accepted.record.turnId).length, 1);
   } finally {
@@ -229,19 +229,19 @@ test("Chat event streams replace retained cursor state with a current snapshot a
   const api = await startLocalApi({
     port: 0,
     stateBase: join(sandbox, "state"),
-    spaceBase: join(sandbox, "content"),
+    workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir }; } },
   });
   const controller = new AbortController();
   try {
-    const created = await json(api.origin, "/api/spaces", {
+    const created = await json(api.origin, "/api/work-folders", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Stream Space" }),
-    }) as { space: { id: string } };
-    const conversation = await json(api.origin, `/api/spaces/${created.space.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
-    const conversationPath = `/api/spaces/${created.space.id}/conversations/${conversation.conversation.id}`;
+      body: JSON.stringify({ name: "Stream work-folder" }),
+    }) as { workFolder: { id: string } };
+    const conversation = await json(api.origin, `/api/work-folders/${created.workFolder.id}/conversations`, { method: "POST" }) as { conversation: { id: string } };
+    const conversationPath = `/api/work-folders/${created.workFolder.id}/conversations/${conversation.conversation.id}`;
     await json(api.origin, `${conversationPath}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -296,7 +296,7 @@ async function json(origin: string, path: string, init?: RequestInit): Promise<u
 async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!await predicate()) {
-    if (Date.now() >= deadline) throw new Error("Timed out waiting for a durable Assistant turn.");
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for a durable turn.");
     await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 10));
   }
 }

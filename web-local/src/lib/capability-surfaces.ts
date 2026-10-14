@@ -1,12 +1,12 @@
 import type {
   AgentExtensionSurface,
   CapabilitySurface,
-  SpaceSurfaceTab,
+  WorkFolderSurfaceTab,
 } from "../types";
 
-export function contributedSurfaces(spaceId: string, piSurfaces: AgentExtensionSurface[]): CapabilitySurface[] {
+export function contributedSurfaces(workFolderId: string, piSurfaces: AgentExtensionSurface[]): CapabilitySurface[] {
   return piSurfaces.map((surface): CapabilitySurface => ({
-      key: `pi:${spaceId}:${surface.id}`,
+      key: `pi:${workFolderId}:${surface.id}`,
       id: surface.id,
       title: surface.title,
       ...(surface.description ? { description: surface.description } : {}),
@@ -23,7 +23,7 @@ export function resolveSurfaceForKey(surfaces: CapabilitySurface[], key: string)
     ?? null;
 }
 
-export function surfaceMatchesTab(surface: CapabilitySurface, tab: SpaceSurfaceTab): boolean {
+export function surfaceMatchesTab(surface: CapabilitySurface, tab: WorkFolderSurfaceTab): boolean {
   if (tab.kind !== "extension") return false;
   const identityMatches = tab.surfaceId === surface.key || (surface.execution === "full-trust-pi" && tab.surfaceId === surface.id);
   if (!identityMatches) return false;

@@ -26,11 +26,11 @@ test("API close drains startup retention even when management cannot initialize"
   let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
   let closing: Promise<void> | undefined;
   try {
-    api = await startLocalApi({ port: 0, stateBase, spaceBase: join(root, "content"), loadEnv: false,
+    api = await startLocalApi({ port: 0, stateBase, workFolderBase: join(root, "content"), loadEnv: false,
       piRuntimeProvider: { resolveRuntime: async () => ({ agentDir: join(root, "pi") }) },
     });
     assert.equal(started, true, "startup schedules retention without delaying API availability");
-    await assert.rejects(api.actFacade.manageList(), /required instructions/);
+    await assert.rejects(api.actFacade.agentList(), /required instructions/);
     let closed = false;
     closing = api.close().then(() => { closed = true; });
     // Reach the end of ordinary API shutdown without guessing how long its

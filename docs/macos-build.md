@@ -1,6 +1,6 @@
 # macOS build and release lane
 
-work-fold retains one Electron, React, local API, Pi, management-kernel, restricted-app, and versioning codebase with cross-platform seams, but Apple-silicon macOS is the only active CI packaging and public distribution lane. Windows build code is dormant future work, not a Mac release gate.
+work-fold retains one Electron, React, local API, Pi, work-fold kernel, restricted-app, and versioning codebase with cross-platform seams, but Apple-silicon macOS is the only active CI packaging and public distribution lane. Windows build code is dormant future work, not a Mac release gate.
 
 ## Legacy Workspace baseline evidence
 
@@ -129,7 +129,7 @@ WORKFOLD_DESKTOP_STATE_DIR=/tmp/work-fold-macos-smoke \
   out/mac-rc/mac-arm64/work-fold.app/Contents/MacOS/work-fold
 ```
 
-That app-only path exists after `npm run desktop:rc:mac`; the complete distribution candidate remains at `out/builder/mac-arm64/work-fold.app`. The ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, Space creation/registration, Files, Chats, History, the Skills & Extensions popup, Settings including Settings → Apps, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
+That app-only path exists after `npm run desktop:rc:mac`; the complete distribution candidate remains at `out/builder/mac-arm64/work-fold.app`. The ad hoc executable is `out/builder/mac-arm64/work-fold Local Smoke.app/Contents/MacOS/work-fold Local Smoke`. Exercise onboarding, work-folder creation/registration, Files, Chats, History, the Skills & Extensions popup, Settings including Settings → Apps, native file actions, restricted apps, menus, window close/reopen, and sleep/wake continuity. The profile override isolates CLI requests, app files, restricted-app state, and preferences, but it is not a Keychain boundary. A separate disposable macOS account is the alternative for interactive ad hoc testing.
 
 The packaged CLI can be tested directly:
 
@@ -289,7 +289,7 @@ Only when repeated prompts are observed, quit work-fold and run:
 npm run desktop:reset:mac-safe-storage -- --yes --reopen
 ```
 
-The helper deletes only the `work-fold Safe Storage` key and encrypted provider/restricted-app credential blobs. Spaces, chats, History, preferences, and ordinary app data remain. Users may need to enter provider or app credentials again.
+The helper deletes only the `work-fold Safe Storage` key and encrypted provider/restricted-app credential blobs. work-folders, chats, History, preferences, and ordinary app data remain. Users may need to enter provider or app credentials again.
 
 Do not diagnose this with `security find-generic-password ... -g`: `-g` requests the secret and can itself trigger a password prompt. The installed-app verifier deliberately reads no Keychain secret data.
 

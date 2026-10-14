@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore } from "@earendil-works/pi-coding-agent";
 import { startLocalApi } from "../src/local/server.js";
 import { ComputerSessionService } from "../src/local/agent/computer-session.js";
 import type { WaylandTransport } from "../src/local/agent/wayland-transport.js";
@@ -32,8 +32,8 @@ test("desktop sharing starts without Chats, permits Stop during work, and surviv
       onClose: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     } as WaylandTransport;
   } });
-  const api = await startLocalApi({ port: 0, loadEnv: false, stateBase: join(root, "state"), spaceBase: join(root, "spaces"),
-    piRuntimeProvider: { resolveRuntime: async () => ({ agentDir, authStorage: AuthStorage.inMemory(),
+  const api = await startLocalApi({ port: 0, loadEnv: false, stateBase: join(root, "state"), workFolderBase: join(root, "work-folders"),
+    piRuntimeProvider: { resolveRuntime: async () => ({ agentDir, credentials: FileCredentialStore.inMemory(),
       includedTools: { rootPath: included, stateRoot: join(root, "included-state"), computerSession: service } }) },
   });
   async function post(path: string, body: object) {
@@ -42,25 +42,25 @@ test("desktop sharing starts without Chats, permits Stop during work, and surviv
   }
   async function settled(taskId: string) {
     for (let i = 0; i < 200; i++) {
-      if ((await api.actFacade.manageTurnStatus({ taskId })).task.state !== "running") return;
+      if ((await api.actFacade.agentTurnStatus({ taskId })).task.state !== "running") return;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     assert.fail("Fixture turn did not settle");
   }
   try {
-    const space = (await api.actFacade.createSpace({ name: "Desktop fixture" })).space;
-    const setup = (body: object) => post("/api/agent/included-tools/setup", { spaceId: space.id, id: "computer", ...body });
+    const workFolder = (await api.actFacade.createWorkFolder({ name: "Desktop fixture" })).workFolder;
+    const setup = (body: object) => post("/api/agent/included-tools/setup", { workFolderId: workFolder.id, id: "computer", ...body });
     assert.equal((await setup({ action: "share-screen" })).status, 200, "sharing works before any Chat exists");
     assert.equal(launched, 1);
     assert.equal(service.status().owner, undefined);
     await setup({ action: "stop-sharing" });
-    const warm = await api.actFacade.manageSend({ content: "/hold-desktop-test", newConversation: true });
+    const warm = await api.actFacade.agentSend({ content: "/hold-desktop-test", newConversation: true });
     await settled(warm.taskId);
     const shared = await setup({ action: "share-screen" });
     assert.equal(shared.status, 200, JSON.stringify(shared.body));
     assert.equal(service.status().state, "active", "setup must not invalidate its just-granted Chat");
     assert.equal(closed, 1);
-    const running = await api.actFacade.manageSend({ content: "/hold-desktop-test", conversationId: warm.conversationId });
+    const running = await api.actFacade.agentSend({ content: "/hold-desktop-test", conversationId: warm.conversationId });
     for (const action of ["check", "start-check"]) {
       const checked = await setup({ action });
       assert.equal(checked.status, 200, JSON.stringify(checked.body));
@@ -70,24 +70,24 @@ test("desktop sharing starts without Chats, permits Stop during work, and surviv
     }
     assert.equal((await setup({ action: "stop-sharing" })).status, 200, "Stop is available during accepted work");
     assert.equal(service.status().state, "idle"); await settled(running.taskId);
-    const chat = (await post(`/api/spaces/${space.id}/conversations`, {})).body.conversation;
-    await appendMessage(space.spaceRoot, chat.id, { id: randomUUID(), role: "user", content: "Retained Chat fixture", createdAt: new Date().toISOString() });
+    const chat = (await post(`/api/work-folders/${workFolder.id}/conversations`, {})).body.conversation;
+    await appendMessage(workFolder.workFolderRoot, chat.id, { id: randomUUID(), role: "user", content: "Retained Chat fixture", createdAt: new Date().toISOString() });
     const cold = await setup({ action: "share-screen" });
     assert.equal(cold.status, 200, JSON.stringify({ chat, response: cold.body }));
-    await api.actFacade.chatArchive({ space: space.id, conversationId: chat.id });
+    await api.actFacade.chatArchive({ workFolder: workFolder.id, conversationId: chat.id });
     assert.equal(service.status().state, "active", "archiving an idle Chat preserves app-wide sharing");
-    await api.actFacade.chatResume({ space: space.id, conversationId: chat.id });
-    const deleted = await fetch(`${api.origin}/api/spaces/${space.id}/conversations/${chat.id}`, { method: "DELETE" });
+    await api.actFacade.chatResume({ workFolder: workFolder.id, conversationId: chat.id });
+    const deleted = await fetch(`${api.origin}/api/work-folders/${workFolder.id}/conversations/${chat.id}`, { method: "DELETE" });
     assert.equal(deleted.status, 200);
-    const deletion = await deleted.json() as { deleted: { conversationId: string; trash: { entryId: string } } };
+    const deletion = await deleted.json() as { deleted: { conversationId: string; recentlyDeleted: { entryId: string } } };
     assert.equal(deletion.deleted.conversationId, chat.id);
-    assert.ok(deletion.deleted.trash.entryId, "the Chat remains recoverable");
+    assert.ok(deletion.deleted.recentlyDeleted.entryId, "the Chat remains recoverable");
     assert.equal(service.status().state, "active", "deleting an idle Chat preserves sharing");
-    await api.actFacade.trashRestore({ entry: deletion.deleted.trash.entryId });
+    await api.actFacade.recentlyDeletedRestore({ entry: deletion.deleted.recentlyDeleted.entryId });
     assert.equal(service.status().state, "active", "restoring a Chat does not change the grant");
-    const second = (await post(`/api/spaces/${space.id}/conversations`, {})).body.conversation;
-    await appendMessage(space.spaceRoot, second.id, { id: randomUUID(), role: "user", content: "Retained Chat fixture", createdAt: new Date().toISOString() });
-    await api.actFacade.spacesUnregister({ space: space.id });
+    const second = (await post(`/api/work-folders/${workFolder.id}/conversations`, {})).body.conversation;
+    await appendMessage(workFolder.workFolderRoot, second.id, { id: randomUUID(), role: "user", content: "Retained Chat fixture", createdAt: new Date().toISOString() });
+    await api.actFacade.workFoldersUnregister({ workFolder: workFolder.id });
     assert.equal(service.status().state, "active", "removing an idle Folder preserves app-wide sharing");
     await service.stop();
     assert.equal(launched, closed);

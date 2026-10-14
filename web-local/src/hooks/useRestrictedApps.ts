@@ -2,58 +2,58 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { listRestrictedApps } from "../lib/restricted-apps";
 import { subscribeControlEvents } from "../lib/control-events";
-import type { RestrictedAppInstalled, SpaceSummary } from "../types";
+import type { RestrictedAppInstalled, WorkFolderSummary } from "../types";
 
 const emptyRestrictedAppFixtures: Record<string, RestrictedAppInstalled[]> = {};
 
 export function useRestrictedApps({
-  activeSpaceId,
-  spaces,
+  activeWorkFolderId,
+  workFolders,
   fixtureMode = false,
   fixtureApps = emptyRestrictedAppFixtures,
   onError,
 }: {
-  activeSpaceId: string;
-  spaces?: readonly Pick<SpaceSummary, "id">[];
+  activeWorkFolderId: string;
+  workFolders?: readonly Pick<WorkFolderSummary, "id">[];
   fixtureMode?: boolean;
   fixtureApps?: Record<string, RestrictedAppInstalled[]>;
   onError: (error: unknown) => void;
 }) {
-  const [appsBySpace, setAppsBySpace] = useState<Record<string, RestrictedAppInstalled[]>>(fixtureApps);
-  const [knownSpaceIds, setKnownSpaceIds] = useState<Set<string>>(() => new Set(Object.keys(fixtureApps)));
-  const [loadingSpaceIds, setLoadingSpaceIds] = useState<Set<string>>(() => new Set());
+  const [appsByWorkFolder, setAppsByWorkFolder] = useState<Record<string, RestrictedAppInstalled[]>>(fixtureApps);
+  const [knownWorkFolderIds, setKnownWorkFolderIds] = useState<Set<string>>(() => new Set(Object.keys(fixtureApps)));
+  const [loadingWorkFolderIds, setLoadingWorkFolderIds] = useState<Set<string>>(() => new Set());
   const requestVersionsRef = useRef(new Map<string, number>());
   const nextRequestRef = useRef(0);
   const registeredIdsRef = useRef<Set<string> | null>(null);
-  registeredIdsRef.current = spaces ? new Set(spaces.map((space) => space.id)) : null;
+  registeredIdsRef.current = workFolders ? new Set(workFolders.map((workFolder) => workFolder.id)) : null;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; requestVersionsRef.current.clear(); };
   }, []);
 
-  const refresh = useCallback(async (spaceId: string) => {
-    if (!spaceId || !mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(spaceId))) return;
+  const refresh = useCallback(async (workFolderId: string) => {
+    if (!workFolderId || !mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(workFolderId))) return;
     if (fixtureMode) {
-      setAppsBySpace((current) => ({ ...current, [spaceId]: fixtureApps[spaceId] ?? current[spaceId] ?? [] }));
-      setKnownSpaceIds((current) => new Set(current).add(spaceId));
+      setAppsByWorkFolder((current) => ({ ...current, [workFolderId]: fixtureApps[workFolderId] ?? current[workFolderId] ?? [] }));
+      setKnownWorkFolderIds((current) => new Set(current).add(workFolderId));
       return;
     }
     const requestVersion = ++nextRequestRef.current;
-    requestVersionsRef.current.set(spaceId, requestVersion);
-    setLoadingSpaceIds((current) => new Set(current).add(spaceId));
+    requestVersionsRef.current.set(workFolderId, requestVersion);
+    setLoadingWorkFolderIds((current) => new Set(current).add(workFolderId));
     try {
-      const apps = await listRestrictedApps(spaceId);
-      if (!mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(spaceId)) || requestVersionsRef.current.get(spaceId) !== requestVersion) return;
-      setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));
-      setKnownSpaceIds((current) => new Set(current).add(spaceId));
+      const apps = await listRestrictedApps(workFolderId);
+      if (!mountedRef.current || (registeredIdsRef.current && !registeredIdsRef.current.has(workFolderId)) || requestVersionsRef.current.get(workFolderId) !== requestVersion) return;
+      setAppsByWorkFolder((current) => ({ ...current, [workFolderId]: apps }));
+      setKnownWorkFolderIds((current) => new Set(current).add(workFolderId));
     } catch (caught) {
-      if (mountedRef.current && (!registeredIdsRef.current || registeredIdsRef.current.has(spaceId)) && requestVersionsRef.current.get(spaceId) === requestVersion) onError(caught);
+      if (mountedRef.current && (!registeredIdsRef.current || registeredIdsRef.current.has(workFolderId)) && requestVersionsRef.current.get(workFolderId) === requestVersion) onError(caught);
     } finally {
-      if (requestVersionsRef.current.get(spaceId) === requestVersion) {
-        setLoadingSpaceIds((current) => {
+      if (requestVersionsRef.current.get(workFolderId) === requestVersion) {
+        setLoadingWorkFolderIds((current) => {
           const next = new Set(current);
-          next.delete(spaceId);
+          next.delete(workFolderId);
           return next;
         });
       }
@@ -62,81 +62,81 @@ export function useRestrictedApps({
 
   useEffect(() => {
     if (fixtureMode) {
-      setAppsBySpace({ ...fixtureApps, [activeSpaceId]: fixtureApps[activeSpaceId] ?? [] });
-      setKnownSpaceIds(new Set([...Object.keys(fixtureApps), activeSpaceId]));
+      setAppsByWorkFolder({ ...fixtureApps, [activeWorkFolderId]: fixtureApps[activeWorkFolderId] ?? [] });
+      setKnownWorkFolderIds(new Set([...Object.keys(fixtureApps), activeWorkFolderId]));
       return;
     }
     const registered = registeredIdsRef.current;
     if (registered) {
       for (const id of requestVersionsRef.current.keys()) if (!registered.has(id)) requestVersionsRef.current.delete(id);
-      setAppsBySpace((current) => Object.fromEntries(Object.entries(current).filter(([id]) => registered.has(id))));
-      setKnownSpaceIds((current) => new Set([...current].filter((id) => registered.has(id))));
-      setLoadingSpaceIds((current) => new Set([...current].filter((id) => registered.has(id))));
+      setAppsByWorkFolder((current) => Object.fromEntries(Object.entries(current).filter(([id]) => registered.has(id))));
+      setKnownWorkFolderIds((current) => new Set([...current].filter((id) => registered.has(id))));
+      setLoadingWorkFolderIds((current) => new Set([...current].filter((id) => registered.has(id))));
     }
-    for (const id of new Set([...requestVersionsRef.current.keys(), activeSpaceId])) void refresh(id);
-  }, [activeSpaceId, spaces, fixtureApps, fixtureMode, refresh]);
+    for (const id of new Set([...requestVersionsRef.current.keys(), activeWorkFolderId])) void refresh(id);
+  }, [activeWorkFolderId, workFolders, fixtureApps, fixtureMode, refresh]);
 
   useEffect(() => {
     if (fixtureMode) return;
     return subscribeControlEvents((hint) => {
-      if (hint === "spaces" || hint === "reset") {
+      if (hint === "work-folders" || hint === "reset") {
         // App re-reads the registry first. Invalidate pending old reads now;
-        // its new spaces prop will refresh only the surviving registrations.
+        // its new work-folders prop will refresh only the surviving registrations.
         for (const [id, version] of requestVersionsRef.current) requestVersionsRef.current.set(id, version + 1);
         return;
       }
       if (hint !== "apps") return;
-      const ids = new Set([...requestVersionsRef.current.keys(), activeSpaceId]);
+      const ids = new Set([...requestVersionsRef.current.keys(), activeWorkFolderId]);
       for (const id of ids) void refresh(id);
     });
-  }, [activeSpaceId, fixtureMode, refresh]);
+  }, [activeWorkFolderId, fixtureMode, refresh]);
 
-  const replaceApps = useCallback((spaceId: string, apps: RestrictedAppInstalled[]) => {
-    setAppsBySpace((current) => ({ ...current, [spaceId]: apps }));
-    setKnownSpaceIds((current) => new Set(current).add(spaceId));
+  const replaceApps = useCallback((workFolderId: string, apps: RestrictedAppInstalled[]) => {
+    setAppsByWorkFolder((current) => ({ ...current, [workFolderId]: apps }));
+    setKnownWorkFolderIds((current) => new Set(current).add(workFolderId));
   }, []);
 
   const upsertApp = useCallback((app: RestrictedAppInstalled) => {
-    setAppsBySpace((current) => {
-      const existing = current[app.spaceId] ?? [];
+    setAppsByWorkFolder((current) => {
+      const existing = current[app.workFolderId] ?? [];
       const next = existing.some((item) => item.featureInstallationId === app.featureInstallationId)
         ? existing.map((item) => item.featureInstallationId === app.featureInstallationId ? app : item)
         : [...existing, app];
-      return { ...current, [app.spaceId]: next };
+      return { ...current, [app.workFolderId]: next };
     });
-    setKnownSpaceIds((current) => new Set(current).add(app.spaceId));
+    setKnownWorkFolderIds((current) => new Set(current).add(app.workFolderId));
   }, []);
 
-  const removeApp = useCallback((spaceId: string, featureInstallationId: string) => {
-    setAppsBySpace((current) => ({
+  const removeApp = useCallback((workFolderId: string, featureInstallationId: string) => {
+    setAppsByWorkFolder((current) => ({
       ...current,
-      [spaceId]: (current[spaceId] ?? []).filter((item) => item.featureInstallationId !== featureInstallationId),
+      [workFolderId]: (current[workFolderId] ?? []).filter((item) => item.featureInstallationId !== featureInstallationId),
     }));
-    setKnownSpaceIds((current) => new Set(current).add(spaceId));
+    setKnownWorkFolderIds((current) => new Set(current).add(workFolderId));
   }, []);
 
   const replaceRuntimeInstanceApps = useCallback((
-    spaceId: string,
+    workFolderId: string,
     runtimeInstanceId: string,
     apps: RestrictedAppInstalled[],
   ) => {
-    setAppsBySpace((current) => {
-      const preserved = (current[spaceId] ?? []).filter((item) => item.runtimeInstanceId !== runtimeInstanceId);
+    setAppsByWorkFolder((current) => {
+      const preserved = (current[workFolderId] ?? []).filter((item) => item.runtimeInstanceId !== runtimeInstanceId);
       const replacements = apps.filter((item) => (
-        item.spaceId === spaceId && item.runtimeInstanceId === runtimeInstanceId
+        item.workFolderId === workFolderId && item.runtimeInstanceId === runtimeInstanceId
       ));
       const next = [...preserved, ...replacements].sort((left, right) => (
         left.manifest.title.localeCompare(right.manifest.title) || left.manifest.id.localeCompare(right.manifest.id)
       ));
-      return { ...current, [spaceId]: next };
+      return { ...current, [workFolderId]: next };
     });
-    setKnownSpaceIds((current) => new Set(current).add(spaceId));
+    setKnownWorkFolderIds((current) => new Set(current).add(workFolderId));
   }, []);
 
   return {
-    appsBySpace,
-    knownSpaceIds,
-    loadingSpaceIds,
+    appsByWorkFolder,
+    knownWorkFolderIds,
+    loadingWorkFolderIds,
     refresh,
     replaceApps,
     replaceRuntimeInstanceApps,
