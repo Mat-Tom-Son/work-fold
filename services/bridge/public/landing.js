@@ -5,7 +5,7 @@ const source = "https://github.com/Mat-Tom-Son/work-fold";
 const chromeExtension = "https://chromewebstore.google.com/detail/work-fold/ophmjbphcjmjcpcdpmfehbldiomkepgk";
 const macDownload = "/download/macos";
 const windowsDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50";
-const linuxDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.4.52";
+const linuxDownload = "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.10.1";
 
 // Each workflow is a work-folder; its colors are the folder's own colors in the app.
 // `before` lists the files the Worker started from, exactly as in
