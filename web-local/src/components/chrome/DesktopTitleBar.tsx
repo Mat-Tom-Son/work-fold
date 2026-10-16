@@ -1,9 +1,9 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type MouseEvent as ReactMouseEvent, type Ref } from "react";
 import { desktopTitleBarMenus, productName } from "../../constants";
 
 type DesktopTitleBarMenuId = typeof desktopTitleBarMenus[number]["id"];
 
-function DesktopTitleBar() {
+function DesktopTitleBar({ sidebarControlsRef }: { sidebarControlsRef?: Ref<HTMLDivElement> }) {
   const desktop = window.workFoldDesktop as (typeof window.workFoldDesktop & {
     menu?: { popup: (menuId: DesktopTitleBarMenuId, point: { x: number; y: number }) => Promise<void> };
   }) | undefined;
@@ -67,6 +67,7 @@ function DesktopTitleBar() {
             {item.label}
           </button>
         ))}
+        <div className="desktop-titlebar-sidebar-controls" ref={sidebarControlsRef} />
       </nav>
       <div className="desktop-titlebar-drag-spacer" aria-hidden="true" />
       {linux ? <div className="desktop-window-controls">

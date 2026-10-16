@@ -83,8 +83,8 @@ loop for text, data, and selected images without continuous screen recording.
 
 Linux x64 local candidates can also be built for Ubuntu and Fedora. See the
 [Linux build guide](docs/linux-build.md) for DEB/RPM/AppImage packaging, keyring
-setup and the current Wayland computer-control limits. Public downloads and
-automatic updates remain Mac-only.
+setup and the current Wayland computer-control limits. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.10.2)
+provide manual downloads. Stable releases and automatic updates remain Mac-only.
 
 ## Help build work-fold
 
