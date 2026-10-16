@@ -609,6 +609,10 @@ Owner decisions, recorded here in dated form; the body of this document and
 
 ### 2026-10-11 window strip, agent panel, and Files sort
 
+- Placement amendment (2026-10-16): on Linux and Windows, the sidebar toggle
+  sits immediately after **Help** in the application menu strip. On macOS it
+  stays beside the window buttons. The work-fold agent controls stay at the
+  right of the strip.
 - The window's top strip carries two controls and no labels. Beside the
   window buttons, a sidebar toggle hides the navigation pane (Files, Chats,
   History) while the rail stays; every rail destination except **Add** and

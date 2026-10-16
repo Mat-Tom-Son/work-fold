@@ -2,8 +2,14 @@
 
 The Linux x64 lane produces **local candidates** for Ubuntu 24.04 or newer and
 Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
-not a separate Linux agent. The public release and automatic-update lane remains
-macOS. Linux candidates have no update feed and are not published by these commands.
+not a separate Linux agent. The stable release and automatic-update lane remains
+macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.10.2)
+are published separately; these commands only build local candidates. Linux has
+no automatic update feed.
+
+The 0.10.2 preview moves the sidebar toggle immediately after **Help** in the
+custom title bar, so its position follows the menu instead of the window's right
+edge. It otherwise retains the 0.10.1 integration baseline described below.
 
 The 0.10.1 candidate integrates main through `6d65601` (Mac 0.10.0),
 including Pi 1.1 native MCP and codemode, the work-fold agent panel, current
