@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describeModelContextDispatch, installModelContextInspection, installModelRuntimeInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
+import type { NativeComputerOwner } from "./computer-session.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -377,6 +378,7 @@ export class PiConversationClient extends EventEmitter {
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
       this.promptInFlight = false;
+      if (owner.taskId) await this.resolvedRuntime?.config.includedTools?.computerSession?.releaseTurn(owner.taskId, owner.cancelled);
     }
   }
 
@@ -420,6 +422,7 @@ export class PiConversationClient extends EventEmitter {
     this.emitEvent({ type: "status", message: reason });
     this.rejectPrompt?.(error);
     if (session) void session.abort().catch(() => undefined);
+    await this.resolvedRuntime?.config.includedTools?.computerSession?.releaseSession(this.computerOwner());
     return true;
   }
 
@@ -655,6 +658,10 @@ export class PiConversationClient extends EventEmitter {
     this.authController?.abort();
     this.runtimeGeneration += 1;
     if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
+    const stopScreen = this.resolvedRuntime?.config.includedTools?.computerSession?.releaseSession(this.computerOwner());
+    // Attach rejection handling while the Pi session drains; still propagate
+    // a failed native teardown to the caller below.
+    void stopScreen?.catch(() => undefined);
     this.resolvedRuntime?.config.extensionUi?.forgetScope?.(this.extensionUiScope());
     // Bounded app inference has no turn to settle; abort it so callers see an interruption, not a hang.
     for (const call of this.boundedCalls) call.abort();
@@ -681,6 +688,12 @@ export class PiConversationClient extends EventEmitter {
     // shutdown-triggered stop. Keep it alive until that settlement completes.
     if (!preserveActiveTurnTrail) this.resetTurnState();
     if (runtime) await settleWithin(runtime.dispose(), 2_000).catch(() => undefined);
+    await stopScreen;
+  }
+
+  private computerOwner(): NativeComputerOwner {
+    return { scope: this.hostCapabilities ? "work-folder" : "management", conversationId: this.conversationId,
+      workFolderRoot: this.workFolderRoot, ...(this.hostCapabilities ? { workFolderId: this.hostCapabilities.workFolderId } : {}) };
   }
 
   private get session(): AgentSession {
@@ -727,8 +740,11 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session"),
-          // work-folder instructions first, then the operations guide (F26), so the
+          ...await includedResourceOptions(options.cwd, runtime, "session", { owner: this.computerOwner(), turn: () => {
+            const owner = this.extensionTurn.getStore();
+            return owner?.taskId ? owner as PiTurnOwner & { taskId: string } : undefined;
+          } }),
+          // Space instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
             appendWorkerInstructions(base, runtime.config.workerInstructions),

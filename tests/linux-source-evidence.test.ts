@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+// @ts-expect-error Release orchestration is executable ESM.
+import { captureLinuxSource } from "../scripts/linux-source-evidence.mjs";
+
+test("Linux source evidence captures the real tree and refuses to relabel changed source", { skip: process.platform !== "linux" }, async t => {
+  const fixture = await mkdtemp(join(tmpdir(), "workfold-source-test-"));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const root = join(fixture, "checkout"), output = join(fixture, "output");
+  await mkdir(root);
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: "pipe" });
+  git("init", "--quiet");
+  await writeFile(join(root, ".gitignore"), "ignored-secret\n");
+  await writeFile(join(root, "tracked.txt"), "committed source\n");
+  git("add", ".");
+  git("-c", "user.name=Source evidence fixture", "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture");
+  await writeFile(join(root, "tracked.txt"), "reviewed local change\n");
+  await writeFile(join(root, "new file\nwith newline"), "new source\n");
+  await writeFile(join(root, "ignored-secret"), "must never enter source archive\n");
+  await writeFile(join(fixture, "external-secret"), "must not follow symlinks\n");
+  await symlink("../external-secret", join(root, "external-link"));
+  await chmod(join(root, "tracked.txt"), 0o755);
+  const captured = await captureLinuxSource(root, output, "1.2.3");
+  assert.equal(captured.sourceDirty, true);
+  assert.equal(captured.sourceCommit, git("rev-parse", "HEAD").trim());
+  const archive = join(output, captured.sourceEvidence.archive.name);
+  const listing = execFileSync("tar", ["--list", "--gzip", "--file", archive], { encoding: "utf8" });
+  assert.doesNotMatch(listing, /ignored-secret|\.git\//);
+  assert.match(listing, /external-link/);
+  assert.equal(execFileSync("tar", ["--extract", "--to-stdout", "--gzip", "--file", archive, "tracked.txt"], { encoding: "utf8" }), "reviewed local change\n");
+  const manifest = JSON.parse(await readFile(join(output, captured.sourceEvidence.manifest.name), "utf8"));
+  assert.deepEqual(manifest.entries.find((e: { path: string }) => e.path === "external-link"), { path: "external-link", kind: "symlink", target: "../external-secret" });
+  assert.equal(manifest.entries.find((e: { path: string }) => e.path === "tracked.txt").executable, true);
+  assert.deepEqual(await captureLinuxSource(root, output, "1.2.3"), captured);
+  await writeFile(join(root, "tracked.txt"), "another change\n");
+  await assert.rejects(captureLinuxSource(root, output, "1.2.3"), /different bytes/);
+  const advanced = await captureLinuxSource(root, output, "1.2.4");
+  assert.notEqual(advanced.sourceEvidence.archive.sha256, captured.sourceEvidence.archive.sha256);
+  await assert.rejects(captureLinuxSource(root, output, "../unsafe"), /Invalid candidate/);
+});

@@ -11,7 +11,7 @@ import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { ConnectAi, type ConnectedAi } from "./ConnectAi";
 
 type OnboardingStep = "welcome" | "connect" | "tools" | "folder";
-type MacTool = "chrome" | "computer";
+type SetupTool = "chrome" | "computer";
 
 /**
  * First run (2026-10-11): what work-fold is, connecting an AI provider, then
@@ -27,14 +27,15 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
   onOpenSettings?: () => void;
   fixtureMode?: boolean;
 }) {
+  const computerName = window.workFoldDesktop?.app.platform === "linux" ? "computer" : "Mac";
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [connected, setConnected] = useState<ConnectedAi | null>(null);
-  const macTools = useMacTools(fixtureMode);
-  const [openTool, setOpenTool] = useState<MacTool | null>(null);
+  const includedTools = useSetupTools(fixtureMode);
+  const [openTool, setOpenTool] = useState<SetupTool | null>(null);
   const steps: OnboardingStep[] = [
     "welcome",
     ...(agentConfigured && !connected ? [] : ["connect" as const]),
-    ...(macTools.length ? ["tools" as const] : []),
+    ...(includedTools.length ? ["tools" as const] : []),
     "folder",
   ];
   const position = steps.indexOf(step) + 1;
@@ -49,7 +50,7 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
         <section className="onboarding-step onboarding-welcome" aria-labelledby="onboarding-welcome-title">
           <WorkFoldLockup className="onboarding-lockup" />
           <h1 id="onboarding-welcome-title">Put your folders to work</h1>
-          <p>work-fold gives any folder on your Mac its own AI Worker. Ask it to sort, write, research, or build, right where your files live.</p>
+          <p>work-fold gives any folder on your {computerName} its own AI Worker. Ask it to sort, write, research, or build, right where your files live.</p>
           <button className="ui-control ui-control--primary onboarding-primary" type="button" onClick={next} autoFocus>Get started</button>
         </section>
       ) : null}
@@ -81,10 +82,10 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
       {step === "tools" ? (
         <section className="onboarding-step onboarding-tools" aria-labelledby="onboarding-tools-title">
           <p className="onboarding-progress">Step {position} of {steps.length}</p>
-          <h1 id="onboarding-tools-title">Let your Worker use your Mac</h1>
-          <p>Optional. When you ask, your Worker can browse with your own Chrome and use apps on your Mac. You can set these up later in Skills &amp; Extensions.</p>
+          <h1 id="onboarding-tools-title">Let your Worker use your {computerName}</h1>
+          <p>Optional. When you ask, your Worker can browse with your own Chrome and use apps on your {computerName}. You can set these up later in Skills &amp; Extensions.</p>
           <div className="onboarding-tool-list">
-            {macTools.map((tool) => (
+            {includedTools.map((tool) => (
               <div key={tool} className={`onboarding-tool${openTool === tool ? " open" : ""}`}>
                 <button className="onboarding-tool-header" type="button" aria-expanded={openTool === tool} onClick={() => setOpenTool((current) => current === tool ? null : tool)}>
                   {tool === "chrome" ? <Globe size={18} aria-hidden="true" /> : <MousePointerClick size={18} aria-hidden="true" />}
@@ -130,14 +131,14 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
  * available, and Computer Control on a Mac that supports it. None outside the
  * desktop app, where the tools are not included.
  */
-function useMacTools(fixtureMode: boolean): MacTool[] {
-  const [tools, setTools] = useState<MacTool[]>([]);
+function useSetupTools(fixtureMode: boolean): SetupTool[] {
+  const [tools, setTools] = useState<SetupTool[]>([]);
   useEffect(() => {
     if (fixtureMode) return;
     const controller = new AbortController();
     api<{ tools: IncludedToolStatus[] }>(includedToolsPath(), { signal: controller.signal })
       .then(({ tools: statuses }) => {
-        const offered: MacTool[] = [];
+        const offered: SetupTool[] = [];
         const chrome = statuses.find((item) => item.id === "chrome");
         if (chrome && chrome.chrome?.state !== "store_unavailable" && chrome.chrome?.state !== "connected") offered.push("chrome");
         const computer = statuses.find((item) => item.id === "computer");

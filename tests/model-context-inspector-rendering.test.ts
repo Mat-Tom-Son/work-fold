@@ -166,6 +166,9 @@ test("a refreshed capture preserves selection and search, and a late copy does n
 test("displayed captures expire locally and window focus discovers recording cleared elsewhere", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const { ModelContextInspector, createModelContextFixture } = await import("../web-local/src/components/chat/ModelContextInspector.js");
+  // Rendering may take longer than the short retention interval under load.
+  // Keep evidence fresh until the initial render has actually completed.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const fixture = createModelContextFixture();
   for (const item of [...fixture.records, ...fixture.state.records]) item.createdAt = Date.now();
   fixture.state.limits.retentionMs = 100;
@@ -175,6 +178,7 @@ test("displayed captures expire locally and window focus discovers recording cle
   t.after(() => { globalThis.fetch = originalFetch; });
   await dom.render(createElement(ModelContextInspector, { onClose() {} }));
   assert.ok(dom.container.querySelector("pre"));
+  await dom.act(() => t.mock.timers.tick(101));
   await dom.waitFor(() => !dom.container.querySelector("pre"));
   assert.match(dom.container.textContent!, /No requests captured here yet/);
   state = { ...state, enabled: false, records: [] };
