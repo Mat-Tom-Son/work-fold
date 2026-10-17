@@ -67,7 +67,7 @@ test("download groups label the Mac architecture and distinguish test previews",
   const platforms = [
     { name: "MacApple silicon", label: "Download for Mac — Apple silicon", icon: "apple", href: "/download/macos" },
     { name: "WindowsTest preview", label: "Windows test preview — release notes and download", icon: "windows", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/windows-test-0.4.50" },
-    { name: "LinuxTest preview", label: "Linux test preview — release notes and downloads", icon: "linux", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.10.1" },
+    { name: "LinuxTest preview", label: "Linux test preview — release notes and downloads", icon: "linux", href: "https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.10.2" },
   ];
   const groups = [...document.querySelectorAll(".landing-download-group")];
   assert.equal(groups.length, 2);
