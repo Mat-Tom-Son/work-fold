@@ -2,8 +2,15 @@
 
 > **Status:** Dated experiment evidence, 2026-10-18. This is not a contract
 > and not accepted scope. The helper prototype is on hold, marked as work in
-> progress on branch `claude/helper-tool-prototype-wip`. This branch carries
+> progress on branch `claude/helper-tool-prototype-wip`. This record carries
 > only the evaluation harness and this write-up.
+>
+> **Later the same day:** the compaction fixes below landed in
+> [#76](https://github.com/Mat-Tom-Son/work-fold/pull/76), which also restates
+> the request's checklist. The repeated follow-up turn after `chat wait`, the
+> usage undercount, and transcripts in Worker search were fixed in
+> [#77](https://github.com/Mat-Tom-Son/work-fold/pull/77). The text below is
+> unchanged from the experiment.
 
 **Question.** Should Workers get a read-only *helper*? A helper takes one
 focused reading task, runs it in its own context inside the Worker's turn, and
