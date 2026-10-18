@@ -5,6 +5,8 @@ import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describeModelContextDispatch, installModelContextInspection, installModelRuntimeInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
+import type { WorkFoldSessionRole } from "./role-preamble.js";
+import { currentTurnEnvironment, describeTurnEnvironment, type PiTurnEnvironment } from "./turn-environment.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -161,9 +163,13 @@ export interface PiTurnContext {
   workFolderTurn?: PiWorkFolderTurnContext;
   /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
   automation?: { title: string };
+  /** The host's clock, time zone, and platform; `prompt` reads them when a turn starts. */
+  environment?: PiTurnEnvironment;
 }
 
 export interface PiConversationClientOptions {
+  /** Which role opens each request in place of Pi's coding preamble; a Worker unless set. */
+  role?: WorkFoldSessionRole;
   /** Appended after this work-folder's instructions; absent for the work-fold agent scope. */
   operationsGuide?: string;
   /** The image model chosen in Settings → AI Models, read when a picture is made. */
@@ -323,6 +329,7 @@ export class PiConversationClient extends EventEmitter {
       }
 
       if (!isRegisteredExtensionCommand(session, message)) {
+        context = { ...context, environment: context.environment ?? currentTurnEnvironment() };
         const budget = availableAttachmentTokens(session, message, buildTurnContextMessage({ ...context, contextAttachments: undefined }));
         const attachments = context.loadContextAttachments
           ? await this.awaitCancellation(context.loadContextAttachments(budget))
@@ -727,7 +734,7 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session"),
+          ...await includedResourceOptions(options.cwd, runtime, "session", this.options.role ?? "worker"),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -1721,8 +1728,9 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
 
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
+  if (context.environment) lines.push(describeTurnEnvironment(context.environment));
   if (context.workFolderTurn) {
-    // Identity before data: a work-folder turn reads its own ids first. The block
+    // Identity before data: after the host's environment line, a work-folder turn reads its own ids first. The block
     // never names the registry or the parent's real task id; the only other
     // work-folders it names are the ones nested inside this one and the ones the
     // person addressed with @ (collaboration contract, 2026-10-01 amendment).
