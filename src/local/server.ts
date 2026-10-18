@@ -11734,6 +11734,7 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
     state: record.state, label: inBackground ? "Running in the background" : workRequestLabel(record.state, questionCount - savedAnswerCount, savedAnswerCount), detail,
     canStop: outstanding && !record.stopRequestedAt, canContinue, questions, questionCount,
     hadQuestions: family.some((item) => item.questionIds.length > 0), result,
+    ...(record.checklist?.items.length ? { checklist: record.checklist.items.map((item) => ({ ...item })) } : {}),
     children: state.requests.children(record.requestId).map((child) => ({ requestId: child.requestId,
       title: child.owner.workFolderName ?? "work-fold", state: child.state,
       label: workRequestLabel(child.state,
@@ -12405,6 +12406,8 @@ async function runAgentTurn(
       ...(addressedFolders.length ? { addressedFolders } : {}),
       ...(options.automation ? { automation: options.automation } : {}),
       ...(backgroundJobs.length ? { backgroundJobs } : {}),
+      // A later turn of the same request picks up the checklist where it was left.
+      ...(request?.checklist?.items.length ? { checklist: request.checklist.items } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
@@ -12803,6 +12806,19 @@ async function getClient(
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
     ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
     backgroundJobs: createBackgroundJobToolHost(state, workFolderId, conversationId),
+    checklist: {
+      async set({ taskId, items }) {
+        try {
+          const saved = await state.requests.setChecklist(taskId, items);
+          // The Chat's work view re-reads the request and shows the new list.
+          publishControlHint(state, "work-folders");
+          return saved;
+        } catch (error) {
+          if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) throw new Error(error.message);
+          throw error;
+        }
+      },
+    },
   });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(workFolderId, conversationId), assistantEventForRenderer(event));

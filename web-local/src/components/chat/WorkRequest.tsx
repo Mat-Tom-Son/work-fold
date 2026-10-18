@@ -37,6 +37,13 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
       </div> : null}
       {work.detail ? <p className="work-detail">{work.detail}</p> : null}
       {work.canContinue ? <button className="work-primary-button" type="button" disabled={busy} onClick={() => void act("continue")}>Continue with saved results</button> : null}
+      {work.checklist?.length ? <ol className="work-checklist" aria-label={`Checklist, ${work.checklist.filter((item) => item.status === "done").length} of ${work.checklist.length} done`}>
+        {work.checklist.map((item, index) => <li key={`${index}:${item.text}`} className={`work-checklist-item is-${item.status}`}>
+          <span className="work-checklist-mark" aria-hidden="true">{item.status === "done" ? "✓" : item.status === "doing" ? "•" : ""}</span>
+          <span>{item.text}</span>
+          {item.status === "doing" ? <span className="visually-hidden"> (in progress)</span> : item.status === "done" ? <span className="visually-hidden"> (done)</span> : null}
+        </li>)}
+      </ol> : null}
       {work.questions.map((question) => <WorkQuestion key={question.id} question={question} busy={busy} answer={(text) => act("answer", { questionId: question.id, answer: text })} />)}
       {work.questionCount > work.questions.length ? <p className="work-detail">{work.questionCount - work.questions.length} more questions follow these answers.</p> : null}
       {work.children.length ? <details className="work-details">

@@ -77,6 +77,9 @@ export const workFoldRequestLimits = Object.freeze({
   maxQuestionOptions: 64,
   maxQuestionOptionBytes: 4 * 1024,
   maxAnswerTextBytes: 4 * 1024 * 1024,
+  /** The checklist an agent keeps for its request (2026-10-18); long tasks only. */
+  maxChecklistItems: 200,
+  maxChecklistItemBytes: 2 * 1024,
   maxResultSummaryBytes: 4 * 1024 * 1024,
   maxResultDataBytes: 16 * 1024 * 1024,
   /** UI page size; further questions follow as earlier answers are delivered. */

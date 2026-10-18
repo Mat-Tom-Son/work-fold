@@ -334,6 +334,23 @@ test("chat copy copies a Chat up to its last finished reply, and a Worker's copy
   }
 });
 
+test("the checklist a turn keeps shows in its Chat's work view", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Checklist" });
+    h.held.add(workFolder.id);
+    const turn = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    await waitFor(async () => h.pending.some((held) => held.taskId === turn.taskId));
+    await api.requests.setChecklist(turn.taskId, [{ text: "Read the quotes", status: "done" }, { text: "Write the summary", status: "doing" }]);
+    const view = await (await fetch(new URL(`/api/work-folders/${workFolder.id}/conversations/${turn.conversationId}/work`, api.origin))).json() as { work: { checklist?: Array<{ text: string; status: string }> } };
+    assert.deepEqual(view.work.checklist, [{ text: "Read the quotes", status: "done" }, { text: "Write the summary", status: "doing" }]);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
 test("file and work-folder deletion refuse running, waiting, and stopped-but-draining work until it settles", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();

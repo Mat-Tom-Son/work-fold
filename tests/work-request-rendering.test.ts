@@ -104,3 +104,26 @@ test("a question's choices render as buttons on the desktop and in the paired br
     else delete (globalThis as { document?: unknown }).document;
   }
 });
+
+test("the checklist an agent keeps shows on the desktop and in the paired browser", () => {
+  const working = { ...view(), state: "working" as const, label: "Working", questions: [], questionCount: 0, children: [],
+    checklist: [{ text: "Read the quotes", status: "done" as const }, { text: "Compare <totals>", status: "doing" as const }, { text: "Write the summary", status: "todo" as const }] };
+  const html = renderToStaticMarkup(React.createElement(WorkRequest, { work: working, error: null, busy: false, act: async () => true, refresh: async () => {} }));
+  assert.match(html, /aria-label="Checklist, 1 of 3 done"/);
+  assert.match(html, /class="work-checklist-item is-done"/);
+  assert.match(html, /Compare &lt;totals&gt;/);
+  assert.match(html, /\(in progress\)/);
+  const dom = new JSDOM('<div id="work"></div>', { url: "https://example.test" });
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { value: dom.window.document, configurable: true });
+  try {
+    const container = dom.window.document.getElementById("work")!;
+    renderWorkRequest(container, working, { act: async () => ({ work: working }) });
+    const rows = [...container.querySelectorAll(".work-checklist li")].map((row) => row.className);
+    assert.deepEqual(rows, ["work-checklist-item is-done", "work-checklist-item is-doing", "work-checklist-item is-todo"]);
+    assert.equal(container.querySelector(".work-checklist")?.getAttribute("aria-label"), "Checklist, 1 of 3 done");
+  } finally {
+    if (prior) Object.defineProperty(globalThis, "document", prior);
+    else delete (globalThis as { document?: unknown }).document;
+  }
+});

@@ -61,6 +61,7 @@ import type { RestrictedAppJsonSchema } from "../agent/restricted-app-manifest.j
 import {
   computeWorkFoldRequestState,
   isWorkFoldRequestTerminalState,
+  parseWorkFoldChecklistItems,
   parseWorkFoldQuestionRecord,
   parseWorkFoldRequestRecord,
   parseWorkFoldResultEnvelope,
@@ -72,6 +73,7 @@ import {
   workFoldRequestRecordSchema,
   workFoldResultIdPattern,
   workFoldResultRecordSchema,
+  type WorkFoldChecklist,
   type WorkFoldQuestionRecord,
   type WorkFoldRequestAction,
   type WorkFoldRequestAppRef,
@@ -566,6 +568,25 @@ export class WorkFoldRequestStore {
   }
 
   /** A turn in the job's Chat read its end, or saw it in its turn context (F32). */
+  /**
+   * Replaces the checklist the running turn keeps for its request
+   * (2026-10-18). Only that request's newest running turn may change it; an
+   * empty list clears it.
+   */
+  setChecklist(taskId: string, items: unknown): Promise<WorkFoldChecklist | null> {
+    return this.#run(async () => {
+      const record = this.#requireByTask(taskId);
+      if (record.turns.at(-1)?.taskId !== taskId || !this.isAccepting(taskId)) {
+        throw new WorkFoldRequestLineageError("Only the turn that is running now can change its request's checklist.");
+      }
+      const parsed = parseWorkFoldChecklistItems(items);
+      const checklist: WorkFoldChecklist | null = parsed.length ? { items: parsed, updatedAt: this.#now().toISOString(), taskId } : null;
+      const { checklist: _previous, ...rest } = this.#records.get(record.requestId) ?? record;
+      await this.#writeRequest(checklist ? { ...rest, checklist } : rest);
+      return checklist ? { ...checklist, items: checklist.items.map((item) => ({ ...item })) } : null;
+    });
+  }
+
   noteJobDelivery(requestId: string, jobIds: readonly string[]): Promise<void> {
     return this.#run(async () => {
       const record = this.#records.get(requestId);

@@ -167,6 +167,8 @@ export type WorkFoldRequestLimitName =
   | "questionOptions"
   | "questionOptionText"
   | "answerText"
+  | "checklistItems"
+  | "checklistItemText"
   | "resultSummary"
   | "resultData"
   | "resultFiles"
@@ -174,6 +176,20 @@ export type WorkFoldRequestLimitName =
   | "resultsPerRequest"
   | "turnsPerRequest"
   | "actionsPerRequest";
+
+export type WorkFoldChecklistItemStatus = "todo" | "doing" | "done";
+
+export interface WorkFoldChecklistItem {
+  text: string;
+  status: WorkFoldChecklistItemStatus;
+}
+
+export interface WorkFoldChecklist {
+  items: WorkFoldChecklistItem[];
+  updatedAt: string;
+  /** The turn that last changed it. */
+  taskId: string;
+}
 
 export interface WorkFoldRequestLimitHit {
   limit: WorkFoldRequestLimitName;
@@ -335,6 +351,12 @@ export interface WorkFoldRequestRecord {
   jobs?: WorkFoldRequestJobRef[];
   /** Finished jobs whose end already reached the Chat, by any path (F32). */
   deliveredJobIds?: string[];
+  /**
+   * The checklist the agent keeps for this request (2026-10-18): what it
+   * plans to do and how far it got. The host keeps it, shows it to the
+   * person, and hands it back to every later turn of the request.
+   */
+  checklist?: WorkFoldChecklist;
   continuationState: "pending" | "failed" | null;
   stopRequestedAt: string | null;
   limitHit: WorkFoldRequestLimitHit | null;
@@ -462,6 +484,10 @@ export function workFoldRequestLimitMessage(limit: WorkFoldRequestLimitName, cap
       return `Each choice may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "answerText":
       return `An answer may be at most ${kilobytes(cap)} of text. ${shows}`;
+    case "checklistItems":
+      return `A checklist may hold at most ${cap} items. ${shows}`;
+    case "checklistItemText":
+      return `Each checklist item may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "resultSummary":
       return `A result summary may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "resultData":
@@ -802,7 +828,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       "createdAt", "updatedAt", "settledAt", "deadline", "state", "turns", "childRequestIds", "questionIds", "results",
       "usage", "continuationCount", "stopRequestedAt", "limitHit", "reconciledAt", "remote", "content", "attachments",
       "actions", "continuedFromTaskId", "assignment", "deliveredChildTaskIds", "continuationState",
-      "jobs", "deliveredJobIds",
+      "jobs", "deliveredJobIds", "checklist",
     ],
     label,
   );
@@ -889,6 +915,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
     if (!Array.isArray(record.jobs)) throw new Error(`${label} background jobs are invalid.`);
     parsed.jobs = record.jobs.map(parseJobRef);
   }
+  if (record.checklist !== undefined) parsed.checklist = parseWorkFoldChecklist(record.checklist);
   if (record.deliveredJobIds !== undefined) {
     parsed.deliveredJobIds = stringArray(record.deliveredJobIds, `${label} delivered background jobs`).map((id) => {
       if (!workFoldJobRefIdPattern.test(id)) throw new Error(`${label} delivered background job id is invalid.`);
@@ -979,6 +1006,29 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     answeredByWorkFolderId: record.answeredByWorkFolderId === null || record.answeredByWorkFolderId === undefined
       ? null
       : stableId(record.answeredByWorkFolderId, `${label} answering work-folder id`),
+  };
+}
+
+/** A request's checklist items: non-empty one-line text with a status. An empty list clears it. */
+export function parseWorkFoldChecklistItems(value: unknown): WorkFoldChecklistItem[] {
+  if (!Array.isArray(value)) throw new Error("A checklist must be a list of items.");
+  if (value.length > workFoldRequestLimits.maxChecklistItems) throw workFoldRequestLimitError("checklistItems", workFoldRequestLimits.maxChecklistItems);
+  return value.map((raw) => {
+    const item = objectValue(raw, "A checklist item");
+    assertClosedShape(item, ["text", "status"], "A checklist item");
+    const text = boundedText(item.text, "A checklist item", workFoldRequestLimits.maxChecklistItemBytes, "checklistItemText").replace(/\s+/g, " ").trim();
+    if (!text) throw new Error("A checklist item cannot be empty.");
+    return { text, status: enumValue(item.status, ["todo", "doing", "done"] as const, "A checklist item's status") };
+  });
+}
+
+function parseWorkFoldChecklist(value: unknown): WorkFoldChecklist {
+  const checklist = objectValue(value, "Request checklist");
+  assertClosedShape(checklist, ["items", "updatedAt", "taskId"], "Request checklist");
+  return {
+    items: parseWorkFoldChecklistItems(checklist.items),
+    updatedAt: isoDate(checklist.updatedAt, "Request checklist time"),
+    taskId: stableId(checklist.taskId, "Request checklist task id"),
   };
 }
 

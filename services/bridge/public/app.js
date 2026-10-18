@@ -252,7 +252,7 @@ function bootFixture(name) {
     ] };
   }
   const workFixture = new URL(location.href).searchParams.get("work");
-  if (["question", "saved-answer", "partial", "interrupted"].includes(workFixture)) {
+  if (["question", "saved-answer", "partial", "interrupted", "working"].includes(workFixture)) {
     state.work = buildWorkFixture(state.selectedConversationId, workFixture);
     state.activeTasks.clear(); state.liveAssistantText = ""; state.liveActivity = "";
     state.conversations = state.conversations.map((chat) => chat.id === state.selectedConversationId ? { ...chat, title: "Kitchen budget", state: "idle" } : chat);

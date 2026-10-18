@@ -947,3 +947,17 @@ test("a question record keeps its choices, and records written before choices ex
   assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: ["Line one\nline two"] }), /one line/);
   assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: Array.from({ length: workFoldRequestLimits.maxQuestionOptions + 1 }, (_, index) => `Choice ${index}`) }), /at most 64 choices/);
 });
+
+test("only the running turn changes its request's checklist, an empty list clears it, and it survives a restart", async (t) => {
+  const root = await temporaryRoot(t);
+  const store = await WorkFoldRequestStore.open({ rootPath: root });
+  await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-checklist", content: "Plan the budget." });
+  await store.markTurnRunning("task-checklist");
+  await assert.rejects(store.setChecklist("task-other", [{ text: "Read the quotes", status: "doing" }]));
+  const saved = await store.setChecklist("task-checklist", [{ text: "Read the quotes", status: "doing" }]);
+  assert.deepEqual(saved?.items, [{ text: "Read the quotes", status: "doing" }]);
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root });
+  assert.deepEqual(reopened.byTaskId("task-checklist")?.checklist?.items, [{ text: "Read the quotes", status: "doing" }]);
+  assert.equal(await store.setChecklist("task-checklist", []), null);
+  assert.equal(store.byTaskId("task-checklist")?.checklist, undefined);
+});

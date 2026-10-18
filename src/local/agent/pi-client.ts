@@ -63,6 +63,7 @@ import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifes
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
+import { createChecklistTool, describeChecklist, type ChecklistToolHost } from "./checklist-tool.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -169,6 +170,8 @@ export interface PiTurnContext {
    * ones, and ones that finished since its last turn and are delivered here.
    */
   backgroundJobs?: Array<{ jobId: string; name: string; status: string; finished: boolean }>;
+  /** The checklist this request already keeps, handed back at the start of a later turn. */
+  checklist?: Array<{ text: string; status: "todo" | "doing" | "done" }>;
   /** The host's clock, time zone, and platform; `prompt` reads them when a turn starts. */
   environment?: PiTurnEnvironment;
 }
@@ -184,6 +187,8 @@ export interface PiConversationClientOptions {
   imageStore?: GeneratedImageSink;
   /** The job service behind job_start, job_output, and job_stop for this Chat (docs/background-jobs.md). */
   backgroundJobs?: BackgroundJobToolHost;
+  /** Where the `checklist` tool keeps its request's checklist (2026-10-18). */
+  checklist?: ChecklistToolHost;
 }
 
 export interface PiConversationState {
@@ -774,6 +779,11 @@ export class PiConversationClient extends EventEmitter {
           ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
           ...(this.options.imageStore ? { store: this.options.imageStore } : {}),
         }),
+        // Every session can keep a visible checklist for a multi-step request.
+        ...(this.options.checklist ? [createChecklistTool({
+          host: this.options.checklist,
+          taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
+        })] : []),
         // Every session can run long commands in the background and be woken when they end.
         ...(this.options.backgroundJobs ? createBackgroundJobTools({
           root: options.cwd,
@@ -1887,6 +1897,13 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       context.backgroundJobs.some((job) => job.finished)
         ? "Read a finished job with job_output when it bears on this request, and mention its outcome; work-fold will not report it again. Stop running ones with job_stop when they are no longer needed."
         : "Read them with job_output and stop them with job_stop when they are no longer needed.",
+    );
+  }
+  if (context.checklist?.length) {
+    lines.push(
+      "Your checklist for this request so far (host-kept; [x] done, [~] doing, [ ] to do):",
+      describeChecklist(context.checklist),
+      "Carry on from it, and update it with the checklist tool as the plan or progress changes.",
     );
   }
   if (context.attachedLinks?.length) {

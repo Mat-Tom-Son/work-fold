@@ -104,7 +104,7 @@ long-running work to this contract without a new lifecycle:
 - **Output stays machine-local.** Only what a turn reads or the follow-up
   carries enters a Chat.
 
-### 2026-10-18 amendment: follow up, redirect, copy
+### 2026-10-18 amendment: follow up, redirect, copy, checklist
 
 A gap review against other agent harnesses found that delegated work could
 start and finish but not be continued, corrected, or branched. Three verbs
@@ -130,6 +130,14 @@ graph, receipts, and Stop above.
   same context; that work is a child of its request and reports back like a
   handoff. This is a host-owned copy, not Pi's session switching, which stays
   unavailable.
+
+- **Checklist.** A Worker or the work-fold agent can keep a short
+  checklist for its request with the `checklist` tool, sending the whole
+  list each time. The host keeps it on the request record, shows it in the
+  Chat's work view and the paired browser, and hands it back at the start of
+  every later turn of that request: an answer's continuation, a follow-up
+  that brings results back. Only the request's running turn can change it.
+  An empty list clears it. It holds at most 200 one-line items of 2 KiB.
 
 "Handed work to" is a host check: some request in the target Chat has a
 parent request owned by the caller's Chat. Nothing else about other Chats
@@ -232,7 +240,8 @@ request but never replays subsequent automation effects.
   turn ids, continuation reservation state, owner scope (management, or work-folder id plus
   conversation id), app installation when applicable, surface, created at,
   state (`working`, `waiting`, `handed_off`, `done`, `partial`, `failed`,
-  `stopped`), children, questions, results, and usage.
+  `stopped`), children, questions, results, usage, and the optional
+  checklist its running turn keeps.
 - **Question:** id, request id, task id, respondent (`person` or `parent`),
   text (at most 4 MiB), optional suggested choices, asked at, state (`open`, `answered`,
   `cancelled`), answer and answered at, continuation task id.
