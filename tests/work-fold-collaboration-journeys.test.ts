@@ -445,8 +445,12 @@ test("journey: the work-fold agent delegates to a work-folder, the work-folder a
     const continuation = j.api.requests.get(rootRequestId)!;
     assert.equal(continuation.continuationCount, 2);
     assert.equal(continuation.turns[2]!.role, "continuation");
-    const brought = (await workFoldAgentTranscript(j.api, root.conversationId))
+    // The request records the follow-up turn a moment before its message
+    // reaches the transcript, so wait for the message itself.
+    const followUpMessages = async () => (await workFoldAgentTranscript(j.api, root.conversationId))
       .filter((message) => message.role === "user" && message.requestId === `continuation-${rootRequestId}-2`);
+    await waitFor(async () => (await followUpMessages()).length > 0, "the follow-up message in the work-fold agent's transcript");
+    const brought = await followUpMessages();
     assert.equal(brought.length, 1, "one continuation turn for the whole settle batch");
     assert.match(brought[0]!.content, /Nobody typed this message/);
     assert.match(brought[0]!.content, /succeeded: North is cheaper by \$8\./);
