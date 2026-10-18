@@ -15,4 +15,11 @@ export interface IncludedToolStatus {
   id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; stale?: boolean; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary;
   /** Chrome setup only (2026-10-11): whether Chrome is installed and the extension has reached work-fold. Never read from a Chrome profile. */
   chromeSetup?: { browserInstalled: boolean; extensionSeen: boolean };
+  /** Documents setup only (2026-10-18): the installed programs that let a Worker check its documents. */
+  documentsSetup?: DocumentsSetup;
 }
+
+/** One optional checking program. `version` and `problem` come only from an explicit Check of this exact path. */
+export interface DocumentEngineSetup { found: boolean; path?: string; version?: string; problem?: string }
+/** `quicklook` is macOS's built-in previewer (2026-10-18): nothing to install, so Set up never lists it. */
+export interface DocumentsSetup { platform: string; homebrew: boolean; libreoffice: DocumentEngineSetup; tesseract: DocumentEngineSetup; quicklook?: DocumentEngineSetup }

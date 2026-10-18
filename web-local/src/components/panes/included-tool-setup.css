@@ -50,3 +50,9 @@
 .setup-steps li .ui-control { margin-top: 6px; }
 .setup-step-mark { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--ui-border-strong); color: var(--ui-text-muted); font-size: 0.8rem; font-weight: 700; }
 .setup-steps li.done .setup-step-mark { color: var(--ui-surface); background: var(--ui-success); border-color: var(--ui-success); }
+
+/* Documents: the programs that let a Worker check its documents (2026-10-18). */
+.setup-checklist .setup-checklist-state.problem { color: var(--ui-attention); }
+.setup-command { display: grid; gap: 4px; margin-top: 8px; font-size: 0.86rem; }
+.setup-command-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.setup-command code { min-width: 0; overflow-wrap: anywhere; padding: 3px 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-subtle); color: var(--ui-text); font-family: var(--work-fold-monospace-font, monospace); font-size: 0.82rem; font-variant-ligatures: none; }

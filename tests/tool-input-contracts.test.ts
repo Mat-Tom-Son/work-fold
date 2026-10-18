@@ -33,7 +33,7 @@ test("native validation enforces each document operation before engine execution
   assert.ok(tool.parameters.properties.input.anyOf.every((branch: any) => branch.type === "object"));
   assert.throws(() => validateToolArguments(tool, { name: tool.name, id: "flat", type: "toolCall", arguments: { operation: "status" } }), /input/);
   assert.deepEqual(validate(tool, { operation: "status" }), { operation: "status" });
-  for (const operation of ["render", "recalculate", "ocr"]) {
+  for (const operation of ["render", "recalculate", "ocr", "preview"]) {
     assert.throws(() => validate(tool, { operation, output: "out.txt" }), /source/);
     assert.throws(() => validate(tool, { operation, source: "input.png" }), /output/);
     assert.throws(() => validate(tool, { operation, source: "", output: "out.txt" }), /Validation failed/);

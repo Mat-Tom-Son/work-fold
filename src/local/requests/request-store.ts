@@ -61,6 +61,7 @@ import type { RestrictedAppJsonSchema } from "../agent/restricted-app-manifest.j
 import {
   computeWorkFoldRequestState,
   isWorkFoldRequestTerminalState,
+  parseWorkFoldChecklistItems,
   parseWorkFoldQuestionRecord,
   parseWorkFoldRequestRecord,
   parseWorkFoldResultEnvelope,
@@ -72,9 +73,12 @@ import {
   workFoldRequestRecordSchema,
   workFoldResultIdPattern,
   workFoldResultRecordSchema,
+  type WorkFoldChecklist,
   type WorkFoldQuestionRecord,
   type WorkFoldRequestAction,
   type WorkFoldRequestAppRef,
+  type WorkFoldRequestJobRef,
+  type WorkFoldRequestJobState,
   type WorkFoldRequestKind,
   type WorkFoldRequestOwner,
   type WorkFoldRequestRecord,
@@ -142,6 +146,7 @@ export class WorkFoldRequestStore {
   /** Records the read cache dropped; still on record, still subject only to retention. */
   readonly #trimmed = new Map<string, TrimmedRequestRef>();
   readonly #byTask = new Map<string, string>();
+  readonly #byJob = new Map<string, string>();
   readonly #questions = new Map<string, WorkFoldQuestionRecord>();
   readonly #resultOwner = new Map<string, string>();
   #settings: RequestSettingsFile;
@@ -180,6 +185,12 @@ export class WorkFoldRequestStore {
 
   byTaskId(taskId: string): WorkFoldRequestRecord | null {
     const requestId = this.#byTask.get(taskId);
+    return requestId ? this.get(requestId) : null;
+  }
+
+  /** The request a background job belongs to (F31). */
+  byJobId(jobId: string): WorkFoldRequestRecord | null {
+    const requestId = this.#byJob.get(jobId);
     return requestId ? this.get(requestId) : null;
   }
 
@@ -511,6 +522,82 @@ export class WorkFoldRequestStore {
     });
   }
 
+  // --- background jobs (docs/background-jobs.md, F31–F32) ------------------
+
+  /**
+   * Attaches a job to the request whose turn started it, before its process
+   * starts. A stopped request refuses, so no job outlives a Stop.
+   */
+  noteJobStarted(input: { taskId: string; jobId: string; name: string; startedAt?: string }): Promise<WorkFoldRequestRecord> {
+    return this.#run(async () => {
+      const existing = this.#byJob.get(input.jobId);
+      if (existing) return copyRecord(this.#records.get(existing)!);
+      const record = this.#requireByTask(input.taskId);
+      this.assertCanContinue(record.requestId);
+      const ref: WorkFoldRequestJobRef = {
+        jobId: input.jobId,
+        taskId: input.taskId,
+        name: input.name,
+        state: "running",
+        startedAt: input.startedAt ?? this.#now().toISOString(),
+        settledAt: null,
+        exitCode: null,
+      };
+      await this.#writeRequest({ ...record, jobs: [...(record.jobs ?? []), ref], settledAt: null });
+      await this.#recomputeFrom(record.requestId);
+      return copyRecord(this.#records.get(record.requestId)!);
+    });
+  }
+
+  /** Records a job's end on its request. The first end stands. */
+  settleJob(jobId: string, input: { state: Exclude<WorkFoldRequestJobState, "running">; exitCode: number | null; settledAt?: string }): Promise<WorkFoldRequestRecord | null> {
+    return this.#run(async () => {
+      const requestId = this.#byJob.get(jobId);
+      const record = requestId ? this.#records.get(requestId) : undefined;
+      if (!record) return null;
+      const jobs = (record.jobs ?? []).map((job) => job.jobId !== jobId || job.state !== "running" ? job : {
+        ...job,
+        state: input.state,
+        exitCode: input.exitCode,
+        settledAt: input.settledAt ?? this.#now().toISOString(),
+      });
+      await this.#writeRequest({ ...record, jobs });
+      await this.#recomputeFrom(record.requestId);
+      return copyRecord(this.#records.get(record.requestId)!);
+    });
+  }
+
+  /** A turn in the job's Chat read its end, or saw it in its turn context (F32). */
+  /**
+   * Replaces the checklist the running turn keeps for its request
+   * (2026-10-18). Only that request's newest running turn may change it; an
+   * empty list clears it.
+   */
+  setChecklist(taskId: string, items: unknown): Promise<WorkFoldChecklist | null> {
+    return this.#run(async () => {
+      const record = this.#requireByTask(taskId);
+      if (record.turns.at(-1)?.taskId !== taskId || !this.isAccepting(taskId)) {
+        throw new WorkFoldRequestLineageError("Only the turn that is running now can change its request's checklist.");
+      }
+      const parsed = parseWorkFoldChecklistItems(items);
+      const checklist: WorkFoldChecklist | null = parsed.length ? { items: parsed, updatedAt: this.#now().toISOString(), taskId } : null;
+      const { checklist: _previous, ...rest } = this.#records.get(record.requestId) ?? record;
+      await this.#writeRequest(checklist ? { ...rest, checklist } : rest);
+      return checklist ? { ...checklist, items: checklist.items.map((item) => ({ ...item })) } : null;
+    });
+  }
+
+  noteJobDelivery(requestId: string, jobIds: readonly string[]): Promise<void> {
+    return this.#run(async () => {
+      const record = this.#records.get(requestId);
+      if (!record) return;
+      const delivered = new Set(record.deliveredJobIds ?? []);
+      const fresh = jobIds.filter((id) => !delivered.has(id) && (record.jobs ?? []).some((job) => job.jobId === id));
+      if (!fresh.length) return;
+      await this.#writeRequest({ ...record, deliveredJobIds: [...delivered, ...fresh] });
+    });
+  }
+
   // --- the action trail --------------------------------------------------
 
   /**
@@ -536,6 +623,8 @@ export class WorkFoldRequestStore {
     taskId: string;
     respondent: "person" | "parent";
     text: string;
+    /** Suggested answers shown as choices; a free-text answer is still accepted. */
+    options?: readonly string[];
   }): Promise<WorkFoldQuestionRecord> {
     return this.#run(async () => {
       const record = this.#requireRecord(input.requestId);
@@ -554,6 +643,7 @@ export class WorkFoldRequestStore {
         taskId: input.taskId,
         respondent: input.respondent,
         text: input.text,
+        ...(input.options?.length ? { options: [...input.options] } : {}),
         askedAt: at,
         updatedAt: at,
         expiresAt: record.deadline,
@@ -717,23 +807,31 @@ export class WorkFoldRequestStore {
    * Counts one follow-up turn against a root. Past the bound the settle is
    * still recorded — it is simply not narrated by another turn (F28).
    */
-  noteContinuation(requestId: string, childTaskIds: string[] = []): Promise<{ allowed: boolean; count: number }> {
+  noteContinuation(requestId: string, childTaskIds: string[] = [], jobIds: string[] = []): Promise<{ allowed: boolean; count: number }> {
     return this.#run(async () => {
       const record = this.#requireRecord(requestId);
       const root = this.#requireRecord(record.rootId);
       this.assertCanContinue(requestId);
-      if (childTaskIds.length > 0 && childTaskIds.every((id) => record.deliveredChildTaskIds.includes(id))) {
+      const deliveredJobs = record.deliveredJobIds ?? [];
+      if ((childTaskIds.length > 0 || jobIds.length > 0)
+        && childTaskIds.every((id) => record.deliveredChildTaskIds.includes(id))
+        && jobIds.every((id) => deliveredJobs.includes(id))) {
         return { allowed: false, count: root.continuationCount };
+      }
+      for (const id of jobIds) {
+        if (!(record.jobs ?? []).some((job) => job.jobId === id)) throw new WorkFoldRequestLineageError("A continuation can receive only its own background jobs.");
       }
       for (const id of childTaskIds) {
         if (this.#requireByTask(id).parentRequestId !== requestId) throw new WorkFoldRequestLineageError("A continuation can receive only its own children's results.");
       }
       const count = root.continuationCount + 1;
       await this.#writeRequest({ ...root, continuationCount: count });
-      if (childTaskIds.length) {
+      if (childTaskIds.length || jobIds.length) {
+        const current = this.#requireRecord(requestId);
         await this.#writeRequest({
-          ...this.#requireRecord(requestId),
-          deliveredChildTaskIds: this.#childDeliveryIds(record, childTaskIds),
+          ...current,
+          deliveredChildTaskIds: childTaskIds.length ? this.#childDeliveryIds(record, childTaskIds) : current.deliveredChildTaskIds,
+          ...(jobIds.length ? { deliveredJobIds: [...new Set([...deliveredJobs, ...jobIds])] } : {}),
           continuationState: "pending",
         });
         await this.#recomputeFrom(requestId);
@@ -807,7 +905,14 @@ export class WorkFoldRequestStore {
             error: recovered?.error ?? (recovered ? turn.error : interruptedByShutdown),
           };
         });
+        // Nothing runs across a restart: a job still recorded running was
+        // interrupted, and the job journal says the same (F31).
+        const jobs = record.jobs?.map((job) => job.state !== "running" ? job : {
+          ...job, state: "interrupted" as const, settledAt: now.toISOString(),
+        });
+        settled += (record.jobs ?? []).filter((job) => job.state === "running").length;
         await this.#writeRequest({ ...record, turns, usage, reconciledAt: now.toISOString(),
+          ...(jobs ? { jobs } : {}),
           continuationState: record.continuationState === "pending" ? "failed" : record.continuationState });
         await this.#expireQuestionsDue(record.requestId, now);
         await this.#recomputeFrom(record.requestId, now);
@@ -878,6 +983,7 @@ export class WorkFoldRequestStore {
         if (record) {
           for (const ref of record.results) this.#resultOwner.delete(ref.resultId);
           for (const turn of record.turns) this.#byTask.delete(turn.taskId);
+          for (const job of record.jobs ?? []) this.#byJob.delete(job.jobId);
         }
         await rm(join(this.rootPath, "results", member.requestId), { recursive: true, force: true }).catch(() => undefined);
         this.#records.delete(member.requestId);
@@ -1073,6 +1179,7 @@ export class WorkFoldRequestStore {
       childStates: record.childRequestIds.map((id) => this.#records.get(id)?.state ?? null),
       resultOutcomes: record.results.filter((ref) => ref.taskId === record.turns.at(-1)!.taskId).slice(-1).map((ref) => ref.outcome),
       limitHit: record.limitHit,
+      jobStates: (record.jobs ?? []).map((job) => job.state),
     });
     const terminal = isWorkFoldRequestTerminalState(state);
     return {
@@ -1189,6 +1296,7 @@ export class WorkFoldRequestStore {
     this.#records.set(record.requestId, record);
     for (const turn of record.turns) this.#byTask.set(turn.taskId, record.requestId);
     for (const ref of record.results) this.#resultOwner.set(ref.resultId, record.requestId);
+    for (const job of record.jobs ?? []) this.#byJob.set(job.jobId, record.requestId);
   }
 
   async #load(): Promise<void> {
@@ -1278,6 +1386,7 @@ export class WorkFoldRequestStore {
     for (const record of records.slice(0, Math.max(0, this.#records.size - this.#maxRecords))) {
       for (const turn of record.turns) this.#byTask.delete(turn.taskId);
       for (const ref of record.results) this.#resultOwner.delete(ref.resultId);
+      for (const job of record.jobs ?? []) this.#byJob.delete(job.jobId);
       this.#records.delete(record.requestId);
       this.#trimmed.set(record.requestId, {
         requestId: record.requestId,

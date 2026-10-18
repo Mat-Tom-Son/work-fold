@@ -85,6 +85,75 @@ request by owner.
   rules, and docs section stay as Pi renders them, the transcript keeps Pi's
   recorded sections, and a person's own `SYSTEM.md` is left as written.
 
+### 2026-10-18 amendment: background jobs
+
+[Background jobs](background-jobs.md) (F31–F33) add a request's own
+long-running work to this contract without a new lifecycle:
+
+- **A job is outstanding work of its request.** A shell command a running
+  Worker or work-fold agent turn starts with `job_start` or `jobs start`
+  joins that turn's request, which reads `working` while it runs (state rule
+  6) and `failed` if a restart interrupted it (rule 9). Stop on the request,
+  or any ancestor, stops it; settled deletion waits for it.
+- **A finished job continues its request once (F28).** Its end is delivered
+  by a read in its Chat, by the next turn's context, or by one host follow-up
+  joined to its request, carrying the exit status, History coverage, and the
+  end of the output. Delivery is recorded by job id. A finished job does not
+  wait for delegated children, and the Limits switch, Stop fences, and
+  "restart never replays" apply unchanged.
+- **Output stays machine-local.** Only what a turn reads or the follow-up
+  carries enters a Chat.
+
+### 2026-10-18 amendment: follow up, redirect, copy, checklist, compaction
+
+A gap review against other agent harnesses found that delegated work could
+start and finish but not be continued, corrected, or branched. Three verbs
+close that without a second delegation system; each reuses the request
+graph, receipts, and Stop above.
+
+- **Follow up.** `chat handoff --to-conversation <id>` sends the next
+  message into a Chat the caller's Chat already handed work to, so that
+  Worker keeps its context. It becomes a new child of the caller's request,
+  and it is refused while that Chat is working. The work-fold agent already
+  follows up with `chat send --conversation`.
+- **Redirect.** `chat steer --conversation <id> --message <text>` adds one
+  message to a Chat's running turn, delivered after its current step through
+  the same steering path the desktop uses. With `--task`, a Worker can steer
+  only a Chat its own Chat handed work to; an idle Chat is refused by name.
+- **Copy.** `chat copy --conversation <id>` (and **Make a Copy** in a Chat's
+  menu) creates a new Chat in the same work-folder with that Chat's visible
+  transcript and Pi session as of its last finished reply. A turn still
+  running is left out, so the copy never inherits an unanswered tool call.
+  Copied messages get new ids and no turn or request identity, and the
+  original is never written. With `--task` and `--message`, a Worker copies
+  its own Chat, or one it handed work to, to try another direction with the
+  same context; that work is a child of its request and reports back like a
+  handoff. This is a host-owned copy, not Pi's session switching, which stays
+  unavailable.
+
+- **Checklist.** A Worker or the work-fold agent can keep a short
+  checklist for its request with the `checklist` tool, sending the whole
+  list each time. The host keeps it on the request record, shows it in the
+  Chat's work view and the paired browser, and hands it back at the start of
+  every later turn of that request: an answer's continuation, a follow-up
+  that brings results back. When a long turn is compacted partway through,
+  the host restates the checklist as it stands together with the turn's ids
+  (below). Only the request's running turn can change it.
+  An empty list clears it. It holds at most 200 one-line items of 2 KiB.
+
+- **Through compaction.** When Pi compacts in the middle of a long turn, the
+  turn's hidden context can be folded into the summary. Measured runs then
+  reported under the wrong task id and narrowed the work. A request-local
+  note after the summary now restates the turn's exact ids, the person's
+  request when it is no longer visible, and the checklist, and asks the agent
+  to re-check its answer against the sources. Nothing is written to the
+  session (docs/archive/helper-tool-experiment.md).
+
+"Handed work to" is a host check: some request in the target Chat has a
+parent request owned by the caller's Chat. Nothing else about other Chats
+is revealed, and the person's own CLI use, which carries no `--task`, is
+unchanged.
+
 ## Verbs
 
 All are act-lane and receipted; `chat` verbs name a work-folder and `agent` verbs own management questions. They are available to the work-fold agent, a work-folder
@@ -93,11 +162,13 @@ collaborate` documents them with examples that the tests validate.
 
 ```
 work-fold chat report  --work-folder <id> --task <own-task-id> --summary "<text>" [--data <json-or-@file>] [--file <work-folder-path>]... [--outcome succeeded|partial|failed] --json
-work-fold chat ask     --work-folder <id> --task <own-task-id> --question "<text>" [--to person|parent] --json
+work-fold chat ask     --work-folder <id> --task <own-task-id> --question "<text>" [--option "<choice>"]... [--to person|parent] --json
 work-fold chat answer  --work-folder <id> --question <id> --answer "<text>" [--parent-task <id>] --json
-work-fold chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id> --message "<text>" [--file <work-folder-path>]... --json
+work-fold chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id> [--to-conversation <id>] --message "<text>" [--file <work-folder-path>]... --json
+work-fold chat steer   --work-folder <id> --conversation <id> [--task <own-task-id>] --message "<text>" --json
+work-fold chat copy    --work-folder <id> --conversation <id> [--task <own-task-id>] [--message "<text>"] [--title "<title>"] --json
 work-fold chat wait    --work-folder <id> --task <id> [--timeout <s>] --json     # settles on terminal OR waiting
-work-fold agent ask   --task <own-task-id> --question "<text>" --json
+work-fold agent ask   --task <own-task-id> --question "<text>" [--option "<choice>"]... --json
 work-fold agent answer --question <id> --answer "<text>" --json
 work-fold agent wait  --task <id> [--timeout <s>] --json                  # same
 work-fold requests list|show --request <id> --json                          # management-scope reads of the request graph
@@ -105,6 +176,11 @@ work-fold requests list|show --request <id> --json                          # ma
 
 - A task id in `--task` must belong to the caller's own turn; the host
   validates it the way `--parent-task` is validated today.
+- `--option` (repeatable, 2026-10-18) offers suggested answers. Trusted
+  surfaces show them as buttons beside the answer box; a click sends that
+  choice's text through the same one-answer path, and a typed answer is still
+  accepted. A question offers at most 64 choices of at most 4 KiB each, one
+  line, none repeated.
 - `chat ask --to parent` on a root request with no parent is delivered to the
   person. `--to person` is the default.
 - `chat answer` refuses a second answer, an answer after Stop,
@@ -116,7 +192,10 @@ work-fold requests list|show --request <id> --json                          # ma
   acceptance path, links it as a child of the caller's root request, and the
   destination's report flows back to that root.
 - Delivery of a report to a parent whose turn is still running is available
-  to that turn through `chat wait`; a parent whose turn has ended sees it in
+  to that turn through `chat wait`. Reading a child's settled result with
+  `chat result` or `agent result` while the parent's turn runs, which is how
+  `chat wait` ends, records that child turn as delivered, so no follow-up
+  turn repeats it (2026-10-18). A parent whose turn has ended sees it in
   `agent status`, `requests show`, the overview, and the continuation turn.
 
 ## Completion, delivery and recovery
@@ -132,7 +211,7 @@ work-folder continuation rebuilds its assignment and delegated handle from that
 record. Selected direct-child reports may be admitted into a new turn's hidden
 context; their delivery identities are recorded. Otherwise an idle owner can
 receive one synthesis turn. Children finishing before their parent
-ends are eligible too. Nested owners synthesize before their own parent wakes.
+ends are eligible too, unless the parent already read that result mid-turn. Nested owners synthesize before their own parent wakes.
 When compaction holds an otherwise idle owner, both successful and failed
 compaction cleanup reevaluate its pending child deliveries. This releases
 only results settled during the current app run; restart never replays them.
@@ -174,9 +253,10 @@ request but never replays subsequent automation effects.
   turn ids, continuation reservation state, owner scope (management, or work-folder id plus
   conversation id), app installation when applicable, surface, created at,
   state (`working`, `waiting`, `handed_off`, `done`, `partial`, `failed`,
-  `stopped`), children, questions, results, and usage.
+  `stopped`), children, questions, results, usage, and the optional
+  checklist its running turn keeps.
 - **Question:** id, request id, task id, respondent (`person` or `parent`),
-  text (at most 4 MiB), asked at, state (`open`, `answered`,
+  text (at most 4 MiB), optional suggested choices, asked at, state (`open`, `answered`,
   `cancelled`), answer and answered at, continuation task id.
 - **Result:** the envelope above plus task id, recorded at, and receipt id.
 - Records are machine-local under the state root. Only the assignment text,
@@ -196,6 +276,7 @@ guards sized so ordinary work never meets them (2026-10-10).
 | Bound | Value | On hit |
 |---|---|---|
 | Question text | 4 MiB | the write is refused before it is recorded |
+| Question choices | 64 choices, 4 KiB each | the write is refused before it is recorded |
 | Answer text | 4 MiB | the write is refused before it is recorded |
 | Result summary | 4 MiB | the write is refused before it is recorded |
 | Result data | 16 MiB | the write is refused before it is recorded |

@@ -24,6 +24,10 @@
  *   --agent-dir <path>      Isolated Pi SDK config dir so
  *                           test runs never share state with the desktop app.
  *   --timeout <seconds>     Max wait for turn completion (default: 900).
+ *   --follow-ups <n>        After the turn, keep the API running and wait for n
+ *                           more turns work-fold itself starts in the same Chat
+ *                           (a background job's wake-up, a delegated result),
+ *                           within the same --timeout; each is reported.
  *   --json                  Emit a machine-readable JSON report on stdout.
  *   --quiet                 Suppress live event narration on stderr.
  *
@@ -49,6 +53,7 @@ interface DriveArgs {
   port?: number;
   agentDir?: string;
   timeoutSeconds: number;
+  followUps: number;
   json: boolean;
   quiet: boolean;
 }
@@ -85,6 +90,8 @@ interface TurnReport {
   prompt: string;
   assistantText: string;
   toolCalls: ToolCallSummary[];
+  /** Turns work-fold started in this Chat after the first, with the message that started each. */
+  followUps: Array<{ trigger: string; assistantText: string }>;
   statusMessages: string[];
   errors: string[];
   events: ChatEvent[];
@@ -98,7 +105,7 @@ function usage(message?: string): never {
 }
 
 function parseArgs(argv: string[]): DriveArgs {
-  const args: DriveArgs = { context: [], timeoutSeconds: 900, json: false, quiet: false };
+  const args: DriveArgs = { context: [], timeoutSeconds: 900, followUps: 0, json: false, quiet: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const next = () => {
@@ -118,6 +125,7 @@ function parseArgs(argv: string[]): DriveArgs {
       case "--port": args.port = Number(next()); break;
       case "--agent-dir": args.agentDir = next(); break;
       case "--timeout": args.timeoutSeconds = Number(next()); break;
+      case "--follow-ups": args.followUps = Number(next()); break;
       case "--json": args.json = true; break;
       case "--quiet": args.quiet = true; break;
       case "--help": case "-h": usage(); break;
@@ -128,6 +136,7 @@ function parseArgs(argv: string[]): DriveArgs {
   if (!args.prompt && !args.promptFile) usage('--prompt "..." or --prompt-file <path> is required');
   if (args.port !== undefined && (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535)) usage("--port must be 0-65535");
   if (!Number.isFinite(args.timeoutSeconds) || args.timeoutSeconds <= 0) usage("--timeout must be a positive number of seconds");
+  if (!Number.isInteger(args.followUps) || args.followUps < 0) usage("--follow-ups must be a whole number, 0 or more");
   return args;
 }
 
@@ -161,6 +170,7 @@ async function openChatStream(
   workFolderId: string,
   conversationId: string,
   onEvent: (event: ChatEvent) => void,
+  turns = 1,
 ): Promise<{ done: Promise<"done" | "closed">; close: () => void }> {
   const controller = new AbortController();
   const response = await fetch(
@@ -194,7 +204,7 @@ async function openChatStream(
           }
           const event: ChatEvent = { ...(parsed as object), type: String(parsed.type ?? "unknown"), receivedAt: new Date().toISOString() };
           onEvent(event);
-          if (event.type === "done" || event.type === "error") return "done";
+          if ((event.type === "done" || event.type === "error") && (turns -= 1) <= 0) return "done";
         }
       }
     } catch (error) {
@@ -237,6 +247,16 @@ function renderMarkdownReport(report: TurnReport): string {
   lines.push("");
   lines.push(report.assistantText || "(no assistant text)");
   lines.push("");
+  for (const [index, followUp] of report.followUps.entries()) {
+    lines.push(`## Follow-up ${index + 1}`);
+    lines.push("");
+    lines.push("Started by:");
+    lines.push("");
+    lines.push(followUp.trigger.split("\n").map((line) => `> ${line}`).join("\n"));
+    lines.push("");
+    lines.push(followUp.assistantText || "(no assistant text)");
+    lines.push("");
+  }
   lines.push(`## Tool calls (${report.toolCalls.length})`);
   lines.push("");
   if (!report.toolCalls.length) lines.push("(none)");
@@ -326,14 +346,17 @@ async function main(): Promise<void> {
         narrate(`  [tool] ${event.toolName ?? "?"} ${event.phase}${event.detail ? ` — ${event.detail}` : ""}`);
       }
       if (event.type === "error" && event.message) narrate(`  [error] ${event.message}`);
-    });
+      if (event.type === "done") narrate("work-fold-drive: a turn finished");
+    }, 1 + args.followUps);
 
     const startedAt = Date.now();
     await api(origin, "POST", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations/${encodeURIComponent(conversationId)}/messages`, {
       content: prompt,
       ...(args.context.length ? { contextPaths: args.context } : {}),
     });
-    narrate("work-fold-drive: prompt accepted, waiting for turn to finish...");
+    narrate(args.followUps
+      ? `work-fold-drive: prompt accepted, waiting for the turn and ${args.followUps} follow-up turn${args.followUps === 1 ? "" : "s"}...`
+      : "work-fold-drive: prompt accepted, waiting for turn to finish...");
 
     let timedOut = false;
     let timeoutHandle: NodeJS.Timeout | null = null;
@@ -352,10 +375,16 @@ async function main(): Promise<void> {
     stream.close();
     const durationMs = Date.now() - startedAt;
 
-    const { messages } = await api<{ messages: Array<{ role: string; content: string }> }>(
+    const { messages } = await api<{ messages: Array<{ role: string; content: string; kind?: string }> }>(
       origin, "GET", `/api/work-folders/${encodeURIComponent(workFolder.id)}/conversations/${encodeURIComponent(conversationId)}`,
     );
     const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+    const followUps: TurnReport["followUps"] = [];
+    for (const [index, message] of messages.entries()) {
+      if (message.role !== "user" || message.kind !== "assistant_continuation") continue;
+      const reply = messages.slice(index + 1).find((candidate) => candidate.role === "assistant");
+      followUps.push({ trigger: message.content, assistantText: reply?.content ?? "" });
+    }
     const assistantEvent = [...events].reverse().find((event) => event.type === "assistant_message");
 
     const report: TurnReport = {
@@ -369,6 +398,7 @@ async function main(): Promise<void> {
       prompt,
       assistantText: lastAssistant?.content ?? assistantEvent?.text ?? "",
       toolCalls: summarizeToolCalls(events),
+      followUps,
       statusMessages: events.filter((event) => event.type === "status" && event.message).map((event) => event.message!),
       errors: events.filter((event) => event.type === "error" && event.message).map((event) => event.message!),
       events,

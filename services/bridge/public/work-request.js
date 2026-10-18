@@ -53,6 +53,19 @@ function draw(container, controller) {
   container.append(status);
   if (work.detail) container.append(element("p", "work-detail", work.detail));
   if (work.canContinue) container.append(button("Continue with saved results", "work-primary-button", () => send("continue"), controller.busy));
+  if (work.checklist?.length) {
+    const list = element("ol", "work-checklist");
+    list.setAttribute("aria-label", `Checklist, ${work.checklist.filter((item) => item.status === "done").length} of ${work.checklist.length} done`);
+    for (const item of work.checklist) {
+      const row = element("li", `work-checklist-item is-${item.status}`);
+      const mark = element("span", "work-checklist-mark", item.status === "done" ? "✓" : item.status === "doing" ? "•" : "");
+      mark.setAttribute("aria-hidden", "true");
+      row.append(mark, element("span", "", item.text));
+      if (item.status !== "todo") row.append(element("span", "visually-hidden", item.status === "doing" ? " (in progress)" : " (done)"));
+      list.append(row);
+    }
+    container.append(list);
+  }
   for (const question of work.questions) {
     const form = element("form", "work-question");
     const inputId = `${container.id}-answer-${question.id}`;
@@ -65,7 +78,15 @@ function draw(container, controller) {
       saved.tabIndex = 0; saved.setAttribute("aria-label", "Your saved answer"); form.append(saved);
     }
     else {
-      input = element("textarea"); input.id = inputId; input.rows = 2; input.placeholder = "Your answer";
+      if (question.options?.length) {
+        const choices = element("div", "work-question-choices");
+        choices.setAttribute("role", "group"); choices.setAttribute("aria-label", "Choices");
+        for (const option of question.options) {
+          choices.append(button(option, "work-choice-button", () => send("answer", { questionId: question.id, answer: option }, question.id), controller.busy || !question.canAnswer));
+        }
+        form.append(choices);
+      }
+      input = element("textarea"); input.id = inputId; input.rows = 2; input.placeholder = question.options?.length ? "Or write your own answer" : "Your answer";
       input.value = readQuestionDraft(question.id);
       form.append(input);
     }

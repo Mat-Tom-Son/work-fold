@@ -7,8 +7,9 @@ import { describeModelContextDispatch, installModelContextInspection, installMod
 import { includedResourceOptions } from "./included-tools.js";
 import type { WorkFoldSessionRole } from "./role-preamble.js";
 import { currentTurnEnvironment, describeTurnEnvironment, type PiTurnEnvironment } from "./turn-environment.js";
+import { promptTokensOf } from "./usage-tokens.js";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import {
@@ -62,6 +63,17 @@ import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
+import {
+  buildTurnIdentity,
+  turnIdentityAfterCompactionExtension,
+  workFoldAgentTaskLines,
+  workFoldTurnContextCustomType,
+  workFolderTurnIdentityLines,
+  type WorkFoldTurnIdentity,
+} from "./turn-identity.js";
+import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
+import { createChecklistTool, describeChecklist, type ChecklistToolHost } from "./checklist-tool.js";
+import type { WorkFoldChecklistItem } from "../requests/request-records.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -163,6 +175,13 @@ export interface PiTurnContext {
   workFolderTurn?: PiWorkFolderTurnContext;
   /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
   automation?: { title: string };
+  /**
+   * This Chat's background jobs (docs/background-jobs.md, F32): the running
+   * ones, and ones that finished since its last turn and are delivered here.
+   */
+  backgroundJobs?: Array<{ jobId: string; name: string; status: string; finished: boolean }>;
+  /** The checklist this request already keeps, handed back at the start of a later turn. */
+  checklist?: Array<{ text: string; status: "todo" | "doing" | "done" }>;
   /** The host's clock, time zone, and platform; `prompt` reads them when a turn starts. */
   environment?: PiTurnEnvironment;
 }
@@ -176,6 +195,10 @@ export interface PiConversationClientOptions {
   imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
   /** Keeps generated pictures so a Chat can show them inline. */
   imageStore?: GeneratedImageSink;
+  /** The job service behind job_start, job_output, and job_stop for this Chat (docs/background-jobs.md). */
+  backgroundJobs?: BackgroundJobToolHost;
+  /** Where the `checklist` tool keeps its request's checklist (2026-10-18). */
+  checklist?: ChecklistToolHost;
 }
 
 export interface PiConversationState {
@@ -269,6 +292,10 @@ export class PiConversationClient extends EventEmitter {
    * turn outcome; nothing here decides whether a turn is accepted or how it ends.
    */
   private lastTurnUsage: WorkFoldDurableTurnUsage | null = null;
+  /** The running turn's ids, restated after a mid-turn compaction (turn-identity.ts). */
+  private turnIdentity: WorkFoldTurnIdentity | null = null;
+  /** The running request's checklist as the checklist tool last saved it, restated with the ids. */
+  private turnChecklist: WorkFoldChecklistItem[] | null = null;
 
   constructor(
     private readonly conversationId: string,
@@ -308,6 +335,8 @@ export class PiConversationClient extends EventEmitter {
     this.cancellationRequested = null;
     this.promptInFlight = true;
     this.lastTurnUsage = null;
+    this.turnIdentity = null;
+    this.turnChecklist = context.checklist?.length ? context.checklist.map((item) => ({ ...item })) : null;
     // Measured around this turn only, so a later Chat title request or a bounded
     // app inference call on the same session cannot be charged to it.
     let measuredSession: AgentSession | null = null;
@@ -344,10 +373,11 @@ export class PiConversationClient extends EventEmitter {
         const contextMessage = buildTurnContextMessage(context);
         if (contextMessage) {
           await this.awaitCancellation(session.sendCustomMessage({
-            customType: "work-fold-turn-context",
+            customType: workFoldTurnContextCustomType,
             content: contextMessage,
             display: false,
           }, { deliverAs: "nextTurn" }));
+          this.turnIdentity = buildTurnIdentity({ ...context, request: message });
         }
       }
 
@@ -383,6 +413,8 @@ export class PiConversationClient extends EventEmitter {
       owner.settled = true;
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
+      this.turnIdentity = null;
+      this.turnChecklist = null;
       this.promptInFlight = false;
     }
   }
@@ -734,7 +766,9 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session", this.options.role ?? "worker"),
+          ...await sessionResourceOptions(options.cwd, runtime, this.options.role ?? "worker", () => this.turnIdentity
+            ? { ...this.turnIdentity, ...(this.turnChecklist?.length ? { checklist: this.turnChecklist } : {}) }
+            : null),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -766,6 +800,29 @@ export class PiConversationClient extends EventEmitter {
           ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
           ...(this.options.imageStore ? { store: this.options.imageStore } : {}),
         }),
+        // Every session can keep a visible checklist for a multi-step request.
+        ...(this.options.checklist ? [createChecklistTool({
+          host: {
+            set: async (input) => {
+              const saved = await this.options.checklist!.set(input);
+              // Kept here too, so a mid-turn compaction can restate the plan as it stands.
+              this.turnChecklist = saved?.items.length ? saved.items.map((item) => ({ ...item })) : null;
+              return saved;
+            },
+          },
+          taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
+        })] : []),
+        // Every session can run long commands in the background and be woken when they end.
+        ...(this.options.backgroundJobs ? createBackgroundJobTools({
+          root: options.cwd,
+          host: this.options.backgroundJobs,
+          taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
+          shell: () => ({
+            ...(runtime.settingsManager.getShellPath() ? { shellPath: runtime.settingsManager.getShellPath() } : {}),
+            ...(runtime.settingsManager.getShellCommandPrefix() ? { commandPrefix: runtime.settingsManager.getShellCommandPrefix() } : {}),
+            binDir: join(runtime.agentDir, "bin"),
+          }),
+        }) : []),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
@@ -1258,10 +1315,11 @@ export class PiConversationClient extends EventEmitter {
         if (!parsed.args) return session.sessionName ? `Session name: ${session.sessionName}` : "This session has no name.";
         session.setSessionName(parsed.args);
         return `Session named “${parsed.args}”.`;
-      case "new":
-      case "resume":
       case "fork":
       case "clone":
+        return `${hostSessionMutationUnavailableMessage} Use Make a Copy in this Chat's menu to start a separate Chat with this history.`;
+      case "new":
+      case "resume":
       case "tree":
       case "import":
         return `${hostSessionMutationUnavailableMessage} Use the New chat button to start a separate visible transcript.`;
@@ -1726,6 +1784,67 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
   return model && runtime.modelRuntime.hasConfiguredAuth(model.provider) ? model : undefined;
 }
 
+/** Included resources for a Chat session, plus the hook that restates a turn's ids after compaction. */
+async function sessionResourceOptions(
+  cwd: string,
+  runtime: ResolvedPiRuntime,
+  role: NonNullable<PiConversationClientOptions["role"]>,
+  turnIdentity: () => WorkFoldTurnIdentity | null,
+) {
+  const included = await includedResourceOptions(cwd, runtime, "session", role);
+  return {
+    ...included,
+    extensionFactories: [
+      ...included.extensionFactories,
+      { name: "work_fold_turn_identity", builtin: true, factory: turnIdentityAfterCompactionExtension(turnIdentity) },
+    ],
+  };
+}
+
+/**
+ * Copies a Chat's Pi session, as of its last finished reply, into a new
+ * Chat's session file (2026-10-18, `chat copy`). The source is opened
+ * separately and never written: Pi's own branch extraction writes a new file
+ * holding only the path from the first entry to that reply, which then
+ * becomes the new Chat's stable session file. A turn still running in the
+ * source is left out, so the copy never ends on an unanswered tool call.
+ * Returns false when the source has no finished reply to copy.
+ */
+export async function copyPiConversationSession(input: {
+  workFolderRoot: string;
+  runtimeProvider?: PiRuntimeProvider;
+  sourceConversationId: string;
+  targetConversationId: string;
+}): Promise<boolean> {
+  const runtime = await resolvePiRuntime(input.workFolderRoot, input.runtimeProvider);
+  const sourcePath = await resolveConversationSessionPath(runtime.sessionDir, input.sourceConversationId);
+  if (!existsSync(sourcePath)) return false;
+  const source = SessionManager.open(sourcePath, runtime.sessionDir, input.workFolderRoot);
+  const leafId = lastFinishedReplyEntryId(source.getBranch());
+  if (!leafId) return false;
+  const branched = source.createBranchedSession(leafId);
+  if (!branched || !existsSync(branched)) return false;
+  const target = conversationSessionPath(runtime.sessionDir, input.targetConversationId);
+  if (existsSync(target)) throw new Error("The new Chat already has a session.");
+  await rename(branched, target);
+  return true;
+}
+
+/** The newest assistant reply on a branch that asked for no tool, so nothing after it is half-finished. */
+function lastFinishedReplyEntryId(branch: readonly { id: string; type: string; message?: unknown }[]): string | null {
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index]!;
+    if (entry.type !== "message") continue;
+    const message = entry.message as { role?: unknown; content?: unknown; stopReason?: unknown } | undefined;
+    if (message?.role !== "assistant") continue;
+    const content = Array.isArray(message.content) ? message.content as Array<{ type?: unknown }> : [];
+    if (content.some((part) => part?.type === "toolCall")) continue;
+    if (message.stopReason === "aborted" || message.stopReason === "error") continue;
+    return entry.id;
+  }
+  return null;
+}
+
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
   if (context.environment) lines.push(describeTurnEnvironment(context.environment));
@@ -1735,11 +1854,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
     // work-folders it names are the ones nested inside this one and the ones the
     // person addressed with @ (collaboration contract, 2026-10-01 amendment).
     const turn = context.workFolderTurn;
-    lines.push(
-      "This turn's work-fold identity (host-owned; use these exact ids):",
-      JSON.stringify({ workFolderId: turn.workFolderId, taskId: turn.taskId, requestId: turn.requestId }, null, 2),
-      "Pass --work-folder with that work-folder id and --task with that task id on chat report, chat ask, and chat handoff. A task id is accepted only while that exact turn is yours and running.",
-    );
+    lines.push(...workFolderTurnIdentityLines(turn));
     if (turn.history) {
       lines.push("History capture before this turn (host-owned):", JSON.stringify(turn.history),
         "A captured checkpoint may reuse identical saved content. Coverage is limited to the files captured; skipped entries are not backed up by this checkpoint. Use history read/diff to inspect saved content without restoring. Do not make another save solely to duplicate this checkpoint.");
@@ -1798,13 +1913,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       );
     }
   }
-  if (context.workFoldAgentTaskId) {
-    lines.push(
-      "This work-fold agent request's task id is:",
-      context.workFoldAgentTaskId,
-      "Add --parent-task with that exact id to each chat send, work-folders create/register, or files add command you run for this request. Do not reuse it in a later request.",
-    );
-  }
+  if (context.workFoldAgentTaskId) lines.push(...workFoldAgentTaskLines(context.workFoldAgentTaskId));
   if (context.automation) {
     // An Automation step's turn (docs/automations.md, 2026-10-11): the message
     // is the whole instruction, nobody reads the reply while it runs, and the
@@ -1814,6 +1923,22 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       context.workFolderTurn
         ? "When you finish, report with chat report: --summary saying what you did, --file for each file you made or changed, and --outcome succeeded, partial, or failed. If you cannot do the work, report failed and say why. The Automation's run history shows your summary and that outcome. Then give your final reply."
         : "Your final reply is this step's record in the Automation's run history: say what you did, and say plainly if you could not do it and why.",
+    );
+  }
+  if (context.backgroundJobs?.length) {
+    lines.push(
+      "Background jobs in this Chat (host-owned):",
+      ...context.backgroundJobs.map((job) => `- ${job.jobId} ${JSON.stringify(job.name)} — ${job.status}${job.finished ? "; it finished since this Chat's last turn" : ""}`),
+      context.backgroundJobs.some((job) => job.finished)
+        ? "Read a finished job with job_output when it bears on this request, and mention its outcome; work-fold will not report it again. Stop running ones with job_stop when they are no longer needed."
+        : "Read them with job_output and stop them with job_stop when they are no longer needed.",
+    );
+  }
+  if (context.checklist?.length) {
+    lines.push(
+      "Your checklist for this request so far (host-kept; [x] done, [~] doing, [ ] to do):",
+      describeChecklist(context.checklist),
+      "Carry on from it, and update it with the checklist tool as the plan or progress changes.",
     );
   }
   if (context.attachedLinks?.length) {
@@ -1909,7 +2034,7 @@ interface SessionUsageBaseline {
 function sessionUsageBaseline(session: AgentSession): SessionUsageBaseline | null {
   try {
     const stats = session.getSessionStats();
-    return { inputTokens: stats.tokens.input, outputTokens: stats.tokens.output, amountUsd: stats.cost };
+    return { inputTokens: promptTokensOf(stats.tokens), outputTokens: stats.tokens.output, amountUsd: stats.cost };
   } catch {
     // Usage is attribution. A session that cannot report totals still runs its turn.
     return null;
@@ -1972,7 +2097,8 @@ async function resolveConversationSessionPath(sessionDir: string, conversationId
   return stablePath;
 }
 
-function conversationSessionPath(sessionDir: string, conversationId: string): string {
+/** A Chat's stable Pi session file in a session directory. */
+export function conversationSessionPath(sessionDir: string, conversationId: string): string {
   return join(sessionDir, `${conversationFileStem(conversationId)}.jsonl`);
 }
 

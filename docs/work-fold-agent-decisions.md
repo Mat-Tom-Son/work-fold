@@ -43,6 +43,7 @@ contract references retaining the detail canon does not carry:
 
 - [Receipts, not gates](receipts-not-gates.md) — the 2026-09-10 decisions F19–F24, the trash, app defaults, app AI lanes, and automation changes.
 - [The collaboration contract](collaboration-contract.md) — the 2026-09-11 decisions F25–F30: durable requests, work-folder turn context, report/ask/answer/handoff, one result shape, app change hints.
+- [Background jobs](background-jobs.md) — the 2026-10-18 decisions F31–F33: a job belongs to the turn that started it, a finished job wakes its Chat once, and its output stays machine-local.
 - [The verb ledger](act-ledger.md) — every product verb's classification, command shape, receipt additions, undo path, and conflict rules.
 - [Consecrations](archive/fold-consecrations.md) — superseded 2026-09-10; retained for the threat-model residuals that still apply.
 - [Automations](automations.md) — declared deterministic cross-work-folder glue: triggers, declarations, the executor, and bounds.

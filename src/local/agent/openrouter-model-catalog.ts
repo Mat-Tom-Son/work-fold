@@ -9,7 +9,8 @@ const openRouterModelsUrl = "https://openrouter.ai/api/v1/models?supported_param
 const maximumCatalogBytes = 10 * 1024 * 1024;
 
 interface OpenRouterCacheFile {
-  version: 1;
+  /** 2 since cache rates are read; a version-1 file priced cached prompt tokens at zero. */
+  version: 1 | 2;
   provider: "openrouter";
   refreshedAt: string;
   models: NonNullable<ProviderConfig["models"]>;
@@ -26,6 +27,8 @@ interface OpenRouterApiModel {
   pricing?: {
     prompt?: unknown;
     completion?: unknown;
+    input_cache_read?: unknown;
+    input_cache_write?: unknown;
   };
   supported_parameters?: unknown;
   top_provider?: {
@@ -87,7 +90,7 @@ export class OpenRouterModelCatalog {
     const models = parseOpenRouterModels(source);
     if (!models.length) throw new Error("OpenRouter returned no tool-capable text models.");
     const refreshedAt = new Date().toISOString();
-    const cached: OpenRouterCacheFile = { version: 1, provider: "openrouter", refreshedAt, models };
+    const cached: OpenRouterCacheFile = { version: 2, provider: "openrouter", refreshedAt, models };
     await mkdir(dirname(this.#cachePath), { recursive: true });
     const temporaryPath = `${this.#cachePath}.${process.pid}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(cached, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -153,8 +156,11 @@ function normalizeOpenRouterModel(raw: OpenRouterApiModel): NonNullable<Provider
     cost: {
       input: perTokenToPerMillion(raw?.pricing?.prompt),
       output: perTokenToPerMillion(raw?.pricing?.completion),
-      cacheRead: 0,
-      cacheWrite: 0,
+      // Cached prompt tokens are billed too. A model without a listed cache
+      // rate is priced at its prompt rate, so a receipt never reads cheaper
+      // than the bill.
+      cacheRead: perTokenToPerMillion(raw?.pricing?.input_cache_read ?? raw?.pricing?.prompt),
+      cacheWrite: perTokenToPerMillion(raw?.pricing?.input_cache_write ?? raw?.pricing?.prompt),
     },
     contextWindow,
     maxTokens,
@@ -172,15 +178,21 @@ function catalogFromCache(cache: OpenRouterCacheFile): PiModelCatalog {
       baseUrl: "https://openrouter.ai/api/v1",
       apiKey: "$OPENROUTER_API_KEY",
       api: "openai-completions",
-      models: cache.models,
+      models: cache.version === 1 ? cache.models.map(withPromptRateForCache) : cache.models,
     },
   };
+}
+
+/** A version-1 file recorded no cache rates; price cached prompt tokens like the prompt until the next refresh. */
+function withPromptRateForCache(model: NonNullable<ProviderConfig["models"]>[number]): NonNullable<ProviderConfig["models"]>[number] {
+  if (!model.cost) return model;
+  return { ...model, cost: { ...model.cost, cacheRead: model.cost.cacheRead || model.cost.input, cacheWrite: model.cost.cacheWrite || model.cost.input } };
 }
 
 function isOpenRouterCache(value: unknown): value is OpenRouterCacheFile {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const cache = value as Partial<OpenRouterCacheFile>;
-  return cache.version === 1
+  return (cache.version === 1 || cache.version === 2)
     && cache.provider === "openrouter"
     && typeof cache.refreshedAt === "string"
     && !Number.isNaN(Date.parse(cache.refreshedAt))

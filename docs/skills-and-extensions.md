@@ -198,7 +198,9 @@ observation and lifecycle boundaries.
 Web defaults to DuckDuckGo without a key. Documents supplies ordinary libraries
 and a cancellable JavaScript worker with continuable PDF observations. Its optional
 installed-engine adapter uses LibreOffice for Office rendering/XLSX recalculation
-and Tesseract for page-image OCR, reporting missing engines explicitly. MCP sampling
+and Tesseract for page-image OCR, reporting missing engines explicitly. Its tile
+says Setup Needed while LibreOffice is missing, and its details guide the install
+([Document verification](document-verification.md)). MCP sampling
 is disabled for the embedded Pi version; stdio servers need their executable
 and runtime installed. Setup details and remaining limits are in the contract.
 

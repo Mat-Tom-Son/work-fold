@@ -74,7 +74,11 @@ preferences keyed by portable work-folder identity; the work-fold agent has its 
 model choice but no editable Worker instructions. A model change becomes the
 default for new Chats because a live Pi session retains its session model. A
 Worker-instruction change reloads that work-folder's idle clients and applies to
-subsequent turns, including existing Chats. OpenRouter has an explicit live
+subsequent turns, including existing Chats. Worker instructions are also where a
+Worker remembers (2026-10-18): when the person states a lasting preference about
+working in that folder, the Worker or the work-fold agent adds it as one line
+with `work-folders worker instructions --append`, which keeps what is already
+there and skips an exact repeat, and says what it saved. OpenRouter has an explicit live
 refresh backed by its tool-capable text-model API; the last good result is
 cached outside every work-folder and Pi's built-in catalog remains a fallback. A
 restricted work-folder app's connection is managed with that app in **Settings → Apps**.
@@ -140,7 +144,7 @@ When a settled turn's transcript read fails, the Chat retains its reply and
 steps while retrying transient failures. It shows the Worker as idle; only a
 successful read for the same conversation and turn replaces the preview.
 
-Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected work-folder's active Chats lead the list, followed by the work-folders nested inside it, each indented under it with its own Chats; every other registered work-folder appears below as a compact, collapsed group, including a zero count when it has no active Chats. Snoozed and Archived are closed rows at the bottom of the list, each listing those Chats across every work-folder with the work-folder's name and time (2026-10-01; earlier the three views were tabs). Aggregate activity remains visible, and search covers active, snoozed, and archived Chats alike and may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its agent turn or compaction is active. A work-folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work.
+Chats have a lightweight lifecycle for keeping a growing conversation list usable. **Active** is current work, **Snoozed** is deferred until a future local time, and **Archived** is retained reference material. A due snooze resurfaces automatically in Active. The selected work-folder's active Chats lead the list, followed by the work-folders nested inside it, each indented under it with its own Chats; every other registered work-folder appears below as a compact, collapsed group, including a zero count when it has no active Chats. Snoozed and Archived are closed rows at the bottom of the list, each listing those Chats across every work-folder with the work-folder's name and time (2026-10-01; earlier the three views were tabs). Aggregate activity remains visible, and search covers active, snoozed, and archived Chats alike and may expand those groups to expose results. Snoozing or archiving a Chat closes its open tab but never deletes or rewrites its transcript; the state is an append-only lifecycle event in that Chat's portable `.work-fold/conversations/` log. A snoozed or archived Chat may be opened for reading, but it must be resumed or restored before another message can be sent. Lifecycle changes are unavailable while its agent turn or compaction is active. A work-folder Chat can also be deleted: its transcript moves to Recently deleted and can be restored from there, and the delete refuses while the Chat has a running turn or unfinished request work. **Make a Copy** in a Chat's menu (2026-10-18) starts a new Chat in the same work-folder with that Chat's history as of its last finished reply, so a different direction can start with the same context; the original is never changed.
 
 A new Chat begins with a temporary **New Chat** label. After its first successful
 turn, work-fold asks that Chat's active Pi model for a short title based on the
@@ -633,6 +637,35 @@ Owner decisions, recorded here in dated form; the body of this document and
   of matching controls. An app may show the same still green dot the Chats use
   on its rail button when something new is waiting, and clears it itself.
 
+
+### 2026-10-18 Documents checking
+
+- A Worker checks a document before it calls the work done: it renders Word
+  and PowerPoint files to pages and looks at them, recalculates a copy of a
+  workbook and reads its results, fixes what is wrong, and says in one line
+  what it checked. When it cannot check something, it says exactly what and
+  points to **Skills & Extensions → Documents → Set Up**
+  ([Document verification](document-verification.md)).
+- Checking needs LibreOffice, which work-fold does not bundle or install. The
+  **Documents** tile says **Setup Needed** while LibreOffice is missing,
+  because a Worker can make documents but cannot see Word or PowerPoint pages
+  or calculate formulas. Tesseract, which reads scanned pages, is optional and
+  never changes the word.
+- The Documents details list both programs. **Download** opens the official
+  LibreOffice page and **Install guide** opens Tesseract's; when Homebrew is
+  present, the Homebrew command is shown with **Copy**. The person runs it;
+  work-fold never does. Each row ticks off by itself once the program
+  appears. **Check** also starts each found program once, so an install that
+  macOS has not approved yet shows up as one.
+- A Worker installs an engine only when the person asks it to, by running
+  the same command in the open.
+- On a Mac without LibreOffice, a Worker still previews what it can with
+  Quick Look, which is built into macOS: page 1 of a Word file and any
+  slide of a deck, one at a time. The tile still says **Setup Needed**, and
+  its detail reads: "Your Worker can preview the first page of a Word file
+  and each slide of a deck, but can't check every page or what spreadsheet
+  formulas calculate. Install LibreOffice to turn that on." Set up does not
+  list Quick Look, since there is nothing to install.
 
 ### 2026-10-01 work-folders inside work-folders
 

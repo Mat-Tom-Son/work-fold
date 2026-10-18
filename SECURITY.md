@@ -174,6 +174,16 @@ revisions for that app's own agent tasks, its selected Checks, and its
 granted folders — never content, never replayed after a view closes, and never
 a reason to start a model turn.
 
+Background jobs run shell commands with the same local authority as a Worker's
+`bash` tool, in their own process group with stdin closed, and outlive the turn
+that started them only within the running app: Stop on their request, `jobs
+stop`, and quitting work-fold end the whole process group, an abrupt exit kills
+it, and a restart records any job left running as interrupted, never re-runs
+it, and kills a leftover process only when its process id and start time both
+match the record. Their combined output stays under the application-data
+`jobs/` directory and reaches a Chat only through a turn's read or one
+host follow-up carrying the end of it.
+
 The packaged main renderer and work-fold agent popover talk to a loopback-only local API with a per-launch desktop session token and an app-specific allowed origin. That boundary is for trusted packaged renderers; it is not a network API intended for other local applications. The sandboxed popover uses a dedicated narrow preload exposing only that API session, dropped-file path resolution, hide/show-main actions, and window material; it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges. Development mode has different local-origin assumptions and must not be exposed beyond the loopback interface.
 
 Optional Web Access does not expose that loopback API. The public bridge

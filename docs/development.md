@@ -59,7 +59,10 @@ only if you need it, and uncomment only the settings you intend to use.
 
 The installed `work-fold ... --json` CLI addresses the running app.
 `npm run work-fold:drive` is a separate real-Pi-turn test driver and can use a
-chosen agent directory; it is not an offline unit test. See
+chosen agent directory; it is not an offline unit test. `--follow-ups <n>` keeps
+its local API running for n more turns work-fold starts in the same Chat, such as
+a [background job](background-jobs.md)'s wake-up, and reports each with the
+message that started it. See
 [the work-fold agent and CLI](work-fold-agent-and-cli.md) before driving real work.
 
 ## Inspect a model request
