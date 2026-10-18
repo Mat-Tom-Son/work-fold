@@ -1,6 +1,6 @@
 # Document verification
 
-Design note, 2026-10-18. Approved by Mat on 2026-10-18: the tile says **Setup Needed** when LibreOffice is missing, and Set up guides the install without running it.
+Design note, 2026-10-18. Approved by Mat on 2026-10-18: the tile says **Setup Needed** when LibreOffice is missing, and Set up guides the install without running it. The [evaluation](document-verification-evaluation.md) records how Workers did with and without the engines.
 
 A Worker that makes a Word report, a slide deck, or a budget workbook should
 look at the result before it says the work is done: see the pages, read the
@@ -104,6 +104,14 @@ runs. Nothing is bundled.
   Never claim a visual check or a calculated value that did not happen.
 - **The report** includes one line on what was checked and how.
 - Keep the honest wording on Calc vs Excel differences.
+- Added after the evaluation:
+  - the `docx` half-point font unit and explicit table column widths;
+  - a zoomed look (`scale: 2` or a cropped region), because one Worker
+    rendered a page and still missed 5 pt text;
+  - the ExcelJS quirk that reads a calculated 0 as no result;
+  - a closing Set Up sentence for every file type;
+  - without engines, a column-width estimate for Word tables, because split
+    words were the fault seen most often on pages nobody looked at.
 - **Installing on request only.** If the person asks the Worker to install
   LibreOffice or Tesseract, it may run the same command Set up shows, visibly
   in the Chat. It never installs anything unasked.
