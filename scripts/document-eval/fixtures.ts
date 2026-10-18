@@ -106,6 +106,8 @@ ${findings.map((finding, index) => `${index + 1}. ${finding}`).join("\n")}
 - Review the suggested-replies retraining results — Support Tools, by January 16.
 `;
 
+// The summary's "Ten of twelve" disagrees with the table (seven). It crept in by accident and is kept so
+// reruns match the recorded results; a Worker flagging it is a bonus, not scored.
 const status = `# Clinic Scheduling Rollout — status for the steering committee
 
 Reporting period: October 2026. Program lead: Rachel Adeyemi.
