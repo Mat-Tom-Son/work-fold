@@ -8,6 +8,8 @@ export function hostContext(pi: ExtensionAPI) {
   const query: { version: 1; context?: Partial<ChromeHostFacilities> & {
     version: 1; mode: "catalog" | "session"; cwd: string; agentDir: string; stateRoot: string;
     companionPath: string; helperAppPath?: string;
+    /** Where Documents looks for its optional engines; the same place the Documents status looks. */
+    documentEngineSearch?: { path?: string; home?: string; platform?: string; candidates?: Record<string, string[]> };
     prepareComputerHelper?: () => Promise<void>;
     beginIncludedToolObservation?: (id: "computer" | "documents") => (status: IncludedToolStatus) => IncludedToolStatus;
     getMcpOptions(): McpExtensionOptions & { disposeCredentials?: () => void };

@@ -638,6 +638,35 @@ Owner decisions, recorded here in dated form; the body of this document and
   on its rail button when something new is waiting, and clears it itself.
 
 
+### 2026-10-18 Documents checking
+
+- A Worker checks a document before it calls the work done: it renders Word
+  and PowerPoint files to pages and looks at them, recalculates a copy of a
+  workbook and reads its results, fixes what is wrong, and says in one line
+  what it checked. When it cannot check something, it says exactly what and
+  points to **Skills & Extensions → Documents → Set Up**
+  ([Document verification](document-verification.md)).
+- Checking needs LibreOffice, which work-fold does not bundle or install. The
+  **Documents** tile says **Setup Needed** while LibreOffice is missing,
+  because a Worker can make documents but cannot see Word or PowerPoint pages
+  or calculate formulas. Tesseract, which reads scanned pages, is optional and
+  never changes the word.
+- The Documents details list both programs. **Download** opens the official
+  LibreOffice page and **Install guide** opens Tesseract's; when Homebrew is
+  present, the Homebrew command is shown with **Copy**. The person runs it;
+  work-fold never does. Each row ticks off by itself once the program
+  appears. **Check** also starts each found program once, so an install that
+  macOS has not approved yet shows up as one.
+- A Worker installs an engine only when the person asks it to, by running
+  the same command in the open.
+- On a Mac without LibreOffice, a Worker still previews what it can with
+  Quick Look, which is built into macOS: page 1 of a Word file and any
+  slide of a deck, one at a time. The tile still says **Setup Needed**, and
+  its detail reads: "Your Worker can preview the first page of a Word file
+  and each slide of a deck, but can't check every page or what spreadsheet
+  formulas calculate. Install LibreOffice to turn that on." Set up does not
+  list Quick Look, since there is nothing to install.
+
 ### 2026-10-01 work-folders inside work-folders
 
 A work-folder may be registered inside another, and the deepest containing work-folder

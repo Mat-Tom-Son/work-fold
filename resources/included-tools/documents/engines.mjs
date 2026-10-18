@@ -1,30 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
-import { access, copyFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { finished } from "node:stream/promises";
 import { withInputContract } from "../input-contracts.mjs";
+import { discoverDocumentEngines } from "../readiness.ts";
 
-const candidates = {
-  libreoffice: ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice", "/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"],
-  tesseract: ["tesseract", "/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"],
-};
-
-export async function discoverDocumentEngines({ path = process.env.PATH ?? "" } = {}) {
-  const found = {};
-  for (const [name, entries] of Object.entries(candidates)) {
-    let executable = null;
-    for (const entry of entries.flatMap((entry) => entry.includes("/") ? [entry] : path.split(delimiter).filter(Boolean).map((dir) => join(dir, entry)))) {
-      try { await access(entry, constants.X_OK); if ((await stat(entry)).isFile()) { executable = entry; break; } } catch {}
-    }
-    found[name] = { available: !!executable, executable, operations: name === "libreoffice" ? ["render", "recalculate"] : ["ocr"],
-      setup: executable ? null : name === "libreoffice" ? "Install LibreOffice, or supply its executable path. Existing Office apps remain usable through computer tools." : "Install Tesseract and the required language data, or supply its executable path. Render PDF pages to images first." };
-  }
-  return found;
-}
+/** Detection lives with the Documents readiness so Set up and this tool look in the same places. */
+export { discoverDocumentEngines };
 
 async function digest(path) {
   const hash = createHash("sha256");
@@ -75,13 +61,29 @@ async function execute(executable, args, { signal, cwd, logPath }) {
   }
 }
 
-export async function runDocumentEngine({ operation, source, output, enginePath, language = "eng", timeoutMs, cwd = process.cwd(), stateRoot, signal }) {
-  if (!["render", "recalculate", "ocr"].includes(operation)) throw new Error("Choose render, recalculate, or ocr.");
+const quickLookFailure = "Quick Look couldn't draw this file. It may be damaged, or a kind Quick Look doesn't know.";
+
+/** Quick Look draws only a deck's first slide, so a private copy puts the chosen slide first. */
+async function withSlideFirst(captured, slide, destination) {
+  const { default: JSZip } = await import("jszip");
+  const zip = await JSZip.loadAsync(await readFile(captured));
+  const xml = await zip.file("ppt/presentation.xml")?.async("string");
+  const list = xml?.match(/<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/);
+  const slides = list ? [...list[1].matchAll(/<p:sldId\b[^>]*?(?:\/>|>[\s\S]*?<\/p:sldId>)/g)].map((match) => match[0]) : [];
+  if (slide > slides.length) throw new Error(`The deck has ${slides.length} slide${slides.length === 1 ? "" : "s"}; choose a slide from 1 to ${slides.length}.`);
+  const reordered = [slides[slide - 1], ...slides.filter((_, index) => index !== slide - 1)].join("");
+  zip.file("ppt/presentation.xml", xml.replace(list[0], `<p:sldIdLst>${reordered}</p:sldIdLst>`));
+  await writeFile(destination, await zip.generateAsync({ type: "nodebuffer" }), { flag: "wx" });
+}
+
+export async function runDocumentEngine({ operation, source, output, enginePath, language = "eng", slide, timeoutMs, cwd = process.cwd(), stateRoot, search, signal }) {
+  if (!["render", "recalculate", "ocr", "preview"].includes(operation)) throw new Error("Choose render, recalculate, ocr, or preview.");
   if (!source || !output) throw new Error("Source and a new output file path are required.");
   if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)) throw new Error("timeoutMs must fit a positive Node timer (at most 2147483647 ms); omit for no deadline.");
   if (!/^[a-zA-Z0-9_+.-]+$/.test(language) || language.startsWith("-")) throw new Error("Use Tesseract language identifiers, such as eng or eng+deu.");
-  const engineName = operation === "ocr" ? "tesseract" : "libreoffice";
-  const engine = enginePath ? { executable: resolve(cwd, enginePath) } : (await discoverDocumentEngines())[engineName];
+  if (slide !== undefined && (operation !== "preview" || !Number.isSafeInteger(slide) || slide < 1)) throw new Error("slide applies only to preview and must be a slide number from 1.");
+  const engineName = operation === "ocr" ? "tesseract" : operation === "preview" ? "quicklook" : "libreoffice";
+  const engine = enginePath ? { executable: resolve(cwd, enginePath) } : (await discoverDocumentEngines(search))[engineName];
   if (!engine.executable) throw new Error(engine.setup);
   const from = resolve(cwd, source), to = resolve(cwd, output);
   const extension = extname(from).toLowerCase();
@@ -90,6 +92,9 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
   if (operation === "recalculate" && (extension !== ".xlsx" || extname(to).toLowerCase() !== ".xlsx")) throw new Error("Recalculation accepts an XLSX source and writes a separate XLSX result.");
   if (operation === "ocr" && extension === ".pdf") throw new Error("Render the selected PDF pages first; OCR accepts a page image.");
   if (operation === "ocr" && extname(to).toLowerCase() !== ".txt") throw new Error("OCR output must be a text file.");
+  if (operation === "preview" && ![".docx", ".pptx"].includes(extension)) throw new Error("Preview accepts a DOCX or PPTX source. Render PDF pages with document_run.");
+  if (operation === "preview" && extname(to).toLowerCase() !== ".png") throw new Error("Preview output must be a PNG.");
+  if (slide !== undefined && extension !== ".pptx") throw new Error("A Word file previews page 1 only; slide applies to PowerPoint decks.");
   try { await stat(to); throw new Error("The output already exists. Choose a new path."); } catch (error) { if (error.code !== "ENOENT") throw error; }
   const parent = join(stateRoot ?? tmpdir(), "document-artifacts");
   await mkdir(parent, { recursive: true, mode: 0o700 });
@@ -103,7 +108,10 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
   };
   signal?.addEventListener("abort", stop, { once: true });
   if (signal?.aborted) stop();
-  const timer = timeoutMs === undefined ? undefined : setTimeout(stop, timeoutMs);
+  // Quick Look never exits when it cannot draw a file, so a preview has a deadline unless one is chosen.
+  const deadline = timeoutMs ?? (operation === "preview" ? 60_000 : undefined);
+  let timedOut = false;
+  const timer = deadline === undefined ? undefined : setTimeout(() => { timedOut = true; stop(); }, deadline);
   let sourceIdentity;
   try {
     const before = await stat(from);
@@ -119,6 +127,11 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
       const base = join(scratch, "converted", "recognized");
       await execute(engine.executable, [captured, base, "-l", language], { signal: controller.signal, cwd: scratch, logPath });
       produced = base + ".txt";
+    } else if (operation === "preview") {
+      let target = captured;
+      if (slide > 1) { target = join(scratch, "preview.pptx"); await withSlideFirst(captured, slide, target); }
+      await execute(engine.executable, ["-t", "-s", "2000", "-o", join(scratch, "converted"), target], { signal: controller.signal, cwd: scratch, logPath });
+      produced = join(scratch, "converted", `${basename(target)}.png`);
     } else {
       const profile = join(scratch, "profile");
       await mkdir(join(profile, "user"), { recursive: true });
@@ -128,7 +141,7 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
         { signal: controller.signal, cwd: scratch, logPath });
       produced = join(scratch, "converted", operation === "render" ? "source.pdf" : "source.xlsx");
     }
-    const info = await stat(produced);
+    const info = await stat(produced).catch((error) => { throw error.code === "ENOENT" && operation === "preview" ? new Error(quickLookFailure) : error; });
     if (!info.isFile() || (operation !== "ocr" && !info.size)) throw new Error("The engine produced no usable output; inspect its log.");
     checkStopped();
     await mkdir(dirname(to), { recursive: true });
@@ -139,9 +152,16 @@ export async function runDocumentEngine({ operation, source, output, enginePath,
     checkStopped();
     return { operation, source: sourceIdentity, output: { path: to, sha256: outputSha256, sizeBytes: info.size },
       engine: { name: engineName, executable: engine.executable, version }, logPath,
-      note: operation === "recalculate" ? "Calculated and saved by LibreOffice Calc. Inspect formula results and compatibility with the intended spreadsheet app." : operation === "ocr" ? "OCR output can contain recognition errors. Compare important text with the source image." : "Rendered by LibreOffice. Inspect the resulting PDF; layout may differ from Microsoft Office.",
+      ...(operation === "preview" ? { shows: extension === ".pptx" ? `slide ${slide ?? 1}` : "page 1" } : {}),
+      note: operation === "recalculate" ? "Calculated and saved by LibreOffice Calc. Inspect formula results and compatibility with the intended spreadsheet app." : operation === "ocr" ? "OCR output can contain recognition errors. Compare important text with the source image."
+        : operation === "preview" ? "Drawn by macOS Quick Look: page 1 of a Word file, or the chosen slide of a deck. Later pages are not shown, and fonts can differ from Word and PowerPoint. Look at the image with document_run before calling the file checked."
+        : "Rendered by LibreOffice. Inspect the resulting PDF; layout may differ from Microsoft Office.",
       retention: "The engine log is retained in machine-local document-artifacts until deliberately removed; temporary input and engine profile are removed." };
   } catch (error) {
+    if (timedOut && operation === "preview") {
+      const seconds = Math.max(1, Math.round(deadline / 1000));
+      error.message = `${quickLookFailure} It didn't finish within ${seconds} second${seconds === 1 ? "" : "s"}.`;
+    }
     error.message += `\nRetained engine log: ${logPath}. No automatic replay. Output path to inspect: ${to}.`;
     throw error;
   } finally {
@@ -160,16 +180,17 @@ export function registerDocumentEngineTools(pi, host) {
     await Promise.allSettled([...active].map((entry) => entry.done));
   });
   pi.registerTool(withInputContract({
-    name: "document_engine", label: "Render, calculate, or recognize document text",
-    description: "Use an installed document engine. status detects LibreOffice (Office-to-PDF rendering and XLSX recalculation) and Tesseract (OCR of selected page images) without starting them. Other operations write a new normal file, preserve source bytes, report engine/source/output identity, and support Stop. No default deadline. Engines are optional installed programs, not bundled or automatically installed. Use document_run to inspect the rendered PDF, calculated workbook, or page image.",
+    name: "document_engine", label: "Render, preview, calculate, or recognize document text",
+    description: "Check documents with an installed engine before calling them done. status detects LibreOffice (Office-to-PDF rendering and XLSX recalculation), Tesseract (OCR of selected page images) and, on macOS, Quick Look (a PNG preview of page 1 of a DOCX or any one slide of a PPTX, chosen with slide) without starting them. Use preview when LibreOffice is missing; it shows one page at a time and calculates nothing. Other operations write a new normal file, preserve source bytes, report engine/source/output identity, and support Stop. No default deadline, except 60 seconds for preview because Quick Look never finishes on a file it cannot draw. Use document_run to look at the rendered pages, read the calculated workbook, or inspect the page image. Engines are optional installed programs, not bundled or automatically installed: when one is missing, say exactly what you could not check and point the person to Skills & Extensions → Documents → Set Up.",
     parameters: { type: "object", properties: {
-      operation: { type: "string", enum: ["status", "render", "recalculate", "ocr"] },
+      operation: { type: "string", enum: ["status", "render", "recalculate", "ocr", "preview"] },
       source: { type: "string" }, output: { type: "string" }, enginePath: { type: "string" }, language: { type: "string" },
+      slide: { type: "integer", minimum: 1, description: "preview only: the PowerPoint slide to draw (default 1)." },
       timeoutMs: { type: "integer", minimum: 1, maximum: 2_147_483_647 },
     }, required: ["operation"] },
     async execute(_id, parameters, signal, _update, context) {
       if (closing) throw new Error("This document session has closed.");
-      if (parameters.operation === "status") return { content: [{ type: "text", text: JSON.stringify(await discoverDocumentEngines()) }] };
+      if (parameters.operation === "status") return { content: [{ type: "text", text: JSON.stringify(await discoverDocumentEngines(host?.documentEngineSearch)) }] };
       const controller = new AbortController();
       const stop = () => controller.abort();
       signal?.addEventListener("abort", stop, { once: true }); if (signal?.aborted) stop();
@@ -177,15 +198,15 @@ export function registerDocumentEngineTools(pi, host) {
       const entry = { controller, done: new Promise((resolve) => { settle = resolve; }) };
       active.add(entry);
       try {
-        const result = await runDocumentEngine({ ...parameters, signal: controller.signal, cwd: context.cwd ?? host?.cwd, stateRoot: host?.stateRoot });
+        const result = await runDocumentEngine({ ...parameters, signal: controller.signal, cwd: context.cwd ?? host?.cwd, stateRoot: host?.stateRoot, search: host?.documentEngineSearch });
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       } finally { active.delete(entry); signal?.removeEventListener("abort", stop); settle(); }
     },
   }, {
     variants: [
       { when: { operation: "status" } },
-      ...["render", "recalculate", "ocr"].map(operation => ({ when: { operation }, required: ["source", "output"] })),
+      ...["render", "recalculate", "ocr", "preview"].map(operation => ({ when: { operation }, required: ["source", "output"] })),
     ],
-    examples: [{ operation: "status" }, { operation: "ocr", source: ".worker/task/page.png", output: ".worker/task/page.txt", language: "eng" }],
+    examples: [{ operation: "status" }, { operation: "ocr", source: ".worker/task/page.png", output: ".worker/task/page.txt", language: "eng" }, { operation: "preview", source: "deck.pptx", output: ".worker/task/slide-3.png", slide: 3 }],
   }));
 }

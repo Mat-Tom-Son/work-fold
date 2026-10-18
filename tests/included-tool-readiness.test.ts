@@ -36,12 +36,16 @@ test("readiness summaries stay cold, preserve unknown setup, and disclose no sav
     await writeFile(join(included, id, "index.ts"), "throw new Error('A cold readiness read loaded executable resources');");
   }
   const authStorage = FileCredentialStore.inMemory();
-  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: authStorage, includedTools: { rootPath: included, stateRoot: join(root, "state") } }) };
+  // Documents looks for its optional engines only where this test says, never on the test computer.
+  const engines = join(root, "engines");
+  const documentEngineSearch = { path: "", home: root, platform: "darwin", candidates: { libreoffice: [join(engines, "soffice")], tesseract: [join(engines, "tesseract")], quicklook: [], homebrew: [] } };
+  const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: authStorage, includedTools: { rootPath: included, stateRoot: join(root, "state"), documentEngineSearch } }) };
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });
   globalThis.fetch = (async () => { assert.fail("Readiness inspection must not contact a provider or launch a connection"); }) as typeof fetch;
   const initial = await listIncludedToolStatus(root, provider);
-  assert.deepEqual(initial.map(({ id, state }) => [id, state]), [["computer", "unknown"], ["chrome", "unavailable"], ["web", "ready"], ["mcp", "setup_required"], ["documents", "unknown"]]);
+  assert.deepEqual(initial.map(({ id, state }) => [id, state]), [["computer", "unknown"], ["chrome", "unavailable"], ["web", "ready"], ["mcp", "setup_required"], ["documents", "setup_required"]]);
+  assert.match(initial.find(({ id }) => id === "documents")!.detail, /Install LibreOffice/, "without LibreOffice a person has setup to do, even before any check");
   assert.equal(includedToolReadiness(initial.find(({ id }) => id === "mcp")).label, "No Connections");
   await mkdir(join(root, "pi"), { recursive: true });
   await writeFile(join(root, "pi", "mcp.json"), JSON.stringify({ mcpServers: { synthetic: { url: "https://example.invalid/mcp", headers: { Authorization: "synthetic-config-secret" } } } }));
@@ -55,10 +59,15 @@ test("readiness summaries stay cold, preserve unknown setup, and disclose no sav
   const configured = await listIncludedToolStatus(root, provider);
   assert.equal(configured.find(({ id }) => id === "web")!.state, "unknown");
   assert.doesNotMatch(JSON.stringify(configured), /synthetic-secret-not-for-status/);
+  await mkdir(engines);
+  await writeFile(join(engines, "soffice"), "#!/bin/sh\necho 'LibreOffice 26.2.3.2 synthetic'\n", { mode: 0o700 });
+  assert.equal((await listIncludedToolStatus(root, provider)).find(({ id }) => id === "documents")!.state, "unknown", "a found engine is not proof the bundled libraries work");
+  await assert.rejects(readFile(marker), { code: "ENOENT" }, "engine discovery never loads the document runtime");
   await setupIncludedTool(root, "documents", "check", {}, provider);
   assert.equal(await readFile(marker, "utf8"), "explicit probe loaded");
   assert.equal((await listIncludedToolStatus(root, provider)).find(({ id }) => id === "documents")!.state, "ready");
   const verified = (await listIncludedToolStatus(root, provider)).find(({ id }) => id === "documents")!;
+  assert.deepEqual(verified.documentsSetup, { platform: "darwin", homebrew: false, libreoffice: { found: true, path: join(engines, "soffice"), version: "LibreOffice 26.2.3.2 synthetic" }, tesseract: { found: false } });
   const realNow = Date.now;
   try {
     Date.now = () => realNow() + 6 * 60_000;

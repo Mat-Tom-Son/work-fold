@@ -1,0 +1,14 @@
+(version 1)
+(allow default)
+; Hide LibreOffice, Tesseract and Microsoft Office from everything this process starts.
+(deny file-read* file-read-metadata process-exec
+  (subpath "/Applications/LibreOffice.app")
+  (subpath "/opt/homebrew/Caskroom/libreoffice")
+  (literal "/opt/homebrew/bin/soffice")
+  (literal "/opt/homebrew/bin/tesseract")
+  (subpath "/opt/homebrew/Cellar/tesseract")
+  (subpath "/opt/homebrew/opt/tesseract")
+  (subpath "/opt/homebrew/share/tessdata")
+  (subpath "/Applications/Microsoft Word.app")
+  (subpath "/Applications/Microsoft Excel.app")
+  (subpath "/Applications/Microsoft PowerPoint.app"))
