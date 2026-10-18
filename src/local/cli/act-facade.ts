@@ -337,8 +337,61 @@ export interface WorkFoldActRequestDetail extends WorkFoldActRequestSummary {
   usage: WorkFoldRequestUsage;
   stopRequestedAt: string | null;
   reconciledAt: string | null;
+  /** Background jobs this request's turns started (docs/background-jobs.md). */
+  jobs: Array<{
+    jobId: string;
+    taskId: string;
+    name: string;
+    state: "running" | "exited" | "stopped" | "timed_out" | "failed" | "interrupted";
+    startedAt: string;
+    settledAt: string | null;
+    exitCode: number | null;
+  }>;
   /** Every request directly below this one, each with its own subtree. */
   childRequests: WorkFoldActRequestDetail[];
+}
+
+/**
+ * One background job (docs/background-jobs.md, F31). The command and its
+ * folder are the caller's own; output text arrives only from `jobs output`.
+ */
+export interface WorkFoldActJobRef {
+  jobId: string;
+  name: string;
+  command: string;
+  cwd: string;
+  state: "accepted" | "running" | "exited" | "stopped" | "timed_out" | "failed" | "interrupted";
+  /** The same plain sentence the tools and the follow-up turn use. */
+  status: string;
+  conversationId: string;
+  taskId: string;
+  requestId: string;
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  exitCode: number | null;
+  signal: string | null;
+  stoppedBy: "agent" | "cli" | "request" | "quit" | "timeout" | null;
+  error: string | null;
+  timeoutSeconds: number | null;
+  output: { bytes: number; lines: number; droppedBytes: number; droppedLines: number };
+  history:
+    | { status: "pending" }
+    | { status: "captured"; checkpointId: string; fileCount: number; skippedFileCount: number; skippedByReason: Record<string, number> }
+    | { status: "unavailable" | "not_applicable"; reason: string }
+    | null;
+  delivery: { at: string; by: "read" | "turn_context" | "follow_up"; taskId: string | null } | null;
+}
+
+export interface WorkFoldActJobOutput {
+  text: string;
+  fromLine: number;
+  toLine: number;
+  totalLines: number;
+  totalBytes: number;
+  droppedLines: number;
+  truncated: boolean;
+  nextOffset: number;
 }
 
 /** Registered-work-folder storage kind, mirrored from the work-folder registry. */
@@ -819,6 +872,41 @@ export interface WorkFoldActFacade {
    */
   requestsList(input?: { cwd?: string }): Promise<{ requests: WorkFoldActRequestSummary[]; truncated: boolean }>;
   requestsShow(input: { request: string; cwd?: string }): Promise<{ request: WorkFoldActRequestDetail }>;
+
+  /**
+   * Background jobs (docs/background-jobs.md). `jobsStart` runs a command
+   * for the caller's own running turn (`--task`, checked like `chat report`)
+   * and returns once it is running; its end wakes that turn's Chat once.
+   * Reads and stop name the job's work-folder. A read with `taskId` naming a
+   * running turn in the job's own Chat counts as its delivery.
+   */
+  jobsStart(input: {
+    workFolder: string;
+    taskId: string;
+    command: string;
+    name?: string;
+    /** Relative to the work-folder, or absolute; the work-folder by default. Never the caller's directory. */
+    cwd?: string;
+    timeoutSeconds?: number;
+    requestId?: string;
+  }): Promise<{ workFolder: WorkFoldActWorkFolderRef; job: WorkFoldActJobRef }>;
+  jobsList(input: { workFolder: string; conversationId?: string; running?: boolean }): Promise<{ workFolder: WorkFoldActWorkFolderRef; jobs: WorkFoldActJobRef[] }>;
+  jobsShow(input: { workFolder: string; jobId: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; job: WorkFoldActJobRef }>;
+  jobsOutput(input: {
+    workFolder: string;
+    jobId: string;
+    offset?: number;
+    limit?: number;
+    waitSeconds?: number;
+    until?: string;
+    taskId?: string;
+  }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    job: WorkFoldActJobRef;
+    output: WorkFoldActJobOutput;
+    wait: { outcome: "ended" | "matched" | "timed_out" | "aborted"; line?: number; text?: string } | null;
+  }>;
+  jobsStop(input: { workFolder: string; jobId: string; parentTaskId?: string; requestId?: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; job: WorkFoldActJobRef }>;
 
   /**
    * Chat lifecycle verbs (docs/act-ledger.md). Each performs exactly one

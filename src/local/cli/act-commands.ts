@@ -28,7 +28,7 @@ import {
   workFoldRequestLimitsSection,
   type WorkFoldResultOutcome,
 } from "../requests/request-records.js";
-import { workFoldRequestLimits } from "../../shared/work-fold-limits.js";
+import { workFoldBackgroundJobLimits, workFoldRequestLimits } from "../../shared/work-fold-limits.js";
 import {
   WorkFoldCliError,
   WorkFoldCliExitCode,
@@ -154,7 +154,14 @@ export type WorkFoldCliActCommandName =
   // Reads of the request graph above all work-folders (docs/collaboration-contract.md,
   // F25): one request, everything handed out under it, and what came back.
   | "requests.list"
-  | "requests.show";
+  | "requests.show"
+  // Background jobs (docs/background-jobs.md): the same records as the
+  // job_start, job_output, and job_stop tools.
+  | "jobs.start"
+  | "jobs.list"
+  | "jobs.show"
+  | "jobs.output"
+  | "jobs.stop";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -271,7 +278,21 @@ export interface WorkFoldCliActParsedCommand {
    * longer than a shell argument comfortably carries. Resolved into the
    * matching inline field before the command runs.
    */
-  textFiles?: Partial<Record<"summary" | "question" | "answer" | "instructions", string>>;
+  textFiles?: Partial<Record<"summary" | "question" | "answer" | "instructions" | "command", string>>;
+  /** jobs.*: the background job addressed. */
+  job?: string;
+  /** jobs.start: the shell command, or "" when `--command-file` supplies it. */
+  jobCommand?: string;
+  /** jobs.start: the label a person sees. */
+  jobName?: string;
+  /** jobs.start: folder to run in, relative to the work-folder or absolute. */
+  jobCwd?: string;
+  timeoutSeconds?: number;
+  /** jobs.output: first line to read, and seconds to wait for the job to end or `until` to match. */
+  offset?: number;
+  waitSeconds?: number;
+  /** jobs.list: only jobs still running. */
+  running?: boolean;
 }
 
 /** The running interactive app's act authority: the facade plus this run's token. */
@@ -409,8 +430,15 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--banner-image",
     "--icon",
     "--color",
+    "--job",
+    "--command",
+    "--command-file",
+    "--cwd",
+    "--timeout",
+    "--offset",
+    "--wait",
   ]);
-  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear"]);
+  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index] ?? "";
@@ -726,6 +754,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "pages widen",
     "pages snapshot-off",
     "recently-deleted restore",
+    "jobs start",
+    "jobs stop",
   ]);
   if (rawParentTaskId !== undefined && !lineageCommands.has(command)) {
     throw usageError(`--parent-task cannot be used with '${command || "(none)"}'.`);
@@ -1797,6 +1827,86 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
+    // Background jobs (docs/background-jobs.md). start needs the caller's own
+    // running turn, as chat report does; every verb names the job's work-folder.
+    case "jobs start": {
+      allowOnlyFlags("--work-folder", "--task", "--command", "--command-file", "--name", "--cwd", "--timeout", "--parent-task");
+      const jobCommand = (() => {
+        if (textFileFlag("--command", "command") !== undefined) return "";
+        const value = stringFlag("--command");
+        if (value === undefined || !value.trim()) throw usageError("Provide --command <shell-command> or --command-file <path>.");
+        if (value.includes("\u0000")) throw usageError("--command contains unsupported control characters.");
+        if (Buffer.byteLength(value, "utf8") > workFoldBackgroundJobLimits.maxCommandBytes) {
+          throw usageError(`--command can be at most ${workFoldBackgroundJobLimits.maxCommandBytes / 1024} KiB.`);
+        }
+        return value;
+      })();
+      const rawTimeout = stringFlag("--timeout");
+      const timeoutSeconds = rawTimeout === undefined ? undefined : Number(rawTimeout);
+      if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0)) {
+        throw usageError("--timeout must be a positive number of seconds.");
+      }
+      const jobName = optionalBoundedFlag("--name", "label", 200);
+      const jobCwd = optionalBoundedFlag("--cwd", "folder", maxActPathLength);
+      return {
+        name: "jobs.start",
+        output,
+        workFolder: requireWorkFolder(),
+        task: requireBoundedFlag("--task", "task-id"),
+        jobCommand,
+        ...(Object.keys(textFiles).length ? { textFiles } : {}),
+        ...(jobName ? { jobName } : {}),
+        ...(jobCwd ? { jobCwd } : {}),
+        ...(timeoutSeconds !== undefined ? { timeoutSeconds } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
+    case "jobs list": {
+      allowOnlyFlags("--work-folder", "--conversation", "--running");
+      const conversation = optionalBoundedFlag("--conversation", "conversation-id");
+      return {
+        name: "jobs.list",
+        output,
+        workFolder: requireWorkFolder(),
+        ...(conversation ? { conversation } : {}),
+        ...(flags.get("--running") === true ? { running: true } : {}),
+      };
+    }
+    case "jobs show":
+      allowOnlyFlags("--work-folder", "--job");
+      return { name: "jobs.show", output, workFolder: requireWorkFolder(), job: requireBoundedFlag("--job", "job-id") };
+    case "jobs output": {
+      allowOnlyFlags("--work-folder", "--job", "--offset", "--limit", "--wait", "--until", "--task");
+      const rawWait = stringFlag("--wait");
+      const waitSeconds = rawWait === undefined ? undefined : Number(rawWait);
+      if (waitSeconds !== undefined && (!Number.isFinite(waitSeconds) || waitSeconds < 0)) {
+        throw usageError("--wait must be a number of seconds, 0 or more.");
+      }
+      const offset = optionalInteger("--offset", 1, Number.MAX_SAFE_INTEGER);
+      const limit = optionalInteger("--limit", 1, Number.MAX_SAFE_INTEGER);
+      const until = optionalBoundedFlag("--until", "pattern", 4_096);
+      const task = optionalBoundedFlag("--task", "task-id");
+      return {
+        name: "jobs.output",
+        output,
+        workFolder: requireWorkFolder(),
+        job: requireBoundedFlag("--job", "job-id"),
+        ...(offset !== undefined ? { offset } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(waitSeconds !== undefined ? { waitSeconds } : {}),
+        ...(until ? { until } : {}),
+        ...(task ? { task } : {}),
+      };
+    }
+    case "jobs stop":
+      allowOnlyFlags("--work-folder", "--job", "--parent-task");
+      return {
+        name: "jobs.stop",
+        output,
+        workFolder: requireWorkFolder(),
+        job: requireBoundedFlag("--job", "job-id"),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
     default:
       throw usageError(`Unknown command: ${command || "(none)"}`);
   }
@@ -1949,6 +2059,14 @@ async function resolveActTextFiles(
       resolved.instructions = text;
       continue;
     }
+    if (field === "command") {
+      if (!text.trim()) throw new WorkFoldCliError("usage", `${flag} ${path} is empty.`);
+      if (Buffer.byteLength(text, "utf8") > workFoldBackgroundJobLimits.maxCommandBytes) {
+        throw new WorkFoldCliError("usage", `${flag} can be at most ${workFoldBackgroundJobLimits.maxCommandBytes / 1024} KiB.`);
+      }
+      resolved.jobCommand = text;
+      continue;
+    }
     if (!text.trim()) throw new WorkFoldCliError("usage", `${flag} ${path} is empty.`);
     const [limit, maximumBytes] = field === "summary"
       ? ["resultSummary", workFoldRequestLimits.maxResultSummaryBytes] as const
@@ -2071,6 +2189,42 @@ async function runActCommand(
       return toChecksJson(await facade.requestsList({ cwd: request.cwd }));
     case "requests.show":
       return toChecksJson(await facade.requestsShow({ request: command.request!, cwd: request.cwd }));
+    // Background jobs carry commands and output text: the content sanitizer applies.
+    case "jobs.start":
+      return toChecksJson(await facade.jobsStart({
+        workFolder: command.workFolder!,
+        taskId: command.task!,
+        command: command.jobCommand ?? "",
+        ...(command.jobName ? { name: command.jobName } : {}),
+        ...(command.jobCwd ? { cwd: command.jobCwd } : {}),
+        ...(command.timeoutSeconds !== undefined ? { timeoutSeconds: command.timeoutSeconds } : {}),
+        requestId: request.id,
+      }));
+    case "jobs.list":
+      return toChecksJson(await facade.jobsList({
+        workFolder: command.workFolder!,
+        ...(command.conversation ? { conversationId: command.conversation } : {}),
+        ...(command.running ? { running: true } : {}),
+      }));
+    case "jobs.show":
+      return toChecksJson(await facade.jobsShow({ workFolder: command.workFolder!, jobId: command.job! }));
+    case "jobs.output":
+      return toChecksJson(await facade.jobsOutput({
+        workFolder: command.workFolder!,
+        jobId: command.job!,
+        ...(command.offset !== undefined ? { offset: command.offset } : {}),
+        ...(command.limit !== undefined ? { limit: command.limit } : {}),
+        ...(command.waitSeconds !== undefined ? { waitSeconds: command.waitSeconds } : {}),
+        ...(command.until ? { until: command.until } : {}),
+        ...(command.task ? { taskId: command.task } : {}),
+      }));
+    case "jobs.stop":
+      return toChecksJson(await facade.jobsStop({
+        workFolder: command.workFolder!,
+        jobId: command.job!,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+        requestId: request.id,
+      }));
     case "chats.list":
       return toJson(await facade.listConversations({ workFolder: command.workFolder! }));
     case "agent.send": {
@@ -2873,6 +3027,25 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
     }
     case "requests.show":
       return `${renderRequestDetail(record.request as Record<string, WorkFoldCliJson>, 0).join("\n")}\n`;
+    case "jobs.start":
+    case "jobs.show":
+    case "jobs.stop": {
+      const job = (record.job ?? {}) as Record<string, WorkFoldCliJson>;
+      const verb = name === "jobs.start" ? "Started" : name === "jobs.stop" ? "Stopped" : "Background job";
+      return `${verb} ${terminalText(job.jobId)} "${terminalText(job.name)}" in ${workFolderLabel}: ${terminalText(job.status)}.\n`;
+    }
+    case "jobs.list": {
+      const jobs = Array.isArray(record.jobs) ? record.jobs as Array<Record<string, WorkFoldCliJson>> : [];
+      if (!jobs.length) return `No background jobs in ${workFolderLabel}.\n`;
+      return `${jobs.map((job) => `${terminalText(job.jobId)}  ${terminalText(job.name)} — ${terminalText(job.status)}`).join("\n")}\n`;
+    }
+    case "jobs.output": {
+      const job = (record.job ?? {}) as Record<string, WorkFoldCliJson>;
+      const output = (record.output ?? {}) as Record<string, WorkFoldCliJson>;
+      const header = `${terminalText(job.jobId)} "${terminalText(job.name)}": ${terminalText(job.status)}. `
+        + (output.totalLines ? `Lines ${terminalText(output.fromLine)}–${terminalText(output.toLine)} of ${terminalText(output.totalLines)}; next offset ${terminalText(output.nextOffset)}.` : "No output yet.");
+      return `${header}\n${typeof output.text === "string" && output.text ? `${output.text}\n` : ""}`;
+    }
     case "agent.overview": {
       const snapshot = data as {
         composedAt?: string;
@@ -4030,6 +4203,7 @@ function actReceiptDetail(
     continuation?: { taskId?: unknown };
     toWorkFolder?: { id?: unknown };
     taskId?: unknown;
+    job?: unknown;
   },
 ): string | undefined {
   // The collaboration verbs record identifiers, outcomes, and counts only:
@@ -4054,6 +4228,14 @@ function actReceiptDetail(
     case "chat.handoff": {
       const copied = countOf(record.copied);
       return `handoff to ${typeof record.toWorkFolder?.id === "string" ? record.toWorkFolder.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+    }
+    // Ids and states only; a receipt never carries the command text.
+    case "jobs.start":
+    case "jobs.stop": {
+      const job = record.job && typeof record.job === "object" ? record.job as { jobId?: unknown; state?: unknown; taskId?: unknown } : {};
+      return typeof job.jobId === "string"
+        ? `job ${job.jobId}; ${typeof job.state === "string" ? job.state : "unknown"}; started by task ${typeof job.taskId === "string" ? job.taskId : "unknown"}`
+        : undefined;
     }
     default:
       break;

@@ -316,6 +316,43 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
     ].join("\n");
   }
+  if (normalizedTopic === "jobs" || normalizedTopic?.startsWith("jobs ")) {
+    return [
+      header,
+      "",
+      `Usage: ${executable} jobs start --work-folder <id-or-name> --task <own-task-id> (--command <shell-command> | --command-file <path>) [--name <label>] [--cwd <folder>] [--timeout <seconds>] [--json]`,
+      `       ${executable} jobs list --work-folder <id-or-name> [--conversation <id>] [--running] [--json]`,
+      `       ${executable} jobs show --work-folder <id-or-name> --job <id> [--json]`,
+      `       ${executable} jobs output --work-folder <id-or-name> --job <id> [--offset <line>] [--limit <lines>] [--wait <seconds>] [--until <pattern>] [--task <own-task-id>] [--json]`,
+      `       ${executable} jobs stop --work-folder <id-or-name> --job <id> [--json]`,
+      "",
+      "A background job is a shell command that keeps running after the turn",
+      "that started it ends. Use one for anything that may take more than a",
+      "couple of minutes, or whose partial output decides the next step;",
+      "inside a Chat, the job_start, job_output, and job_stop tools do the",
+      "same thing without flags. When a job ends, work-fold brings its exit",
+      "status, History coverage, and the end of its output back to the Chat",
+      "that started it, once: to that Chat's running turn if it reads the job,",
+      "to its next turn, or in one follow-up turn. Never poll in a loop.",
+      "",
+      "start runs the command for your own running turn (--task, the id in",
+      "your turn context) in the work-folder's folder, or --cwd relative to",
+      "it; --command-file reads the command from a file in the directory you",
+      "ran in. A job has no time limit unless you give --timeout.",
+      "output prints the end of the output (at most 2,000 lines or 50 KB), or",
+      "a page from --offset; nextOffset reads on from there. --wait waits up",
+      "to that many seconds for the job to end, and --until returns as soon as",
+      "a line matches the pattern (a JavaScript regular expression).",
+      "stop sends SIGTERM to the job's whole process group, then SIGKILL after",
+      "5 seconds. Stopping the request a job belongs to stops it too, and",
+      "quitting work-fold stops every job; a job is never re-run.",
+      "",
+      "Output stays machine-local and is kept for 30 days after a job ends.",
+      "While a job runs, its Chat and work-folder cannot be deleted or",
+      "restored from History. Needs the work-fold app running.",
+      "",
+    ].join("\n");
+  }
   if (normalizedTopic === "chats" || normalizedTopic === "chats list") return `${header}\n\nUsage: ${executable} chats list --work-folder <id-or-name> [--json]\n\nList a work-folder's Chats. Needs the work-fold app running.\n`;
   if (normalizedTopic === "agent" || normalizedTopic?.startsWith("manage ")) {
     return [
@@ -677,6 +714,8 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     "  recently-deleted list|restore",
     "                      Bring back what was deleted",
     `  requests list|show  Follow one piece of work across work-folders (see '${executable} help collaborate')`,
+    "  jobs start|list|show|output|stop",
+    "                      Run long commands in the background; their end wakes the Chat",
     "",
     "Every act verb runs immediately and leaves a receipt in the act",
     "journal. Mutating act verbs accept --parent-task <id> to record which",

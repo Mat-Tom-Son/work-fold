@@ -141,6 +141,7 @@ test("CLI help covers every landed act family and is honest about what it runs",
     pages: ["share", "share-app", "list", "status", "revoke", "narrow", "widen", "snapshot-off"],
     "recently-deleted": ["list", "restore"],
     requests: ["list", "show"],
+    jobs: ["start", "list", "show", "output", "stop"],
   };
   const overview = workFoldCliHelp("work-fold");
   for (const [family, verbs] of Object.entries(families)) {
