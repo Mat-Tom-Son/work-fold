@@ -8,6 +8,7 @@ import type { NativeResource } from "./resource-lifecycle.js";
 
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
+import type { DocumentEngineSearch } from "../../../resources/included-tools/readiness.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
 import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
@@ -18,6 +19,8 @@ export interface IncludedToolsConfiguration {
   prepareComputerHelper?: () => Promise<void>;
   repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void>;
   chromeConnection?: IncludedChromeConnectionHost;
+  /** Where Documents looks for LibreOffice and Tesseract; defaults to this computer's usual install locations. */
+  documentEngineSearch?: DocumentEngineSearch;
 }
 
 export function includedToolsRoot(): string {

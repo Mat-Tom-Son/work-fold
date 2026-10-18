@@ -274,6 +274,12 @@ artifact, and concurrent Chat/Stop tests must preserve unrelated work.
 ### Optional installed document engines
 
 `document_engine status` detects executable availability without launching applications.
+The same detection (`resources/included-tools/readiness.ts`) feeds the Documents
+status on every read, so an install shows up without a click; it looks on `PATH`
+and in the usual macOS, Linux and Windows install folders, including
+`~/Applications`. An explicit Check also runs `--version` on each found engine
+and records the version or the start problem for that exact path. See
+[Document verification](document-verification.md) for the status word and Set up.
 `render` uses LibreOffice to produce PDF, `recalculate` uses an isolated LibreOffice
 Calc profile configured to recalculate OOXML on load and writes a separate XLSX, and
 `ocr` uses Tesseract on a selected page image. An explicit executable path is supported.
@@ -285,7 +291,8 @@ and input copy. Macros are disabled in the isolated Office profile. The result n
 compatibility/recognition limits; successful execution alone does not verify content.
 
 These are optional standard programs with explicit setup, not bundled runtimes or
-automatic downloads. LibreOffice rendering/recalculation has a real installed-engine
+automatic downloads: Set up opens the official download page or shows a command the
+person runs. LibreOffice rendering/recalculation has a real installed-engine
 fixture; the Tesseract adapter's deterministic transport/cancellation fixture does not
 certify OCR accuracy. A release claiming that workflow needs the installed-engine
 acceptance case too. [LibreOffice parameters](https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html),

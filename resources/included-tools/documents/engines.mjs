@@ -1,30 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createReadStream, createWriteStream } from "node:fs";
-import { access, copyFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { finished } from "node:stream/promises";
 import { withInputContract } from "../input-contracts.mjs";
+import { discoverDocumentEngines } from "../readiness.ts";
 
-const candidates = {
-  libreoffice: ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice", "/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"],
-  tesseract: ["tesseract", "/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"],
-};
-
-export async function discoverDocumentEngines({ path = process.env.PATH ?? "" } = {}) {
-  const found = {};
-  for (const [name, entries] of Object.entries(candidates)) {
-    let executable = null;
-    for (const entry of entries.flatMap((entry) => entry.includes("/") ? [entry] : path.split(delimiter).filter(Boolean).map((dir) => join(dir, entry)))) {
-      try { await access(entry, constants.X_OK); if ((await stat(entry)).isFile()) { executable = entry; break; } } catch {}
-    }
-    found[name] = { available: !!executable, executable, operations: name === "libreoffice" ? ["render", "recalculate"] : ["ocr"],
-      setup: executable ? null : name === "libreoffice" ? "Install LibreOffice, or supply its executable path. Existing Office apps remain usable through computer tools." : "Install Tesseract and the required language data, or supply its executable path. Render PDF pages to images first." };
-  }
-  return found;
-}
+/** Detection lives with the Documents readiness so Set up and this tool look in the same places. */
+export { discoverDocumentEngines };
 
 async function digest(path) {
   const hash = createHash("sha256");
@@ -161,7 +147,7 @@ export function registerDocumentEngineTools(pi, host) {
   });
   pi.registerTool(withInputContract({
     name: "document_engine", label: "Render, calculate, or recognize document text",
-    description: "Use an installed document engine. status detects LibreOffice (Office-to-PDF rendering and XLSX recalculation) and Tesseract (OCR of selected page images) without starting them. Other operations write a new normal file, preserve source bytes, report engine/source/output identity, and support Stop. No default deadline. Engines are optional installed programs, not bundled or automatically installed. Use document_run to inspect the rendered PDF, calculated workbook, or page image.",
+    description: "Check documents with an installed engine before calling them done. status detects LibreOffice (Office-to-PDF rendering and XLSX recalculation) and Tesseract (OCR of selected page images) without starting them. Other operations write a new normal file, preserve source bytes, report engine/source/output identity, and support Stop. No default deadline. Use document_run to look at the rendered pages, read the calculated workbook, or inspect the page image. Engines are optional installed programs, not bundled or automatically installed: when one is missing, say exactly what you could not check and point the person to Skills & Extensions → Documents → Set Up.",
     parameters: { type: "object", properties: {
       operation: { type: "string", enum: ["status", "render", "recalculate", "ocr"] },
       source: { type: "string" }, output: { type: "string" }, enginePath: { type: "string" }, language: { type: "string" },

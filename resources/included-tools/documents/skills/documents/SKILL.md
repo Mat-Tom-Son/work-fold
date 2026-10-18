@@ -1,6 +1,6 @@
 ---
 name: document-work
-description: Create and inspect Word documents, Excel workbooks, PowerPoint decks, and PDFs using the bundled document_run JavaScript runtime. Render selected PDF pages as images to check layout. Use normal files and the person's existing document apps.
+description: Create, change, and check Word documents, Excel workbooks, PowerPoint decks, and PDFs using the bundled document_run JavaScript runtime. Before reporting, look at the rendered pages and recalculated formulas with document_engine when it is available, fix what is wrong, and say exactly what could not be checked. Use normal files and the person's existing document apps.
 ---
 
 # Document work
@@ -8,6 +8,33 @@ description: Create and inspect Word documents, Excel workbooks, PowerPoint deck
 Use `document_run` for document scripts without relying on a separate Node or Python installation. Write an ordinary `.mjs` file, then pass its path to the tool. Standard JavaScript imports and relative helper modules work. Project dependencies resolve normally, with bundled packages available as a fallback. A script's default async function receives the context below. `.cjs` files may use `module.exports = async (context) => { ... }`.
 
 The runtime is full trust, like Pi's shell. Its separate worker makes Stop effective for synchronous loops; it does not sandbox code or undo work. Do not automatically rerun a stopped or failed script: inspect files and external effects first. Avoid starting child processes or daemons; Stop terminates the worker, not independent processes it creates.
+
+## Check before you report
+
+A document is not done until you have looked at the result. After you create or change a Word document, workbook, deck or PDF, check it, fix what is wrong, check again, and only then report. Plan the check when you plan the document.
+
+1. **Find out what you can check.** Call `document_engine` with `{input:{operation:"status"}}` once per Chat. It starts nothing. LibreOffice renders Word and PowerPoint files to PDF and recalculates workbooks; Tesseract reads text in page images.
+2. **Check by file type.** Put review files in `.worker/<task-id>/`, never beside the deliverable, and give each render a new name (`review-2.pdf`): engine outputs never overwrite.
+   - **Excel.** Reopen the file with ExcelJS and confirm sheets, values, formulas and number formats. Then `recalculate` it to `.worker/<task-id>/calculated.xlsx`, reopen that copy, and read the result of every formula that matters: totals, subtotals, cross-sheet references, and in a small workbook every formula. Compare each with the value you expect from the inputs, worked out separately in your script. Look for error results (`{error:"#REF!"}`, `#DIV/0!`, `#NAME?`, `#VALUE!`, `#N/A`). When the calculated values are right, write them as the cached `result` of each formula in the delivered file, so apps that show cached values (Quick Look, previews, phones) show the right numbers too.
+   - **Word.** `render` it to PDF, then render the pages with `document_run` and look at them with `emitImage`: page count, headings, tables that fit the page width (no cut-off columns, no one-word-per-line cells), images, page breaks, headers and footers, and no leftover placeholder text. Read the PDF text to confirm nothing is missing.
+   - **PowerPoint.** Render it to PDF and look at every slide: text running past its box or off the slide, shapes overlapping, text too small to read, tables or charts cut off, and the slide count. Fix by shortening text, splitting a dense slide, or enlarging the box, then render again. Do not rely on PptxGenJS `fit:"shrink"` or `fit:"resize"`; PowerPoint applies them only after someone edits the text.
+   - **PDF.** Render the pages directly and look at them; read the text.
+3. **Fix and check again** until the check passes. If something cannot be fixed, say what and why.
+4. **Report what you checked**, in one line, for example: "Checked: rendered all 6 slides with LibreOffice and looked at each; recalculated the workbook with LibreOffice Calc, and the total of $48,250 matches my own sum." Do not claim more than you did.
+
+LibreOffice is not Microsoft Office. Fonts can be substituted (Calibri becomes Carlito), so line breaks may differ slightly; leave some room rather than fitting text exactly. Calc and Excel can differ on some functions, so a successful recalculation is strong evidence, not proof, that Excel shows the same numbers.
+
+### When a check is not possible
+
+If `status` shows LibreOffice missing, still do every check that does not need it:
+
+- Reopen the file and confirm its content, sheets, slide count and formulas. Confirm every formula refers to cells and sheets that exist.
+- Work out each important formula's expected value in your script from the inputs, and write it as the cached `result`. Say that these values came from your script, not from a spreadsheet app.
+- For slides, estimate whether text fits its box. At a font size of `f` points, an average character is about `0.5 × f` points wide and a line is about `1.2 × f` points tall; a box is `72` points per inch. Count the lines each paragraph needs and compare the total height with the box. Keep a clear margin, and split a slide that is close.
+
+Then say exactly what you could not check, for example "I couldn't see how the slides look" or "the formulas weren't calculated by a spreadsheet app; the totals shown are values I worked out in my script". Tell the person that installing LibreOffice from **Skills & Extensions → Documents → Set Up** lets you check layout and formulas next time. Never claim a visual check or a calculated value that did not happen.
+
+Do not install anything unless the person asks. If they ask, you may run the command Set up shows for their computer (for example `brew install --cask libreoffice` when Homebrew is present), in the open, and then call `status` again. The person's own Word, PowerPoint or Excel can also be used through Computer Control, but only when they want that: it takes over their screen.
 
 ## Libraries and paths
 
@@ -29,11 +56,11 @@ export default async ({ libraries, resolve }) => {
 };
 ```
 
-For Excel, construct `new libraries.ExcelJS.Workbook()`, `addWorksheet()`, set cells with values or `{formula, result}`, and `await workbook.xlsx.writeFile(resolve("budget.xlsx"))`. In ExcelJS, formula strings omit the leading `=` used in the spreadsheet UI: use `{formula:"B2*2", result:84}`. Reopen with `xlsx.readFile()` to verify sheets, cell types, values, formulas and formatting. ExcelJS preserves formulas but does not calculate them; verify cached results separately and never claim recalculation took place. A zero cached result is valid: do not test its existence with a truthiness check. `workbook.calcProperties.fullCalcOnLoad = true` asks compatible spreadsheet apps to recalculate on opening; it does not run a calculation here.
+For Excel, construct `new libraries.ExcelJS.Workbook()`, `addWorksheet()`, set cells with values or `{formula, result}`, and `await workbook.xlsx.writeFile(resolve("budget.xlsx"))`. In ExcelJS, formula strings omit the leading `=` used in the spreadsheet UI: use `{formula:"B2*2", result:84}`. Reopen with `xlsx.readFile()` to verify sheets, cell types, values, formulas and formatting. ExcelJS preserves formulas but does not calculate them; recalculate a copy with `document_engine` to verify results, and never claim recalculation took place when it did not. A zero cached result is valid: do not test its existence with a truthiness check. `workbook.calcProperties.fullCalcOnLoad = true` asks compatible spreadsheet apps to recalculate on opening; it does not run a calculation here.
 
 For PowerPoint, construct `new libraries.PptxGenJS()`, set `layout`, use `addSlide()`, then `addText`, `addImage`, `addChart`, or `addTable` and `await deck.writeFile({fileName:resolve("deck.pptx")})`. Use real editable objects. Inspect the resulting ZIP with JSZip to verify expected slide count, text, media and relationships.
 
-For PDF, use `libraries.pdfLib.PDFDocument.create()` or `.load(bytes)`, embed fonts/images and save. Word and PowerPoint creation does not imply visual rendering support: the bundled libraries do not render DOCX/PPTX to PDF. Open them in the person's existing compatible app for visual inspection or export when available. Do not claim a file was visually checked based only on ZIP structure.
+For PDF, use `libraries.pdfLib.PDFDocument.create()` or `.load(bytes)`, embed fonts/images and save. The bundled libraries do not render DOCX/PPTX: use `document_engine` `render` to see them (see Check before you report). Do not claim a file was visually checked based only on ZIP structure.
 
 ## Read, render, inspect
 
@@ -76,8 +103,8 @@ PDF capture defaults to 64 MiB per source; set `maxSourceBytes` deliberately whe
 
 ## Installed rendering, calculation and OCR engines
 
-Call `document_engine` with `{input:{operation:"status"}}` to detect optional installed engines.
-The tool does not install programs. With LibreOffice available, use
+`document_engine` uses optional programs installed on the person's computer.
+work-fold does not bundle or install them. With LibreOffice available, use
 `{input:{operation:"render",source:"report.docx",output:".worker/task/review.pdf"}}` for Office-to-PDF,
 or `{input:{operation:"recalculate",source:"budget.xlsx",output:".worker/task/calculated.xlsx"}}`
 for a recalculated copy. Then use `document_run` to render/inspect the PDF or reopen
@@ -86,11 +113,41 @@ compatibility is not identical to Excel; a file-save success does not establish
 correctness of every formula. The isolated Calc profile forces OOXML recalculation
 on load; the original file is never changed.
 
+```js
+// .worker/<task-id>/look.mjs: pass the review PDF as the first arg.
+export default async ({ args, openPdf, emitImage }) => {
+  const pdf = await openPdf(args[0]);
+  try {
+    const rendered = await pdf.render({ scale: 1 });
+    for (const page of rendered.pages) await emitImage(page.path);
+    return { totalPages: pdf.totalPages, complete: rendered.complete, continuation: rendered.continuation };
+  } finally { await pdf.close(); }
+};
+```
+
+```js
+// .worker/<task-id>/formulas.mjs: pass the calculated workbook as the first arg.
+export default async ({ args, libraries }) => {
+  const workbook = new libraries.ExcelJS.Workbook();
+  await workbook.xlsx.readFile(args[0]);
+  const formulas = [], errors = [];
+  workbook.eachSheet((sheet) => sheet.eachRow((row) => row.eachCell((cell) => {
+    const value = cell.value;
+    if (!value || typeof value !== "object" || !("formula" in value || "sharedFormula" in value)) return;
+    const where = `${sheet.name}!${cell.address}`;
+    formulas.push({ where, formula: value.formula ?? value.sharedFormula, result: value.result });
+    if (value.result && typeof value.result === "object" && "error" in value.result) errors.push({ where, error: value.result.error });
+  })));
+  return { formulas, errors };
+};
+```
+
 With Tesseract installed, `{input:{operation:"ocr",source:"page.png",output:".worker/task/page.txt",language:"eng"}}`
 recognizes a selected page image. Render PDF pages first. The `language` option accepts
 installed Tesseract language identifiers, such as `eng+deu`. Compare important
-recognized text with the image. Missing engines or language data are explicit failures;
-use another available appropriate tool or explain the specific setup needed.
+recognized text with the image. A missing engine or language data is an explicit failure:
+use another available appropriate tool, or say what could not be done and point the
+person to Skills & Extensions → Documents → Set Up.
 
 Rendering, recalculation and OCR require a new output path, return source/output hashes and engine version,
 retain a log, and support Stop. `enginePath` selects an explicit installed executable.
