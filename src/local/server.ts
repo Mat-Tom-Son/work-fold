@@ -6615,14 +6615,25 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
       let instructions: string;
+      let appended: boolean | undefined;
+      const saved = input.append ? await runActOperation(() => getPiWorkerInstructions(workFolder.workFolderRoot, state.runtimeProvider)) : "";
       try {
-        instructions = normalizeWorkerInstructions(input.instructions);
+        if (input.append) {
+          const line = normalizeWorkerInstructions(input.instructions);
+          if (!line) throw new Error("Provide the line to add.");
+          const current = normalizeWorkerInstructions(saved);
+          // The same remembered line twice adds nothing.
+          appended = !current.split("\n").some((existing) => existing.trim() === line);
+          instructions = appended ? normalizeWorkerInstructions(current ? `${current}\n${line}` : line) : current;
+        } else {
+          instructions = normalizeWorkerInstructions(input.instructions);
+        }
       } catch (error) {
         throw new WorkFoldCliError("usage", errorMessage(error));
       }
-      await runActOperation(() => saveWorkerInstructions(state, workFolder, instructions));
+      if (appended !== false) await runActOperation(() => saveWorkerInstructions(state, workFolder, instructions));
       await recordFacadeAction(state, input.parentTaskId, { command: "work-folders.worker.instructions", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), instructions };
+      return { workFolder: toActWorkFolderRef(workFolder), instructions, ...(appended !== undefined ? { appended } : {}) };
     },
     async createConversation(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);

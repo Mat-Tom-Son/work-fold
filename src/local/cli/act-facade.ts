@@ -728,9 +728,17 @@ export interface WorkFoldActFacade {
     workFolder: WorkFoldActWorkFolderRef;
     model: { provider: string; id: string };
   }>;
-  workerSetInstructions(input: { workFolder: string; instructions: string; parentTaskId?: string }): Promise<{
+  workerSetInstructions(input: {
+    workFolder: string;
+    instructions: string;
+    /** Add `instructions` as one more line after the current ones instead of replacing them. */
+    append?: boolean;
+    parentTaskId?: string;
+  }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     instructions: string;
+    /** With `append`: false when that exact line was already there, so nothing changed. */
+    appended?: boolean;
   }>;
   createConversation(input: { workFolder: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; conversation: WorkFoldActConversationRef }>;
   listConversations(input: { workFolder: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; conversations: WorkFoldActConversationRef[] }>;

@@ -265,6 +265,8 @@ export interface WorkFoldCliActParsedCommand {
   question?: string;
   /** Who chat.ask is asking; `parent` on a root request is delivered to the person. */
   respondent?: "person" | "parent";
+  /** work-folders.worker.instructions `--append`: add `instructions` as one more line. */
+  appendInstructions?: boolean;
   /** chat.ask and agent.ask suggested answers (`--option`, repeatable), shown as choices. */
   options?: string[];
   /** chat.answer target. `--question` carries an id here and free text in chat.ask. */
@@ -442,6 +444,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--offset",
     "--wait",
     "--option",
+    "--append",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running"]);
 
@@ -1330,22 +1333,29 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "work-folders worker instructions": {
-      allowOnlyFlags("--work-folder", "--instructions", "--instructions-file", "--clear", "--parent-task");
+      allowOnlyFlags("--work-folder", "--instructions", "--instructions-file", "--append", "--clear", "--parent-task");
       const clear = flags.get("--clear") === true;
       const rawInstructions = textFileFlag("--instructions", "instructions") ?? stringFlag("--instructions");
-      if (clear === (rawInstructions !== undefined)) {
-        throw usageError("Provide exactly one of --instructions <text>, --instructions-file <path>, or --clear.");
+      // --append adds one remembered line to the current instructions instead
+      // of replacing them, so a Worker can keep a lasting preference without
+      // rewriting what the person or Set up for me already wrote.
+      const append = stringFlag("--append");
+      if ([clear, rawInstructions !== undefined, append !== undefined].filter(Boolean).length !== 1) {
+        throw usageError("Provide exactly one of --instructions <text>, --instructions-file <path>, --append <text>, or --clear.");
       }
-      if (rawInstructions !== undefined && rawInstructions.length > maximumWorkerInstructionsLength) {
-        throw usageError(`--instructions must be at most ${maximumWorkerInstructionsLength} characters.`);
+      if (append !== undefined && !append.trim()) throw usageError("Provide --append <text>.");
+      const text = append ?? rawInstructions;
+      if (text !== undefined && text.length > maximumWorkerInstructionsLength) {
+        throw usageError(`${append !== undefined ? "--append" : "--instructions"} must be at most ${maximumWorkerInstructionsLength} characters.`);
       }
       return {
         name: "work-folders.worker.instructions",
         output,
         workFolder: requireWorkFolder(),
-        instructions: clear ? "" : rawInstructions!,
+        instructions: clear ? "" : text!,
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(clear ? { clear: true } : {}),
+        ...(append !== undefined ? { appendInstructions: true } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -2120,6 +2130,7 @@ async function runActCommand(
       return toJson(await facade.workerSetInstructions({
         workFolder: command.workFolder!,
         instructions: command.instructions ?? "",
+        ...(command.appendInstructions ? { append: true } : {}),
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "chat.create":

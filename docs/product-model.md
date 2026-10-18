@@ -74,7 +74,11 @@ preferences keyed by portable work-folder identity; the work-fold agent has its 
 model choice but no editable Worker instructions. A model change becomes the
 default for new Chats because a live Pi session retains its session model. A
 Worker-instruction change reloads that work-folder's idle clients and applies to
-subsequent turns, including existing Chats. OpenRouter has an explicit live
+subsequent turns, including existing Chats. Worker instructions are also where a
+Worker remembers (2026-10-18): when the person states a lasting preference about
+working in that folder, the Worker or the work-fold agent adds it as one line
+with `work-folders worker instructions --append`, which keeps what is already
+there and skips an exact repeat, and says what it saved. OpenRouter has an explicit live
 refresh backed by its tool-capable text-model API; the last good result is
 cached outside every work-folder and Pi's built-in catalog remains a fallback. A
 restricted work-folder app's connection is managed with that app in **Settings → Apps**.
