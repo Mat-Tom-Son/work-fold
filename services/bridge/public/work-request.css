@@ -12,6 +12,18 @@
 .work-primary-button, .work-text-button, .work-file-button { font: inherit; cursor: pointer; color: inherit; }
 .work-primary-button { justify-self: start; border: 0; border-radius: 6px; padding: 8px 12px; background: var(--work-accent); color: var(--accent-contrast, white); font-size: 12px; font-weight: 500; min-height: 34px; }
 .work-text-button { border: 0; background: transparent; text-decoration: underline; text-underline-offset: 3px; padding: 4px; font-size: 12px; }
+.work-question-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.work-checklist { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; font-size: 13px; line-height: 1.45; }
+.work-checklist-item { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 7px; align-items: start; overflow-wrap: anywhere; }
+.work-checklist-mark { box-sizing: border-box; width: 14px; height: 14px; margin-top: 2px; border-radius: 4px; border: 1px solid color-mix(in srgb, currentColor 35%, transparent); display: grid; place-items: center; font-size: 10px; line-height: 1; }
+.work-checklist-item.is-done { opacity: .6; }
+.work-checklist-item.is-done .work-checklist-mark { background: var(--work-accent); border-color: var(--work-accent); color: var(--accent-contrast, white); }
+.work-checklist-item.is-doing { font-weight: 500; }
+.work-checklist-item.is-doing .work-checklist-mark { border-color: var(--work-accent); color: var(--work-accent); }
+.work-checklist .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.work-choice-button { font: inherit; font-size: 13px; line-height: 1.35; text-align: left; cursor: pointer; color: inherit; max-width: 100%; overflow-wrap: anywhere; border: 1px solid color-mix(in srgb, var(--work-accent) 55%, transparent); border-radius: 7px; padding: 7px 11px; min-height: 34px; background: color-mix(in srgb, var(--work-accent) 8%, transparent); }
+.work-choice-button:hover:not(:disabled) { background: color-mix(in srgb, var(--work-accent) 16%, transparent); }
+.work-choice-button:disabled { cursor: default; opacity: .55; }
 .work-request button:disabled { opacity: .5; cursor: default; }
 .work-request :is(button, textarea, summary):focus-visible { outline: 2px solid var(--work-accent); outline-offset: 3px; }
 .work-details { margin-top: 10px; font-size: 12px; }
@@ -26,7 +38,7 @@
 .work-file-button small { margin-left: auto; font-size: 11px; opacity: .6; }
 .work-error { font-size: 12px; line-height: 1.5; color: var(--danger, #b24538); }
 .work-continuation { color: inherit; opacity: .6; font-size: 12px; line-height: 1.5; padding: 10px 0; margin: 0; }
-@media (pointer: coarse) { .work-primary-button, .work-text-button, .work-file-button { min-height: 44px; } }
+@media (pointer: coarse) { .work-primary-button, .work-text-button, .work-file-button, .work-choice-button { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .work-file-button { transition: none; } }
 .work-saved-answer { margin: 0; padding: 10px 12px; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 0; border-radius: 7px; background: color-mix(in srgb, currentColor 4%, transparent); font-size: 13px; line-height: 1.6; }
 .work-question-origin, .work-details li > span:first-child { min-width: 0; overflow-wrap: anywhere; }

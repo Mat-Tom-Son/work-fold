@@ -447,6 +447,16 @@ test("the act parser accepts the four collaboration verbs and the request reads"
     ]).respondent,
     "parent",
   );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv([
+      "chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which quarter?", "--option", "Q3", "--option", " Q4 ",
+    ]).options,
+    ["Q3", "Q4"],
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["agent", "ask", "--task", "task-1", "--question", "Ship it?", "--option", "Yes", "--option", "Not yet"]).options,
+    ["Yes", "Not yet"],
+  );
   // --question carries free text for ask and an id for answer. That is the
   // contract's spelling (docs/collaboration-contract.md), not a slip.
   assert.deepEqual(
@@ -472,6 +482,24 @@ test("the act parser accepts the four collaboration verbs and the request reads"
       messageFromPayload: true, files: [],
     },
   );
+  assert.equal(
+    parseWorkFoldCliActArgv([
+      "chat", "handoff", "--work-folder", "work-folder-1", "--task", "task-1", "--to-work-folder", "work-folder-2", "--to-conversation", "chat-7", "--message", "One more thing.",
+    ]).toConversation,
+    "chat-7",
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "steer", "--work-folder", "work-folder-2", "--conversation", "chat-7", "--task", "task-1", "--message", "Also check Q4."]),
+    { name: "chat.steer", output: "human", workFolder: "work-folder-2", conversation: "chat-7", task: "task-1", message: "Also check Q4." },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "copy", "--work-folder", "work-folder-1", "--conversation", "chat-7", "--title", "Plan B"]),
+    { name: "chat.copy", output: "human", workFolder: "work-folder-1", conversation: "chat-7", title: "Plan B" },
+  );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["chat", "copy", "--work-folder", "work-folder-1", "--conversation", "chat-7", "--task", "task-1", "--message", "Try it as a table."]),
+    { name: "chat.copy", output: "human", workFolder: "work-folder-1", conversation: "chat-7", task: "task-1", message: "Try it as a table." },
+  );
   assert.deepEqual(parseWorkFoldCliActArgv(["requests", "list", "--json"]), { name: "requests.list", output: "json" });
   assert.deepEqual(
     parseWorkFoldCliActArgv(["requests", "show", "--request", "request-1"]),
@@ -496,6 +524,12 @@ test("the act parser refuses malformed collaboration arguments with stable usage
     [["requests", "show"], /Provide --request <request-id>\./],
     [["requests", "list", "--parent-task", "task-1"], /--parent-task cannot be used with 'requests list'\./],
     [["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which?", "--to", "someone"], /--to must be person or parent\./],
+    [["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which?", "--option", "A", "--option", "A"], /--option: A question offers the same choice twice\./],
+    [["chat", "ask", "--work-folder", "work-folder-1", "--task", "task-1", "--question", "Which?", "--option", "  "], /--option: A question choice cannot be empty\./],
+    [["chat", "send", "--work-folder", "work-folder-1", "--new", "--message", "hi", "--option", "A"], /--option cannot be used with 'chat send'\./],
+    [["chat", "steer", "--work-folder", "work-folder-1", "--conversation", "chat-1"], /Provide --message <text> or --message-file <path>\./],
+    [["chat", "copy", "--work-folder", "work-folder-1", "--conversation", "chat-1", "--task", "task-1"], /needs --message <text> with its assignment/],
+    [["chat", "copy", "--work-folder", "work-folder-1"], /--conversation/],
     [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--outcome", "great"], /--outcome must be succeeded, partial, or failed\./],
     [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1", "--summary", "Done.", "--data", "not json"], /--data must be valid JSON, or @<path> naming a JSON file\./],
     [["chat", "report", "--work-folder", "work-folder-1", "--task", "task-1"], /Provide --summary <text> or --summary-file <path>\./],

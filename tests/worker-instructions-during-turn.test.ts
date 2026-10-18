@@ -93,3 +93,34 @@ test("Worker instructions save while a turn runs, and that Chat picks them up wh
     await api.close();
   }
 });
+
+test("--append adds one remembered line, keeps what was there, and skips an exact repeat", async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-instructions-append-"));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const instructions = new Map<string, string>();
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workFolderBase: join(sandbox, "content"),
+    loadEnv: false,
+    piRuntimeProvider: {
+      async resolveRuntime(root: string) { return { agentDir: join(sandbox, "agent"), workerInstructions: instructions.get(root) ?? "" }; },
+      async getWorkerInstructions(root: string) { return instructions.get(root) ?? ""; },
+      async setWorkerInstructions(root: string, text: string) { instructions.set(root, text); },
+    },
+  });
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Notes" });
+    const first = await api.actFacade.workerSetInstructions({ workFolder: workFolder.id, instructions: "This folder holds Mat's research notes.\n" , append: true });
+    assert.equal(first.instructions, "This folder holds Mat's research notes.");
+    assert.equal(first.appended, true);
+    const second = await api.actFacade.workerSetInstructions({ workFolder: workFolder.id, instructions: "Write dates as YYYY-MM-DD.", append: true });
+    assert.equal(second.instructions, "This folder holds Mat's research notes.\nWrite dates as YYYY-MM-DD.");
+    const repeat = await api.actFacade.workerSetInstructions({ workFolder: workFolder.id, instructions: "  Write dates as YYYY-MM-DD.  ", append: true });
+    assert.equal(repeat.appended, false);
+    assert.equal(instructions.get(workFolder.workFolderRoot), "This folder holds Mat's research notes.\nWrite dates as YYYY-MM-DD.");
+    await assert.rejects(api.actFacade.workerSetInstructions({ workFolder: workFolder.id, instructions: "   ", append: true }), /Provide the line to add/);
+  } finally {
+    await api.close();
+  }
+});

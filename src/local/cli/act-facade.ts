@@ -274,6 +274,8 @@ export interface WorkFoldActQuestionRef {
   taskId: string;
   respondent: "person" | "parent";
   text: string;
+  /** Suggested answers, when the question offered any. */
+  options?: string[];
   state: "open" | "answered" | "expired" | "cancelled";
   askedAt: string;
   expiresAt: string | null;
@@ -726,9 +728,17 @@ export interface WorkFoldActFacade {
     workFolder: WorkFoldActWorkFolderRef;
     model: { provider: string; id: string };
   }>;
-  workerSetInstructions(input: { workFolder: string; instructions: string; parentTaskId?: string }): Promise<{
+  workerSetInstructions(input: {
+    workFolder: string;
+    instructions: string;
+    /** Add `instructions` as one more line after the current ones instead of replacing them. */
+    append?: boolean;
+    parentTaskId?: string;
+  }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     instructions: string;
+    /** With `append`: false when that exact line was already there, so nothing changed. */
+    appended?: boolean;
   }>;
   createConversation(input: { workFolder: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; conversation: WorkFoldActConversationRef }>;
   listConversations(input: { workFolder: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; conversations: WorkFoldActConversationRef[] }>;
@@ -810,6 +820,8 @@ export interface WorkFoldActFacade {
     taskId: string;
     question: string;
     respondent: "person" | "parent";
+    /** Suggested answers shown as choices; the person can still write their own. */
+    options?: string[];
     requestId?: string;
     parentTaskId?: string;
   }): Promise<{
@@ -849,6 +861,11 @@ export interface WorkFoldActFacade {
     workFolder: string;
     taskId: string;
     toWorkFolder: string;
+    /**
+     * Follow up in a Chat this Chat already handed work to, instead of
+     * starting a new one (2026-10-18). That Chat keeps its context.
+     */
+    toConversationId?: string;
     message: string;
     files: string[];
     requestId?: string;
@@ -862,6 +879,54 @@ export interface WorkFoldActFacade {
     copied: string[];
     checkpointId: string | null;
     request: WorkFoldActRequestRef;
+    /** True when the message went into an existing Chat rather than a new one. */
+    followUp?: boolean;
+  }>;
+  /**
+   * Redirects a Chat's running turn with one more message, delivered after
+   * its current step, exactly like typing into it on the desktop. With
+   * `taskId`, the caller is a Worker's own running turn and may redirect only
+   * a Chat its own Chat handed work to.
+   */
+  chatSteer(input: {
+    workFolder: string;
+    conversationId: string;
+    message: string;
+    taskId?: string;
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    conversationId: string;
+    /** The running turn the message joined. */
+    taskId: string;
+    messageId: string;
+    replayed: boolean;
+  }>;
+  /**
+   * Copies a Chat as of its last finished turn into a new Chat in the same
+   * work-folder, so a different direction can start with the same context.
+   * With `message`, the copy starts that work at once; with `taskId` (a
+   * Worker's own running turn) it becomes a child of that request and its
+   * result comes back like a handoff's.
+   */
+  chatCopy(input: {
+    workFolder: string;
+    conversationId: string;
+    message?: string;
+    title?: string;
+    taskId?: string;
+    requestId?: string;
+    parentTaskId?: string;
+  }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    conversation: WorkFoldActConversationRef;
+    copiedFromConversationId: string;
+    /** Visible messages carried into the copy. */
+    copiedMessages: number;
+    /** The copy's first turn, when `message` started one. */
+    taskId?: string;
+    request?: WorkFoldActRequestRef;
   }>;
   /**
    * Reads of the request graph above all work-folders: recent roots, newest first.

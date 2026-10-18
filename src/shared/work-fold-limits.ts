@@ -73,7 +73,13 @@ export const workFoldRequestLimits = Object.freeze({
   /** Shipped default is no cap; a host may set one, and reaching it fails the request. */
   providerBudgetUsd: null as number | null,
   maxQuestionTextBytes: 4 * 1024 * 1024,
+  /** Suggested answers a question may offer as choices; the person can still write their own. */
+  maxQuestionOptions: 64,
+  maxQuestionOptionBytes: 4 * 1024,
   maxAnswerTextBytes: 4 * 1024 * 1024,
+  /** The checklist an agent keeps for its request (2026-10-18); long tasks only. */
+  maxChecklistItems: 200,
+  maxChecklistItemBytes: 2 * 1024,
   maxResultSummaryBytes: 4 * 1024 * 1024,
   maxResultDataBytes: 16 * 1024 * 1024,
   /** UI page size; further questions follow as earlier answers are delivered. */

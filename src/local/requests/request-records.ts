@@ -164,7 +164,11 @@ export type WorkFoldRequestLimitName =
   | "providerBudget"
   | "questionLifetime"
   | "questionText"
+  | "questionOptions"
+  | "questionOptionText"
   | "answerText"
+  | "checklistItems"
+  | "checklistItemText"
   | "resultSummary"
   | "resultData"
   | "resultFiles"
@@ -172,6 +176,20 @@ export type WorkFoldRequestLimitName =
   | "resultsPerRequest"
   | "turnsPerRequest"
   | "actionsPerRequest";
+
+export type WorkFoldChecklistItemStatus = "todo" | "doing" | "done";
+
+export interface WorkFoldChecklistItem {
+  text: string;
+  status: WorkFoldChecklistItemStatus;
+}
+
+export interface WorkFoldChecklist {
+  items: WorkFoldChecklistItem[];
+  updatedAt: string;
+  /** The turn that last changed it. */
+  taskId: string;
+}
 
 export interface WorkFoldRequestLimitHit {
   limit: WorkFoldRequestLimitName;
@@ -200,6 +218,8 @@ export const workFoldRequestActionCommands = [
   "chat.ask",
   "chat.answer",
   "chat.handoff",
+  "chat.steer",
+  "chat.copy",
   "history.save",
   "history.restore",
   "history.restore-file",
@@ -331,6 +351,12 @@ export interface WorkFoldRequestRecord {
   jobs?: WorkFoldRequestJobRef[];
   /** Finished jobs whose end already reached the Chat, by any path (F32). */
   deliveredJobIds?: string[];
+  /**
+   * The checklist the agent keeps for this request (2026-10-18): what it
+   * plans to do and how far it got. The host keeps it, shows it to the
+   * person, and hands it back to every later turn of the request.
+   */
+  checklist?: WorkFoldChecklist;
   continuationState: "pending" | "failed" | null;
   stopRequestedAt: string | null;
   limitHit: WorkFoldRequestLimitHit | null;
@@ -356,6 +382,12 @@ export interface WorkFoldQuestionRecord {
   taskId: string;
   respondent: "person" | "parent";
   text: string;
+  /**
+   * Suggested answers, shown as choices the person can pick with one click.
+   * Absent when the question offered none; any free-text answer is still
+   * accepted either way.
+   */
+  options?: string[];
   askedAt: string;
   updatedAt: string;
   /** A question lives exactly as long as its request. */
@@ -446,8 +478,16 @@ export function workFoldRequestLimitMessage(limit: WorkFoldRequestLimitName, cap
       return `This question's request passed its ${Math.round(cap / 3_600_000)}-hour window, so it can no longer be answered. ${shows}`;
     case "questionText":
       return `A question may be at most ${kilobytes(cap)} of text. ${shows}`;
+    case "questionOptions":
+      return `A question may offer at most ${cap} choices. ${shows}`;
+    case "questionOptionText":
+      return `Each choice may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "answerText":
       return `An answer may be at most ${kilobytes(cap)} of text. ${shows}`;
+    case "checklistItems":
+      return `A checklist may hold at most ${cap} items. ${shows}`;
+    case "checklistItemText":
+      return `Each checklist item may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "resultSummary":
       return `A result summary may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "resultData":
@@ -788,7 +828,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       "createdAt", "updatedAt", "settledAt", "deadline", "state", "turns", "childRequestIds", "questionIds", "results",
       "usage", "continuationCount", "stopRequestedAt", "limitHit", "reconciledAt", "remote", "content", "attachments",
       "actions", "continuedFromTaskId", "assignment", "deliveredChildTaskIds", "continuationState",
-      "jobs", "deliveredJobIds",
+      "jobs", "deliveredJobIds", "checklist",
     ],
     label,
   );
@@ -875,6 +915,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
     if (!Array.isArray(record.jobs)) throw new Error(`${label} background jobs are invalid.`);
     parsed.jobs = record.jobs.map(parseJobRef);
   }
+  if (record.checklist !== undefined) parsed.checklist = parseWorkFoldChecklist(record.checklist);
   if (record.deliveredJobIds !== undefined) {
     parsed.deliveredJobIds = stringArray(record.deliveredJobIds, `${label} delivered background jobs`).map((id) => {
       if (!workFoldJobRefIdPattern.test(id)) throw new Error(`${label} delivered background job id is invalid.`);
@@ -931,7 +972,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
   assertClosedShape(
     record,
     [
-      "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "askedAt", "updatedAt",
+      "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "options", "askedAt", "updatedAt",
       "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredByWorkFolderId",
     ],
     label,
@@ -950,6 +991,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     taskId: stableId(record.taskId, `${label} task id`),
     respondent: enumValue(record.respondent, ["person", "parent"] as const, `${label} respondent`),
     text: boundedText(record.text, `${label} text`, workFoldRequestLimits.maxQuestionTextBytes, "questionText"),
+    ...(record.options === undefined || record.options === null ? {} : { options: parseWorkFoldQuestionOptions(record.options) }),
     askedAt: isoDate(record.askedAt, `${label} time`),
     updatedAt: isoDate(record.updatedAt, `${label} update time`),
     expiresAt: nullableIsoDate(record.expiresAt, `${label} window`),
@@ -965,6 +1007,46 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
       ? null
       : stableId(record.answeredByWorkFolderId, `${label} answering work-folder id`),
   };
+}
+
+/** A request's checklist items: non-empty one-line text with a status. An empty list clears it. */
+export function parseWorkFoldChecklistItems(value: unknown): WorkFoldChecklistItem[] {
+  if (!Array.isArray(value)) throw new Error("A checklist must be a list of items.");
+  if (value.length > workFoldRequestLimits.maxChecklistItems) throw workFoldRequestLimitError("checklistItems", workFoldRequestLimits.maxChecklistItems);
+  return value.map((raw) => {
+    const item = objectValue(raw, "A checklist item");
+    assertClosedShape(item, ["text", "status"], "A checklist item");
+    const text = boundedText(item.text, "A checklist item", workFoldRequestLimits.maxChecklistItemBytes, "checklistItemText").replace(/\s+/g, " ").trim();
+    if (!text) throw new Error("A checklist item cannot be empty.");
+    return { text, status: enumValue(item.status, ["todo", "doing", "done"] as const, "A checklist item's status") };
+  });
+}
+
+function parseWorkFoldChecklist(value: unknown): WorkFoldChecklist {
+  const checklist = objectValue(value, "Request checklist");
+  assertClosedShape(checklist, ["items", "updatedAt", "taskId"], "Request checklist");
+  return {
+    items: parseWorkFoldChecklistItems(checklist.items),
+    updatedAt: isoDate(checklist.updatedAt, "Request checklist time"),
+    taskId: stableId(checklist.taskId, "Request checklist task id"),
+  };
+}
+
+/**
+ * A question's suggested answers: each is non-empty single-line text, none
+ * repeats, and an empty list is the same as offering none.
+ */
+export function parseWorkFoldQuestionOptions(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new Error("Question choices must be a list of text.");
+  if (value.length > workFoldRequestLimits.maxQuestionOptions) throw workFoldRequestLimitError("questionOptions", workFoldRequestLimits.maxQuestionOptions);
+  const options = value.map((item) => {
+    const text = boundedText(item, "A question choice", workFoldRequestLimits.maxQuestionOptionBytes, "questionOptionText").trim();
+    if (!text) throw new Error("A question choice cannot be empty.");
+    if (/[\n\r]/.test(text)) throw new Error("A question choice must be one line.");
+    return text;
+  });
+  if (new Set(options).size !== options.length) throw new Error("A question offers the same choice twice.");
+  return options;
 }
 
 /**
