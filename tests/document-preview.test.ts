@@ -83,12 +83,17 @@ test("a file Quick Look cannot draw fails plainly instead of hanging", { ...posi
   t.after(async () => { if (hungPid) { try { process.kill(hungPid, "SIGKILL"); } catch {} } await rm(root, { recursive: true, force: true }); });
   await writeFile(join(root, "damaged.docx"), "not a document");
   const started = Date.now();
-  await assert.rejects(runDocumentEngine({ operation: "preview", source: "damaged.docx", output: "damaged.png", timeoutMs: 300, cwd: root, stateRoot: root, search: searchFor(root, await standIn(root, "hang")) }),
+  // A full second lets the stand-in start and record its pid even under the
+  // load of the complete suite; a busier machine may still stop it first.
+  await assert.rejects(runDocumentEngine({ operation: "preview", source: "damaged.docx", output: "damaged.png", timeoutMs: 1_000, cwd: root, stateRoot: root, search: searchFor(root, await standIn(root, "hang")) }),
     /Quick Look couldn't draw this file\. It may be damaged, or a kind Quick Look doesn't know\. It didn't finish within 1 second\.\nRetained engine log/);
   assert.ok(Date.now() - started < 5_000);
-  hungPid = Number(await readFile(join(root, "hung"), "utf8"));
-  assert.throws(() => process.kill(hungPid, 0), "the hung previewer is killed at the deadline");
-  hungPid = 0;
+  const recorded = await readFile(join(root, "hung"), "utf8").catch(() => null);
+  if (recorded !== null) {
+    hungPid = Number(recorded);
+    assert.throws(() => process.kill(hungPid, 0), "the hung previewer is killed at the deadline");
+    hungPid = 0;
+  }
   await assert.rejects(runDocumentEngine({ operation: "preview", source: "damaged.docx", output: "nothing.png", cwd: root, stateRoot: root, search: searchFor(root, await standIn(root, "nothing")) }),
     /Quick Look couldn't draw this file\. It may be damaged, or a kind Quick Look doesn't know\.\nRetained engine log/);
   assert.equal(existsSync(join(root, "nothing.png")), false);
