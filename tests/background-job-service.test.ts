@@ -237,6 +237,18 @@ test("a host refusal before spawn records the job failed and runs nothing", asyn
   await assert.rejects(readFile(marker));
 });
 
+test("a Stop that lands while a job is starting stops it as soon as it runs", async (t) => {
+  let stopped = false;
+  const h = await harness(t, { ports: {
+    beforeSpawn: async () => { stopped = true; },
+    stopRequested: () => stopped,
+  } });
+  const job = await start(h, "sleep 30");
+  const ended = (await h.service.wait(job.jobId, { seconds: 10 })).job;
+  assert.equal(ended.state, "stopped");
+  assert.equal(ended.stoppedBy, "request");
+});
+
 test("the work-fold agent's jobs say History does not apply to them", async (t) => {
   const h = await harness(t);
   const job = await h.service.start({

@@ -70,6 +70,11 @@ export interface WorkFoldJobStartInput {
 export interface WorkFoldJobServicePorts {
   /** After `accepted` is journaled and before spawn; throwing records the job `failed`. */
   beforeSpawn?(job: WorkFoldJobRecord): Promise<void>;
+  /**
+   * Checked once the process is running: a Stop that landed while the job was
+   * starting found nothing live to stop, so the job stops itself here.
+   */
+  stopRequested?(job: WorkFoldJobRecord): boolean;
   /** After the process ended and its terminal state is journaled. */
   captureHistory(job: WorkFoldJobRecord): Promise<WorkFoldJobHistory>;
   /** The job is settled: History coverage and its end are on record. */
@@ -311,6 +316,7 @@ export class WorkFoldJobService {
       live.timeoutTimer.unref();
     }
     void exited.then((exit) => this.#finish(live, exit));
+    if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
     return { ...running, output: writer.counters };
   }
 

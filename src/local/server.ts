@@ -11760,6 +11760,7 @@ function createBackgroundJobService(state: LocalApiState, store: WorkFoldJobStor
           actor: { kind: job.surface === "cli" ? "cli" : "assistant" },
         });
       },
+      stopRequested: (job) => Boolean(state.requests.byJobId(job.jobId)?.stopRequestedAt),
       captureHistory: (job) => captureBackgroundJobHistory(job),
       afterSettle: (job) => {
         state.kernel.finishTask(job.jobId);
