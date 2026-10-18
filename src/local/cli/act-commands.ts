@@ -59,6 +59,8 @@ export type WorkFoldCliActCommandName =
   | "chat.ask"
   | "chat.answer"
   | "chat.handoff"
+  | "chat.steer"
+  | "chat.copy"
   | "chats.list"
   | "agent.send"
   | "agent.status"
@@ -275,6 +277,8 @@ export interface WorkFoldCliActParsedCommand {
   answer?: string;
   /** chat.handoff destination work-folder selector. */
   toWorkFolder?: string;
+  /** chat.handoff `--to-conversation`: follow up in a Chat this Chat already handed work to. */
+  toConversation?: string;
   /** requests.show target. */
   request?: string;
   /**
@@ -431,6 +435,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--question",
     "--answer",
     "--to-work-folder",
+    "--to-conversation",
     "--file",
     "--request",
     "--banner-image",
@@ -717,6 +722,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "agent ask",
     "agent answer",
     "chat handoff",
+    "chat steer",
+    "chat copy",
     "history save",
     "history restore",
     "history restore-file",
@@ -957,10 +964,54 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "chat steer": {
+      // One more message into a Chat's running turn, delivered after its
+      // current step. --task names the caller's own running turn when a
+      // Worker redirects work its Chat handed off (2026-10-18).
+      allowOnlyFlags("--work-folder", "--conversation", "--task", "--message", "--message-from-payload", "--parent-task");
+      const message = stringFlag("--message");
+      const messageFromPayload = flags.get("--message-from-payload") === true;
+      if (message !== undefined && messageFromPayload) throw usageError("Use either --message <text> or --message-file <path>, not both.");
+      if (message === undefined && !messageFromPayload) throw usageError("Provide --message <text> or --message-file <path>.");
+      const task = optionalBoundedFlag("--task", "task-id");
+      return {
+        name: "chat.steer",
+        output,
+        workFolder: requireWorkFolder(),
+        conversation: requireConversation(),
+        ...(task ? { task } : {}),
+        ...(message !== undefined ? { message } : {}),
+        ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
+    case "chat copy": {
+      // A copy of a Chat as of its last finished turn, in the same
+      // work-folder; --message starts work in the copy at once.
+      allowOnlyFlags("--work-folder", "--conversation", "--task", "--title", "--message", "--message-from-payload", "--parent-task");
+      const message = stringFlag("--message");
+      const messageFromPayload = flags.get("--message-from-payload") === true;
+      if (message !== undefined && messageFromPayload) throw usageError("Use either --message <text> or --message-file <path>, not both.");
+      const task = optionalBoundedFlag("--task", "task-id");
+      if (task && message === undefined && !messageFromPayload) throw usageError("A copy made from your own turn needs --message <text> with its assignment.");
+      const title = optionalBoundedFlag("--title", "title");
+      return {
+        name: "chat.copy",
+        output,
+        workFolder: requireWorkFolder(),
+        conversation: requireConversation(),
+        ...(task ? { task } : {}),
+        ...(title ? { title } : {}),
+        ...(message !== undefined ? { message } : {}),
+        ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "chat handoff": {
       // The message either/or is exactly `chat send`'s, because a handoff
       // starts a Chat in the destination through that same acceptance path.
-      allowOnlyFlags("--work-folder", "--task", "--to-work-folder", "--message", "--message-from-payload", "--parent-task");
+      allowOnlyFlags("--work-folder", "--task", "--to-work-folder", "--to-conversation", "--message", "--message-from-payload", "--parent-task");
+      const toConversation = optionalBoundedFlag("--to-conversation", "conversation-id");
       const message = stringFlag("--message");
       const messageFromPayload = flags.get("--message-from-payload") === true;
       if (message !== undefined && messageFromPayload) {
@@ -975,6 +1026,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         workFolder: requireWorkFolder(),
         task: requireBoundedFlag("--task", "task-id"),
         toWorkFolder: requireBoundedFlag("--to-work-folder", "id-or-name"),
+        ...(toConversation ? { toConversation } : {}),
         ...(message !== undefined ? { message } : {}),
         ...(messageFromPayload ? { messageFromPayload } : {}),
         // A handoff copies through the same additive, restore-pointed path an
@@ -2214,8 +2266,32 @@ async function runActCommand(
         workFolder: command.workFolder!,
         taskId: command.task!,
         toWorkFolder: command.toWorkFolder!,
+        ...(command.toConversation ? { toConversationId: command.toConversation } : {}),
         message: content,
         files: command.files ?? [],
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    }
+    case "chat.steer": {
+      const content = command.messageFromPayload ? request.payload?.messageFile ?? "" : command.message ?? "";
+      return toChecksJson(await facade.chatSteer({
+        workFolder: command.workFolder!,
+        conversationId: command.conversation!,
+        message: content,
+        ...(command.task ? { taskId: command.task } : {}),
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    }
+    case "chat.copy": {
+      const content = command.messageFromPayload ? request.payload?.messageFile ?? "" : command.message;
+      return toChecksJson(await facade.chatCopy({
+        workFolder: command.workFolder!,
+        conversationId: command.conversation!,
+        ...(content !== undefined ? { message: content } : {}),
+        ...(command.title ? { title: command.title } : {}),
+        ...(command.task ? { taskId: command.task } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -3049,7 +3125,15 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const copiedLine = copied.length
         ? `\nCopied ${copied.length} item${copied.length === 1 ? "" : "s"}: ${copied.map(terminalText).join(", ")}${record.checkpointId ? ` (restore point ${terminalText(record.checkpointId)})` : ""}`
         : "";
-      return `Handed off to ${terminalText(destination?.name)} [${terminalText(destination?.id)}]. Chat ${terminalText(record.conversationId)}, task ${terminalText(record.taskId)}.${copiedLine}\n`;
+      const verb = record.followUp === true ? "Followed up with" : "Handed off to";
+      return `${verb} ${terminalText(destination?.name)} [${terminalText(destination?.id)}]. Chat ${terminalText(record.conversationId)}, task ${terminalText(record.taskId)}.${copiedLine}\n`;
+    }
+    case "chat.steer":
+      return `${record.replayed === true ? "Already delivered" : "Delivered"} to Chat ${terminalText(record.conversationId)}; it reaches running task ${terminalText(record.taskId)} after its current step.\n`;
+    case "chat.copy": {
+      const conversation = record.conversation as { id?: string; title?: string } | undefined;
+      const started = typeof record.taskId === "string" ? ` Started task ${terminalText(record.taskId)} in it.` : "";
+      return `Copied Chat ${terminalText(record.copiedFromConversationId)} (${terminalText(record.copiedMessages)} messages) into "${terminalText(conversation?.title)}" [${terminalText(conversation?.id)}].${started}\n`;
     }
     case "requests.list": {
       const requests = (Array.isArray(record.requests) ? record.requests : []) as Array<{
@@ -4262,7 +4346,13 @@ function actReceiptDetail(
         : undefined;
     case "chat.handoff": {
       const copied = countOf(record.copied);
-      return `handoff to ${typeof record.toWorkFolder?.id === "string" ? record.toWorkFolder.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+      return `${(record as { followUp?: unknown }).followUp === true ? "follow-up" : "handoff"} to ${typeof record.toWorkFolder?.id === "string" ? record.toWorkFolder.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+    }
+    case "chat.steer":
+      return `steered running task ${typeof (record as { taskId?: unknown }).taskId === "string" ? (record as { taskId: string }).taskId : "unknown"}`;
+    case "chat.copy": {
+      const copy = record as { copiedFromConversationId?: unknown; copiedMessages?: unknown; taskId?: unknown };
+      return `copy of ${typeof copy.copiedFromConversationId === "string" ? copy.copiedFromConversationId : "unknown"}; ${typeof copy.copiedMessages === "number" ? copy.copiedMessages : 0} messages${typeof copy.taskId === "string" ? `; task ${copy.taskId}` : ""}`;
     }
     // Ids and states only; a receipt never carries the command text.
     case "jobs.start":

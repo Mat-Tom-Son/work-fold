@@ -104,6 +104,38 @@ long-running work to this contract without a new lifecycle:
 - **Output stays machine-local.** Only what a turn reads or the follow-up
   carries enters a Chat.
 
+### 2026-10-18 amendment: follow up, redirect, copy
+
+A gap review against other agent harnesses found that delegated work could
+start and finish but not be continued, corrected, or branched. Three verbs
+close that without a second delegation system; each reuses the request
+graph, receipts, and Stop above.
+
+- **Follow up.** `chat handoff --to-conversation <id>` sends the next
+  message into a Chat the caller's Chat already handed work to, so that
+  Worker keeps its context. It becomes a new child of the caller's request,
+  and it is refused while that Chat is working. The work-fold agent already
+  follows up with `chat send --conversation`.
+- **Redirect.** `chat steer --conversation <id> --message <text>` adds one
+  message to a Chat's running turn, delivered after its current step through
+  the same steering path the desktop uses. With `--task`, a Worker can steer
+  only a Chat its own Chat handed work to; an idle Chat is refused by name.
+- **Copy.** `chat copy --conversation <id>` (and **Make a Copy** in a Chat's
+  menu) creates a new Chat in the same work-folder with that Chat's visible
+  transcript and Pi session as of its last finished reply. A turn still
+  running is left out, so the copy never inherits an unanswered tool call.
+  Copied messages get new ids and no turn or request identity, and the
+  original is never written. With `--task` and `--message`, a Worker copies
+  its own Chat, or one it handed work to, to try another direction with the
+  same context; that work is a child of its request and reports back like a
+  handoff. This is a host-owned copy, not Pi's session switching, which stays
+  unavailable.
+
+"Handed work to" is a host check: some request in the target Chat has a
+parent request owned by the caller's Chat. Nothing else about other Chats
+is revealed, and the person's own CLI use, which carries no `--task`, is
+unchanged.
+
 ## Verbs
 
 All are act-lane and receipted; `chat` verbs name a work-folder and `agent` verbs own management questions. They are available to the work-fold agent, a work-folder
@@ -114,7 +146,9 @@ collaborate` documents them with examples that the tests validate.
 work-fold chat report  --work-folder <id> --task <own-task-id> --summary "<text>" [--data <json-or-@file>] [--file <work-folder-path>]... [--outcome succeeded|partial|failed] --json
 work-fold chat ask     --work-folder <id> --task <own-task-id> --question "<text>" [--option "<choice>"]... [--to person|parent] --json
 work-fold chat answer  --work-folder <id> --question <id> --answer "<text>" [--parent-task <id>] --json
-work-fold chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id> --message "<text>" [--file <work-folder-path>]... --json
+work-fold chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id> [--to-conversation <id>] --message "<text>" [--file <work-folder-path>]... --json
+work-fold chat steer   --work-folder <id> --conversation <id> [--task <own-task-id>] --message "<text>" --json
+work-fold chat copy    --work-folder <id> --conversation <id> [--task <own-task-id>] [--message "<text>"] [--title "<title>"] --json
 work-fold chat wait    --work-folder <id> --task <id> [--timeout <s>] --json     # settles on terminal OR waiting
 work-fold agent ask   --task <own-task-id> --question "<text>" [--option "<choice>"]... --json
 work-fold agent answer --question <id> --answer "<text>" --json

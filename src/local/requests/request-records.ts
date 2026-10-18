@@ -202,6 +202,8 @@ export const workFoldRequestActionCommands = [
   "chat.ask",
   "chat.answer",
   "chat.handoff",
+  "chat.steer",
+  "chat.copy",
   "history.save",
   "history.restore",
   "history.restore-file",

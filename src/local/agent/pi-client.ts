@@ -8,7 +8,7 @@ import { includedResourceOptions } from "./included-tools.js";
 import type { WorkFoldSessionRole } from "./role-preamble.js";
 import { currentTurnEnvironment, describeTurnEnvironment, type PiTurnEnvironment } from "./turn-environment.js";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import {
@@ -1277,10 +1277,11 @@ export class PiConversationClient extends EventEmitter {
         if (!parsed.args) return session.sessionName ? `Session name: ${session.sessionName}` : "This session has no name.";
         session.setSessionName(parsed.args);
         return `Session named “${parsed.args}”.`;
-      case "new":
-      case "resume":
       case "fork":
       case "clone":
+        return `${hostSessionMutationUnavailableMessage} Use Make a Copy in this Chat's menu to start a separate Chat with this history.`;
+      case "new":
+      case "resume":
       case "tree":
       case "import":
         return `${hostSessionMutationUnavailableMessage} Use the New chat button to start a separate visible transcript.`;
@@ -1745,6 +1746,50 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
   return model && runtime.modelRuntime.hasConfiguredAuth(model.provider) ? model : undefined;
 }
 
+/**
+ * Copies a Chat's Pi session, as of its last finished reply, into a new
+ * Chat's session file (2026-10-18, `chat copy`). The source is opened
+ * separately and never written: Pi's own branch extraction writes a new file
+ * holding only the path from the first entry to that reply, which then
+ * becomes the new Chat's stable session file. A turn still running in the
+ * source is left out, so the copy never ends on an unanswered tool call.
+ * Returns false when the source has no finished reply to copy.
+ */
+export async function copyPiConversationSession(input: {
+  workFolderRoot: string;
+  runtimeProvider?: PiRuntimeProvider;
+  sourceConversationId: string;
+  targetConversationId: string;
+}): Promise<boolean> {
+  const runtime = await resolvePiRuntime(input.workFolderRoot, input.runtimeProvider);
+  const sourcePath = await resolveConversationSessionPath(runtime.sessionDir, input.sourceConversationId);
+  if (!existsSync(sourcePath)) return false;
+  const source = SessionManager.open(sourcePath, runtime.sessionDir, input.workFolderRoot);
+  const leafId = lastFinishedReplyEntryId(source.getBranch());
+  if (!leafId) return false;
+  const branched = source.createBranchedSession(leafId);
+  if (!branched || !existsSync(branched)) return false;
+  const target = conversationSessionPath(runtime.sessionDir, input.targetConversationId);
+  if (existsSync(target)) throw new Error("The new Chat already has a session.");
+  await rename(branched, target);
+  return true;
+}
+
+/** The newest assistant reply on a branch that asked for no tool, so nothing after it is half-finished. */
+function lastFinishedReplyEntryId(branch: readonly { id: string; type: string; message?: unknown }[]): string | null {
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index]!;
+    if (entry.type !== "message") continue;
+    const message = entry.message as { role?: unknown; content?: unknown; stopReason?: unknown } | undefined;
+    if (message?.role !== "assistant") continue;
+    const content = Array.isArray(message.content) ? message.content as Array<{ type?: unknown }> : [];
+    if (content.some((part) => part?.type === "toolCall")) continue;
+    if (message.stopReason === "aborted" || message.stopReason === "error") continue;
+    return entry.id;
+  }
+  return null;
+}
+
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
   if (context.environment) lines.push(describeTurnEnvironment(context.environment));
@@ -2000,7 +2045,8 @@ async function resolveConversationSessionPath(sessionDir: string, conversationId
   return stablePath;
 }
 
-function conversationSessionPath(sessionDir: string, conversationId: string): string {
+/** A Chat's stable Pi session file in a session directory. */
+export function conversationSessionPath(sessionDir: string, conversationId: string): string {
   return join(sessionDir, `${conversationFileStem(conversationId)}.jsonl`);
 }
 

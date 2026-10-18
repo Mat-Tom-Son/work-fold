@@ -38,6 +38,7 @@ import JSZip from "jszip";
 
 import {
   PiConversationClient,
+  copyPiConversationSession,
   isPiTurnNotRunningError,
   isPiTurnTimeoutError,
   PiTurnFailure,
@@ -3398,6 +3399,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       const stopped = await stopWorkFoldAgentRequest(state, request.turns.at(-1)!.taskId);
       sendJson(res, { aborted: stopped.workFoldAgentAborted || stopped.children.some((child) => child.aborted), stopped });
     } else sendJson(res, { aborted: client ? await client.abort() : false });
+    return;
+  }
+
+  // Make a Copy (2026-10-18): a new Chat with this one's history as of its
+  // last finished reply. The same copy the act lane's `chat copy` makes.
+  const copyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/copy$/);
+  if (method === "POST" && copyMatch) {
+    const workFolder = await getWorkFolder(copyMatch[1]);
+    const body = await readJsonBody<{ title?: unknown }>(state, req);
+    const copied = await copyConversation(state, workFolder, copyMatch[2], typeof body.title === "string" ? body.title : undefined);
+    publishControlHint(state, "work-folders");
+    sendJson(res, { conversation: copied.conversation, copiedMessages: copied.copiedMessages });
     return;
   }
 
@@ -6823,12 +6836,23 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           );
         }
         const sources = input.files.map((file) => resolveHandoffSource(workFolder, file));
+        // A follow-up goes into a Chat this Chat already handed work to, so
+        // that Worker keeps everything it learned (2026-10-18).
+        const followUpId = input.toConversationId?.trim();
+        if (followUpId) {
+          if (!(await readConversationSummary(destination.workFolderRoot, followUpId))) throw new WorkFoldCliError("notFound", "Conversation not found.");
+          assertCallerHandedWorkTo(state, taskId, { workFolderId: destination.id, conversationId: followUpId });
+          const key = clientKey(destination.id, followUpId);
+          if (state.runningTurns.has(key) || state.compactingConversations.has(key)) {
+            throw new WorkFoldCliError("conflict", "That Chat is still working. Redirect it with chat steer, or wait for it and follow up.");
+          }
+        }
         // Copy first, through the same additive, restore-pointed path as
         // `files add`, so a refused copy never leaves a started Chat behind.
         const copy = sources.length
           ? await addExternalFilesInternal(destination, { fromPaths: sources, cwd: destination.workFolderRoot })
           : { copied: [], checkpointId: null };
-        const conversation = await createConversation(destination.workFolderRoot);
+        const conversation = followUpId ? { id: followUpId } : await createConversation(destination.workFolderRoot);
         const { message, taskId: childTaskId } = await acceptConversationTurn(state, destination, conversation.id, {
           content,
           contextPaths: [],
@@ -6855,6 +6879,79 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           copied: copy.copied,
           checkpointId: copy.checkpointId,
           request: toActRequestRefForWorkFolder(state, child ?? record),
+          ...(followUpId ? { followUp: true } : {}),
+        };
+      });
+    },
+    async chatSteer(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const conversationId = input.conversationId.trim();
+      const content = input.message.trim();
+      if (!content) throw new WorkFoldCliError("usage", "Message content is required.");
+      return runActOperation(async () => {
+        if (!(await readConversationSummary(workFolder.workFolderRoot, conversationId))) throw new WorkFoldCliError("notFound", "Conversation not found.");
+        const callerTaskId = input.taskId?.trim();
+        if (callerTaskId) assertCallerHandedWorkTo(state, callerTaskId, { workFolderId: workFolder.id, conversationId });
+        const running = state.runningTurns.has(clientKey(workFolder.id, conversationId));
+        let steered: Awaited<ReturnType<typeof steerConversationTurn>>;
+        try {
+          steered = await steerConversationTurn(state, workFolder, conversationId, { content, ...(input.requestId ? { requestId: input.requestId } : {}) });
+        } catch (error) {
+          if ((error as { statusCode?: unknown })?.statusCode === 409) {
+            throw new WorkFoldCliError("conflict", running
+              ? "That Chat's turn is starting or finishing and cannot take a message right now. Try again in a moment, or follow up once it ends."
+              : "That Chat has no turn running. Follow up with chat handoff --to-conversation, or chat send.");
+          }
+          throw error;
+        }
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.steer", workFolder, conversationId, taskId: steered.taskId });
+        return { workFolder: toActWorkFolderRef(workFolder), conversationId, taskId: steered.taskId, messageId: steered.message.id, replayed: steered.replayed };
+      });
+    },
+    async chatCopy(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const sourceId = input.conversationId.trim();
+      const content = input.message?.trim();
+      if (input.message !== undefined && !content) throw new WorkFoldCliError("usage", "Message content is required.");
+      return runActOperation(async () => {
+        const callerTaskId = input.taskId?.trim();
+        if (callerTaskId) {
+          // A Worker copies its own Chat, or one its Chat handed work to.
+          const caller = assertCallerTurn(state, callerTaskId);
+          const ownChat = (caller.owner.workFolderId ?? workFoldAgentScopeId) === workFolder.id && caller.owner.conversationId === sourceId;
+          if (!ownChat) assertCallerHandedWorkTo(state, callerTaskId, { workFolderId: workFolder.id, conversationId: sourceId });
+          try {
+            state.requests.assertCanAddChild(callerTaskId);
+          } catch (error) {
+            throw collaborationRefusal(error);
+          }
+        }
+        const copied = await copyConversation(state, workFolder, sourceId, input.title);
+        let started: { taskId: string } | null = null;
+        if (content) {
+          started = await acceptConversationTurn(state, workFolder, copied.conversation.id, {
+            content,
+            contextPaths: [],
+            actorKind: "cli",
+            requestId: input.requestId,
+            ...(callerTaskId ? { request: { parentTaskId: callerTaskId, kind: "work-folder" as const } }
+              : input.parentTaskId ? { request: { parentTaskId: input.parentTaskId } } : {}),
+          });
+        }
+        await recordFacadeAction(state, input.parentTaskId, {
+          command: "chat.copy", workFolder, conversationId: copied.conversation.id, ...(started ? { taskId: started.taskId } : {}),
+        });
+        publishControlHint(state, "work-folders");
+        const child = started ? state.requests.byTaskId(started.taskId) : null;
+        return {
+          workFolder: toActWorkFolderRef(workFolder),
+          conversation: toActConversationRef(copied.conversation),
+          copiedFromConversationId: sourceId,
+          copiedMessages: copied.copiedMessages,
+          ...(started ? { taskId: started.taskId } : {}),
+          ...(child ? { request: toActRequestRefForWorkFolder(state, child) } : {}),
         };
       });
     },
@@ -11172,6 +11269,74 @@ function assertOwnTask(state: LocalApiState, workFolderId: string, taskId: strin
   } catch (error) {
     throw collaborationRefusal(error);
   }
+}
+
+/** The caller's own turn, in whichever scope it runs, while it is still running. */
+function assertCallerTurn(state: LocalApiState, callerTaskId: string): WorkFoldRequestRecord {
+  const record = state.requests.byTaskId(callerTaskId);
+  return assertOwnTask(state, record?.owner.workFolderId ?? workFoldAgentScopeId, callerTaskId);
+}
+
+/**
+ * Whether a Chat is one the caller's own Chat handed work to: some request in
+ * that Chat has a parent request owned by the caller's Chat, in any of its
+ * turns. A Worker may follow up with, redirect, or copy only such work, never
+ * an unrelated Chat (F9 as amended, 2026-10-18). The caller's task must be
+ * its own turn that is still running.
+ */
+function assertCallerHandedWorkTo(state: LocalApiState, callerTaskId: string, target: { workFolderId: string; conversationId: string }): WorkFoldRequestRecord {
+  const caller = assertCallerTurn(state, callerTaskId);
+  const callerScope = caller.owner.workFolderId ?? workFoldAgentScopeId;
+  const handedTo = state.requests.list().some((record) => {
+    if ((record.owner.workFolderId ?? workFoldAgentScopeId) !== target.workFolderId || record.owner.conversationId !== target.conversationId) return false;
+    const parent = record.parentRequestId ? state.requests.get(record.parentRequestId) : null;
+    return parent !== null && parent !== undefined
+      && (parent.owner.workFolderId ?? workFoldAgentScopeId) === callerScope
+      && parent.owner.conversationId === caller.owner.conversationId;
+  });
+  if (!handedTo) {
+    throw new WorkFoldCliError("conflict", "That Chat is not one this Chat handed work to. Hand off new work with chat handoff instead.");
+  }
+  return caller;
+}
+
+/**
+ * Copies a Chat as of its last finished reply into a new Chat in the same
+ * work-folder (2026-10-18, `chat copy`): the visible transcript up to that
+ * reply, and the Pi session along the same path, so the copy starts with the
+ * same context. Copied messages get new ids and lose their turn and request
+ * identities, which belong to the original Chat; the original is never
+ * written. A turn still running in the original is left out.
+ */
+async function copyConversation(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  sourceConversationId: string,
+  title?: string,
+): Promise<{ conversation: ConversationSummary; copiedMessages: number }> {
+  const summary = await readConversationSummary(workFolder.workFolderRoot, sourceConversationId);
+  if (!summary) throw new WorkFoldCliError("notFound", "Conversation not found.");
+  if (state.compactingConversations.has(clientKey(workFolder.id, sourceConversationId))) {
+    throw new WorkFoldCliError("conflict", "That Chat is being compacted. Copy it once that finishes.");
+  }
+  const messages = await readConversation(workFolder.workFolderRoot, sourceConversationId);
+  const lastReply = messages.reduce((found, message, index) => message.role === "assistant" ? index : found, -1);
+  const carried = messages.slice(0, lastReply + 1).filter((message) => message.role !== "system");
+  const forkTitle = (title?.trim() || `${summary.title} (copy)`).slice(0, 200);
+  const conversation = await createConversation(workFolder.workFolderRoot, forkTitle);
+  for (const message of carried) {
+    const { turnId: _turnId, requestId: _requestId, remoteRequestId: _remoteRequestId, delivery: _delivery, ...content } = message;
+    await appendMessage(workFolder.workFolderRoot, conversation.id, { ...content, id: randomUUID() });
+  }
+  if (carried.length) {
+    await copyPiConversationSession({
+      workFolderRoot: workFolder.workFolderRoot,
+      runtimeProvider: state.runtimeProvider,
+      sourceConversationId,
+      targetConversationId: conversation.id,
+    });
+  }
+  return { conversation: (await readConversationSummary(workFolder.workFolderRoot, conversation.id)) ?? conversation, copiedMessages: carried.length };
 }
 
 /** A request bound or lineage refusal is a conflict that carries the store's own sentence; anything else passes through. */
