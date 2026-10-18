@@ -7,9 +7,11 @@ description: Set up this work-folder for the person in one pass — work out wha
 
 Turn this folder into a work-folder that is easy to work in, then show the person
 exactly what changed. Do the work rather than asking permission: History took a
-restore point before this turn, every change here can be undone, and you never
-delete anything. Ask a question only when the folder is empty or you truly cannot
-tell what it is for.
+restore point before this turn (check its coverage in your turn context; it
+names anything it skipped), every move, rename, and new folder goes through
+`work-fold files`, which takes its own restore point, and you never delete
+anything. Ask a question only when the folder is empty or you truly cannot tell
+what it is for.
 
 ## 1. Look before you touch anything
 
@@ -52,10 +54,25 @@ tell what it is for.
   `download (3).pdf`, `Screenshot 2026-10-11 at 1.23.43 AM.png`) and its content
   makes a clearly better name obvious. Keep the extension, and keep the date as a
   `YYYY-MM-DD` prefix when the file has one.
-- Use `mkdir -p` and `mv -n` so nothing is ever overwritten; on a name clash, add
-  ` (2)`. Check the result with a final listing.
-- Keep a list of every move and rename as you go (old path → new path). You need
-  it for the summary.
+- Make every change with the `work-fold files` verbs, never raw `mkdir`, `mv`,
+  or `rm`; each one takes a restore point and returns a receipt. Pass this
+  work-folder's id from your turn context and `--json`, one item per call (a
+  short shell loop is fine on a big folder):
+
+  ```bash
+  work-fold files mkdir --work-folder <id> --path "Receipts" --json
+  work-fold files move --work-folder <id> --from "scan 1.pdf" --to "Receipts" --json
+  work-fold files rename --work-folder <id> --path "Receipts/IMG_2034.png" --name "2026-03-02 Hardware store receipt.png" --json
+  ```
+
+  `files mkdir` makes one folder inside one that already exists, so create a
+  parent before its subfolder, and use a folder that is already there instead of
+  making it again. `files move` keeps the item's name. Both verbs refuse rather
+  than overwrite when the name is taken, so check the destination first; on a
+  clash, rename the item in place to the next free ` (2)`, ` (3)` name (before
+  the extension), then move it. Check the result with a final listing.
+- Keep a list of every move and rename as you go (old path → new path); each
+  receipt's `fromPath` and `path` give it to you. You need it for the summary.
 
 ## 3. Leave instructions for future Workers
 
@@ -115,8 +132,11 @@ Finish with a short, scannable reply:
 - what you left alone and why;
 - the banner, icon, and color you set;
 - a two-line summary of the Worker instructions;
-- how to undo: "History has a restore point from just before setup. Restore it
-  from the History tab to put everything back."
+- how to undo: when your turn context shows History captured a restore point
+  before this turn, say "History has a restore point from just before setup.
+  Restore it from the History tab to put everything back," and name anything it
+  skipped. When it did not, say each move and rename has its own restore point
+  in the History tab.
 
 ## Just the look
 
@@ -131,6 +151,7 @@ Customize work-folder. If the folder is empty, go by its name and do not ask.
 ## An empty folder
 
 If there is nothing to look at, ask one question: what the folder will be for.
-Once you know, create a simple starting structure (three to six folders, plus a
-short `Start here.md` saying what goes where), write the Worker instructions,
+Once you know, create a simple starting structure (three to six folders made
+with `work-fold files mkdir`, plus a short `Start here.md` saying what goes
+where), write the Worker instructions,
 and give it a look, then report the same way.

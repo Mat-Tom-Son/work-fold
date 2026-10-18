@@ -12127,6 +12127,7 @@ async function getClient(
   // instructions (F26); the work-fold agent scope has its own taught text.
   const operationsGuide = workFolderOperationsGuideForScope(workFolderId);
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
+    role: workFolderId === workFoldAgentScopeId ? "work-fold-agent" : "worker",
     ...(operationsGuide ? { operationsGuide } : {}),
     imageModel: () => state.imageModelPreference.get(),
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
