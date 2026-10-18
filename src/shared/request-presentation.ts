@@ -12,6 +12,8 @@ export interface WorkQuestionView {
   requestId: string;
   text: string;
   from: string;
+  /** Suggested answers the person can pick with one click, beside writing their own. */
+  options?: string[];
   state: "open" | "recorded";
   answer?: string;
   canAnswer: boolean;
@@ -31,6 +33,8 @@ export interface WorkRequestView {
   questions: WorkQuestionView[];
   questionCount: number;
   hadQuestions?: boolean;
+  /** The checklist the agent keeps for this work (2026-10-18), in its order. */
+  checklist?: Array<{ text: string; status: "todo" | "doing" | "done" }>;
   children: Array<{ requestId: string; title: string; state: WorkRequestState; label: string }>;
   result: {
     outcome: "succeeded" | "partial" | "failed";

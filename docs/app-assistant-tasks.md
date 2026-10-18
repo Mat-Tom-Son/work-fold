@@ -192,7 +192,10 @@ it used, and a turn that spent nothing — a built-in command, or a provider tha
 never reported a settled request — reports no usage at all.
 
 `usage` carries `inputTokens` and `outputTokens`, plus `amountUsd` only when the
-effective model carries pricing work-fold can apply. A model with no published
+effective model carries pricing work-fold can apply. `inputTokens` counts every
+prompt token the provider processed, including ones read from or written to its
+prompt cache, and the cost prices cached tokens at the model's cache rates (an
+OpenRouter model without a listed cache rate uses its prompt rate). A model with no published
 rates leaves the cost out: it is unknown, not zero. Token counts are measured
 around that one turn, so a Chat title request or a bounded inference call on the
 same work-folder is never charged to it.

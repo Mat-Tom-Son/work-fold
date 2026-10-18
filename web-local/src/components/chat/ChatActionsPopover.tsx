@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, Check, ChevronLeft, Clock3, Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Check, ChevronLeft, Clock3, Copy, Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
 
 import { chatDisplayTitle } from "../../lib/format";
 import {
@@ -17,6 +17,7 @@ export function ChatActionsPopover({
   onRename,
   onLifecycle,
   onDelete,
+  onCopy,
   onClose,
 }: {
   state: ChatActionsState;
@@ -27,6 +28,8 @@ export function ChatActionsPopover({
     patch: { archived?: boolean; snoozedUntil?: string | null },
   ) => Promise<void>;
   onDelete: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => Promise<void>;
+  /** Make a Copy: a new Chat with this one's history, to try a different direction. */
+  onCopy?: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => Promise<void>;
   onClose: () => void;
 }) {
   const [view, setView] = useState<ActionView>("menu");
@@ -140,6 +143,12 @@ export function ChatActionsPopover({
             <Pencil size={14} />
             <span><strong>Rename</strong></span>
           </button>
+          {onCopy ? (
+            <button type="button" disabled={busy} onClick={() => void runAction(() => onCopy(state.workFolder, state.conversation), "Copying")}>
+              <Copy size={14} />
+              <span><strong>Make a Copy</strong><small>New Chat with this history</small></span>
+            </button>
+          ) : null}
           {lifecycleView === "snoozed" ? (
             <button type="button" disabled={busy} onClick={() => void handleLifecycle({ snoozedUntil: null })}>
               <RotateCcw size={14} />

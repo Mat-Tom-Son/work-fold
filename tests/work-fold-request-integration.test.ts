@@ -221,7 +221,6 @@ test("parent synthesis preserves a partial child graph despite its latest succee
     const partialChild = api.requests.get(childRequestId)!;
     assert.equal(partialChild.state, "partial", "the descendant's incomplete work remains part of the child result");
     assert.equal(partialChild.results.at(-1)!.outcome, "succeeded");
-    assert.equal((await api.actFacade.turnResult({ workFolder: coordinator.id, taskId: childFollowup })).result?.outcome, "partial");
 
     await release(root.taskId);
     await waitFor(async () => (await api.actFacade.agentTurnStatus({ taskId: root.taskId })).task.state !== "running");
@@ -231,6 +230,8 @@ test("parent synthesis preserves a partial child graph despite its latest succee
     assert.match(parentFollowup.content, /partial: Coordinator finished its own work/);
     assert.doesNotMatch(parentFollowup.content, /succeeded: Coordinator finished its own work/);
     assert.deepEqual(parentFollowup.deliveredChildTaskIds, [childFollowup]);
+    // Read after the follow-up, so the read itself is not the delivery.
+    assert.equal((await api.actFacade.turnResult({ workFolder: coordinator.id, taskId: childFollowup })).result?.outcome, "partial");
   } finally {
     draining = true;
     for (const resolve of pending.values()) resolve();

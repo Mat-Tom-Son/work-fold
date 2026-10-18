@@ -37,6 +37,13 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
       </div> : null}
       {work.detail ? <p className="work-detail">{work.detail}</p> : null}
       {work.canContinue ? <button className="work-primary-button" type="button" disabled={busy} onClick={() => void act("continue")}>Continue with saved results</button> : null}
+      {work.checklist?.length ? <ol className="work-checklist" aria-label={`Checklist, ${work.checklist.filter((item) => item.status === "done").length} of ${work.checklist.length} done`}>
+        {work.checklist.map((item, index) => <li key={`${index}:${item.text}`} className={`work-checklist-item is-${item.status}`}>
+          <span className="work-checklist-mark" aria-hidden="true">{item.status === "done" ? "✓" : item.status === "doing" ? "•" : ""}</span>
+          <span>{item.text}</span>
+          {item.status === "doing" ? <span className="visually-hidden"> (in progress)</span> : item.status === "done" ? <span className="visually-hidden"> (done)</span> : null}
+        </li>)}
+      </ol> : null}
       {work.questions.map((question) => <WorkQuestion key={question.id} question={question} busy={busy} answer={(text) => act("answer", { questionId: question.id, answer: text })} />)}
       {work.questionCount > work.questions.length ? <p className="work-detail">{work.questionCount - work.questions.length} more questions follow these answers.</p> : null}
       {work.children.length ? <details className="work-details">
@@ -62,11 +69,11 @@ function WorkQuestion({ question, busy, answer }: { question: WorkQuestionView; 
   const formRef = useRef<HTMLFormElement>(null);
   const [draft, setDraft] = useState(() => readQuestionDraft(question.id));
   const [sent, setSent] = useState(false);
-  async function send() {
+  async function send(text = question.state === "recorded" ? question.answer ?? "" : draft) {
     const form = formRef.current;
     const container = form?.closest<HTMLElement>(".work-request");
     const fallback = form?.closest<HTMLElement>("article");
-    if (await answer(question.state === "recorded" ? question.answer ?? "" : draft)) {
+    if (await answer(text)) {
       clearQuestionDraft(question.id); setSent(true); setDraft("");
       window.requestAnimationFrame(() => {
         if (document.activeElement === document.body || form?.contains(document.activeElement)) (container?.isConnected ? container : fallback)?.focus({ preventScroll: true });
@@ -80,7 +87,13 @@ function WorkQuestion({ question, busy, answer }: { question: WorkQuestionView; 
       <p className="work-detail">Your answer is saved. Continue to deliver it once.</p>
       <blockquote className="work-saved-answer" tabIndex={0} aria-label="Your saved answer">{question.answer}</blockquote>
     </>
-      : <textarea id={inputId} rows={2} value={draft} onChange={(event) => { setDraft(event.target.value); writeQuestionDraft(question.id, event.target.value); }} placeholder="Your answer" disabled={sent} />}
+      : <>
+        {question.options?.length ? <div className="work-question-choices" role="group" aria-label="Choices">
+          {question.options.map((option) => <button key={option} type="button" className="work-choice-button"
+            disabled={busy || sent || !question.canAnswer} onClick={() => void send(option)}>{option}</button>)}
+        </div> : null}
+        <textarea id={inputId} rows={2} value={draft} onChange={(event) => { setDraft(event.target.value); writeQuestionDraft(question.id, event.target.value); }} placeholder={question.options?.length ? "Or write your own answer" : "Your answer"} disabled={sent} />
+      </>}
     {question.reason ? <p className="work-detail">{question.reason}</p> : null}
     <button type="submit" className="work-primary-button" disabled={busy || sent || !question.canAnswer || (question.state === "open" && !draft.trim())}>
       {sent ? "Answer sent" : busy ? "Sending…" : question.state === "recorded" ? "Continue with saved answer" : "Send answer"}
