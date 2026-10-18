@@ -24,6 +24,7 @@ import { maximumWorkerInstructionsLength } from "../agent/model-preferences.js";
 // request record that enforces them, so a parse-time refusal and a store-time
 // refusal say the same words (docs/collaboration-contract.md, F25/F29).
 import {
+  parseWorkFoldQuestionOptions,
   workFoldRequestLimitMessage,
   workFoldRequestLimitsSection,
   type WorkFoldResultOutcome,
@@ -58,6 +59,8 @@ export type WorkFoldCliActCommandName =
   | "chat.ask"
   | "chat.answer"
   | "chat.handoff"
+  | "chat.steer"
+  | "chat.copy"
   | "chats.list"
   | "agent.send"
   | "agent.status"
@@ -264,12 +267,18 @@ export interface WorkFoldCliActParsedCommand {
   question?: string;
   /** Who chat.ask is asking; `parent` on a root request is delivered to the person. */
   respondent?: "person" | "parent";
+  /** work-folders.worker.instructions `--append`: add `instructions` as one more line. */
+  appendInstructions?: boolean;
+  /** chat.ask and agent.ask suggested answers (`--option`, repeatable), shown as choices. */
+  options?: string[];
   /** chat.answer target. `--question` carries an id here and free text in chat.ask. */
   questionId?: string;
   /** chat.answer answer text. */
   answer?: string;
   /** chat.handoff destination work-folder selector. */
   toWorkFolder?: string;
+  /** chat.handoff `--to-conversation`: follow up in a Chat this Chat already handed work to. */
+  toConversation?: string;
   /** requests.show target. */
   request?: string;
   /**
@@ -362,6 +371,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   const attachValues: string[] = [];
   const pathValues: string[] = [];
   const fileValues: string[] = [];
+  const optionValues: string[] = [];
   const positional: string[] = [];
 
   const valueFlags = new Set([
@@ -425,6 +435,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--question",
     "--answer",
     "--to-work-folder",
+    "--to-conversation",
     "--file",
     "--request",
     "--banner-image",
@@ -437,6 +448,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--timeout",
     "--offset",
     "--wait",
+    "--option",
+    "--append",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running"]);
 
@@ -473,6 +486,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       }
       if (flagName === "--file") {
         fileValues.push(value);
+        continue;
+      }
+      if (flagName === "--option") {
+        optionValues.push(value);
         continue;
       }
       if (flags.has(flagName)) throw usageError(`${flagName} may be provided only once.`);
@@ -529,6 +546,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   const fileCommands = new Set(["chat report", "chat handoff"]);
   if (!fileCommands.has(command) && fileValues.length) {
     throw usageError(`--file cannot be used with '${command || "(none)"}'.`);
+  }
+  // --option is repeatable and offers one suggested answer to a question.
+  if (command !== "chat ask" && command !== "agent ask" && optionValues.length) {
+    throw usageError(`--option cannot be used with '${command || "(none)"}'.`);
   }
   // The request graph sits above work-folders (F25): every request names the work-folder
   // it belongs to, so neither read takes one.
@@ -622,6 +643,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     }
     return value;
   };
+  const questionOptions = (): string[] => {
+    try {
+      return parseWorkFoldQuestionOptions(optionValues);
+    } catch (error) {
+      throw usageError(`--option: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const collaborationFiles = (): string[] => {
     const files = fileValues.map((value) => boundedActPath("--file", value, "work-folder-path"));
     if (new Set(files).size !== files.length) throw usageError("--file names the same path twice.");
@@ -694,6 +722,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "agent ask",
     "agent answer",
     "chat handoff",
+    "chat steer",
+    "chat copy",
     "history save",
     "history restore",
     "history restore-file",
@@ -899,6 +929,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       // F27: recording a question never suspends the asking turn. The turn
       // ends; the task's request is what waits.
       allowOnlyFlags(...(command === "agent ask" ? ["--task", "--question", "--question-file", "--parent-task"] : ["--work-folder", "--task", "--question", "--question-file", "--to", "--parent-task"]));
+      // --option is collected apart from flags and checked above.
       const rawRespondent = stringFlag("--to")?.trim();
       if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
         throw usageError("--to must be person or parent.");
@@ -915,6 +946,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         // A root request has no parent, so the host delivers `parent` to the
         // person and says it did.
         respondent: (rawRespondent ?? "person") as "person" | "parent",
+        ...(optionValues.length ? { options: questionOptions() } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -932,10 +964,54 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "chat steer": {
+      // One more message into a Chat's running turn, delivered after its
+      // current step. --task names the caller's own running turn when a
+      // Worker redirects work its Chat handed off (2026-10-18).
+      allowOnlyFlags("--work-folder", "--conversation", "--task", "--message", "--message-from-payload", "--parent-task");
+      const message = stringFlag("--message");
+      const messageFromPayload = flags.get("--message-from-payload") === true;
+      if (message !== undefined && messageFromPayload) throw usageError("Use either --message <text> or --message-file <path>, not both.");
+      if (message === undefined && !messageFromPayload) throw usageError("Provide --message <text> or --message-file <path>.");
+      const task = optionalBoundedFlag("--task", "task-id");
+      return {
+        name: "chat.steer",
+        output,
+        workFolder: requireWorkFolder(),
+        conversation: requireConversation(),
+        ...(task ? { task } : {}),
+        ...(message !== undefined ? { message } : {}),
+        ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
+    case "chat copy": {
+      // A copy of a Chat as of its last finished turn, in the same
+      // work-folder; --message starts work in the copy at once.
+      allowOnlyFlags("--work-folder", "--conversation", "--task", "--title", "--message", "--message-from-payload", "--parent-task");
+      const message = stringFlag("--message");
+      const messageFromPayload = flags.get("--message-from-payload") === true;
+      if (message !== undefined && messageFromPayload) throw usageError("Use either --message <text> or --message-file <path>, not both.");
+      const task = optionalBoundedFlag("--task", "task-id");
+      if (task && message === undefined && !messageFromPayload) throw usageError("A copy made from your own turn needs --message <text> with its assignment.");
+      const title = optionalBoundedFlag("--title", "title");
+      return {
+        name: "chat.copy",
+        output,
+        workFolder: requireWorkFolder(),
+        conversation: requireConversation(),
+        ...(task ? { task } : {}),
+        ...(title ? { title } : {}),
+        ...(message !== undefined ? { message } : {}),
+        ...(messageFromPayload ? { messageFromPayload } : {}),
+        ...(parentTaskId ? { parentTaskId } : {}),
+      };
+    }
     case "chat handoff": {
       // The message either/or is exactly `chat send`'s, because a handoff
       // starts a Chat in the destination through that same acceptance path.
-      allowOnlyFlags("--work-folder", "--task", "--to-work-folder", "--message", "--message-from-payload", "--parent-task");
+      allowOnlyFlags("--work-folder", "--task", "--to-work-folder", "--to-conversation", "--message", "--message-from-payload", "--parent-task");
+      const toConversation = optionalBoundedFlag("--to-conversation", "conversation-id");
       const message = stringFlag("--message");
       const messageFromPayload = flags.get("--message-from-payload") === true;
       if (message !== undefined && messageFromPayload) {
@@ -950,6 +1026,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         workFolder: requireWorkFolder(),
         task: requireBoundedFlag("--task", "task-id"),
         toWorkFolder: requireBoundedFlag("--to-work-folder", "id-or-name"),
+        ...(toConversation ? { toConversation } : {}),
         ...(message !== undefined ? { message } : {}),
         ...(messageFromPayload ? { messageFromPayload } : {}),
         // A handoff copies through the same additive, restore-pointed path an
@@ -1308,22 +1385,29 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     case "work-folders worker instructions": {
-      allowOnlyFlags("--work-folder", "--instructions", "--instructions-file", "--clear", "--parent-task");
+      allowOnlyFlags("--work-folder", "--instructions", "--instructions-file", "--append", "--clear", "--parent-task");
       const clear = flags.get("--clear") === true;
       const rawInstructions = textFileFlag("--instructions", "instructions") ?? stringFlag("--instructions");
-      if (clear === (rawInstructions !== undefined)) {
-        throw usageError("Provide exactly one of --instructions <text>, --instructions-file <path>, or --clear.");
+      // --append adds one remembered line to the current instructions instead
+      // of replacing them, so a Worker can keep a lasting preference without
+      // rewriting what the person or Set up for me already wrote.
+      const append = stringFlag("--append");
+      if ([clear, rawInstructions !== undefined, append !== undefined].filter(Boolean).length !== 1) {
+        throw usageError("Provide exactly one of --instructions <text>, --instructions-file <path>, --append <text>, or --clear.");
       }
-      if (rawInstructions !== undefined && rawInstructions.length > maximumWorkerInstructionsLength) {
-        throw usageError(`--instructions must be at most ${maximumWorkerInstructionsLength} characters.`);
+      if (append !== undefined && !append.trim()) throw usageError("Provide --append <text>.");
+      const text = append ?? rawInstructions;
+      if (text !== undefined && text.length > maximumWorkerInstructionsLength) {
+        throw usageError(`${append !== undefined ? "--append" : "--instructions"} must be at most ${maximumWorkerInstructionsLength} characters.`);
       }
       return {
         name: "work-folders.worker.instructions",
         output,
         workFolder: requireWorkFolder(),
-        instructions: clear ? "" : rawInstructions!,
+        instructions: clear ? "" : text!,
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(clear ? { clear: true } : {}),
+        ...(append !== undefined ? { appendInstructions: true } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -2098,6 +2182,7 @@ async function runActCommand(
       return toJson(await facade.workerSetInstructions({
         workFolder: command.workFolder!,
         instructions: command.instructions ?? "",
+        ...(command.appendInstructions ? { append: true } : {}),
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
     case "chat.create":
@@ -2146,6 +2231,7 @@ async function runActCommand(
       return toChecksJson(await facade.agentAsk({
         taskId: command.task!,
         question: command.question!,
+        ...(command.options?.length ? { options: command.options } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -2162,6 +2248,7 @@ async function runActCommand(
         taskId: command.task!,
         question: command.question!,
         respondent: command.respondent ?? "person",
+        ...(command.options?.length ? { options: command.options } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -2179,8 +2266,32 @@ async function runActCommand(
         workFolder: command.workFolder!,
         taskId: command.task!,
         toWorkFolder: command.toWorkFolder!,
+        ...(command.toConversation ? { toConversationId: command.toConversation } : {}),
         message: content,
         files: command.files ?? [],
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    }
+    case "chat.steer": {
+      const content = command.messageFromPayload ? request.payload?.messageFile ?? "" : command.message ?? "";
+      return toChecksJson(await facade.chatSteer({
+        workFolder: command.workFolder!,
+        conversationId: command.conversation!,
+        message: content,
+        ...(command.task ? { taskId: command.task } : {}),
+        requestId: request.id,
+        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
+      }));
+    }
+    case "chat.copy": {
+      const content = command.messageFromPayload ? request.payload?.messageFile ?? "" : command.message;
+      return toChecksJson(await facade.chatCopy({
+        workFolder: command.workFolder!,
+        conversationId: command.conversation!,
+        ...(content !== undefined ? { message: content } : {}),
+        ...(command.title ? { title: command.title } : {}),
+        ...(command.task ? { taskId: command.task } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -3014,7 +3125,15 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const copiedLine = copied.length
         ? `\nCopied ${copied.length} item${copied.length === 1 ? "" : "s"}: ${copied.map(terminalText).join(", ")}${record.checkpointId ? ` (restore point ${terminalText(record.checkpointId)})` : ""}`
         : "";
-      return `Handed off to ${terminalText(destination?.name)} [${terminalText(destination?.id)}]. Chat ${terminalText(record.conversationId)}, task ${terminalText(record.taskId)}.${copiedLine}\n`;
+      const verb = record.followUp === true ? "Followed up with" : "Handed off to";
+      return `${verb} ${terminalText(destination?.name)} [${terminalText(destination?.id)}]. Chat ${terminalText(record.conversationId)}, task ${terminalText(record.taskId)}.${copiedLine}\n`;
+    }
+    case "chat.steer":
+      return `${record.replayed === true ? "Already delivered" : "Delivered"} to Chat ${terminalText(record.conversationId)}; it reaches running task ${terminalText(record.taskId)} after its current step.\n`;
+    case "chat.copy": {
+      const conversation = record.conversation as { id?: string; title?: string } | undefined;
+      const started = typeof record.taskId === "string" ? ` Started task ${terminalText(record.taskId)} in it.` : "";
+      return `Copied Chat ${terminalText(record.copiedFromConversationId)} (${terminalText(record.copiedMessages)} messages) into "${terminalText(conversation?.title)}" [${terminalText(conversation?.id)}].${started}\n`;
     }
     case "requests.list": {
       const requests = (Array.isArray(record.requests) ? record.requests : []) as Array<{
@@ -4227,7 +4346,13 @@ function actReceiptDetail(
         : undefined;
     case "chat.handoff": {
       const copied = countOf(record.copied);
-      return `handoff to ${typeof record.toWorkFolder?.id === "string" ? record.toWorkFolder.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+      return `${(record as { followUp?: unknown }).followUp === true ? "follow-up" : "handoff"} to ${typeof record.toWorkFolder?.id === "string" ? record.toWorkFolder.id : "unknown"}; ${copied} file${copied === 1 ? "" : "s"}`;
+    }
+    case "chat.steer":
+      return `steered running task ${typeof (record as { taskId?: unknown }).taskId === "string" ? (record as { taskId: string }).taskId : "unknown"}`;
+    case "chat.copy": {
+      const copy = record as { copiedFromConversationId?: unknown; copiedMessages?: unknown; taskId?: unknown };
+      return `copy of ${typeof copy.copiedFromConversationId === "string" ? copy.copiedFromConversationId : "unknown"}; ${typeof copy.copiedMessages === "number" ? copy.copiedMessages : 0} messages${typeof copy.taskId === "string" ? `; task ${copy.taskId}` : ""}`;
     }
     // Ids and states only; a receipt never carries the command text.
     case "jobs.start":

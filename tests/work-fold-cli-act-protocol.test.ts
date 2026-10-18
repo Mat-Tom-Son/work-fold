@@ -453,6 +453,14 @@ test("ledger Chat, History, file, search, and work-folder commands parse with st
     () => parseWorkFoldCliActArgv(["work-folders", "worker", "instructions", "--work-folder", "work-folder-1", "--instructions", "x", "--clear"]),
     /exactly one of --instructions .* or --clear/,
   );
+  assert.deepEqual(
+    parseWorkFoldCliActArgv(["work-folders", "worker", "instructions", "--work-folder", "work-folder-1", "--append", "Dates are YYYY-MM-DD."]),
+    { name: "work-folders.worker.instructions", output: "human", workFolder: "work-folder-1", instructions: "Dates are YYYY-MM-DD.", appendInstructions: true },
+  );
+  assert.throws(
+    () => parseWorkFoldCliActArgv(["work-folders", "worker", "instructions", "--work-folder", "work-folder-1", "--append", "x", "--instructions", "y"]),
+    /exactly one of --instructions .* --append <text>, or --clear/,
+  );
 });
 
 test("ledger tools and apps commands parse with strict shapes", () => {

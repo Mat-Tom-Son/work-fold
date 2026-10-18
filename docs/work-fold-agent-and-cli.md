@@ -324,7 +324,7 @@ rolled-up usage, and a nullable deadline retained for compatibility. New
 requests have no deadline. Its state comes from one vocabulary:
 `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`,
 `expired`. A **question** carries its id, request id, task id, respondent
-(`person` or `parent`), text, asked-at, state (`open`, `answered`, `expired`,
+(`person` or `parent`), text, optional suggested choices (`--option`), asked-at, state (`open`, `answered`, `expired`,
 `cancelled`), the answer and answered-at, and the continuation task id. A
 **result** is the F29 envelope — `summary`, optional `data`, optional `files`
 as work-folder-relative paths with a fingerprint and size, and an `outcome` of

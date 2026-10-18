@@ -1489,6 +1489,16 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     tabs.updateSurfaceTabConversationTitle(targetWorkFolder.id, result.conversation);
   }
 
+  async function copyChat(targetWorkFolder: WorkFolderSummary, conversation: ConversationSummary) {
+    if (fixture) return;
+    const result = await api<{ conversation: ConversationSummary }>(`/api/work-folders/${targetWorkFolder.id}/conversations/${conversation.id}/copy`, { method: "POST", body: {} });
+    setConversationGroups((current) => ({
+      ...current,
+      [targetWorkFolder.id]: [result.conversation, ...(current[targetWorkFolder.id] ?? []).filter((item) => item.id !== result.conversation.id)],
+    }));
+    openChat(targetWorkFolder, result.conversation);
+  }
+
   function replaceConversationSummary(workFolderId: string, conversation: ConversationSummary): void {
     setConversationGroups((current) => ({
       ...current,
@@ -1850,7 +1860,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(workFolder, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} canDelete={!holdsNestedFolder(fileContextMenu.entry)} onShare={shareFile} shareWorkFolderId={workFolder.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
     {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
-    {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onClose={() => setChatActions(null)} /> : null}
+    {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onCopy={copyChat} onClose={() => setChatActions(null)} /> : null}
     {versionHistory ? <FileVersionHistoryModal workFolder={versionHistory.workFolder} filePath={versionHistory.path} fileName={versionHistory.name} onClose={() => setVersionHistory(null)} onRestored={() => void tree.refresh()} /> : null}
     {skillsExtensionsView ? <SkillsExtensionsModal workFolder={workFolder} status={agent} initialView={skillsExtensionsView} fixtureMode={Boolean(fixture)} onError={onError} onCatalogChanged={(catalog) => updateSurfaceCatalog(workFolder.id, catalog)} onClose={() => setSkillsExtensionsView(null)} /> : null}
     {commandPaletteOpen ? <CommandPaletteHost commands={commands} onClose={closeCommandPalette} /> : null}

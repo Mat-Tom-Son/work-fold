@@ -195,6 +195,162 @@ for (const lane of ["act", "http", "failed-act"] as const) {
   });
 }
 
+test("a question can offer choices: they show as buttons, and picking one answers it once", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Choices" });
+    h.held.add(workFolder.id);
+    const turn = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({
+      workFolder: workFolder.id, taskId: turn.taskId, question: "Which quarter should the report cover?",
+      respondent: "person", options: ["Q3", "Q4"],
+    });
+    assert.deepEqual(asked.question.options, ["Q3", "Q4"]);
+    await h.release(turn.taskId);
+    await settled(api, workFolder.id, turn.taskId);
+    const view = await (await fetch(new URL(`/api/work-folders/${workFolder.id}/conversations/${turn.conversationId}/work`, api.origin))).json() as { work: { requestId: string; questions: Array<{ id: string; options?: string[] }> } };
+    assert.deepEqual(view.work.questions[0]?.options, ["Q3", "Q4"]);
+    // A click sends the choice's text as the answer, through the same route as a typed answer.
+    const answered = await fetch(new URL(`/api/requests/${view.work.requestId}/answer`, api.origin), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: view.work.questions[0]!.id, answer: "Q4" }),
+    });
+    assert.equal(answered.status, 200, await answered.clone().text());
+    const question = api.requests.question(asked.question.questionId)!;
+    assert.equal(question.answer, "Q4");
+    assert.ok(question.continuationTaskId, "the answer starts its one continuation");
+    const after = await answered.json() as { work: { questions: Array<{ state: string; options?: string[] }> } };
+    assert.equal(after.work.questions.some((item) => item.state === "open" && item.options), false, "an answered question no longer offers choices");
+    // A question without choices records none.
+    const turn2 = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const plain = await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: turn2.taskId, question: "Anything else?", respondent: "person" });
+    assert.equal("options" in plain.question, false);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("a Worker follows up in the Chat it handed work to, and nowhere else", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder: parentFolder } = await api.actFacade.createWorkFolder({ name: "Follow-up parent" });
+    const { workFolder: childFolder } = await api.actFacade.createWorkFolder({ name: "Follow-up child" });
+    h.held.add(parentFolder.id); h.held.add(childFolder.id);
+    const parent = await api.actFacade.sendMessage({ workFolder: parentFolder.id, newConversation: true, content: "/hold" });
+    const first = await api.actFacade.chatHandoff({ workFolder: parentFolder.id, taskId: parent.taskId, toWorkFolder: childFolder.id, message: "/hold", files: [] });
+    await api.actFacade.chatReport({ workFolder: childFolder.id, taskId: first.taskId, summary: "First pass", outcome: "succeeded", files: [] });
+    await h.release(first.taskId); await settled(api, childFolder.id, first.taskId);
+    const followUp = await api.actFacade.chatHandoff({
+      workFolder: parentFolder.id, taskId: parent.taskId, toWorkFolder: childFolder.id, toConversationId: first.conversationId, message: "/hold", files: [],
+    });
+    assert.equal(followUp.conversationId, first.conversationId, "the same Chat keeps its context");
+    assert.equal(followUp.followUp, true);
+    assert.equal(api.requests.byTaskId(followUp.taskId)!.parentRequestId, api.requests.byTaskId(parent.taskId)!.requestId);
+    await assert.rejects(api.actFacade.chatHandoff({
+      workFolder: parentFolder.id, taskId: parent.taskId, toWorkFolder: childFolder.id, toConversationId: first.conversationId, message: "/hold", files: [],
+    }), conflict(/still working/));
+    const unrelated = await api.actFacade.sendMessage({ workFolder: childFolder.id, newConversation: true, content: "/hold" });
+    await assert.rejects(api.actFacade.chatHandoff({
+      workFolder: parentFolder.id, taskId: parent.taskId, toWorkFolder: childFolder.id, toConversationId: unrelated.conversationId, message: "/hold", files: [],
+    }), conflict(/not one this Chat handed work to/));
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("chat steer reaches a handed-off Chat's running turn, and refuses other Chats and idle ones", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  const originalSteer = PiConversationClient.prototype.steer;
+  const steered: string[] = [];
+  PiConversationClient.prototype.steer = async (message: string) => { steered.push(message); };
+  try {
+    const { workFolder: parentFolder } = await api.actFacade.createWorkFolder({ name: "Steer parent" });
+    const { workFolder: childFolder } = await api.actFacade.createWorkFolder({ name: "Steer child" });
+    h.held.add(parentFolder.id); h.held.add(childFolder.id);
+    const parent = await api.actFacade.sendMessage({ workFolder: parentFolder.id, newConversation: true, content: "/hold" });
+    const child = await api.actFacade.chatHandoff({ workFolder: parentFolder.id, taskId: parent.taskId, toWorkFolder: childFolder.id, message: "/hold", files: [] });
+    await waitFor(async () => h.pending.some((turn) => turn.taskId === child.taskId));
+    const delivered = await api.actFacade.chatSteer({ workFolder: childFolder.id, conversationId: child.conversationId, message: "Also check Q4.", taskId: parent.taskId });
+    assert.equal(delivered.taskId, child.taskId);
+    assert.deepEqual(steered, ["Also check Q4."]);
+    const messages = await workFolderMessages(api, childFolder.id, child.conversationId);
+    assert.ok(messages.some((message) => message.content === "Also check Q4."), "the redirect is in the child's transcript");
+    const unrelated = await api.actFacade.sendMessage({ workFolder: childFolder.id, newConversation: true, content: "/hold" });
+    await assert.rejects(api.actFacade.chatSteer({ workFolder: childFolder.id, conversationId: unrelated.conversationId, message: "No.", taskId: parent.taskId }),
+      conflict(/not one this Chat handed work to/));
+    await h.release(child.taskId); await settled(api, childFolder.id, child.taskId);
+    await assert.rejects(api.actFacade.chatSteer({ workFolder: childFolder.id, conversationId: child.conversationId, message: "Too late.", taskId: parent.taskId }),
+      conflict(/no turn running/));
+  } finally {
+    PiConversationClient.prototype.steer = originalSteer;
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("chat copy copies a Chat up to its last finished reply, and a Worker's copy reports back as its child", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Fork" });
+    const source = await api.actFacade.createConversation({ workFolder: workFolder.id });
+    const at = new Date().toISOString();
+    await appendMessage(workFolder.workFolderRoot, source.conversation.id, { id: "m1", role: "user", content: "Draft the intro.", createdAt: at, turnId: "turn-old", requestId: "request-old" });
+    await appendMessage(workFolder.workFolderRoot, source.conversation.id, { id: "m2", role: "assistant", content: "Here is the intro.", createdAt: at, turnId: "turn-old" });
+    await appendMessage(workFolder.workFolderRoot, source.conversation.id, { id: "m3", role: "user", content: "Now the conclusion.", createdAt: at, turnId: "turn-running" });
+    const copy = await api.actFacade.chatCopy({ workFolder: workFolder.id, conversationId: source.conversation.id });
+    assert.notEqual(copy.conversation.id, source.conversation.id);
+    assert.match(copy.conversation.title, /\(copy\)$/);
+    assert.equal(copy.copiedMessages, 2, "a turn that has not finished stays behind");
+    const copied = (await workFolderMessages(api, workFolder.id, copy.conversation.id)).filter((message) => message.role !== "system") as Array<{ id: string; content: string; requestId?: string }>;
+    assert.deepEqual(copied.map((message) => message.content), ["Draft the intro.", "Here is the intro."]);
+    assert.ok(copied.every((message) => !["m1", "m2"].includes(message.id) && message.requestId === undefined), "copies get their own identities");
+    assert.equal((await workFolderMessages(api, workFolder.id, source.conversation.id)).filter((message) => message.role !== "system").length, 3, "the original is untouched");
+    // The Chat menu's Make a Copy makes the same copy.
+    const viaMenu = await fetch(new URL(`/api/work-folders/${workFolder.id}/conversations/${source.conversation.id}/copy`, api.origin), {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    assert.equal(viaMenu.status, 200, await viaMenu.clone().text());
+    const menuCopy = await viaMenu.json() as { conversation: { id: string; title: string }; copiedMessages: number };
+    assert.equal(menuCopy.copiedMessages, 2);
+    assert.notEqual(menuCopy.conversation.id, copy.conversation.id);
+
+    h.held.add(workFolder.id);
+    const own = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const fork = await api.actFacade.chatCopy({ workFolder: workFolder.id, conversationId: own.conversationId, taskId: own.taskId, message: "/hold" });
+    assert.ok(fork.taskId);
+    assert.equal(api.requests.byTaskId(fork.taskId!)!.parentRequestId, api.requests.byTaskId(own.taskId)!.requestId, "the copy's result comes back to the Chat that made it");
+    const stranger = await api.actFacade.createConversation({ workFolder: workFolder.id });
+    await assert.rejects(api.actFacade.chatCopy({ workFolder: workFolder.id, conversationId: stranger.conversation.id, taskId: own.taskId, message: "/hold" }),
+      conflict(/not one this Chat handed work to/));
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
+test("the checklist a turn keeps shows in its Chat's work view", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Checklist" });
+    h.held.add(workFolder.id);
+    const turn = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    await waitFor(async () => h.pending.some((held) => held.taskId === turn.taskId));
+    await api.requests.setChecklist(turn.taskId, [{ text: "Read the quotes", status: "done" }, { text: "Write the summary", status: "doing" }]);
+    const view = await (await fetch(new URL(`/api/work-folders/${workFolder.id}/conversations/${turn.conversationId}/work`, api.origin))).json() as { work: { checklist?: Array<{ text: string; status: string }> } };
+    assert.deepEqual(view.work.checklist, [{ text: "Read the quotes", status: "done" }, { text: "Write the summary", status: "doing" }]);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
 for (const reader of ["worker", "work-fold agent"] as const) {
   test(`a child result the ${reader} read mid-turn through chat wait is not repeated in a follow-up turn`, async (t) => {
     const h = await collaborationHarness(t);
