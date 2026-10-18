@@ -104,7 +104,7 @@ long-running work to this contract without a new lifecycle:
 - **Output stays machine-local.** Only what a turn reads or the follow-up
   carries enters a Chat.
 
-### 2026-10-18 amendment: follow up, redirect, copy, checklist
+### 2026-10-18 amendment: follow up, redirect, copy, checklist, compaction
 
 A gap review against other agent harnesses found that delegated work could
 start and finish but not be continued, corrected, or branched. Three verbs
@@ -136,8 +136,18 @@ graph, receipts, and Stop above.
   list each time. The host keeps it on the request record, shows it in the
   Chat's work view and the paired browser, and hands it back at the start of
   every later turn of that request: an answer's continuation, a follow-up
-  that brings results back. Only the request's running turn can change it.
+  that brings results back. When a long turn is compacted partway through,
+  the host restates the checklist as it stands together with the turn's ids
+  (below). Only the request's running turn can change it.
   An empty list clears it. It holds at most 200 one-line items of 2 KiB.
+
+- **Through compaction.** When Pi compacts in the middle of a long turn, the
+  turn's hidden context can be folded into the summary. Measured runs then
+  reported under the wrong task id and narrowed the work. A request-local
+  note after the summary now restates the turn's exact ids, the person's
+  request when it is no longer visible, and the checklist, and asks the agent
+  to re-check its answer against the sources. Nothing is written to the
+  session (docs/archive/helper-tool-experiment.md).
 
 "Handed work to" is a host check: some request in the target Chat has a
 parent request owned by the caller's Chat. Nothing else about other Chats
