@@ -592,9 +592,10 @@ Owner decisions, recorded here in dated form; the body of this document and
   **Customize work-folder**, and in the command palette.
 - Each choice starts a new Chat with one message, and the included
   `set-up-work-folder` Skill does the rest. **Set up for me** looks the folder
-  over, organizes it when that helps (moves and renames only, never deletes;
-  a deliberate structure stays; projects, app-managed folders, and hidden
-  files are left as they are), writes the work-folder's Worker instructions,
+  over, organizes it when that helps (moves and renames only, never deletes,
+  each through a restore-pointed `work-fold files` verb that refuses to
+  overwrite; a deliberate structure stays; projects, app-managed folders, and
+  hidden files are left as they are), writes the work-folder's Worker instructions,
   and sets a generated banner, an icon, and a color. **Just the look** reads
   the folder and sets only the banner, icon, and color; it never touches a
   file. A Chat's own reply says what changed and how to undo it.

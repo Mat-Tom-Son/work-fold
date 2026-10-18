@@ -34,6 +34,7 @@ export const workFoldQuestionRecordSchema = "work-fold.request-question.v1" as c
 export const workFoldResultRecordSchema = "work-fold.request-result.v1" as const;
 
 export const workFoldRequestIdPattern = /^req-\d{14}-[0-9a-f]{8}$/;
+const workFoldJobRefIdPattern = /^job-\d{14}-[0-9a-f]{8}$/;
 export const workFoldQuestionIdPattern = /^q-\d{14}-[0-9a-f]{8}$/;
 export const workFoldResultIdPattern = /^res-\d{14}-[0-9a-f]{8}$/;
 
@@ -124,6 +125,24 @@ export interface WorkFoldRequestTurnRef {
   settledAt: string | null;
   messageId: string | null;
   error: string | null;
+}
+
+/**
+ * A background job one of this request's turns started (docs/background-jobs.md,
+ * F31), by reference. The job journal keeps the whole record and its output.
+ * `running` covers a job from its journaled start until it settles.
+ */
+export type WorkFoldRequestJobState = "running" | "exited" | "stopped" | "timed_out" | "failed" | "interrupted";
+
+export interface WorkFoldRequestJobRef {
+  jobId: string;
+  /** The turn that started it. */
+  taskId: string;
+  name: string;
+  state: WorkFoldRequestJobState;
+  startedAt: string;
+  settledAt: string | null;
+  exitCode: number | null;
 }
 
 /** A recorded result, by reference. The envelope itself lives in its own file. */
@@ -228,6 +247,9 @@ export const workFoldRequestActionCommands = [
   "apps.operation.cancel",
   "apps.uninstall",
   "automations.enable",
+  // Background jobs (docs/background-jobs.md): the tools and the CLI record the same act.
+  "jobs.start",
+  "jobs.stop",
   "pages.share",
   "pages.share-app",
   "recently-deleted.restore",
@@ -305,6 +327,10 @@ export interface WorkFoldRequestRecord {
   continuationCount: number;
   /** Settled child turns already reserved for delivery, independent of timing. */
   deliveredChildTaskIds: string[];
+  /** Background jobs this request's turns started; absent until the first one (F31). */
+  jobs?: WorkFoldRequestJobRef[];
+  /** Finished jobs whose end already reached the Chat, by any path (F32). */
+  deliveredJobIds?: string[];
   continuationState: "pending" | "failed" | null;
   stopRequestedAt: string | null;
   limitHit: WorkFoldRequestLimitHit | null;
@@ -457,6 +483,8 @@ export interface WorkFoldRequestStateInput {
   childStates: readonly (WorkFoldRequestState | null)[];
   resultOutcomes: readonly WorkFoldResultOutcome[];
   limitHit: WorkFoldRequestLimitHit | null;
+  /** This request's background jobs (F31). A running one is outstanding work. */
+  jobStates?: readonly WorkFoldRequestJobState[];
 }
 
 /**
@@ -468,10 +496,11 @@ export interface WorkFoldRequestStateInput {
  *  3. the model spending bound was reached        → failed
  *  4. the window closed with work outstanding     → expired
  *  5. a question this request asked is open       → waiting
- *  6. one of this request's turns is running      → working
+ *  6. one of this request's turns or background jobs is running → working
  *  7. a question below this request is open       → waiting
  *  8. a child is still working                    → handed_off
- *  9. a turn failed, a child failed, or a child id resolves to nothing → failed
+ *  9. a turn failed, a background job was interrupted, a child failed, or a
+ *     child id resolves to nothing                → failed
  * 10. a child was stopped or ran out of time      → stopped
  * 11. a recorded result came back partial or failed → partial
  * 12. otherwise                                   → done
@@ -491,7 +520,9 @@ export function computeWorkFoldRequestState(input: WorkFoldRequestStateInput): W
   if (input.turnStates.includes("aborted")) return "stopped";
   if (input.limitHit?.limit === "providerBudget") return "failed";
 
-  const running = input.turnStates.some((state) => state === "accepted" || state === "running");
+  const jobStates = input.jobStates ?? [];
+  const running = input.turnStates.some((state) => state === "accepted" || state === "running")
+    || jobStates.includes("running");
   const outstanding = running
     || input.openQuestions > 0
     || input.openDescendantQuestions > 0
@@ -506,6 +537,7 @@ export function computeWorkFoldRequestState(input: WorkFoldRequestStateInput): W
     return "handed_off";
   }
   if (input.turnStates.some((state) => state === "failed" || state === "interrupted")) return "failed";
+  if (jobStates.includes("interrupted")) return "failed";
   if (input.childStates.some((state) => state === null || state === "failed")) return "failed";
   if (input.childStates.some((state) => state === "stopped" || state === "expired")) return "stopped";
   if (input.resultOutcomes.some((outcome) => outcome === "partial" || outcome === "failed")) return "partial";
@@ -691,6 +723,25 @@ function parseTurnRef(value: unknown, index: number): WorkFoldRequestTurnRef {
   };
 }
 
+function parseJobRef(value: unknown, index: number): WorkFoldRequestJobRef {
+  const label = `Request background job ${index + 1}`;
+  const record = objectValue(value, label);
+  assertClosedShape(record, ["jobId", "taskId", "name", "state", "startedAt", "settledAt", "exitCode"], label);
+  const jobId = stableId(record.jobId, `${label} id`);
+  if (!workFoldJobRefIdPattern.test(jobId)) throw new Error(`${label} id is invalid.`);
+  const exitCode = record.exitCode === null || record.exitCode === undefined ? null : record.exitCode;
+  if (exitCode !== null && (typeof exitCode !== "number" || !Number.isSafeInteger(exitCode))) throw new Error(`${label} exit code is invalid.`);
+  return {
+    jobId,
+    taskId: stableId(record.taskId, `${label} task id`),
+    name: boundedText(record.name, `${label} name`, 512),
+    state: enumValue(record.state, ["running", "exited", "stopped", "timed_out", "failed", "interrupted"] as const, `${label} state`),
+    startedAt: isoDate(record.startedAt, `${label} start time`),
+    settledAt: nullableIsoDate(record.settledAt, `${label} settle time`),
+    exitCode: exitCode as number | null,
+  };
+}
+
 function parseResultRef(value: unknown, index: number): WorkFoldRequestResultRef {
   const label = `Request result ${index + 1}`;
   const record = objectValue(value, label);
@@ -737,6 +788,7 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       "createdAt", "updatedAt", "settledAt", "deadline", "state", "turns", "childRequestIds", "questionIds", "results",
       "usage", "continuationCount", "stopRequestedAt", "limitHit", "reconciledAt", "remote", "content", "attachments",
       "actions", "continuedFromTaskId", "assignment", "deliveredChildTaskIds", "continuationState",
+      "jobs", "deliveredJobIds",
     ],
     label,
   );
@@ -819,6 +871,16 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       ? null
       : stableId(record.continuedFromTaskId, `${label} earlier task id`),
   };
+  if (record.jobs !== undefined) {
+    if (!Array.isArray(record.jobs)) throw new Error(`${label} background jobs are invalid.`);
+    parsed.jobs = record.jobs.map(parseJobRef);
+  }
+  if (record.deliveredJobIds !== undefined) {
+    parsed.deliveredJobIds = stringArray(record.deliveredJobIds, `${label} delivered background jobs`).map((id) => {
+      if (!workFoldJobRefIdPattern.test(id)) throw new Error(`${label} delivered background job id is invalid.`);
+      return id;
+    });
+  }
   if (record.app !== undefined) {
     const app = objectValue(record.app, `${label} app`);
     assertClosedShape(app, ["workFolderId", "appId", "featureInstallationId", "digest"], `${label} app`);

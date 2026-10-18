@@ -70,6 +70,40 @@ work-fold agent's transcript, and other work-folders' results still never enter 
 carry `parentWorkFolderId` for a nested work-folder, so the work-fold agent can split a
 request by owner.
 
+### 2026-10-18 amendment: host environment and role
+
+- **Host environment.** Every Worker and work-fold agent turn context opens
+  with one host-owned line: the weekday and the host's local time in ISO 8601
+  with its UTC offset, the IANA time zone, and the platform. The host reads it
+  when the turn starts and sends it in the per-turn context, not the system
+  prompt, so it stays current and the cached prompt prefix is unchanged. The
+  work-fold agent resolves the absolute times `at` Automations and
+  `chat snooze --until` take from it.
+- **Role.** Each request opens with the session's role — this work-folder's
+  Worker, or the work-fold agent — in place of Pi's coding-assistant sentence.
+  Only that sentence changes, and only in the request: Pi's tool list, tool
+  rules, and docs section stay as Pi renders them, the transcript keeps Pi's
+  recorded sections, and a person's own `SYSTEM.md` is left as written.
+
+### 2026-10-18 amendment: background jobs
+
+[Background jobs](background-jobs.md) (F31–F33) add a request's own
+long-running work to this contract without a new lifecycle:
+
+- **A job is outstanding work of its request.** A shell command a running
+  Worker or work-fold agent turn starts with `job_start` or `jobs start`
+  joins that turn's request, which reads `working` while it runs (state rule
+  6) and `failed` if a restart interrupted it (rule 9). Stop on the request,
+  or any ancestor, stops it; settled deletion waits for it.
+- **A finished job continues its request once (F28).** Its end is delivered
+  by a read in its Chat, by the next turn's context, or by one host follow-up
+  joined to its request, carrying the exit status, History coverage, and the
+  end of the output. Delivery is recorded by job id. A finished job does not
+  wait for delegated children, and the Limits switch, Stop fences, and
+  "restart never replays" apply unchanged.
+- **Output stays machine-local.** Only what a turn reads or the follow-up
+  carries enters a Chat.
+
 ## Verbs
 
 All are act-lane and receipted; `chat` verbs name a work-folder and `agent` verbs own management questions. They are available to the work-fold agent, a work-folder

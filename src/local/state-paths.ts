@@ -45,6 +45,11 @@ export function workFoldRequestsRoot(): string {
   return join(workFoldStateRoot(), "requests");
 }
 
+/** Background job records and their output (docs/background-jobs.md); never inside a work-folder. */
+export function workFoldJobsRoot(): string {
+  return join(workFoldStateRoot(), "jobs");
+}
+
 /**
  * Scope id for the work-fold agent that sits above all work-folders. It is
  * a distinct conversation scope, not a work-folder: its records describe this

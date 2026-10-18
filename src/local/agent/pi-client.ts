@@ -5,6 +5,8 @@ import { EventEmitter } from "node:events";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { describeModelContextDispatch, installModelContextInspection, installModelRuntimeInspection } from "./model-context-inspector.js";
 import { includedResourceOptions } from "./included-tools.js";
+import type { WorkFoldSessionRole } from "./role-preamble.js";
+import { currentTurnEnvironment, describeTurnEnvironment, type PiTurnEnvironment } from "./turn-environment.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -60,6 +62,7 @@ import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
+import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -161,15 +164,26 @@ export interface PiTurnContext {
   workFolderTurn?: PiWorkFolderTurnContext;
   /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
   automation?: { title: string };
+  /**
+   * This Chat's background jobs (docs/background-jobs.md, F32): the running
+   * ones, and ones that finished since its last turn and are delivered here.
+   */
+  backgroundJobs?: Array<{ jobId: string; name: string; status: string; finished: boolean }>;
+  /** The host's clock, time zone, and platform; `prompt` reads them when a turn starts. */
+  environment?: PiTurnEnvironment;
 }
 
 export interface PiConversationClientOptions {
+  /** Which role opens each request in place of Pi's coding preamble; a Worker unless set. */
+  role?: WorkFoldSessionRole;
   /** Appended after this work-folder's instructions; absent for the work-fold agent scope. */
   operationsGuide?: string;
   /** The image model chosen in Settings → AI Models, read when a picture is made. */
   imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
   /** Keeps generated pictures so a Chat can show them inline. */
   imageStore?: GeneratedImageSink;
+  /** The job service behind job_start, job_output, and job_stop for this Chat (docs/background-jobs.md). */
+  backgroundJobs?: BackgroundJobToolHost;
 }
 
 export interface PiConversationState {
@@ -323,6 +337,7 @@ export class PiConversationClient extends EventEmitter {
       }
 
       if (!isRegisteredExtensionCommand(session, message)) {
+        context = { ...context, environment: context.environment ?? currentTurnEnvironment() };
         const budget = availableAttachmentTokens(session, message, buildTurnContextMessage({ ...context, contextAttachments: undefined }));
         const attachments = context.loadContextAttachments
           ? await this.awaitCancellation(context.loadContextAttachments(budget))
@@ -727,7 +742,7 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session"),
+          ...await includedResourceOptions(options.cwd, runtime, "session", this.options.role ?? "worker"),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -759,6 +774,17 @@ export class PiConversationClient extends EventEmitter {
           ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
           ...(this.options.imageStore ? { store: this.options.imageStore } : {}),
         }),
+        // Every session can run long commands in the background and be woken when they end.
+        ...(this.options.backgroundJobs ? createBackgroundJobTools({
+          root: options.cwd,
+          host: this.options.backgroundJobs,
+          taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
+          shell: () => ({
+            ...(runtime.settingsManager.getShellPath() ? { shellPath: runtime.settingsManager.getShellPath() } : {}),
+            ...(runtime.settingsManager.getShellCommandPrefix() ? { commandPrefix: runtime.settingsManager.getShellCommandPrefix() } : {}),
+            binDir: join(runtime.agentDir, "bin"),
+          }),
+        }) : []),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
@@ -1721,8 +1747,9 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
 
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
+  if (context.environment) lines.push(describeTurnEnvironment(context.environment));
   if (context.workFolderTurn) {
-    // Identity before data: a work-folder turn reads its own ids first. The block
+    // Identity before data: after the host's environment line, a work-folder turn reads its own ids first. The block
     // never names the registry or the parent's real task id; the only other
     // work-folders it names are the ones nested inside this one and the ones the
     // person addressed with @ (collaboration contract, 2026-10-01 amendment).
@@ -1806,6 +1833,15 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       context.workFolderTurn
         ? "When you finish, report with chat report: --summary saying what you did, --file for each file you made or changed, and --outcome succeeded, partial, or failed. If you cannot do the work, report failed and say why. The Automation's run history shows your summary and that outcome. Then give your final reply."
         : "Your final reply is this step's record in the Automation's run history: say what you did, and say plainly if you could not do it and why.",
+    );
+  }
+  if (context.backgroundJobs?.length) {
+    lines.push(
+      "Background jobs in this Chat (host-owned):",
+      ...context.backgroundJobs.map((job) => `- ${job.jobId} ${JSON.stringify(job.name)} — ${job.status}${job.finished ? "; it finished since this Chat's last turn" : ""}`),
+      context.backgroundJobs.some((job) => job.finished)
+        ? "Read a finished job with job_output when it bears on this request, and mention its outcome; work-fold will not report it again. Stop running ones with job_stop when they are no longer needed."
+        : "Read them with job_output and stop them with job_stop when they are no longer needed.",
     );
   }
   if (context.attachedLinks?.length) {
