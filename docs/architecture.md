@@ -61,7 +61,7 @@ Technical types, routes, and storage paths use `work-folder`, `project`, or `res
 
 ## Storage
 
-Every work-folder is backed by an ordinary content folder. Its small portable data layer lives under `.work-fold/`: `work-folder.json` carries a stable, versioned identity and `conversations/` carries append-only Chat logs. work-fold reuses a valid manifest id when a moved folder is relinked. `.work-fold/`, preserved legacy `.workspace/`, and `.pi/` are hidden from the Files surface and excluded from History capture.
+Every work-folder is backed by an ordinary content folder. Its small portable data layer lives under `.work-fold/`: `work-folder.json` carries a stable, versioned identity and `conversations/` carries append-only Chat logs. work-fold reuses a valid manifest id when a moved folder is relinked. `.work-fold/`, preserved legacy `.workspace/`, and `.pi/` are hidden from the Files surface and excluded from History capture. A Worker's grep and find also leave `.work-fold/` and `.workspace/` out at any depth, so a broad search never surfaces Chat transcripts; a deliberate read still works, and `.pi/` stays searchable because a Worker may be asked to work on this work-folder's own Skills & Extensions.
 
 work-fold is a clean authority domain. It does not open, parse, import, migrate, mutate, wipe, or delete a legacy Workspace application profile, `.workspace/` record, restricted-app registry, connection, storage namespace, receipt, or artifact. Registering the same ordinary folder creates new work-fold identity under `.work-fold/`; preserved legacy bytes remain inert. Pi personal resources and authentication may remain shared at the configured Pi root, while work-fold sessions use `sessions/work-fold/`.
 
