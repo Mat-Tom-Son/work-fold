@@ -1,19 +1,23 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 /**
- * A turn's work-fold identity survives compaction.
+ * A turn survives compaction: its ids, its request, and the care it needs.
  *
  * Each accepted turn's ids reach the model once, in the hidden turn-context
- * message sent before its prompt. When Pi compacts in the middle of a long
- * turn, that message can be folded into the summary, and a summary can carry
- * the wrong id: in a measured run (docs/archive/helper-tool-experiment.md) the
- * summary named the previous turn's task id as the current one, the Worker's
- * `chat report` was refused, and its result was never recorded.
+ * message sent before its prompt, and its request is the person's message
+ * right after it. When Pi compacts in the middle of a long turn, both can be
+ * folded into the summary. In measured runs (docs/archive/helper-tool-experiment.md)
+ * the summary named the previous turn's task id as the current one, so the
+ * Worker's `chat report` was refused; and the summary of the turn so far read
+ * "The user's actual task is not included", after which the Worker narrowed
+ * its search and reported a partial list as complete.
  *
- * This hook restates the running turn's exact ids, request-locally, whenever
- * the model would otherwise see a compaction summary without this turn's own
- * context message. Nothing is written to the session, and the note sits right
- * after the summary, so its position is stable from request to request.
+ * This hook restates, request-locally, whenever the model would otherwise see a
+ * compaction summary without this turn's own context message: the turn's exact
+ * ids; the person's request for this turn when it is no longer visible; and a
+ * reminder that earlier work is only summarized, so the answer is re-checked
+ * against the sources. Nothing is written to the session, and the note sits
+ * right after the summary, so its position is stable from request to request.
  */
 
 /** The hidden message every accepted turn sends before its prompt. */
@@ -24,12 +28,23 @@ export const workFoldTurnIdentityCustomType = "work-fold-turn-identity";
 export interface WorkFoldTurnIdentityInput {
   workFolderTurn?: { workFolderId: string; taskId: string; requestId: string };
   workFoldAgentTaskId?: string;
+  /** The person's message for this turn. */
+  request?: string;
 }
 
 export interface WorkFoldTurnIdentity {
   taskId: string;
   text: string;
+  request?: string;
 }
+
+/**
+ * A request restated after compaction is sent with every later request of the
+ * turn, so a very long message is restated in part and points to the rest.
+ */
+export const restatedRequestMaxChars = 32_000;
+
+const recheckReminder = "Earlier work in this turn is only summarized above, and a summary can leave out results or how thoroughly you had checked. Before you finish, re-check what your answer depends on against the files and tools themselves rather than the summary, and say plainly if anything is still incomplete.";
 
 /** The identity lines a Worker turn's context opens with. */
 export function workFolderTurnIdentityLines(turn: { workFolderId: string; taskId: string; requestId: string }): string[] {
@@ -59,7 +74,15 @@ export function buildTurnIdentity(input: WorkFoldTurnIdentityInput): WorkFoldTur
     ...(turn ? workFolderTurnIdentityLines(turn) : []),
     ...(input.workFoldAgentTaskId ? workFoldAgentTaskLines(input.workFoldAgentTaskId) : []),
   ];
-  return { taskId, text: lines.join("\n") };
+  const request = input.request?.trim();
+  return { taskId, text: lines.join("\n"), ...(request ? { request } : {}) };
+}
+
+function restatedRequest(request: string): string {
+  const shown = request.length > restatedRequestMaxChars
+    ? `${request.slice(0, restatedRequestMaxChars)}\n[The message continues for ${request.length - restatedRequestMaxChars} more characters; it is this turn's message in the Chat.]`
+    : request;
+  return `This turn's request (the person's message, restated because the summary above may not include it):\n<request>\n${shown}\n</request>`;
 }
 
 type ContextMessage = { role: string; customType?: string; content?: unknown; timestamp?: number };
@@ -85,10 +108,13 @@ export function restateTurnIdentity<T extends ContextMessage>(messages: T[], ide
   const ownContextVisible = messages.some((message) => message.role === "custom"
     && message.customType === workFoldTurnContextCustomType && messageText(message).includes(identity.taskId));
   if (ownContextVisible) return undefined;
+  const requestHead = identity.request?.slice(0, 200);
+  const requestVisible = requestHead !== undefined
+    && messages.some((message) => message.role === "user" && messageText(message).includes(requestHead));
   const note = {
     role: "custom",
     customType: workFoldTurnIdentityCustomType,
-    content: identity.text,
+    content: [identity.text, ...(identity.request && !requestVisible ? [restatedRequest(identity.request)] : []), recheckReminder].join("\n\n"),
     display: false,
     timestamp: messages[summaryIndex]!.timestamp ?? Date.now(),
   } as unknown as T;

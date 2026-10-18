@@ -359,7 +359,7 @@ export class PiConversationClient extends EventEmitter {
             content: contextMessage,
             display: false,
           }, { deliverAs: "nextTurn" }));
-          this.turnIdentity = buildTurnIdentity(context);
+          this.turnIdentity = buildTurnIdentity({ ...context, request: message });
         }
       }
 
