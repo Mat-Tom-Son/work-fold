@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { helperEvalTasks, type HelperEvalTaskId } from "./fixtures.js";
+import { helperEvalTasks, longHistoryDocument, longHistorySetupPrompt, type HelperEvalTaskId } from "./fixtures.js";
 import { workFolderSessionDir } from "../../src/local/agent/agent-data-dir.js";
 
 const repo = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -67,6 +67,10 @@ interface SessionSummary {
   calls: SessionCall[];
   toolCalls: Array<{ name: string; args: string }>;
   toolResultChars: number;
+  /** Pi compaction entries written during this session. */
+  compactions: number;
+  /** Every `work-fold chat report` the session ran, with whether work-fold accepted it. */
+  reports: Array<{ afterCompaction: boolean; accepted: boolean; taskArg: string | null; result: string }>;
 }
 
 const evalRoot = resolve(argument("--eval"));
@@ -106,38 +110,59 @@ async function json<T>(method: string, url: string, body?: unknown): Promise<T> 
 const tap = () => json<{ calls: number; inflight: number; quietMs: number }>("GET", `${host.bridge}/tap`);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-const tapBefore = (await tap()).calls;
-const startedAt = Date.now();
-let driverReport: { outcome: string; durationMs: number; conversationId: string; workFolderId: string; assistantText: string; toolCalls: unknown[]; errors: string[] } | null = null;
-let stopReport: Record<string, unknown> | null = null;
-
-if (stopAfter === null) {
-  // The ordinary lane: the existing real-Pi driver, attached to the host.
+interface DriverReport { outcome: string; durationMs: number; conversationId: string; workFolderId: string; assistantText: string; toolCalls: unknown[]; errors: string[] }
+async function drive(file: string, conversation?: string): Promise<DriverReport> {
+  // The existing real-Pi driver, attached to the host.
   const child = spawn(process.execPath, [
     join(repo, "node_modules", "tsx", "dist", "cli.mjs"), join(repo, "scripts", "work-fold-drive.ts"),
-    "--attach", host.origin, "--work-folder-root", workFolderRoot, "--prompt-file", promptFile, "--json", "--quiet", "--timeout", "1500",
+    "--attach", host.origin, "--work-folder-root", workFolderRoot, "--prompt-file", file, "--json", "--quiet", "--timeout", "2400",
+    ...(conversation ? ["--conversation", conversation] : []),
   ], { cwd: repo, stdio: ["ignore", "pipe", "inherit"] });
   let stdout = "";
   child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
   await new Promise<void>((done) => child.on("close", () => done()));
-  driverReport = JSON.parse(stdout) as typeof driverReport;
+  return JSON.parse(stdout) as DriverReport;
+}
+async function waitForQuiet(): Promise<void> {
+  for (let waited = 0; waited < 90_000; waited += 1000) {
+    const status = await tap();
+    if (status.inflight === 0 && status.quietMs >= 5000) return;
+    await sleep(1000);
+  }
+}
+
+// A task with a setup turn is asked as the second turn of a Chat that already
+// holds a long pasted document. Only the second turn is measured.
+const hasSetup = "setup" in task && task.setup === true;
+const setupPrompt = hasSetup ? `${longHistorySetupPrompt}\n\n${longHistoryDocument()}` : null;
+let setupReport: DriverReport | null = null;
+if (setupPrompt && stopAfter === null) {
+  const setupFile = join(runDir, "setup-prompt.txt");
+  await writeFile(setupFile, `${setupPrompt}\n`);
+  setupReport = await drive(setupFile);
+  await waitForQuiet();
+}
+const tapBefore = (await tap()).calls;
+const startedAt = Date.now();
+let driverReport = null as DriverReport | null;
+let stopReport: Record<string, unknown> | null = null;
+
+if (stopAfter === null) {
+  driverReport = await drive(promptFile, setupReport?.conversationId);
 } else {
   stopReport = await stopRun(stopAfter);
 }
 
 // Let trailing calls (Chat titles for parent and children) finish.
-for (let waited = 0; waited < 90_000; waited += 1000) {
-  const status = await tap();
-  if (status.inflight === 0 && status.quietMs >= 5000) break;
-  await sleep(1000);
-}
+await waitForQuiet();
 const wallMs = Date.now() - startedAt;
 
 // --- measurements -------------------------------------------------------------
 const tapRecords = (await readFile(host.tapLog, "utf8")).split("\n").filter(Boolean)
   .map((line) => JSON.parse(line) as TapRecord).filter((record) => record.call > tapBefore);
-const sessions = await readSessions(workFolderSessionDir(workFolderRoot, host.agentDir));
-const parentSession = sessions.find((session) => session.firstUserText.trim() === prompt.trim()) ?? null;
+const sessions = await readSessions(workFolderSessionDir(workFolderRoot, host.agentDir), startedAt);
+const firstPrompt = setupPrompt ?? prompt;
+const parentSession = sessions.find((session) => session.firstUserText.trim() === firstPrompt.trim()) ?? null;
 const childSessions = sessions.filter((session) => session !== parentSession);
 
 const promptTokens = (call: SessionCall) => call.input + call.cacheRead + call.cacheWrite;
@@ -160,7 +185,7 @@ const attribute = (session: SessionSummary | null) => {
 const parentUsage = attribute(parentSession);
 const childUsage = childSessions.map(attribute);
 const classify = (record: TapRecord) => record.systemHead.startsWith("Write a specific 3 to 7 word title") ? "title"
-  : /helper/i.test(record.systemHead) && !record.systemHead.startsWith("You are an expert coding assistant") ? "helper"
+  : record.systemHead.startsWith("You are a read-only helper") ? "helper"
     : matchedCalls.has(record.call) ? "session" : "other";
 const byPurpose: Record<string, { calls: number; promptTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number }> = {};
 for (const record of tapRecords) {
@@ -195,6 +220,7 @@ const result = {
   workFolderRoot, prompt,
   outcome: driverReport?.outcome ?? "stopped-run",
   latencyMs: driverReport?.durationMs ?? null,
+  setup: setupReport ? { outcome: setupReport.outcome, durationMs: setupReport.durationMs } : null,
   wallMs,
   answer: driverReport?.assistantText ?? null,
   driverToolCalls: driverReport?.toolCalls ?? null,
@@ -207,6 +233,8 @@ const result = {
     contextGrowthTokens: parentCalls.length ? promptTokens(parentCalls.at(-1)!) + parentCalls.at(-1)!.output - promptTokens(parentCalls[0]!) : null,
     toolResultChars: parentSession.toolResultChars,
     toolCalls: parentSession.toolCalls,
+    compactions: parentSession.compactions,
+    reports: parentSession.reports,
     usage: parentUsage,
     continuation: {
       turns: Math.max(0, (root?.turns.length ?? 1) - 1),
@@ -223,6 +251,8 @@ const result = {
     peakContextTokens: session.calls.reduce((max, call) => Math.max(max, promptTokens(call)), 0),
     toolResultChars: session.toolResultChars,
     toolCalls: session.toolCalls.map((call) => call.name),
+    compactions: session.compactions,
+    reports: session.reports,
     usage: childUsage[index],
   })),
   providerCalls: { total, byPurpose },
@@ -244,24 +274,45 @@ console.log(JSON.stringify({
 
 // --- helpers ----------------------------------------------------------------
 
-async function readSessions(dir: string): Promise<SessionSummary[]> {
+/** Session summaries counting only what happened at or after `since` (ms), so a setup turn is left out. */
+async function readSessions(dir: string, since: number): Promise<SessionSummary[]> {
   if (!existsSync(dir)) return [];
   const out: SessionSummary[] = [];
   for (const name of (await readdir(dir)).filter((file) => file.endsWith(".jsonl"))) {
-    const summary: SessionSummary = { file: join(dir, name), firstUserText: "", calls: [], toolCalls: [], toolResultChars: 0 };
+    const summary: SessionSummary = { file: join(dir, name), firstUserText: "", calls: [], toolCalls: [], toolResultChars: 0, compactions: 0, reports: [] };
+    const pendingReports = new Map<string, string | null>();
     for (const line of (await readFile(join(dir, name), "utf8")).split("\n").filter(Boolean)) {
-      const entry = JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown; usage?: SessionCall; timestamp?: number } };
+      const entry = JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown; usage?: SessionCall; timestamp?: number; toolCallId?: string; isError?: boolean } };
+      const at = typeof (entry as { timestamp?: unknown }).timestamp === "string" ? Date.parse((entry as { timestamp: string }).timestamp)
+        : typeof entry.message?.timestamp === "number" ? entry.message.timestamp : 0;
       const message = entry.message;
+      if (message?.role === "user" && !summary.firstUserText) {
+        const content = message.content;
+        summary.firstUserText = typeof content === "string" ? content
+          : Array.isArray(content) ? (content as Array<{ text?: string }>).map((part) => part.text ?? "").join("") : "";
+      }
+      if (at && at < since) continue;
+      if (entry.type === "compaction") summary.compactions += 1;
       if (entry.type !== "message" || !message) continue;
       const parts = Array.isArray(message.content) ? message.content as Array<{ type?: string; text?: string; name?: string; arguments?: unknown }> : [];
-      if (message.role === "user" && !summary.firstUserText) {
-        summary.firstUserText = typeof message.content === "string" ? message.content : parts.map((part) => part.text ?? "").join("");
-      }
       if (message.role === "assistant" && message.usage) {
         summary.calls.push({ ...message.usage, timestamp: message.timestamp });
-        for (const part of parts) if (part.type === "toolCall") summary.toolCalls.push({ name: part.name ?? "?", args: JSON.stringify(part.arguments ?? {}).slice(0, 300) });
+        for (const part of parts) {
+          if (part.type !== "toolCall") continue;
+          const args = JSON.stringify(part.arguments ?? {});
+          summary.toolCalls.push({ name: part.name ?? "?", args: args.slice(0, 300) });
+          if (/work-fold chat report/.test(args)) pendingReports.set((part as { id?: string }).id ?? "", /--task\s+(\S+)/.exec(args)?.[1]?.replace(/[\\"]+$/, "") ?? null);
+        }
       }
-      if (message.role === "toolResult") summary.toolResultChars += parts.reduce((sum, part) => sum + (part.text?.length ?? 0), 0);
+      if (message.role === "toolResult") {
+        summary.toolResultChars += parts.reduce((sum, part) => sum + (part.text?.length ?? 0), 0);
+        const id = message.toolCallId ?? "";
+        if (pendingReports.has(id)) {
+          const text = parts.map((part) => part.text ?? "").join("");
+          summary.reports.push({ afterCompaction: summary.compactions > 0, accepted: !message.isError && /"resultId"/.test(text), taskArg: pendingReports.get(id)!, result: text.slice(0, 400) });
+          pendingReports.delete(id);
+        }
+      }
     }
     out.push(summary);
   }

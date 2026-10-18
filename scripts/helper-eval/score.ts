@@ -12,14 +12,18 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+interface ReportAttempt { afterCompaction: boolean; accepted: boolean; result?: string }
 interface Result {
   runId: string; taskId: string; arm: string; rep: number; outcome: string; latencyMs: number | null; answer: string | null;
+  model?: { id: string };
   parent: { modelCalls: number; firstContextTokens: number; lastContextTokens: number; peakContextTokens: number; contextGrowthTokens: number; toolResultChars: number;
-    toolCalls: Array<{ name: string; args: string }>; continuation?: { turns: number; modelCalls: number; costUsd: number } } | null;
-  children: Array<{ modelCalls: number; toolResultChars: number; usage: { costUsd: number } }>;
+    toolCalls: Array<{ name: string; args: string }>; continuation?: { turns: number; modelCalls: number; costUsd: number };
+    compactions?: number; reports?: ReportAttempt[] } | null;
+  children: Array<{ modelCalls: number; toolResultChars: number; usage: { costUsd: number }; compactions?: number; reports?: ReportAttempt[] }>;
   providerCalls: { total: { calls: number; promptTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number };
     byPurpose: Record<string, { calls: number; promptTokens: number; outputTokens: number; costUsd: number }> };
   turnRecords: Array<{ helpers?: Array<{ outcome: string; modelCalls: number; activity: unknown[] }> }>;
+  requestTree?: Array<{ depth: number; results: unknown[] }>;
   stop: unknown;
 }
 
@@ -31,15 +35,18 @@ const campaigns = args.filter((arg, index) => !arg.startsWith("--") && args[inde
 const expected = JSON.parse(await readFile(join(fixtures, "expected.json"), "utf8")) as Record<string, { answer: any }>;
 
 const results: Result[] = [];
-for (const campaign of campaigns) {
-  for (const task of await readdir(campaign)) {
-    const dir = join(campaign, task, "results");
-    if (!existsSync(dir)) continue;
-    for (const file of (await readdir(dir)).filter((name) => name.endsWith(".json") && !name.includes("-stop"))) {
-      results.push(JSON.parse(await readFile(join(dir, file), "utf8")) as Result);
-    }
+async function collect(dir: string): Promise<void> {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === "runs" || entry.name === "pi-agent" || entry.name === "state") continue;
+    const path = join(dir, entry.name);
+    if (entry.name === "results") {
+      for (const file of (await readdir(path)).filter((name) => name.endsWith(".json") && !name.includes("-stop"))) {
+        results.push(JSON.parse(await readFile(join(path, file), "utf8")) as Result);
+      }
+    } else await collect(path);
   }
 }
+for (const campaign of campaigns) if (existsSync(campaign)) await collect(campaign);
 
 const lines = (text: string) => text.split(/\n/);
 const has = (line: string, ...needles: Array<string | RegExp>) => needles.every((needle) => typeof needle === "string" ? line.includes(needle) : needle.test(line));
@@ -73,11 +80,11 @@ function scoreOffice(answer: string): Score {
   const check = (ok: boolean, label: string) => { if (ok) points += 1; else notes.push(`missing ${label}`); };
   const firstLines = lines(answer).filter((line) => line.trim()).slice(0, 3).join(" ");
   check(/17 May 2027|May 17,? 2027|2027-05-17/.test(firstLines), "final date up front");
-  check(anyLine(answer, /W0?5\b|week 0?5\b/i, /1 March|March 1/), "W05 → 1 March");
-  check(anyLine(answer, /W11\b|week 11\b/i, /12 April|April 12/), "W11 → 12 April");
+  check(anyLine(answer, /W0?5\b|week 0?5\b/i, /\b1 Mar(?:ch)?\b|March 1\b/), "W05 → 1 March");
+  check(anyLine(answer, /W11\b|week 11\b/i, /12 Apr(?:il)?\b|April 12/), "W11 → 12 April");
   check(anyLine(answer, /W19\b|week 19\b/i, /17 May|May 17/), "W19 → 17 May");
-  check(anyLine(answer, "launch-plan", /12 April|April 12/), "launch-plan.md stale");
-  check(anyLine(answer, "faq-for-staff", /1 March|March 1/), "faq-for-staff.md stale");
+  check(anyLine(answer, "launch-plan", /12 Apr(?:il)?\b|April 12/), "launch-plan.md stale");
+  check(anyLine(answer, "faq-for-staff", /\b1 Mar(?:ch)?\b|March 1\b/), "faq-for-staff.md stale");
   if (anyLine(answer, /opening|opens|go-live/i, /2 May 2027|May 2,? 2027/) && !anyLine(answer, /handover/i, /2 May/)) { points -= 1; notes.push("treats 2 May as the opening"); }
   return { points, max: 6, notes };
 }
@@ -141,7 +148,7 @@ function scoreExport(answer: string, key: any): Score {
       notes.push(`includes ${distractor.name}`);
     }
   }
-  return { points, max: 5, notes };
+  return { points, max: key.reporters.length, notes };
 }
 
 function score(result: Result): Score {
@@ -152,7 +159,9 @@ function score(result: Result): Score {
     case "office-launch": return scoreOffice(answer);
     case "travel-policy": return scoreTravel(answer);
     case "rename-survey": return scoreRename(answer, key);
-    case "export-bug": return scoreExport(answer, key);
+    case "export-bug":
+    case "export-bug-xl":
+    case "export-bug-xl-long": return scoreExport(answer, key);
     default: return { points: 0, max: 1, notes: ["unknown task"] };
   }
 }
@@ -164,21 +173,33 @@ const range = (values: number[], digits = 0) => values.length
 
 const rows: Array<Record<string, unknown>> = [];
 const order = ["a", "b", "c", "c0"];
-const tasks = [...new Set(results.map((result) => result.taskId))].sort();
-for (const task of tasks) {
-  console.log(`\n### ${task}\n`);
-  console.log("| Arm | n | Quality | Parent growth (tokens) | Parent peak | Total prompt tokens | Output tokens | Cost (USD) | Latency (s) | Calls (session/title/helper) | Helper used |");
-  console.log("|---|---|---|---|---|---|---|---|---|---|---|");
+const modelOf = (result: Result) => result.model?.id ?? "openai/gpt-6-luna";
+// A refusal is a report command whose own output says ok:false (or never reached work-fold);
+// a bash call that chains handoff, wait and report prints several documents.
+const refused = (attempt: ReportAttempt) => /"ok":\s*false/.test(attempt.result ?? "") || !/"ok":\s*true/.test(attempt.result ?? "");
+const reportsText = (attempts: ReportAttempt[] | undefined, recorded: number) => {
+  const tries = (attempts ?? []).map((attempt) => `${refused(attempt) ? "refused" : "ok"}${attempt.afterCompaction ? "†" : ""}`).join("+") || "none";
+  return `${tries} (${recorded} recorded)`;
+};
+const groups = [...new Set(results.map((result) => `${result.taskId} · ${modelOf(result)}`))].sort();
+for (const groupKey of groups) {
+  const [task, model] = groupKey.split(" · ") as [string, string];
+  console.log(`\n### ${task} — ${model}\n`);
+  console.log("| Arm | n | Quality | Latency (s) | Parent growth (tokens) | Parent peak | Compactions (parent/children) | chat report (parent; children) | Prompt tokens | Output tokens | Cost (USD) | Calls (session/title/helper) |");
+  console.log("|---|---|---|---|---|---|---|---|---|---|---|---|");
   for (const arm of order) {
-    const group = results.filter((result) => result.taskId === task && result.arm === arm).sort((left, right) => left.rep - right.rep);
+    const group = results.filter((result) => result.taskId === task && modelOf(result) === model && result.arm === arm).sort((left, right) => left.rep - right.rep);
     if (!group.length) continue;
     const scores = group.map(score);
     const helperRuns = group.map((result) => result.turnRecords.flatMap((record) => record.helpers ?? []).length);
     const by = (purpose: string) => group.map((result) => result.providerCalls.byPurpose[purpose]?.calls ?? 0);
-    console.log(`| ${arm} | ${group.length} | ${scores.map((item) => `${item.points}/${item.max}`).join(", ")} | ${range(group.map((result) => result.parent?.contextGrowthTokens ?? NaN))} | ${range(group.map((result) => result.parent?.peakContextTokens ?? NaN))} | ${range(group.map((result) => result.providerCalls.total.promptTokens))} | ${range(group.map((result) => result.providerCalls.total.outputTokens))} | ${range(group.map((result) => result.providerCalls.total.costUsd), 4)} | ${range(group.map((result) => (result.latencyMs ?? NaN) / 1000), 1)} | ${mean(by("session")).toFixed(1)}/${mean(by("title")).toFixed(1)}/${mean(by("helper")).toFixed(1)} | ${helperRuns.join(",")} |`);
+    const compactions = group.map((result) => `${result.parent?.compactions ?? 0}/${result.children.reduce((sum, child) => sum + (child.compactions ?? 0), 0)}`).join(", ");
+    const recorded = (result: Result, depth: number) => (result.requestTree ?? []).filter((request) => request.depth === depth).reduce((sum, request) => sum + request.results.length, 0);
+    const reports = group.map((result) => `${reportsText(result.parent?.reports, recorded(result, 0))}; ${result.children.map((child) => reportsText(child.reports, recorded(result, 1))).join("+") || "–"}`).join(" · ");
+    console.log(`| ${arm} | ${group.length} | ${scores.map((item) => `${item.points}/${item.max}`).join(", ")} | ${range(group.map((result) => (result.latencyMs ?? NaN) / 1000), 1)} | ${range(group.map((result) => result.parent?.contextGrowthTokens ?? NaN))} | ${range(group.map((result) => result.parent?.peakContextTokens ?? NaN))} | ${compactions} | ${reports} | ${range(group.map((result) => result.providerCalls.total.promptTokens))} | ${range(group.map((result) => result.providerCalls.total.outputTokens))} | ${range(group.map((result) => result.providerCalls.total.costUsd), 4)} | ${mean(by("session")).toFixed(1)}/${mean(by("title")).toFixed(1)}/${mean(by("helper")).toFixed(1)} |`);
     for (const [index, result] of group.entries()) {
       rows.push({
-        runId: result.runId, task, arm, rep: result.rep, quality: scores[index]!.points, qualityMax: scores[index]!.max, notes: scores[index]!.notes,
+        runId: result.runId, task, model, arm, rep: result.rep, quality: scores[index]!.points, qualityMax: scores[index]!.max, notes: scores[index]!.notes,
         parentGrowth: result.parent?.contextGrowthTokens, parentPeak: result.parent?.peakContextTokens, parentToolResultChars: result.parent?.toolResultChars,
         promptTokens: result.providerCalls.total.promptTokens, cachedTokens: result.providerCalls.total.cachedTokens, outputTokens: result.providerCalls.total.outputTokens,
         costUsd: result.providerCalls.total.costUsd, latencyS: (result.latencyMs ?? NaN) / 1000, byPurpose: result.providerCalls.byPurpose,
@@ -186,7 +207,7 @@ for (const task of tasks) {
       });
     }
     const flagged = group.map((result, index) => ({ runId: result.runId, notes: scores[index]!.notes })).filter((item) => item.notes.length);
-    for (const item of flagged) console.log(`|  | ${item.runId} | ${item.notes.join("; ")} | | | | | | | | |`);
+    for (const item of flagged) console.log(`|  | ${item.runId} | ${item.notes.join("; ")} | | | | | | | | | |`);
   }
 }
 if (showAnswers) {

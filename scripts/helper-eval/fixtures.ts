@@ -794,6 +794,208 @@ function interviews(): { files: Files; expected: unknown } {
   };
 }
 
+// ---------------------------------------------------------------------------
+// P1 — context pressure: the same bug hunt across ~320 transcripts (~700 KB),
+// phrased so a keyword search cannot narrow it and full reading is needed
+// ---------------------------------------------------------------------------
+
+function interviewsAtScale(): { files: Files; expected: unknown } {
+  const random = rng(505);
+  const { pick, some } = picker(random);
+  const files: Files = new Map();
+  const interviewer = "Alex (research)";
+  // Benign filler deliberately reuses the words a search would try:
+  // export, download, CSV, spreadsheet, last, final, missing, row, bottom.
+  const generic = [
+    ["How do you use the app day to day?", [
+      "Mostly for weekly planning; I open it on Monday, look at what's due, and assign the week's work.",
+      "We run client onboarding in it, and every new client gets a project from a template.",
+      "I export the board every Friday for the leadership deck, which takes a minute.",
+      "It's our source of truth for the content calendar, and the last thing I check before I log off.",
+      "We download a CSV of open requests for the weekly ops review.",
+      "The board view mostly; my team lives in it and the bottom row is always the backlog.",
+      "We keep a spreadsheet of vendor contacts in sync with it by hand, which is a chore.",
+      "Our last project used it for every handoff between design and engineering.",
+    ]],
+    ["What's working well?", [
+      "Templates cut our setup time in half.",
+      "The mobile app is good enough that I can approve things on the train.",
+      "Exports to PDF look professional, so clients like the weekly status page.",
+      "Search is fast, which matters when you have thousands of items.",
+      "The calendar view is the reason we picked you over the alternatives.",
+      "The final approval step is clear now; nothing goes out without sign-off.",
+      "Downloads are quick since the last update.",
+      "Row colours make the board readable at a glance.",
+    ]],
+    ["What's frustrating?", [
+      "Notifications are noisy, so I've turned most of them off.",
+      "Guest permissions are confusing; a client once saw an internal comment.",
+      "Recurring tasks don't handle holidays well.",
+      "Dashboard widgets don't remember my filters.",
+      "Bulk editing is slow when we have more than a few hundred items.",
+      "The missing feature for us is dark mode, honestly.",
+      "Sometimes the last comment in a long thread is hidden behind a 'show more' link.",
+      "The CSV export doesn't include custom field descriptions, which our analyst wants.",
+    ]],
+    ["How did your team get started with the app?", [
+      "A colleague brought it in from her previous job, and it spread team by team over about six months.",
+      "We ran an evaluation against two competitors and picked it for the calendar and the templates.",
+      "It started as a pilot in marketing; IT took over the rollout once three departments used it.",
+      "Our previous tool was discontinued, so we migrated everything over a long weekend.",
+      "We imported about four hundred projects from spreadsheets, and the last few needed manual fixes.",
+      "Our CEO saw a demo at a conference and asked us to try it.",
+    ]],
+    ["Which integrations do you rely on?", [
+      "Chat notifications and the calendar sync; everything else we do by hand.",
+      "The email integration: clients email requests and they turn into tasks.",
+      "We push time tracking into our billing system through the API.",
+      "We tried the drive integration but people kept attaching the wrong versions.",
+      "We export to our BI tool nightly through the API, and that's been reliable.",
+      "We connect it to our CRM so sales handoffs create onboarding projects automatically.",
+    ]],
+    ["How do you report on work to leadership?", [
+      "Every Friday I build a status summary from the dashboard and paste it into an email.",
+      "Leadership has its own portfolio dashboard and mostly looks at overdue items.",
+      "We download the data monthly and build charts in a spreadsheet, because the built-in charts are limited.",
+      "In a meeting; people talk through the board on screen.",
+      "We use the goals feature and review it quarterly; the final review is in December.",
+      "I send a screenshot of the timeline, which is not elegant but works.",
+    ]],
+    ["Anything you'd change first?", [
+      "Better reporting for managers.",
+      "Let me set default views per project.",
+      "Make guest permissions simpler.",
+      "A proper timeline for dependencies.",
+      "Faster bulk edits.",
+      "Let exports include comments, not just fields.",
+    ]],
+  ] as const;
+  const firstNames = ["Hannah", "Marco", "Aisha", "Tom", "Yuki", "Sofia", "Deepak", "Laura", "Kwame", "Elena", "Ben", "Mei", "Oscar", "Fatima", "Ivan", "Grace",
+    "Noah", "Leila", "Pablo", "Zoe", "Ravi", "Anna", "Chris", "Nadia", "Jonas", "Clara", "Sam", "Ade", "Lucia", "Omar", "Priya", "Felix", "Ingrid", "Tariq",
+    "Rosa", "Hugo", "Amara", "Viktor", "June", "Mateo"];
+  const companyWords = ["Lumen", "Pellucid", "Granite", "Kestrel", "Bramble", "Northwind", "Cobalt", "Fieldstone", "Tidewater", "Quarry", "Saffron", "Helix",
+    "Juniper", "Copperleaf", "Ridgeline", "Meridian", "Atlas", "Orchard", "Beacon", "Vantage", "Silverpine", "Foxglove", "Summit", "Harborview", "Ember",
+    "Willow", "Driftwood", "Prism", "Larkspur", "Ironbridge", "Bluefin", "Sable", "Thistle", "Morrow", "Cinder", "Alder"];
+  const companyKinds = ["Studio", "Health", "Freight", "Labs", "Retail", "Insurance", "Schools", "Energy", "Media", "Foods", "Legal", "Realty", "Outdoors",
+    "Travel", "Robotics", "Credit Union", "Logistics", "Analytics", "Hotels", "Dental", "Games", "Architects", "Coffee", "Security", "Clinics", "Partners"];
+  const count = 320;
+  const people: Array<[string, string]> = [];
+  const used = new Set<string>();
+  while (people.length < count) {
+    const person: [string, string] = [pick(firstNames), `${pick(companyWords)} ${pick(companyKinds)}`];
+    const key = `${person[0]}|${person[1]}`;
+    if (!used.has(key)) { used.add(key); people.push(person); }
+  }
+  const reports: Array<{ text: string; version: string }> = [
+    { text: "Every CSV we export comes out one row short. The last task on the board never makes it into the file. We're on 4.2.1.", version: "4.2.1" },
+    { text: "When I download the board as a spreadsheet, whatever was at the bottom of the list just isn't there. The About box says 4.3.0.", version: "4.3.0" },
+    { text: "The monthly extract our finance team pulls is always missing its closing line item, and they reconcile by hand. That started after we moved to 4.1.3.", version: "4.1.3" },
+    { text: "If you save the report out to Excel, the final entry vanishes. We're running 4.3.1.", version: "4.3.1" },
+    { text: "Our exported timesheets always drop whoever is listed last, so payroll keeps asking me who is missing. Version 4.2.0, I think, yes, 4.2.0.", version: "4.2.0" },
+    { text: "The file I get from 'Download as CSV' ends one record early. I checked it against the screen twice. This is on 4.3.0.", version: "4.3.0" },
+    { text: "We noticed the totals were off. Turns out the spreadsheet we pull out of it leaves off the bottom row. We updated to 4.2.1 in March.", version: "4.2.1" },
+    { text: "Pulling the data out into a spreadsheet loses the very last item every time. We're still on 4.0.9.", version: "4.0.9" },
+    { text: "The list we send to the client stops before the end; the newest invoice, which sits at the end, is never in the downloaded file. 4.3.1 here.", version: "4.3.1" },
+    { text: "Our weekly CSV for the warehouse is always shy of the final shipment, so the counts never match. We're on 4.2.2.", version: "4.2.2" },
+  ];
+  const distractorTexts = [
+    "When I import a CSV, the last row is skipped, so I add a blank line at the end. Version 4.2.1.",
+    "The PDF export is missing the cover page now, which clients notice. We're on 4.3.0.",
+    "Our export is missing the Owner column entirely, even though it's on screen. 4.2.1.",
+    "On screen, the table hides the last row until you scroll, which confused a new hire. Not a big deal. 4.3.1.",
+    "The exported file duplicates the final row, so totals come out too high. We're on 4.2.0.",
+    "Exporting works perfectly for us; we send the full CSV to the board every month. 4.3.0.",
+  ];
+  const slots = some(Array.from({ length: count }, (_, index) => index), reports.length + distractorTexts.length);
+  const reportAt = new Map<number, number>(slots.slice(0, reports.length).map((slot, index) => [slot, index]));
+  const distractorAt = new Map<number, number>(slots.slice(reports.length).map((slot, index) => [slot, index]));
+  const paths: string[] = [];
+  people.forEach(([name, company], index) => {
+    const turns: string[] = [];
+    const special = reportAt.has(index) ? reports[reportAt.get(index)!]!.text : distractorAt.has(index) ? distractorTexts[distractorAt.get(index)!]! : null;
+    const insertAfter = Math.floor(random() * generic.length);
+    generic.forEach(([question, answers], position) => {
+      turns.push(`**${interviewer}:** ${question}`, "", `**${name}:** ${some(answers, 3).join(" ")}`, "");
+      if (special && position === insertAfter) {
+        turns.push(`**${interviewer}:** Anything else that's come up recently?`, "", `**${name}:** ${special}`, "");
+      }
+    });
+    const month = String(1 + (index % 9)).padStart(2, "0");
+    const day = String(1 + ((index * 7) % 28)).padStart(2, "0");
+    const slug = `${name.toLowerCase()}-${company.toLowerCase().replace(/[^a-z]+/g, "-").replace(/-+$/, "")}`;
+    const path = `interviews/2026-${month}-${day}-${String(index + 1).padStart(3, "0")}-${slug}.md`;
+    paths.push(path);
+    files.set(path, [
+      `# Interview — ${name}, ${company}`,
+      "",
+      `Date: 2026-${month}-${day} · Role: ${pick(["Operations lead", "Project manager", "Team lead", "Head of marketing", "Office manager", "Product owner", "Finance manager"])} · Plan: ${pick(["Team", "Business", "Enterprise"])}`,
+      "",
+      ...turns,
+      `**${interviewer}:** Thanks, that's really helpful.`,
+      "",
+    ].join("\n"));
+  });
+  files.set("README.md", "# Customer interviews\n\nTranscripts from the 2026 customer interview programme. One file per interview.\n");
+  return {
+    files,
+    expected: {
+      reporters: [...reportAt.entries()].map(([slot, index]) => ({
+        name: people[slot]![0], company: people[slot]![1], version: reports[index]!.version, file: paths[slot]!,
+      })),
+      distractors: [...distractorAt.entries()].map(([slot, index]) => ({ name: people[slot]![0], file: paths[slot]!, why: distractorTexts[index]! })),
+    },
+  };
+}
+
+/**
+ * A long, unrelated document a person pastes into a Chat before asking the
+ * real question, so the measured turn starts with a long history (~90k
+ * tokens). Nothing in it bears on any task's answer.
+ */
+export function longHistoryDocument(): string {
+  const random = rng(606);
+  const { pick, some } = picker(random);
+  const topics = ["Receiving", "Putaway", "Cycle counts", "Returns", "Carrier management", "Safety", "Shift handover", "Equipment care",
+    "Yard management", "Hazardous goods", "Training", "Quality checks", "Packaging", "Peak season", "Vendor compliance", "Facilities"];
+  const sentences = [
+    "Every pallet is scanned at the dock door before it is moved to staging.",
+    "Supervisors confirm the count against the advance shipping notice and record any variance in the shift log.",
+    "Damaged cartons are photographed, tagged in orange, and moved to the quarantine bay within the hour.",
+    "Forklift operators complete a pre-use inspection checklist at the start of every shift.",
+    "Aisle labels follow the zone-aisle-bay-level format and are replaced when they become unreadable.",
+    "The day shift lead hands over open exceptions in person, not only in the log.",
+    "Carriers that miss two appointments in a month are reviewed with procurement.",
+    "Hazardous goods are stored only in the caged area and never above the second level.",
+    "New starters shadow an experienced picker for three shifts before working alone.",
+    "Quality checks sample one order in twenty and record the outcome on the board by the packing benches.",
+    "Packaging stations are restocked twice per shift, and empty boxes are flattened before recycling.",
+    "During peak season, temporary staff badges expire at the end of each week and are reissued on Monday.",
+    "Vendor non-compliance charges are raised within five working days of receipt.",
+    "Spill kits are checked weekly and refilled immediately after use.",
+    "Dock doors are closed when not in use to keep the building temperature stable.",
+    "Cycle counts rotate through every location at least once a quarter, with high-value items counted monthly.",
+    "Returns are inspected within two working days and graded as resellable, refurbishable or scrap.",
+    "Yard trailers are checked in and out at the gatehouse, and dwell times above 48 hours are escalated.",
+    "Charging areas for powered equipment are kept clear of combustible packaging.",
+    "Training records are kept for every certified operator and reviewed each year.",
+    "The facilities team walks the roof after storms and reports any damage the same day.",
+    "Shift handover notes list blocked locations, equipment faults and staffing gaps.",
+    "Pick paths are reviewed every quarter to reduce travel distance.",
+    "Visitors sign in at reception, wear high-visibility vests, and are escorted at all times.",
+  ];
+  const sections: string[] = ["# Riverside distribution centre — operations handbook", "", "Version 7. This handbook describes how the site runs day to day.", ""];
+  for (let chapter = 1; chapter <= 22; chapter += 1) {
+    sections.push(`## Chapter ${chapter}: ${pick(topics)}`, "");
+    for (let part = 1; part <= 8; part += 1) {
+      sections.push(`### ${chapter}.${part} ${pick(topics)} — ${pick(["procedure", "responsibilities", "records", "exceptions", "escalation", "checks"])}`, "");
+      for (let paragraph = 0; paragraph < 4; paragraph += 1) sections.push(some(sentences, 6).join(" "), "");
+    }
+  }
+  return sections.join("\n");
+}
+
+export const longHistorySetupPrompt = "Here is our warehouse operations handbook for reference. Summarise its main themes in five bullets; no need to quote it.";
+
 const tasks = {
   "office-launch": {
     folder: "Atlas launch",
@@ -814,6 +1016,18 @@ const tasks = {
     folder: "Customer research",
     build: interviews,
     question: "Which interviewees reported the bug where exported files are missing the last row? For each, give their name, company, the app version they were on, and the transcript file.",
+  },
+  "export-bug-xl": {
+    folder: "Customer research archive",
+    build: interviewsAtScale,
+    question: "Which interviewees reported the bug where an exported or downloaded file is missing its last row or entry? People describe it in many different ways, so check the transcripts carefully rather than relying on one search term. For each, give their name, company, the app version they were on, and the transcript file. When you're done, record your answer with `work-fold chat report` for this turn's task: a short --summary, and the list as --data (an array of objects with name, company, version and file).",
+  },
+  // The same question as the second turn of a Chat that already holds a long pasted document.
+  "export-bug-xl-long": {
+    folder: "Customer research archive",
+    build: interviewsAtScale,
+    setup: true,
+    question: "Separate question, about the interviews in this folder: which interviewees reported the bug where an exported or downloaded file is missing its last row or entry? People describe it in many different ways, so check the transcripts carefully rather than relying on one search term. For each, give their name, company, the app version they were on, and the transcript file. When you're done, record your answer with `work-fold chat report` for this turn's task: a short --summary, and the list as --data (an array of objects with name, company, version and file).",
   },
 } as const;
 

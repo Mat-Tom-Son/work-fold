@@ -13,11 +13,16 @@
  * The provider key is read from the environment (OPENROUTER_API_KEY) and
  * never written to disk; ~/.pi is never touched.
  *
- * Usage: OPENROUTER_API_KEY=... tsx scripts/helper-eval/host.ts --out <dir> [--model openrouter/openai/gpt-6-luna] [--thinking high]
+ * Usage: OPENROUTER_API_KEY=... tsx scripts/helper-eval/host.ts --out <dir> [--model openrouter/openai/gpt-6-luna] [--thinking high] [--compact-at <tokens>]
+ *
+ * --compact-at makes Pi's own automatic compaction trigger once a context
+ * passes that many tokens, by setting `compaction.reserveTokens` to the
+ * model's window minus it. 112000 is where a 128k-window model compacts with
+ * Pi's default 16384-token reserve.
  */
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync } from "node:fs";
-import { chmod, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,6 +42,7 @@ const out = resolve(argument("--out"));
 const [provider, ...modelParts] = argument("--model", "openrouter/openai/gpt-6-luna").split("/");
 const modelId = modelParts.join("/");
 const thinking = argument("--thinking", "high");
+const compactAt = process.argv.includes("--compact-at") ? Number(argument("--compact-at")) : null;
 if (!process.env.OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY must be set in the environment.");
 
 const agentDir = join(out, "pi-agent");
@@ -46,12 +52,20 @@ const tapLog = join(out, "provider-calls.jsonl");
 await mkdir(agentDir, { recursive: true });
 await mkdir(stateBase, { recursive: true });
 await mkdir(binDir, { recursive: true });
-await writeFile(join(agentDir, "settings.json"), `${JSON.stringify({
-  defaultProvider: provider, defaultModel: modelId, defaultThinkingLevel: thinking, enableInstallTelemetry: false,
-}, null, 2)}\n`);
 const catalogSource = join(homedir(), "Library", "Application Support", "work-fold", "model-catalogs", "openrouter.json");
 const catalogPath = join(out, "openrouter-catalog.json");
 if (existsSync(catalogSource)) await copyFile(catalogSource, catalogPath);
+let compaction: { reserveTokens: number } | null = null;
+if (compactAt !== null) {
+  const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as { models: Array<{ id: string; contextWindow: number }> };
+  const window = catalog.models.find((model) => model.id === modelId)?.contextWindow;
+  if (!window || !(compactAt > 0) || compactAt >= window) throw new Error(`--compact-at needs a known window for ${modelId}.`);
+  compaction = { reserveTokens: window - compactAt };
+}
+await writeFile(join(agentDir, "settings.json"), `${JSON.stringify({
+  defaultProvider: provider, defaultModel: modelId, defaultThinkingLevel: thinking, enableInstallTelemetry: false,
+  ...(compaction ? { compaction } : {}),
+}, null, 2)}\n`);
 process.env.PI_CODING_AGENT_DIR = agentDir;
 delete process.env.WORKFOLD_AGENT_DIR;
 
@@ -209,7 +223,7 @@ process.env.PATH = `${binDir}:${process.env.PATH ?? ""}`;
 
 const info = {
   origin: handle.origin, bridge: `http://127.0.0.1:${bridgePort}`, stateBase, agentDir, binDir, tapLog,
-  model: { provider, id: modelId, thinking }, helperTool: process.env.WORKFOLD_DEV_HELPER_TOOL === "1",
+  model: { provider, id: modelId, thinking }, compactAt, compaction, helperTool: process.env.WORKFOLD_DEV_HELPER_TOOL === "1",
   pid: process.pid, startedAt: new Date().toISOString(),
 };
 await writeFile(join(out, "host.json"), `${JSON.stringify(info, null, 2)}\n`);

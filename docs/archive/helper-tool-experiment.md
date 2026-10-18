@@ -1,263 +1,318 @@
 # Helper tool experiment
 
-> **Status:** Dated experiment evidence, 2026-10-18. Not a contract and not
-> accepted scope. The prototype lives on branch `claude/helper-tool-experiment`
-> behind `WORKFOLD_DEV_HELPER_TOOL=1`.
+> **Status:** Dated experiment evidence, 2026-10-18. This is not a contract
+> and not accepted scope. The helper prototype is on hold, marked as work in
+> progress on branch `claude/helper-tool-prototype-wip`. This branch carries
+> only the evaluation harness and this write-up.
 
-**Question.** Do Workers benefit from a read-only *helper*: one focused task
-that runs in a separate context inside the Worker's own turn and hands back a
-concise result? A child Chat (`chat handoff` plus `chat wait`) already isolates
-context and returns results mid-turn, so a helper could only add lower overhead,
-less Chat clutter, and narrower powers.
+**Question.** Should Workers get a read-only *helper*? A helper takes one
+focused reading task, runs it in its own context inside the Worker's turn, and
+hands back a short result. A child Chat (`chat handoff` followed by
+`chat wait`) already isolates context and returns results mid-turn. So a
+helper could add only lower overhead, less Chat clutter, and narrower powers.
 
-**Answer.** Change, don't ship yet. The helper gave the same answer quality as
-ordinary execution. It cut the parent's context growth by 3–7×, but on these
-one-question tasks it cost 1.1–1.75× as much and took 1.3–2.3× as long. It beats
-same-folder handoff on every measure: about half the cost and 60% of the latency,
-with no extra Chat, request, title, or follow-up turn. Its savings only come back
-in later turns of the same Chat, so it needs a cheaper reading model and a
-multi-turn measurement before it earns a place in the shipped Worker.
+**Decision rule** (from Mat): quality first, latency second, cost last. Build
+the helper only if either holds:
+
+- (a) a single Chat's quality or task identity gets worse under context
+  pressure; or
+- (b) parallel helpers would plausibly cut latency on heavy reading.
+
+Otherwise, defer it.
+
+**Answer.**
+
+- **(a) holds, once and narrowly.** Only one model compacted mid-turn: GPT-6
+  Luna, at an artificially low trigger (one I lowered on purpose). In 1 of
+  those 2 runs the single Chat lost its task identity, so its report was never
+  recorded, and it lost 3 of its 10 findings. Same-folder handoff kept the
+  parent below the trigger and stayed perfect.
+- **The root cause is a compaction bug, not missing helpers.** Pi's summary
+  wrote the previous turn's task id into its "Critical context". That bug
+  should be fixed first; it is cheap and protects every Worker.
+- **(b) does not hold.** About 80–94% of a turn's time is model round trips,
+  and Workers already batch their reads or write scripts to scan files. Every
+  helper path needs about 5 or more round trips one after another, so it can't
+  be much faster. The one-helper arm was 1.3–2.3× slower than a single Chat.
+- **Recommendation:** fix the compaction bug first. Then, following Mat's
+  rule, resume the helper, aimed only at long Chats near their compaction
+  point, and re-measure that case before shipping anything. Don't teach
+  same-folder handoff for reading. It's accurate under pressure but 1.2–2.2×
+  slower, and it trips the duplicate-turn bug every time.
 
 ## Setup
 
-- **Runtime:** the real local API in-process (dev mode, disposable state and
-  Pi folder), driven by `npm run work-fold:drive -- --attach`. Workers had a
-  working `work-fold` CLI: the real macOS shim on `PATH`, an act token, and a
-  stand-in app that forwarded requests to `WorkFoldDesktopCliHost`.
-- **Model:** `openrouter/openai/gpt-6-luna`, thinking `high` (Mat's default),
-  for every parent, child, and helper call. Included tools were not configured;
-  no Extensions, Skills, or Worker instructions were added. Pi's built-in tools,
-  including `codemode` and `tool_search`, were present. The Worker system prompt,
-  including the operations guide, is about 64.7k characters (about 15.7k tokens).
-- **Tasks:** four seeded folders, with known facts planted among realistic filler
-  and near-miss distractors. Expected answers were kept in a file that was never
-  copied into a work-folder.
+**Runtime.**
 
-| Task | Files | Bytes | What makes it hard |
+- The real local API ran in-process (dev mode, disposable state and a
+  disposable Pi folder), driven by `npm run work-fold:drive -- --attach`.
+- Workers had a working `work-fold` CLI: the real macOS shim on `PATH`, an act
+  token, and a stand-in app that forwards requests to `WorkFoldDesktopCliHost`.
+- Every provider call was tapped, so usage covers titles, child Chats, helpers
+  and the host's follow-up turns. Cost is what OpenRouter billed.
+- No included tools, Extensions, Skills or Worker instructions.
+
+**Prompts by round.**
+
+| Round | Source | Worker prompt |
+|---|---|---|
+| Steps 1–2 | `7e0e796` | Pi's coding preamble; no date or time zone in the turn context |
+| Step 3 | `5a2e877` (main after [#74](https://github.com/Mat-Tom-Son/work-fold/pull/74)) | Worker role preamble; the turn context opens with date, time zone and platform |
+
+**Models.**
+
+- `openai/gpt-6-luna` at thinking `high`: Mat's Pi default. Every round.
+- `anthropic/claude-opus-5.5` at thinking `high`: step 3. It was the strongest
+  practical model available through Mat's OpenRouter key (1M window).
+  `claude-fable-5.1` costs about 2.5× as much and wasn't used. Mat's own Worker
+  picks (`z-ai/glm-5.3`, `deepseek-v4.1-flash`) are cheaper, not stronger.
+- The Worker's system prompt is about 15.7k tokens on GPT-6 Luna and about 26k
+  on Opus, because the tokenizers differ.
+
+**Arms.**
+
+- **a** — the question alone, in one Chat.
+- **b** — the question plus a hint to hand the reading to a fresh Chat in the
+  same work-folder with `chat handoff`, then `chat wait`.
+- **c** — the helper, with a matching hint. Steps 1–2 only, on GPT-6 Luna.
+- **c0** — the helper with no hint. Steps 1–2 only, on GPT-6 Luna.
+
+**Tasks.** The tasks were seeded folders. Expected answers were kept in a file
+that never entered a work-folder. I read every answer; a line-level scorer
+helped.
+
+| Task | Files | Size | What makes it hard |
 |---|---|---|---|
-| Office launch: the current Lisbon opening date, each change and its note, stale living docs | 40 | 95 KB | Site code `LIS` instead of "Lisbon"; Porto, Warsaw, and keys-handover dates as distractors |
-| Travel policy: the current hotel caps and per diem, with sources; documents that state them wrongly | 19 | 40 KB | Base policy, amendments, and superseded addenda; an FAQ that is partly right |
-| Rename survey: before renaming Orbit to Harbor, the customer-facing changes, mentions that must not change, and internal files | 32 | 44 KB | `Orbit Logistics` (a company), `ORBIT_API_KEY`, a planetary orbit |
-| Export bug: who reported "export drops the last row", with versions and files | 29 | 67 KB | Five different phrasings; an import bug, a PDF bug, and praise as distractors |
+| Office launch | 40 | 95 KB | The site code `LIS` is used for Lisbon; distractor dates from other sites and the keys handover |
+| Travel policy | 19 | 40 KB | A base policy, amendments and superseded addenda; a partly correct FAQ |
+| Rename survey | 32 | 44 KB | `Orbit Logistics`, `ORBIT_API_KEY`, and a moon's orbit, which must not change |
+| Export bug | 29 | 67 KB | Five different phrasings of the bug; import, PDF and praise distractors |
+| **Export bug at scale** (context pressure) | 321 | 659 KB | Ten different phrasings of the bug. The obvious words appear in 128–295 files each, so grep can't narrow the search. The answer must also be recorded with `chat report` for this turn's task. |
+| **Same, as turn 2 of a long Chat** (context pressure) | 321 | 659 KB + 375 KB of pasted history | Turn 1 pastes an unrelated 375 KB handbook. Pi's compaction trigger is set about 12k tokens above the history (or about 2k above it on the second Opus round), so the measured turn has to compact if it reads anything. |
 
-- **Arms**, each run three times per task on fresh copies:
-  - **a**: the question alone.
-  - **b**: the question plus: *"This needs a lot of reading. Keep your own context
-    small: hand the reading to a fresh Chat in this same work-folder with
-    `work-fold chat handoff` (to this work-folder, without --file), tell it
-    exactly what to find and what to report back, then `work-fold chat wait` for
-    its result and answer me from that result."*
-  - **c**: the helper enabled, plus the same hint naming the `helper` tool.
-  - **c0**: the helper enabled, with no hint.
-- **Measures:**
-  - **Quality:** line-level checks against the hidden expectations; every answer
-    was also read.
-  - **Parent context growth:** the parent's prompt at its first model call
-    compared with its last call's prompt plus output.
-  - **Usage and cost:** every provider call was tapped, including Chat titles,
-    child Chats, the helper, and the host's follow-up turns. Cost is what
-    OpenRouter billed.
-  - **Latency:** from sending the message to the parent's `done`.
-  - **Stop:** measured separately.
+On the pressure tasks, compaction is Pi's own automatic compaction. I lowered
+its trigger through `compaction.reserveTokens`:
+
+- **Export bug at scale:** 112k tokens, both models. That is where a
+  128k-window model compacts.
+- **Long Chat:** 100k for GPT-6 Luna, and 155k and then 145k for Opus. Each
+  history was calibrated per model: about 88k tokens for GPT-6 Luna and about
+  143k for Opus.
+
+The model itself still had its full window, so this tests what compaction
+does, not small-window reasoning.
 
 ## Results
 
-Each cell gives the mean of three runs, with the range in brackets. Quality lists each run's score.
+Each cell is the mean of the runs, with the range in brackets. Quality lists each run's score.
 
-### Office launch
+### Context pressure (step 3)
 
-| Arm | Quality | Parent growth (tokens) | Prompt tokens | Output tokens | Cost | Latency |
-|---|---|---|---|---|---|---|
-| a | 6/6, 6/6, 6/6 | 16,982 (14,040–20,227) | 191,937 | 2,127 | $0.0067 (0.0060–0.0076) | 38 s (29–49) |
-| b | 6/6, 6/6, 6/6 | 4,234 (4,180–4,290) | 426,407 | 8,656 | $0.0169 (0.0162–0.0178) | 94 s (86–106) |
-| c | 6/6, 6/6, 6/6 | 2,450 (2,259–2,751) | 201,550 | 5,508 | $0.0117 (0.0090–0.0141) | 69 s (61–79) |
-| c0 | 6/6, 6/6, 6/6 | 8,297 (5,482–11,839) | 292,135 | 5,038 | $0.0144 (0.0086–0.0188) | 66 s (53–75) |
+**Export bug at scale**
 
-### Travel policy
+| Model | Arm | Quality | Latency | Parent peak context | Compacted | Report recorded | Cost |
+|---|---|---|---|---|---|---|---|
+| GPT-6 Luna | a | 10/10, 10/10 | 59 s (53–66) | 84k | no | 2/2 | $0.018 |
+| GPT-6 Luna | b | 10/10, 10/10 | 124 s (119–128) | 22k | no | 2/2 | $0.027 |
+| Opus 5.5 | a | 10/10, 10/10 | 55 s (49–61) | 45k | no | 2/2 | $0.35 |
+| Opus 5.5 | b | 10/10, 10/10 | 118 s (109–128) | 34k | no | 2/2 | $0.64 |
 
-| Arm | Quality | Parent growth (tokens) | Prompt tokens | Output tokens | Cost | Latency |
-|---|---|---|---|---|---|---|
-| a | 8/8, 8/8, 8/8 | 10,345 (8,037–14,438) | 167,190 | 2,692 | $0.0060 (0.0052–0.0065) | 40 s (36–44) |
-| b | 8/8, 8/8, 8/8 | 4,885 (4,774–5,072) | 393,772 | 11,945 | $0.0166 (0.0149–0.0180) | 110 s (81–128) |
-| c | 8/8, 8/8, 8/8 | 2,107 (1,949–2,214) | 67,682 | 3,938 | $0.0064 (0.0062–0.0065) | 51 s (41–59) |
-| c0 | 8/8, 8/8, 8/8 | 7,402 (5,685–8,519) | 138,300 | 4,711 | $0.0078 (0.0074–0.0080) | 62 s (57–71) |
+Neither model came under pressure. Both wrote short scripts or broad regular
+expressions to scan all 320 transcripts, then read only the 10–20 candidates.
+GPT-6 Luna, for example, used `python3` to list every line mentioning a version
+or an issue. A Worker with bash already does map-style reading in code, without
+putting the files into its context.
 
-### Rename survey
+**Same task, as turn 2 of a long Chat**
 
-| Arm | Quality | Parent growth (tokens) | Prompt tokens | Output tokens | Cost | Latency |
-|---|---|---|---|---|---|---|
-| a | 8/8, 8/8, 8/8 | 10,581 (8,535–13,680) | 109,631 | 3,821 | $0.0059 (0.0055–0.0061) | 55 s (48–64) |
-| b | 8/8, 8/8, 7.6/8 | 6,900 (5,939–7,768) | 435,816 | 20,738 | $0.0233 (0.0172–0.0265) | 163 s (110–214) |
-| c | 8/8, 8/8, 8/8 | 3,589 (2,360–4,867) | 84,118 | 8,337 | $0.0089 (0.0078–0.0100) | 102 s (94–111) |
-| c0 | 8/8, 8/8, 8/8 | 8,597 (5,850–11,187) | 96,982 | 8,399 | $0.0087 (0.0053–0.0124) | 92 s (46–141) |
+| Model, trigger | Arm | Quality | Latency | Parent context (start → peak) | Compacted | Report recorded | Cost |
+|---|---|---|---|---|---|---|---|
+| GPT-6 Luna, 100k | a | 10/10, **7/10** | 90 s (85–94) | 89k → 111k | **yes, both** | 1/2 (**wrong task id**) | $0.028 |
+| GPT-6 Luna, 100k | b | 10/10, 10/10 | 106 s (97–115) | 89k → 95k | no | 2/2 | $0.031 |
+| Opus 5.5, 155k | a | 10/10, 10/10 | 62 s (56–68) | 143k → 154–159k | no | 2/2 | $0.45 |
+| Opus 5.5, 155k | b | 10/10, 10/10 | 121 s (117–125) | 143k → 151–153k | no | 2/2 | $0.77 |
+| Opus 5.5, 145k | a | 10/10, 10/10 | 65 s (64–66) | 143k → 159–163k | no | 2/2 | $0.47 |
+| Opus 5.5, 145k | b | 10/10, 10/10 | 129 s (119–138) | 143k → 152–153k | no | 2/2 | $0.74 |
 
-In arm b, one child put `legal/terms.md` under "hold for legal review" rather
-than "change". That is a defensible call, but the check docks it.
+What happened in the GPT-6 Luna single-Chat run that failed:
 
-### Export bug
+1. Pi compacted mid-turn at 111k tokens.
+2. Its summary's "Critical context" recorded the **setup turn's** task id
+   (`turn-6137886c…`) as "Task ID". The current turn's hidden context had
+   already been folded into the summary, so its id was lost.
+3. The Worker ran `chat report --task turn-6137886c…`. work-fold correctly
+   refused it ("That task's turn is stopping or has already finished").
+4. The Worker tried `tool_search`, then stopped and said plainly: "The results
+   were not recorded."
+5. Its final list missed 3 of the 10 reporters.
 
-| Arm | Quality | Parent growth (tokens) | Prompt tokens | Output tokens | Cost | Latency |
-|---|---|---|---|---|---|---|
-| a | 5/5, 5/5, 5/5 | 6,298 (6,079–6,612) | 106,575 | 1,129 | $0.0041 (0.0039–0.0043) | 20 s (17–22) |
-| b | **4/5**, 5/5, 5/5 | 3,627 (3,321–3,888) | 299,213 | 4,927 | $0.0115 (0.0103–0.0136) | 60 s (49–74) |
-| c | 5/5, 5/5, 5/5 | 1,495 (1,289–1,816) | 68,402 | 2,951 | $0.0058 (0.0056–0.0061) | 45 s (34–58) |
-| c0 | 5/5, 5/5, 5/5 | 7,257 (6,054–8,687) | 103,315 | 1,126 | $0.0042 (0.0041–0.0045) | 26 s (18–34) |
+The other GPT-6 Luna run also compacted, and it reported correctly with a
+perfect list. In handoff, the parent stayed below its trigger and the child
+started fresh, so both handoff runs stayed perfect.
 
-In arm b, one child Chat dropped a valid report ("the download is missing the
-final line") as not specific enough, and the parent passed the omission on.
+Opus never compacted: not in its 4 single-Chat turns, and not in the handoff
+parents. Single-Chat usage reached 154–164k tokens against triggers of 145k
+and 155k. I haven't established why Pi's mid-turn
+check didn't fire for Opus when it did for GPT-6 Luna; that is a follow-up.
+With 143–163k tokens of context, the Opus single Chat stayed perfect and
+recorded its reports.
 
-### Compared with arm a
+### Graded step-1 tasks
 
-| Arm | Parent growth | Cost | Latency | Quality |
-|---|---|---|---|---|
-| b, same-folder handoff | 0.25–0.65× | 2.5–4.0× | 2.5–3.0× | one miss in 12 runs |
-| c, helper with hint | 0.14–0.34× | 1.07–1.75× | 1.3–2.3× | same as a |
-| c0, helper without hint | 0.5–1.15× | 1.0–2.2× | 1.3–1.7× | same as a |
+| Task, model | Arm | Quality | Latency | Parent growth | Cost |
+|---|---|---|---|---|---|
+| Office launch, Opus 5.5 | a | 6/6, 6/6 | 29 s (29–30) | 24k | $0.31 |
+| Office launch, Opus 5.5 | b | 6/6, 6/6 | 97 s (88–107) | 8k | $0.62 |
+| Export bug, Opus 5.5 | a | 5/5, 5/5 | 27 s (27–28) | 22k | $0.28 |
+| Export bug, Opus 5.5 | b | 5/5, **4/5** | 71 s (61–81) | 6k | $0.48 |
+| Office launch, GPT-6 Luna | a / b / c / c0 | all 6/6 | 38 / 94 / 69 / 66 s | 17k / 4k / 2.5k / 8k | $0.007 / 0.017 / 0.012 / 0.014 |
+| Travel policy, GPT-6 Luna | a / b / c / c0 | all 8/8 | 40 / 110 / 51 / 62 s | 10k / 5k / 2k / 7k | $0.006 / 0.017 / 0.006 / 0.008 |
+| Rename survey, GPT-6 Luna | a / b / c / c0 | 8/8; 8, 8, 7.6/8; 8/8; 8/8 | 55 / 163 / 102 / 92 s | 11k / 7k / 4k / 9k | $0.006 / 0.023 / 0.009 / 0.009 |
+| Export bug, GPT-6 Luna | a / b / c / c0 | 5/5; 4, 5, 5/5; 5/5; 5/5 | 20 / 60 / 45 / 26 s | 6k / 4k / 1.5k / 7k | $0.004 / 0.012 / 0.006 / 0.004 |
 
-### Stop
+GPT-6 Luna rows have 3 runs per arm and Opus rows have 2.
 
-Stop was pressed with the same conversation abort route the composer uses, on
-the office-launch task, twice per arm:
+**Where answers went wrong.** Every miss came from a delegated reader making a
+call the parent passed on without checking:
 
-- **a:** 10 s after sending.
-- **b:** 5 s after the child Chat started.
-- **c:** 5 s after the helper started.
+- A handoff child dropped "the download is missing the final line" as not
+  specific enough (GPT-6 Luna).
+- A handoff child deliberately left out Noah, whose report was second-hand. It
+  said so in its answer (Opus).
+- A handoff child put the legal terms page under "hold for legal review" rather
+  than "change". That's defensible, but the scorer docks it.
 
-| Arm | Parent settled after Stop | Whole request settled | Provider calls still running | What stopped |
-|---|---|---|---|---|
-| a | 136–173 ms | 181–182 ms | 0 | turn `aborted`, request `stopped` |
-| b | 172–194 ms | 202–293 ms | 0 | parent and child requests both `stopped` |
-| c | 124–191 ms | 156–285 ms | 0 | turn `aborted`; helper recorded `stopped` under it |
+Every single-Chat answer was perfect, except the run that compacted.
 
-Deterministic tests cover the required ordering. With the helper's model call
-held open, Stop makes the turn wait until the helper has unwound. The host's
-final History checkpoint includes a file written during that unwind, and the
-turn's reservation is still held while it runs. Both tests fail when the drain
-is removed.
+**Graded claims as well as facts.**
 
-## Findings
+- The coverage claims were true, for example "the review covered all 40
+  files" and "line 19 in each transcript".
+- Five runs misstated a file count by one. Three said "18 Markdown documents"
+  where there are 19. Two said "31 files" where there are 32. One of these was
+  a handoff run and four were helper runs; no single-Chat answer misstated a
+  count.
 
-1. **Workers already read efficiently.** In arm a, the Worker used grep and then
-   targeted reads. On 40–95 KB folders its context grew by 6–17k tokens, against
-   a 1M-token window and a 15.7k-token system prompt. These tasks never put the
-   parent's context under pressure.
-2. **Overhead is the real cost of same-folder handoff.** For each child Chat:
-   - a cold 15.7k-token system prompt;
-   - `work-fold help collaborate` and CLI round trips;
-   - another Chat title call and History checkpoints;
-   - every one of the 12 runs got a redundant host follow-up turn (see
-     follow-ups), which posted the answer a second time and cost $0.0007–0.0026.
+### Latency, and whether parallel helpers could help (rule b)
 
-   Children also read exhaustively: 47–106k characters, against 21–61k for arm a.
-3. **The helper keeps the isolation and drops most of the overhead.** The parent
-   made just two model calls and received about 3–7k characters of result. The
-   helper's own spend was 55–75% of each arm c run. It was thorough: 11–35 tool
-   calls over 5–8 model calls, and its fresh context paid cache-write prices. That
-   is why it cost more than arm a, where the parent read only what grep pointed
-   to.
-4. **Without a hint, Workers chose the helper in 8 of 12 runs.** They usually read
-   some files themselves too, so growth fell only to 0.5–1.15× of arm a.
-5. **Where the helper could pay back (an estimate, not measured).** Every later
-   parent model call in the same Chat re-sends the extra context. The billed rates
-   were $0.01/M for cache reads and about $0.125/M for cache writes. On that basis,
-   the helper's extra cost is recovered after roughly 35–43 later model calls
-   with a warm cache: 5 on travel policy, where it cost almost nothing extra. A
-   Chat resumed after its cache expired re-writes that context, so about 3 cold
-   resumes would also recover it. Arm a used 6–9 model calls per turn, so that is
-   roughly 4–7 more turns. A one-question Chat never recovers it.
-6. **Usage records undercount.** The usage tap shows that request and turn usage
-   receipts leave out cache-read and cache-write tokens and their cost. Pi's
-   `stats.tokens.input` excludes them, and the OpenRouter catalog entry prices
-   cache at $0. One smoke turn was recorded as 6 input tokens and $0.000013; it
-   was billed for 31k prompt tokens and $0.0021. Helper records inherit the same
-   gap. Every comparison here uses billed cost instead.
+| | Single Chat (a) | Handoff (b) | One helper (c) |
+|---|---|---|---|
+| Latency vs a | 1× | 2.5–3.0× (step 1); 1.2–2.2× under pressure | 1.3–2.3× |
+| Model calls in a row on the critical path | 6–9 (step 1); 7–13 (pressure) | parent 3–8, plus a child of 9–15 | parent 2, plus a helper of 4.5–7 |
 
-## Recommendation: change
+- **Where a turn's time goes.** In arm a, 81–94% of a turn is model round
+  trips, at 3–8 s each. File reading itself takes milliseconds. Workers
+  already issue several tool calls per round trip (1.5 on average) and write
+  scripts that scan hundreds of files in one call.
+- **The floor for any helper path.** A parent call to dispatch the work, a
+  helper that searches, reads and submits (at least 3 calls), and a parent call
+  to pull the answer together. That is about 5 sequential calls, against 6–13
+  for a single Chat.
+- **Best case.** Parallel helpers could save about 1–5 of those calls, roughly
+  15–40% of latency, on the heaviest reading. That assumes each helper stays
+  minimal; the measured one used 4.5–7 calls.
+- **Measured reality.** In every case a single helper was slower than the
+  single Chat.
 
-- **Don't ship the helper to Workers yet.** On one-question reading tasks it adds
-  cost and latency and does not improve answers.
-- **Prefer this shape over same-folder handoff for read-only delegation.** Handoff
-  was dominated on every measure. Don't teach Workers to use handoff to keep their
-  context small.
-- **Before deciding to ship, change two things and measure again:**
-  1. Run the helper on a cheaper, faster reading model, chosen like the image
-     model. The helper is most of arm c's spend, so this is the main lever.
-     Optionally, tell it to stop once its evidence is sufficient.
-  2. Measure what the helper is actually for: multi-turn Chats, where later turns
-     pay for a grown context, and corpora 10–100× larger, where arm a's context
-     would grow beyond its 6–17k tokens. Include a smaller-context model.
+So parallel helpers would not plausibly cut latency materially at these
+sizes, and rule (b) does not hold.
 
-## Follow-ups found along the way
+### Stop (step 2, GPT-6 Luna)
+
+Stop was pressed on office-launch, twice per arm. The whole request settled
+156–293 ms later, with no provider call left running.
+
+- **Single Chat:** the turn was aborted.
+- **Handoff:** the parent and child requests were both stopped.
+- **Helper:** the helper was recorded as `stopped` under the aborted turn.
+
+The prototype's tests prove the order: the helper drains before the final
+History checkpoint and before the turn's reservation is released. Both
+ordering tests fail if the drain is removed.
+
+### Prompt hint and helper usage (step 2)
+
+Without a hint, Workers chose the helper in 8 of 12 runs. They usually read
+some files themselves as well, so their context grew 0.5–1.15× as much as a
+single Chat's. With the hint, it grew 0.14–0.34× as much.
+
+## Inputs from the architecture review
+
+1. **Following up with the same child.** No parent needed one. In all 26
+   handoff runs the parent sent at most one handoff and then waited, once or twice.
+   Every helper call was one-shot. A Worker has no way to send a follow-up to
+   its child, and these tasks never needed one.
+2. **Steering a running child.** No run would have benefited. The misses came
+   from the child's own judgement, accepted without a check. A parent re-check
+   would have caught them; correcting the child mid-turn would not.
+3. **Parallel writers.** The tasks were read-only. Across all runs, the only
+   writes were Worker scratch files in `.worker/`, all in task-id subfolders
+   except one run that used `.worker/t9eb/`. Nothing overlapped.
+4. **Compaction.** It was tested, and it surfaced the task-id bug above. Under
+   compaction, the hidden turn context is the weak point.
+5. **The helper's prompt.** The prototype doesn't use Pi's `customPrompt`. It
+   calls `session.agent.streamFunction` with its own short system prompt and an
+   explicit tool list.
+6. **Overlap with the instruction fixes.** The on-hold prototype edits
+   `pi-client.ts`: the `customTools` array, the turn's `finally`, abort and
+   stop, and usage. Resuming it needs a merge with main after #74. It doesn't
+   touch `buildTurnContextMessage` or `included-tools.ts`.
+
+## Follow-ups
 
 Each of these is independent of the helper.
 
-- **Redundant follow-up turn after `chat wait`.** Reading a child's result through
-  `chat wait` or `chat result` does not record it as delivered. Only
-  `noteChildDelivery`, for results admitted into a turn's context, does. So
-  `maybeStartRequestContinuation` starts a synthesis turn after the parent has
-  already answered, and the Chat shows the answer twice. This probably also
-  affects the work-fold agent's `chat send --parent-task` plus `agent wait`
-  pattern.
-- **Usage undercount** (finding 6). Turn and request usage should include
-  cache-read and cache-write tokens, and cost should come from what the provider
-  billed when it reports that.
-- **Workers can see `.work-fold/` with their own tools.** Pi's grep and find pass
-  `--hidden`, and `ls -la` lists hidden folders. In about half of the arm a and
-  arm b sessions, `.work-fold/conversations/*.jsonl` showed up in tool output. In
-  two handoff runs, grep matched text inside those transcripts, and one child
-  listed them in its answer. For a same-folder child, that includes the transcript
-  of the Chat that delegated to it. The helper's path policy refuses these files.
+- **Compaction drops or confuses the turn's task id. Fix this first.**
+  - *What happens:* Pi's summary carried an earlier turn's task id as the
+    current one, and the hidden turn context was summarized away. The Worker
+    lost the ability to record its result, and lost findings with it.
+  - *Options:* re-inject the turn context after an auto-compaction; have the
+    act lane default `--task` from an environment variable set for that turn's
+    bash processes; or both. Re-test with the long-Chat task in this harness.
+- **Why Opus never compacted mid-turn.** Its turns passed the trigger without
+  compacting. Find out whether Pi's mid-turn check behaves differently for some
+  providers or models.
+- **A redundant follow-up turn after `chat wait`.** It happened in every
+  handoff run: 26 of 26, before and after #74. A child's result that the parent
+  read through `chat wait` isn't recorded as delivered. The host then starts a
+  synthesis turn, and the Chat shows the answer twice. A proposal card exists
+  for this.
+- **Usage receipts undercount.** Turn and request usage leave out cache-read
+  and cache-write tokens, and OpenRouter catalog prices give cache a cost of
+  $0. One turn recorded $0.000013; OpenRouter billed $0.0021. A proposal card
+  exists for this.
+- **Workers can see `.work-fold/`.** Pi's grep and find include hidden folders,
+  so `.work-fold/conversations/*.jsonl` shows up in roughly half of
+  single-Chat and handoff sessions. In two handoff runs, grep matched text
+  inside those transcripts. One child listed them in its answer, and for a
+  same-folder child that includes the Chat that delegated to it. The helper's
+  path policy refuses these files.
 
-## Prototype
+## The prototype (on hold)
 
-These files are on the branch:
+The prototype is on branch `claude/helper-tool-prototype-wip`, in
+`src/local/agent/helper-tool.ts`, behind `WORKFOLD_DEV_HELPER_TOOL=1`, with 9
+tests in `tests/helper-tool.test.ts`. If it is resumed:
 
-- [`src/local/agent/helper-tool.ts`](../../src/local/agent/helper-tool.ts) holds
-  the helper. It is registered beside `createImageGenerationTool` in
-  [`pi-client.ts`](../../src/local/agent/pi-client.ts), for Worker scopes only,
-  when `WORKFOLD_DEV_HELPER_TOOL=1`.
-- [`tests/helper-tool.test.ts`](../../tests/helper-tool.test.ts) has 9 tests
-  covering path enforcement, the helper inside a real Pi turn with a faux model,
-  usage roll-up, and Stop ordering at the client and host.
-
-What the helper enforces:
-
-- **Read-only tools.** Pi's own `read` runs with scoped file operations; `grep`,
-  `find`, and `ls` are written in Node so traversal is confined. There is no
-  bash, edit, write, Extension, Skill, MCP, `codemode`, web, Chrome, Computer
-  Control, or helper-in-helper.
-- **Real-path scope.** Every path resolves to its real path inside the
-  work-folder root, and `containsReservedWorkFolderPathSegment` is applied after
-  resolution, so links out, `..`, `~`, and links into `.work-fold` are refused.
-  Traversal never follows links, and it skips `.git` and `node_modules`. It does
-  not apply `.gitignore`.
-- **Parent's model and transport.** The helper runs through
-  `session.agent.streamFunction`, as Chat titles and Checks do, with the parent's
-  model and thinking level, and with the person's Worker instructions only.
-- **The parent chooses the input.** The helper gets only the task text and the
-  paths the parent chose, never the parent's transcript.
-- **One result shape.** It returns F29 through `parseWorkFoldResultEnvelope`:
-  named files get digests, and `partial` says what is missing.
-- **No Chat or request record.** The run is recorded on the durable turn record
-  (`helpers`: id, outcome, model calls, usage, and activity). Its usage rides on
-  the tool result, so Pi counts it in the turn and request totals, which matched
-  the billed output exactly. A stopped helper's spend is added to the turn
-  explicitly.
-- **Stop drains it.** Stop aborts every helper, and the client drains them before
-  `prompt()` settles. The host's final History checkpoint and reservation release
-  both come after that.
-
-Not done:
-
-- The helper's activity is not streamed to the Chat UI.
-- There is no per-helper model choice.
-- A time-of-check/time-of-use race between `realpath` and the read is possible.
-  It is acceptable for a development flag, not for shipping.
+- **Tools.** It runs read, grep, find and ls inside the work-folder. `read` is
+  Pi's own tool with scoped file operations. Every path is checked after
+  resolving symlinks, and `.work-fold`, `.pi` and `.workspace` are refused.
+- **Model and input.** It uses the parent's model and transport. It sees only
+  the task and the paths the parent chose.
+- **Result.** It returns the standard result shape (F29).
+- **Records.** It has no Chat or request record of its own. Its run is recorded
+  on the parent turn's record, and its usage is counted in the turn's and
+  request's totals.
+- **Stop.** Stop drains it before the History checkpoint and before the turn's
+  reservation is released.
+- **Not built yet:** progress shown in the Chat, a choice of model per helper,
+  and protection against a file changing between the path check and the read.
 
 ## Reproduce
 
-The harness is in `scripts/helper-eval/`. Outputs go to the ignored `out/`
-folder. Use Node 24.
+The harness is in `scripts/helper-eval/`, and outputs go to the ignored `out/`
+folder. Use Node 24 and put the OpenRouter key in the environment; it is never
+written to disk.
 
 1. Create the fixtures:
 
@@ -265,26 +320,30 @@ folder. Use Node 24.
    npx tsx scripts/helper-eval/fixtures.ts out/helper-eval/fixtures
    ```
 
-2. Start a host. The provider key is read from the environment and never written.
-   Add `WORKFOLD_DEV_HELPER_TOOL=1` for arms c and c0:
+2. Start a host, choosing the model and, optionally, a compaction trigger:
 
    ```sh
-   OPENROUTER_API_KEY=... npx tsx scripts/helper-eval/host.ts --out out/helper-eval/run1/office-launch
+   OPENROUTER_API_KEY=... npx tsx scripts/helper-eval/host.ts --out out/helper-eval/run1/x --model openrouter/anthropic/claude-opus-5.5 --compact-at 145000
    ```
 
-3. Run one task and arm. Repeat for each task, arm (`a`, `b`, `c`, `c0`), and
-   rep. Add `--stop-after <s>` (and `--stop-when-child`) for the Stop runs:
+3. Run a task and arm. Add `--stop-after <s>` to measure Stop instead:
 
    ```sh
-   npx tsx scripts/helper-eval/run.ts --eval out/helper-eval/run1/office-launch --fixtures out/helper-eval/fixtures --task office-launch --arm c --rep 1
+   npx tsx scripts/helper-eval/run.ts --eval out/helper-eval/run1/x --fixtures out/helper-eval/fixtures --task export-bug-xl-long --arm a --rep 1
    ```
 
-4. Score the runs and print the answers:
+4. Score the runs:
 
    ```sh
    npx tsx scripts/helper-eval/score.ts --fixtures out/helper-eval/fixtures out/helper-eval/run1 --answers
    ```
 
-The 48 measured runs cost $0.48 in total; the Stop runs cost $0.02. These are
-three runs per cell with one model, so treat the results as observations, not
-success rates.
+**Spend.** OpenRouter billed about $17.70 in total:
+
+- $0.50 for steps 1–2 and the Stop runs (GPT-6 Luna);
+- $10.42 for step 3's measured turns, mostly Opus;
+- $5.85 for step 3's untimed long-Chat setup turns;
+- $0.91 for calibration and smoke runs.
+
+There are two or three runs per cell, so these are observations, not success
+rates.
