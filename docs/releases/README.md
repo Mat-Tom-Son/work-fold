@@ -4,6 +4,10 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 18, 2026
+
+[0.11.0](work-fold-0.11.0.md) adds questions with choices, follow-up, redirect and Make a Copy for Chats, background jobs, a checklist for long tasks, Workers that remember preferences and keep their place through long turns, and checked Word, PowerPoint and Excel files.
+
 ## October 11, 2026
 
 [0.10.0](work-fold-0.10.0.md) adds a first run that connects your AI, Set up for me, pictures Workers make in the Chat, and simpler Computer Control and Chrome setup.
