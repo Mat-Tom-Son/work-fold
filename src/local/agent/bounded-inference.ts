@@ -23,6 +23,7 @@ import type {
   RestrictedAppInferenceUsage,
 } from "../../shared/restricted-app-inference.js";
 import { validateRestrictedAppValue, type RestrictedAppJsonSchema } from "./restricted-app-manifest.js";
+import { promptTokensOf } from "./usage-tokens.js";
 
 /** The model fields the transport reads; Pi's `Model` carries these and more. */
 export interface BoundedInferenceModel {
@@ -266,7 +267,7 @@ export async function runBoundedInference(
 
 function usageOf(result: BoundedInferenceStreamResult): RestrictedAppInferenceUsage & { amountUsd?: number } {
   const usage: RestrictedAppInferenceUsage & { amountUsd?: number } = {
-    inputTokens: finiteCount(result.usage?.input),
+    inputTokens: promptTokensOf(result.usage),
     outputTokens: finiteCount(result.usage?.output),
   };
   const amountUsd = result.usage?.cost?.total;

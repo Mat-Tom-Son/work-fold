@@ -27,7 +27,11 @@ async function fixture(t: test.TestContext) {
       const send = (payload: unknown) => response.write(`data: ${JSON.stringify(payload)}\n\n`);
       send({ id: "completion-1", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta: { role: "assistant", content: "North is cheaper." }, finish_reason: null }] });
       send({ id: "completion-1", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
-      send({ id: "completion-1", object: "chat.completion.chunk", created: 1, model, choices: [], usage: { prompt_tokens: 1_000, completion_tokens: 200 } });
+      // The cached model's prompt was mostly read from the provider's cache.
+      const usage = model === "cached-model"
+        ? { prompt_tokens: 1_000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: 800 } }
+        : { prompt_tokens: 1_000, completion_tokens: 200 };
+      send({ id: "completion-1", object: "chat.completion.chunk", created: 1, model, choices: [], usage });
       response.end("data: [DONE]\n\n");
     });
   });
@@ -52,6 +56,7 @@ async function fixture(t: test.TestContext) {
         models: [
           ${model("priced-model", "{ input: 3, output: 15, cacheRead: 0, cacheWrite: 0 }")},
           ${model("unpriced-model", "{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }")},
+          ${model("cached-model", "{ input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }")},
         ],
       });
     }\n`, "utf8");
@@ -91,4 +96,15 @@ test("a settled turn reports the model that ran it, its tokens, and a cost only 
   // A second turn is measured on its own, not as the session's running total.
   await priced.prompt("And again.");
   assert.equal(priced.getTurnUsage()!.inputTokens, 1_000, "usage is the delta across one turn");
+});
+
+test("a turn whose prompt was mostly cached still counts every prompt token and prices the cached ones", { timeout: 45_000 }, async (t) => {
+  const f = await fixture(t);
+  const cached = f.client("usage-cached", "cached-model");
+  await cached.prompt("Compare the quotes.");
+  const usage = cached.getTurnUsage()!;
+  assert.equal(usage.inputTokens, 1_000, "cache reads are prompt tokens the provider processed and billed");
+  assert.equal(usage.outputTokens, 200);
+  // 200 uncached input at $3/M, 800 cache reads at $0.30/M, and 200 output at $15/M.
+  assert.ok(Math.abs(usage.amountUsd! - (0.0006 + 0.00024 + 0.003)) < 1e-9);
 });

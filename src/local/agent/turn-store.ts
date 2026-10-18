@@ -20,7 +20,8 @@ export type WorkFoldDurableTurnStatus =
 
 /**
  * What the turn actually spent: the provider and model id that ran it and the
- * usage Pi reported for it. `amountUsd` is present only when the effective
+ * usage Pi reported for it. `inputTokens` counts every prompt token the
+ * provider processed, cache reads and writes included. `amountUsd` is present only when the effective
  * model carries pricing work-fold can apply — a model without published rates
  * leaves the cost unknown rather than zero.
  */
