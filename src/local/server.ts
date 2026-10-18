@@ -191,7 +191,7 @@ import {
 import { describeJobOutputRead, fenceJobOutput } from "./jobs/job-output.js";
 import { reapOrphanedJobProcesses, WorkFoldJobService, type WorkFoldJobShell } from "./jobs/job-service.js";
 import { WorkFoldJobStore } from "./jobs/job-store.js";
-import type { BackgroundJobToolHost } from "./agent/job-tools.js";
+import { parseUntilPattern, type BackgroundJobToolHost } from "./agent/job-tools.js";
 import { workFoldRequestLimits, workFoldAutomationDeclarationBounds } from "../shared/work-fold-limits.js";
 import { workFolderOperationsGuideForScope } from "./agent/work-folder-operations-guide.js";
 import { buildWorkFolderTurnContext, workFolderTurnHistory, workFolderTurnParentHandle, type PiWorkFolderTurnContext } from "./agent/work-folder-turn-context.js";
@@ -365,6 +365,7 @@ import type {
   WorkFoldActPublicationRef,
   WorkFoldActQuestionRef,
   WorkFoldActRequestDetail,
+  WorkFoldActJobRef,
   WorkFoldActRequestRef,
   WorkFoldActRequestResult,
   WorkFoldActRequestSummary,
@@ -6865,6 +6866,88 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }
       return { request: await requestDetailView(state, record) };
     },
+    // Background jobs (docs/background-jobs.md): the same service and records
+    // as job_start, job_output, and job_stop.
+    async jobsStart(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      assertOwnTask(state, workFolder.id, input.taskId);
+      const cwd = input.cwd?.trim()
+        ? (isAbsolute(input.cwd.trim()) ? resolve(input.cwd.trim()) : resolve(workFolder.workFolderRoot, input.cwd.trim()))
+        : workFolder.workFolderRoot;
+      // The work-folder's own Pi shell settings, so a job runs the way its bash would.
+      const runtime = await resolvePiRuntime(workFolder.workFolderRoot, state.runtimeProvider, { requestProjectTrust: false }).catch(() => null);
+      const shell: WorkFoldJobShell | undefined = runtime ? {
+        ...(runtime.settingsManager.getShellPath() ? { shellPath: runtime.settingsManager.getShellPath() } : {}),
+        ...(runtime.settingsManager.getShellCommandPrefix() ? { commandPrefix: runtime.settingsManager.getShellCommandPrefix() } : {}),
+        binDir: join(runtime.agentDir, "bin"),
+      } : undefined;
+      const job = await runJobOperation(() => startBackgroundJob(state, {
+        taskId: input.taskId,
+        command: input.command,
+        ...(input.name ? { name: input.name } : {}),
+        cwd,
+        ...(input.timeoutSeconds !== undefined ? { timeoutSeconds: input.timeoutSeconds } : {}),
+        surface: "cli",
+        ...(shell ? { shell } : {}),
+      }));
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(job) };
+    },
+    async jobsList(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const jobs = state.jobs.list({
+        workFolderId: workFolder.id,
+        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+        ...(input.running ? { running: true } : {}),
+      });
+      return { workFolder: toActWorkFolderRef(workFolder), jobs: jobs.map(toActJobRef) };
+    },
+    async jobsShow(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(ownedJob(state, workFolder.id, input.jobId)) };
+    },
+    async jobsOutput(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const owned = ownedJob(state, workFolder.id, input.jobId);
+      let until: RegExp | undefined;
+      try {
+        until = parseUntilPattern(input.until);
+      } catch (error) {
+        throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+      }
+      const waited = (input.waitSeconds ?? 0) > 0 || until
+        ? await state.jobs.wait(owned.jobId, {
+          seconds: input.waitSeconds ?? 0,
+          ...(until ? { until } : {}),
+          ...(input.offset !== undefined ? { fromLine: input.offset } : {}),
+        })
+        : null;
+      const { job, output } = await state.jobs.read(owned.jobId, {
+        ...(input.offset !== undefined ? { offset: input.offset } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      });
+      // A read from a running turn in the job's own Chat is its delivery (F32).
+      if (input.taskId && isWorkFoldJobTerminalState(job.state) && job.settledAt && state.requests.isAccepting(input.taskId)
+        && state.requests.byTaskId(input.taskId)?.owner.conversationId === job.conversationId
+        && (state.requests.byTaskId(input.taskId)?.owner.workFolderId ?? null) === (job.workFolderId ?? null)) {
+        await deliverBackgroundJobs(state, [job], "read", input.taskId);
+      }
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        job: toActJobRef(state.jobs.get(job.jobId) ?? job),
+        output,
+        wait: waited ? {
+          outcome: waited.outcome,
+          ...(waited.outcome === "matched" ? { line: waited.line, text: waited.text } : {}),
+        } : null,
+      };
+    },
+    async jobsStop(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const owned = ownedJob(state, workFolder.id, input.jobId);
+      const job = await runJobOperation(() => stopBackgroundJob(state, owned.jobId, "cli", input.parentTaskId));
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(job) };
+    },
     async chatRename(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
@@ -11244,6 +11327,7 @@ async function requestDetailView(state: LocalApiState, record: WorkFoldRequestRe
     usage: record.usage,
     stopRequestedAt: record.stopRequestedAt,
     reconciledAt: record.reconciledAt,
+    jobs: (record.jobs ?? []).map((job) => ({ ...job })),
     childRequests,
   };
 }
@@ -11859,6 +11943,57 @@ async function stopBackgroundJob(state: LocalApiState, jobId: string, cause: "ag
     }).catch(() => null);
   }
   return job;
+}
+
+/** A job addressed through a work-folder must belong to it. */
+function ownedJob(state: LocalApiState, workFolderId: string, jobId: string): WorkFoldJobRecord {
+  const job = state.jobs.get(jobId.trim());
+  if (!job || job.workFolderId !== workFolderId) {
+    throw new WorkFoldCliError("notFound", `That background job is not on record in this work-folder. Finished jobs are kept for ${state.requests.retentionDays()} days.`);
+  }
+  return job;
+}
+
+/** Job refusals keep their own sentences: a bound is a conflict, an unknown job is not found. */
+async function runJobOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof WorkFoldCliError) throw error;
+    if (error instanceof WorkFoldJobLimitError) throw new WorkFoldCliError("conflict", error.message, { cause: error });
+    if (error instanceof WorkFoldJobNotFoundError) throw new WorkFoldCliError("notFound", error.message, { cause: error });
+    if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) throw collaborationRefusal(error);
+    const message = errorMessage(error);
+    if (/needs a command|does not exist|timeout must|command can be at most|NUL character/.test(message)) {
+      throw new WorkFoldCliError("usage", message, { cause: error });
+    }
+    throw new WorkFoldCliError("failure", message, { cause: error });
+  }
+}
+
+function toActJobRef(job: WorkFoldJobRecord): WorkFoldActJobRef {
+  return {
+    jobId: job.jobId,
+    name: job.name,
+    command: job.command,
+    cwd: job.cwd,
+    state: job.state,
+    status: describeJobState(job, new Date()),
+    conversationId: job.conversationId,
+    taskId: job.taskId,
+    requestId: job.requestId,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    endedAt: job.endedAt,
+    exitCode: job.exitCode,
+    signal: job.signal,
+    stoppedBy: job.stoppedBy,
+    error: job.error,
+    timeoutSeconds: job.timeoutSeconds,
+    output: { ...job.output },
+    history: job.history ? structuredClone(job.history) : null,
+    delivery: job.delivery ? { ...job.delivery } : null,
+  };
 }
 
 /** job_start, job_output, and job_stop for one Chat: jobs of this scope only. */

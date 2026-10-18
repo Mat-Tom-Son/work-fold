@@ -295,3 +295,48 @@ test("quitting interrupts a running job; after a restart it is recorded failed a
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.equal(j.api.requests.byTaskId(taskId)!.turns.length, 1, "a restart never replays");
 });
+
+test("the work-fold agent's own job wakes its own Chat, and its tools reach only its own jobs", async (t) => {
+  const j = await startJourney(t);
+  // A Worker job first, so the agent has something it must not reach.
+  j.script([
+    fauxAssistantMessage([fauxToolCall("job_start", { command: "sleep 30", name: "Worker server", wait: 0 })], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Running."),
+    fauxAssistantMessage("Worker title"),
+  ]);
+  const worker = await startTurn(j, "Start the server.");
+  await turnSettled(j, worker.workFolder.id, worker.taskId);
+  const workerJobId = j.api.requests.byTaskId(worker.taskId)!.jobs![0]!.jobId;
+
+  let wake: Message[] | null = null;
+  j.script([
+    fauxAssistantMessage([
+      fauxToolCall("job_output", { job: workerJobId }, { id: "read-worker" }),
+      fauxToolCall("job_start", { command: "sleep 0.4; echo tidied", name: "Tidy downloads", wait: 0 }, { id: "start-own" }),
+    ], { stopReason: "toolUse" }),
+    fauxAssistantMessage("Tidying in the background."),
+    fauxAssistantMessage("Agent title"),
+    (context) => {
+      wake = structuredClone(context.messages);
+      return fauxAssistantMessage("Tidied.");
+    },
+  ]);
+  const sent = await j.api.actFacade.agentSend({ newConversation: true, content: "Tidy my downloads." });
+  await waitFor(async () => (await j.api.actFacade.agentTurnStatus({ taskId: sent.taskId })).task.state !== "running", "the agent turn to settle");
+  const toolResults = JSON.stringify(j.requests.find((request) => JSON.stringify(request).includes("read-worker") && request.some((message) => message.role === "toolResult")));
+  assert.match(toolResults, /not one of the work-fold agent's/);
+
+  await waitFor(() => j.api.requests.byTaskId(sent.taskId)?.state === "done", "the agent's follow-up");
+  const record = j.api.requests.byTaskId(sent.taskId)!;
+  assert.equal(record.owner.workFolderId, undefined);
+  assert.equal(record.turns.length, 2);
+  const job = j.api.jobs.get(record.jobs![0]!.jobId)!;
+  assert.equal(job.workFolderId, undefined);
+  assert.equal(job.history?.status, "not_applicable");
+  assert.equal(job.delivery?.by, "follow_up");
+  assert.match(userTexts(wake!), /tidied/);
+  assert.match(userTexts(wake!), /work-fold agent's working folder has no History/);
+  // The Worker's job is untouched by any of this.
+  assert.equal(j.api.jobs.get(workerJobId)?.state, "running");
+  await j.api.jobs.stop(workerJobId, "cli");
+});
