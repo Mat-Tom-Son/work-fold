@@ -85,7 +85,7 @@ function Test-WorkFoldActCommand {
   $group = if ($positional.Count -gt 0) { [string]$positional[0] } else { '' }
   $actGroups = @(
     'chat', 'chats', 'files', 'agent', 'history', 'search',
-    'tools', 'apps', 'automations', 'pages', 'recently-deleted', 'requests'
+    'tools', 'apps', 'automations', 'pages', 'recently-deleted', 'requests', 'jobs'
   )
   if ($actGroups -contains $group) { return $true }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }

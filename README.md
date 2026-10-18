@@ -59,6 +59,13 @@ for stop, expiry, and restart behavior, and the
 questions, and result files appear in Chats, the work-fold agent, apps, and the
 paired browser.
 
+Long work runs in the background: a Worker or the work-fold agent starts an
+export, build, install, or server as a background job, keeps working or ends
+its turn, and is brought back to the same Chat once with the result when the
+command finishes. History captures what the job changed, its output stays on
+this computer, and Stop or quitting ends it. See
+[Background jobs](docs/background-jobs.md).
+
 The work-fold agent's menu-bar popover has a **Chats** view that reopens saved
 conversations and keeps unsent drafts while you switch. The paired web client
 focuses on new and saved Chats, keeps questions inside the Chat that asked

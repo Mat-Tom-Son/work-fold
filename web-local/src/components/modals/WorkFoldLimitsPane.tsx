@@ -4,6 +4,7 @@ import { restrictedAppInferenceLimits } from "../../../../src/shared/restricted-
 import { restrictedAppAssistantLimits } from "../../../../src/shared/restricted-app-tasks";
 import {
   workFoldAppAutomationDefaultConcurrency,
+  workFoldBackgroundJobLimits,
   workFoldExtensionUiLimits,
   workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
@@ -26,7 +27,8 @@ import { workFoldLimitsSettings } from "../../ui-contract";
  * here. Every shown value is read from the frozen contract the host enforces
  * (`restrictedAppAssistantLimits`, `restrictedAppInferenceLimits`,
  * `workFoldRequestLimits`, `workFoldAutomationDeclarationBounds`,
- * `workFoldAutomationMaxConcurrentRuns`, `workFoldAppAutomationDefaultConcurrency`),
+ * `workFoldAutomationMaxConcurrentRuns`, `workFoldAppAutomationDefaultConcurrency`,
+ * `workFoldBackgroundJobLimits`),
  * so the shown number cannot drift from the enforced one.
  */
 
@@ -98,6 +100,7 @@ function ContinuationsSwitch() {
 
 function kib(bytes: number): string {
   const kibibytes = bytes / 1024;
+  if (kibibytes >= 1024 * 1024) return `${formatNumber(kibibytes / (1024 * 1024))} GB`;
   if (kibibytes >= 1024) return `${formatNumber(kibibytes / 1024)} MB`;
   return `${formatNumber(kibibytes)} KB`;
 }
@@ -121,6 +124,7 @@ export function WorkFoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDe
   const inference = restrictedAppInferenceLimits;
   const automation = workFoldAutomationDeclarationBounds;
   const requests = workFoldRequestLimits;
+  const jobs = workFoldBackgroundJobLimits;
 
   return (
     <details className="settings-section settings-limits">
@@ -165,6 +169,18 @@ export function WorkFoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDe
         ]}
       />
       <ContinuationsSwitch />
+
+      <h4 id="work-fold-limits-jobs-title">{workFoldLimitsSettings.jobsHeading}</h4>
+      <LimitRows
+        rows={[
+          ["How long a job runs", "No limit unless the job sets one"],
+          ["Background jobs running on this computer", String(jobs.runningMachineWide)],
+          ["A job's command", kib(jobs.maxCommandBytes)],
+          ["Output kept for one job", `${kib(jobs.outputSegmentBytes * jobs.outputSegmentsKept)}, the newest part`],
+          ["Output a Worker reads at once", `${jobs.readMaxLines.toLocaleString("en-US")} lines or ${kib(jobs.readMaxBytes)}`],
+          ["Kept for", `${requests.retentionDays} days after a job ends`],
+        ]}
+      />
 
       <h4 id="work-fold-limits-automations-title">{workFoldLimitsSettings.automationsHeading}</h4>
       <LimitRows

@@ -200,6 +200,9 @@ work-fold chat answer --work-folder "Home" --question <question-id> --answer "Q3
 work-fold chat handoff --work-folder "Home" --task <own-task-id> --to-work-folder "Vendor Audits" --message "Review the filed invoices." --file "Invoices/2026-09.pdf" --json
 work-fold requests list --json
 work-fold requests show --request <request-id> --json
+work-fold jobs start --work-folder "Home" --task <own-task-id> --command "npm run build" --name "Build" --json
+work-fold jobs output --work-folder "Home" --job <job-id> --until "ready|listening" --wait 120 --json
+work-fold jobs stop --work-folder "Home" --job <job-id> --json
 work-fold tools disable --path <resource-path> --kind extensions --scope everywhere --json
 work-fold tools enable --path <resource-path> --kind extensions --scope work-folder --work-folder "Home" --json
 work-fold recently-deleted list --json
@@ -234,6 +237,26 @@ status documents carry `waiting` and the request ref beside the turn state.
 The records, refusals, waiting semantics, continuation rule, and limits are
 specified under
 [Durable requests, questions, and continuation](#durable-requests-questions-and-continuation).
+
+`work-fold jobs …` drives **background jobs** ([Background jobs](background-jobs.md),
+F31–F33) with the same service and records as the `job_start`, `job_output`,
+and `job_stop` tools every Worker and the work-fold agent carry. `jobs start`
+runs a shell command for the caller's own running turn (`--task`, checked like
+`chat report`) in its own process group, journaled before it spawns and never
+re-run; the job joins that turn's request, which reads `working` while it
+runs. Every verb names the job's work-folder, so a Worker reaches only its own
+work-folder's jobs; the work-fold agent's own jobs are reached through its
+tools and listed by `requests show`. `jobs output` reads the end of the
+output or a page from `--offset`, can `--wait` for the end or `--until` a line
+matches, and with `--task` naming a running turn in the job's own Chat counts
+as the job's delivery. When a job ends, the host captures History for its
+work-folder and brings the exit status, that coverage, and the end of the
+output back to its Chat once — through a read, the next turn's context, or
+one follow-up turn on the F28 path. Stop on the request and quitting work-fold
+stop jobs; a restart records a running job `interrupted` and wakes nothing.
+Output lives under the state root's `jobs/` directory and follows the request
+retention window. Deletion, registration removal, and whole-work-folder
+History restore wait for running jobs; Skills & Extensions changes do not.
 
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
