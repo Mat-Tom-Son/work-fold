@@ -112,11 +112,11 @@ collaborate` documents them with examples that the tests validate.
 
 ```
 work-fold chat report  --work-folder <id> --task <own-task-id> --summary "<text>" [--data <json-or-@file>] [--file <work-folder-path>]... [--outcome succeeded|partial|failed] --json
-work-fold chat ask     --work-folder <id> --task <own-task-id> --question "<text>" [--to person|parent] --json
+work-fold chat ask     --work-folder <id> --task <own-task-id> --question "<text>" [--option "<choice>"]... [--to person|parent] --json
 work-fold chat answer  --work-folder <id> --question <id> --answer "<text>" [--parent-task <id>] --json
 work-fold chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id> --message "<text>" [--file <work-folder-path>]... --json
 work-fold chat wait    --work-folder <id> --task <id> [--timeout <s>] --json     # settles on terminal OR waiting
-work-fold agent ask   --task <own-task-id> --question "<text>" --json
+work-fold agent ask   --task <own-task-id> --question "<text>" [--option "<choice>"]... --json
 work-fold agent answer --question <id> --answer "<text>" --json
 work-fold agent wait  --task <id> [--timeout <s>] --json                  # same
 work-fold requests list|show --request <id> --json                          # management-scope reads of the request graph
@@ -124,6 +124,11 @@ work-fold requests list|show --request <id> --json                          # ma
 
 - A task id in `--task` must belong to the caller's own turn; the host
   validates it the way `--parent-task` is validated today.
+- `--option` (repeatable, 2026-10-18) offers suggested answers. Trusted
+  surfaces show them as buttons beside the answer box; a click sends that
+  choice's text through the same one-answer path, and a typed answer is still
+  accepted. A question offers at most 64 choices of at most 4 KiB each, one
+  line, none repeated.
 - `chat ask --to parent` on a root request with no parent is delivered to the
   person. `--to person` is the default.
 - `chat answer` refuses a second answer, an answer after Stop,
@@ -195,7 +200,7 @@ request but never replays subsequent automation effects.
   state (`working`, `waiting`, `handed_off`, `done`, `partial`, `failed`,
   `stopped`), children, questions, results, and usage.
 - **Question:** id, request id, task id, respondent (`person` or `parent`),
-  text (at most 4 MiB), asked at, state (`open`, `answered`,
+  text (at most 4 MiB), optional suggested choices, asked at, state (`open`, `answered`,
   `cancelled`), answer and answered at, continuation task id.
 - **Result:** the envelope above plus task id, recorded at, and receipt id.
 - Records are machine-local under the state root. Only the assignment text,
@@ -215,6 +220,7 @@ guards sized so ordinary work never meets them (2026-10-10).
 | Bound | Value | On hit |
 |---|---|---|
 | Question text | 4 MiB | the write is refused before it is recorded |
+| Question choices | 64 choices, 4 KiB each | the write is refused before it is recorded |
 | Answer text | 4 MiB | the write is refused before it is recorded |
 | Result summary | 4 MiB | the write is refused before it is recorded |
 | Result data | 16 MiB | the write is refused before it is recorded |

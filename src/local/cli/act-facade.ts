@@ -274,6 +274,8 @@ export interface WorkFoldActQuestionRef {
   taskId: string;
   respondent: "person" | "parent";
   text: string;
+  /** Suggested answers, when the question offered any. */
+  options?: string[];
   state: "open" | "answered" | "expired" | "cancelled";
   askedAt: string;
   expiresAt: string | null;
@@ -810,6 +812,8 @@ export interface WorkFoldActFacade {
     taskId: string;
     question: string;
     respondent: "person" | "parent";
+    /** Suggested answers shown as choices; the person can still write their own. */
+    options?: string[];
     requestId?: string;
     parentTaskId?: string;
   }): Promise<{

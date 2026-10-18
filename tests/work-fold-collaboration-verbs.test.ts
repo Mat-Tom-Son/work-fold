@@ -195,6 +195,43 @@ for (const lane of ["act", "http", "failed-act"] as const) {
   });
 }
 
+test("a question can offer choices: they show as buttons, and picking one answers it once", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder } = await api.actFacade.createWorkFolder({ name: "Choices" });
+    h.held.add(workFolder.id);
+    const turn = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const asked = await api.actFacade.chatAsk({
+      workFolder: workFolder.id, taskId: turn.taskId, question: "Which quarter should the report cover?",
+      respondent: "person", options: ["Q3", "Q4"],
+    });
+    assert.deepEqual(asked.question.options, ["Q3", "Q4"]);
+    await h.release(turn.taskId);
+    await settled(api, workFolder.id, turn.taskId);
+    const view = await (await fetch(new URL(`/api/work-folders/${workFolder.id}/conversations/${turn.conversationId}/work`, api.origin))).json() as { work: { requestId: string; questions: Array<{ id: string; options?: string[] }> } };
+    assert.deepEqual(view.work.questions[0]?.options, ["Q3", "Q4"]);
+    // A click sends the choice's text as the answer, through the same route as a typed answer.
+    const answered = await fetch(new URL(`/api/requests/${view.work.requestId}/answer`, api.origin), {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ questionId: view.work.questions[0]!.id, answer: "Q4" }),
+    });
+    assert.equal(answered.status, 200, await answered.clone().text());
+    const question = api.requests.question(asked.question.questionId)!;
+    assert.equal(question.answer, "Q4");
+    assert.ok(question.continuationTaskId, "the answer starts its one continuation");
+    const after = await answered.json() as { work: { questions: Array<{ state: string; options?: string[] }> } };
+    assert.equal(after.work.questions.some((item) => item.state === "open" && item.options), false, "an answered question no longer offers choices");
+    // A question without choices records none.
+    const turn2 = await api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
+    const plain = await api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: turn2.taskId, question: "Anything else?", respondent: "person" });
+    assert.equal("options" in plain.question, false);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
 test("file and work-folder deletion refuse running, waiting, and stopped-but-draining work until it settles", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();

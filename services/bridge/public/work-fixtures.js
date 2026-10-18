@@ -1,7 +1,7 @@
 /** Inert visual states, used only by the existing explicit fixture preview. */
 export function buildWorkFixture(conversationId, state = "question") {
   const work = { version: 1, requestId: "fixture-work", taskId: "fixture-task", owner: { conversationId }, state: "waiting", label: "Needs your answer", detail: null, canStop: true, canContinue: false, hadQuestions: true,
-    questions: [{ id: "fixture-currency", requestId: "fixture-child", from: "Supplier quotes", text: "Which currency should I use for the comparison? The quotes include both US dollars and Canadian dollars.", state: "open", canAnswer: true }], questionCount: 1,
+    questions: [{ id: "fixture-currency", requestId: "fixture-child", from: "Supplier quotes", text: "Which currency should I use for the comparison? The quotes include both US dollars and Canadian dollars.", options: ["US dollars", "Canadian dollars"], state: "open", canAnswer: true }], questionCount: 1,
     children: [{ requestId: "fixture-child", title: "Supplier quotes", state: "waiting", label: "Needs your answer" }], result: null };
   if (state === "saved-answer") {
     work.questions[0] = { ...work.questions[0], state: "recorded", answer: "Canadian dollars" };

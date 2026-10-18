@@ -74,3 +74,33 @@ test("paired questions preserve focus and draft across refresh, failure and retr
     dom.window.close();
   }
 });
+
+test("a question's choices render as buttons on the desktop and in the paired browser, and a click sends that choice", async () => {
+  const withChoices = view();
+  withChoices.questions[0] = { ...withChoices.questions[0], options: ["US dollars", "Canadian <b>dollars</b>"] };
+  const html = renderToStaticMarkup(React.createElement(WorkRequest, { work: withChoices, error: null, busy: false, act: async () => true, refresh: async () => {} }));
+  assert.match(html, /role="group" aria-label="Choices"/);
+  assert.match(html, /<button type="button" class="work-choice-button"[^>]*>US dollars<\/button>/);
+  assert.match(html, /Canadian &lt;b&gt;dollars&lt;\/b&gt;/, "a choice is text, never markup");
+  assert.match(html, /Or write your own answer/);
+  const plain = renderToStaticMarkup(React.createElement(WorkRequest, { work: view(), error: null, busy: false, act: async () => true, refresh: async () => {} }));
+  assert.doesNotMatch(plain, /work-choice-button/);
+
+  const dom = new JSDOM('<div id="work"></div>', { url: "https://example.test" });
+  const prior = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { value: dom.window.document, configurable: true });
+  try {
+    const container = dom.window.document.getElementById("work")!;
+    const sent: Array<{ action: string; body: unknown }> = [];
+    renderWorkRequest(container, withChoices, { act: async (action: string, body: unknown) => { sent.push({ action, body }); return { work: withChoices }; } });
+    const choices = [...container.querySelectorAll("button.work-choice-button")].map((button) => button.textContent);
+    assert.deepEqual(choices, ["US dollars", "Canadian <b>dollars</b>"], "each choice shows as plain text");
+    (container.querySelector("button.work-choice-button") as HTMLButtonElement).click();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(sent, [{ action: "answer", body: { questionId: "question-one", answer: "US dollars" } }]);
+    assert.equal((container.querySelector("textarea") as HTMLTextAreaElement).placeholder, "Or write your own answer");
+  } finally {
+    if (prior) Object.defineProperty(globalThis, "document", prior);
+    else delete (globalThis as { document?: unknown }).document;
+  }
+});

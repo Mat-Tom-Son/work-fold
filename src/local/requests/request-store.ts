@@ -602,6 +602,8 @@ export class WorkFoldRequestStore {
     taskId: string;
     respondent: "person" | "parent";
     text: string;
+    /** Suggested answers shown as choices; a free-text answer is still accepted. */
+    options?: readonly string[];
   }): Promise<WorkFoldQuestionRecord> {
     return this.#run(async () => {
       const record = this.#requireRecord(input.requestId);
@@ -620,6 +622,7 @@ export class WorkFoldRequestStore {
         taskId: input.taskId,
         respondent: input.respondent,
         text: input.text,
+        ...(input.options?.length ? { options: [...input.options] } : {}),
         askedAt: at,
         updatedAt: at,
         expiresAt: record.deadline,

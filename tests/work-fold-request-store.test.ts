@@ -931,3 +931,19 @@ test("a reserved child delivery survives restart without starting or repeating a
   assert.equal(store.get(root.requestId)?.turns.length, 1);
   assert.deepEqual(await store.noteContinuation(root.requestId, ["child"]), { allowed: false, count: 1 });
 });
+
+test("a question record keeps its choices, and records written before choices existed still read", async () => {
+  const { parseWorkFoldQuestionRecord, workFoldQuestionRecordSchema } = await import("../src/local/requests/request-records.js");
+  const base = {
+    schema: workFoldQuestionRecordSchema, questionId: "q-20261018000000-abcdef01", requestId: "req-20261018000000-abcdef01",
+    rootId: "req-20261018000000-abcdef01", taskId: "task-1", respondent: "person", text: "Which quarter?",
+    askedAt: "2026-10-18T00:00:00.000Z", updatedAt: "2026-10-18T00:00:00.000Z", expiresAt: null, state: "open",
+    answer: null, answeredAt: null, continuationTaskId: null, answeredByWorkFolderId: null,
+  };
+  const older = parseWorkFoldQuestionRecord(base);
+  assert.equal("options" in older, false);
+  assert.deepEqual(parseWorkFoldQuestionRecord({ ...base, options: ["Q3", "Q4"] }).options, ["Q3", "Q4"]);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: ["Q3", "Q3"] }), /same choice twice/);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: ["Line one\nline two"] }), /one line/);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: Array.from({ length: workFoldRequestLimits.maxQuestionOptions + 1 }, (_, index) => `Choice ${index}`) }), /at most 64 choices/);
+});

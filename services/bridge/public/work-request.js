@@ -65,7 +65,15 @@ function draw(container, controller) {
       saved.tabIndex = 0; saved.setAttribute("aria-label", "Your saved answer"); form.append(saved);
     }
     else {
-      input = element("textarea"); input.id = inputId; input.rows = 2; input.placeholder = "Your answer";
+      if (question.options?.length) {
+        const choices = element("div", "work-question-choices");
+        choices.setAttribute("role", "group"); choices.setAttribute("aria-label", "Choices");
+        for (const option of question.options) {
+          choices.append(button(option, "work-choice-button", () => send("answer", { questionId: question.id, answer: option }, question.id), controller.busy || !question.canAnswer));
+        }
+        form.append(choices);
+      }
+      input = element("textarea"); input.id = inputId; input.rows = 2; input.placeholder = question.options?.length ? "Or write your own answer" : "Your answer";
       input.value = readQuestionDraft(question.id);
       form.append(input);
     }

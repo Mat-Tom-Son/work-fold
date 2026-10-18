@@ -62,11 +62,11 @@ function WorkQuestion({ question, busy, answer }: { question: WorkQuestionView; 
   const formRef = useRef<HTMLFormElement>(null);
   const [draft, setDraft] = useState(() => readQuestionDraft(question.id));
   const [sent, setSent] = useState(false);
-  async function send() {
+  async function send(text = question.state === "recorded" ? question.answer ?? "" : draft) {
     const form = formRef.current;
     const container = form?.closest<HTMLElement>(".work-request");
     const fallback = form?.closest<HTMLElement>("article");
-    if (await answer(question.state === "recorded" ? question.answer ?? "" : draft)) {
+    if (await answer(text)) {
       clearQuestionDraft(question.id); setSent(true); setDraft("");
       window.requestAnimationFrame(() => {
         if (document.activeElement === document.body || form?.contains(document.activeElement)) (container?.isConnected ? container : fallback)?.focus({ preventScroll: true });
@@ -80,7 +80,13 @@ function WorkQuestion({ question, busy, answer }: { question: WorkQuestionView; 
       <p className="work-detail">Your answer is saved. Continue to deliver it once.</p>
       <blockquote className="work-saved-answer" tabIndex={0} aria-label="Your saved answer">{question.answer}</blockquote>
     </>
-      : <textarea id={inputId} rows={2} value={draft} onChange={(event) => { setDraft(event.target.value); writeQuestionDraft(question.id, event.target.value); }} placeholder="Your answer" disabled={sent} />}
+      : <>
+        {question.options?.length ? <div className="work-question-choices" role="group" aria-label="Choices">
+          {question.options.map((option) => <button key={option} type="button" className="work-choice-button"
+            disabled={busy || sent || !question.canAnswer} onClick={() => void send(option)}>{option}</button>)}
+        </div> : null}
+        <textarea id={inputId} rows={2} value={draft} onChange={(event) => { setDraft(event.target.value); writeQuestionDraft(question.id, event.target.value); }} placeholder={question.options?.length ? "Or write your own answer" : "Your answer"} disabled={sent} />
+      </>}
     {question.reason ? <p className="work-detail">{question.reason}</p> : null}
     <button type="submit" className="work-primary-button" disabled={busy || sent || !question.canAnswer || (question.state === "open" && !draft.trim())}>
       {sent ? "Answer sent" : busy ? "Sending…" : question.state === "recorded" ? "Continue with saved answer" : "Send answer"}

@@ -6370,7 +6370,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const respondent = redirectedToPerson ? "person" : input.respondent;
       let question: WorkFoldQuestionRecord;
       try {
-        question = await state.requests.ask({ requestId: record.requestId, taskId, respondent, text: input.question });
+        question = await state.requests.ask({ requestId: record.requestId, taskId, respondent, text: input.question, ...(input.options?.length ? { options: input.options } : {}) });
       } catch (error) {
         throw collaborationRefusal(error);
       }
@@ -11240,6 +11240,7 @@ function toActQuestionRef(question: WorkFoldQuestionRecord): WorkFoldActQuestion
     taskId: question.taskId,
     respondent: question.respondent,
     text: question.text,
+    ...(question.options?.length ? { options: [...question.options] } : {}),
     state: question.state,
     askedAt: question.askedAt,
     expiresAt: question.expiresAt,
@@ -11478,6 +11479,7 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
       questions.push({ id: question.questionId, requestId: item.requestId, text: question.text,
         from: item.owner.workFolderName ?? (item.owner.workFolderId ? "Worker" : "work-fold"),
         state: question.state === "answered" ? "recorded" : "open",
+        ...(question.options?.length && question.state !== "answered" ? { options: [...question.options] } : {}),
         ...(question.state === "answered" && question.answer ? { answer: question.answer } : {}),
         canAnswer: !reason, ...(reason ? { reason } : {}) });
     }

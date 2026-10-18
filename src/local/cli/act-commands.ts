@@ -24,6 +24,7 @@ import { maximumWorkerInstructionsLength } from "../agent/model-preferences.js";
 // request record that enforces them, so a parse-time refusal and a store-time
 // refusal say the same words (docs/collaboration-contract.md, F25/F29).
 import {
+  parseWorkFoldQuestionOptions,
   workFoldRequestLimitMessage,
   workFoldRequestLimitsSection,
   type WorkFoldResultOutcome,
@@ -264,6 +265,8 @@ export interface WorkFoldCliActParsedCommand {
   question?: string;
   /** Who chat.ask is asking; `parent` on a root request is delivered to the person. */
   respondent?: "person" | "parent";
+  /** chat.ask and agent.ask suggested answers (`--option`, repeatable), shown as choices. */
+  options?: string[];
   /** chat.answer target. `--question` carries an id here and free text in chat.ask. */
   questionId?: string;
   /** chat.answer answer text. */
@@ -362,6 +365,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   const attachValues: string[] = [];
   const pathValues: string[] = [];
   const fileValues: string[] = [];
+  const optionValues: string[] = [];
   const positional: string[] = [];
 
   const valueFlags = new Set([
@@ -437,6 +441,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--timeout",
     "--offset",
     "--wait",
+    "--option",
   ]);
   const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running"]);
 
@@ -473,6 +478,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       }
       if (flagName === "--file") {
         fileValues.push(value);
+        continue;
+      }
+      if (flagName === "--option") {
+        optionValues.push(value);
         continue;
       }
       if (flags.has(flagName)) throw usageError(`${flagName} may be provided only once.`);
@@ -529,6 +538,10 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
   const fileCommands = new Set(["chat report", "chat handoff"]);
   if (!fileCommands.has(command) && fileValues.length) {
     throw usageError(`--file cannot be used with '${command || "(none)"}'.`);
+  }
+  // --option is repeatable and offers one suggested answer to a question.
+  if (command !== "chat ask" && command !== "agent ask" && optionValues.length) {
+    throw usageError(`--option cannot be used with '${command || "(none)"}'.`);
   }
   // The request graph sits above work-folders (F25): every request names the work-folder
   // it belongs to, so neither read takes one.
@@ -621,6 +634,13 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       throw usageError(workFoldRequestLimitMessage(limit, maximumBytes));
     }
     return value;
+  };
+  const questionOptions = (): string[] => {
+    try {
+      return parseWorkFoldQuestionOptions(optionValues);
+    } catch (error) {
+      throw usageError(`--option: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
   const collaborationFiles = (): string[] => {
     const files = fileValues.map((value) => boundedActPath("--file", value, "work-folder-path"));
@@ -899,6 +919,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       // F27: recording a question never suspends the asking turn. The turn
       // ends; the task's request is what waits.
       allowOnlyFlags(...(command === "agent ask" ? ["--task", "--question", "--question-file", "--parent-task"] : ["--work-folder", "--task", "--question", "--question-file", "--to", "--parent-task"]));
+      // --option is collected apart from flags and checked above.
       const rawRespondent = stringFlag("--to")?.trim();
       if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
         throw usageError("--to must be person or parent.");
@@ -915,6 +936,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         // A root request has no parent, so the host delivers `parent` to the
         // person and says it did.
         respondent: (rawRespondent ?? "person") as "person" | "parent",
+        ...(optionValues.length ? { options: questionOptions() } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -2146,6 +2168,7 @@ async function runActCommand(
       return toChecksJson(await facade.agentAsk({
         taskId: command.task!,
         question: command.question!,
+        ...(command.options?.length ? { options: command.options } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -2162,6 +2185,7 @@ async function runActCommand(
         taskId: command.task!,
         question: command.question!,
         respondent: command.respondent ?? "person",
+        ...(command.options?.length ? { options: command.options } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));

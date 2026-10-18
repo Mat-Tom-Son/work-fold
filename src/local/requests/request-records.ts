@@ -164,6 +164,8 @@ export type WorkFoldRequestLimitName =
   | "providerBudget"
   | "questionLifetime"
   | "questionText"
+  | "questionOptions"
+  | "questionOptionText"
   | "answerText"
   | "resultSummary"
   | "resultData"
@@ -356,6 +358,12 @@ export interface WorkFoldQuestionRecord {
   taskId: string;
   respondent: "person" | "parent";
   text: string;
+  /**
+   * Suggested answers, shown as choices the person can pick with one click.
+   * Absent when the question offered none; any free-text answer is still
+   * accepted either way.
+   */
+  options?: string[];
   askedAt: string;
   updatedAt: string;
   /** A question lives exactly as long as its request. */
@@ -446,6 +454,10 @@ export function workFoldRequestLimitMessage(limit: WorkFoldRequestLimitName, cap
       return `This question's request passed its ${Math.round(cap / 3_600_000)}-hour window, so it can no longer be answered. ${shows}`;
     case "questionText":
       return `A question may be at most ${kilobytes(cap)} of text. ${shows}`;
+    case "questionOptions":
+      return `A question may offer at most ${cap} choices. ${shows}`;
+    case "questionOptionText":
+      return `Each choice may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "answerText":
       return `An answer may be at most ${kilobytes(cap)} of text. ${shows}`;
     case "resultSummary":
@@ -931,7 +943,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
   assertClosedShape(
     record,
     [
-      "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "askedAt", "updatedAt",
+      "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "options", "askedAt", "updatedAt",
       "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredByWorkFolderId",
     ],
     label,
@@ -950,6 +962,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     taskId: stableId(record.taskId, `${label} task id`),
     respondent: enumValue(record.respondent, ["person", "parent"] as const, `${label} respondent`),
     text: boundedText(record.text, `${label} text`, workFoldRequestLimits.maxQuestionTextBytes, "questionText"),
+    ...(record.options === undefined || record.options === null ? {} : { options: parseWorkFoldQuestionOptions(record.options) }),
     askedAt: isoDate(record.askedAt, `${label} time`),
     updatedAt: isoDate(record.updatedAt, `${label} update time`),
     expiresAt: nullableIsoDate(record.expiresAt, `${label} window`),
@@ -965,6 +978,23 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
       ? null
       : stableId(record.answeredByWorkFolderId, `${label} answering work-folder id`),
   };
+}
+
+/**
+ * A question's suggested answers: each is non-empty single-line text, none
+ * repeats, and an empty list is the same as offering none.
+ */
+export function parseWorkFoldQuestionOptions(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new Error("Question choices must be a list of text.");
+  if (value.length > workFoldRequestLimits.maxQuestionOptions) throw workFoldRequestLimitError("questionOptions", workFoldRequestLimits.maxQuestionOptions);
+  const options = value.map((item) => {
+    const text = boundedText(item, "A question choice", workFoldRequestLimits.maxQuestionOptionBytes, "questionOptionText").trim();
+    if (!text) throw new Error("A question choice cannot be empty.");
+    if (/[\n\r]/.test(text)) throw new Error("A question choice must be one line.");
+    return text;
+  });
+  if (new Set(options).size !== options.length) throw new Error("A question offers the same choice twice.");
+  return options;
 }
 
 /**

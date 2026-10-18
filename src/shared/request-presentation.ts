@@ -12,6 +12,8 @@ export interface WorkQuestionView {
   requestId: string;
   text: string;
   from: string;
+  /** Suggested answers the person can pick with one click, beside writing their own. */
+  options?: string[];
   state: "open" | "recorded";
   answer?: string;
   canAnswer: boolean;
