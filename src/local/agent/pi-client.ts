@@ -62,6 +62,7 @@ import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
+import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -163,6 +164,11 @@ export interface PiTurnContext {
   workFolderTurn?: PiWorkFolderTurnContext;
   /** Set when an Automation's step sent this turn's message; nobody is watching it run. */
   automation?: { title: string };
+  /**
+   * This Chat's background jobs (docs/background-jobs.md, F32): the running
+   * ones, and ones that finished since its last turn and are delivered here.
+   */
+  backgroundJobs?: Array<{ jobId: string; name: string; status: string; finished: boolean }>;
   /** The host's clock, time zone, and platform; `prompt` reads them when a turn starts. */
   environment?: PiTurnEnvironment;
 }
@@ -176,6 +182,8 @@ export interface PiConversationClientOptions {
   imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
   /** Keeps generated pictures so a Chat can show them inline. */
   imageStore?: GeneratedImageSink;
+  /** The job service behind job_start, job_output, and job_stop for this Chat (docs/background-jobs.md). */
+  backgroundJobs?: BackgroundJobToolHost;
 }
 
 export interface PiConversationState {
@@ -766,6 +774,17 @@ export class PiConversationClient extends EventEmitter {
           ...(this.options.imageModel ? { preferredModel: this.options.imageModel } : {}),
           ...(this.options.imageStore ? { store: this.options.imageStore } : {}),
         }),
+        // Every session can run long commands in the background and be woken when they end.
+        ...(this.options.backgroundJobs ? createBackgroundJobTools({
+          root: options.cwd,
+          host: this.options.backgroundJobs,
+          taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
+          shell: () => ({
+            ...(runtime.settingsManager.getShellPath() ? { shellPath: runtime.settingsManager.getShellPath() } : {}),
+            ...(runtime.settingsManager.getShellCommandPrefix() ? { commandPrefix: runtime.settingsManager.getShellCommandPrefix() } : {}),
+            binDir: join(runtime.agentDir, "bin"),
+          }),
+        }) : []),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
@@ -1814,6 +1833,15 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       context.workFolderTurn
         ? "When you finish, report with chat report: --summary saying what you did, --file for each file you made or changed, and --outcome succeeded, partial, or failed. If you cannot do the work, report failed and say why. The Automation's run history shows your summary and that outcome. Then give your final reply."
         : "Your final reply is this step's record in the Automation's run history: say what you did, and say plainly if you could not do it and why.",
+    );
+  }
+  if (context.backgroundJobs?.length) {
+    lines.push(
+      "Background jobs in this Chat (host-owned):",
+      ...context.backgroundJobs.map((job) => `- ${job.jobId} ${JSON.stringify(job.name)} — ${job.status}${job.finished ? "; it finished since this Chat's last turn" : ""}`),
+      context.backgroundJobs.some((job) => job.finished)
+        ? "Read a finished job with job_output when it bears on this request, and mention its outcome; work-fold will not report it again. Stop running ones with job_stop when they are no longer needed."
+        : "Read them with job_output and stop them with job_stop when they are no longer needed.",
     );
   }
   if (context.attachedLinks?.length) {

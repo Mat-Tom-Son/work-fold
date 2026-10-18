@@ -163,6 +163,32 @@ export interface WorkFoldExperimentalAutomationRunTask {
   startedAt: string;
 }
 
+/**
+ * Experimental internal task shape for one running background job
+ * (docs/background-jobs.md, F31). Following the `check_run` precedent it is
+ * deliberately separate from WorkFoldTaskKind and must not enter the stable
+ * `work-fold.tasks` v1 projection; `jobs list` is its public read. The id is
+ * the job id. A work-folder id is absent for the work-fold agent's own jobs.
+ */
+export interface WorkFoldExperimentalJobTaskInput {
+  jobId: string;
+  name: string;
+  workFolderId?: string;
+  conversationId: string;
+  actor: WorkFoldActor;
+}
+
+export interface WorkFoldExperimentalJobTask {
+  id: string;
+  kind: "job";
+  status: "running";
+  name: string;
+  workFolderId: string | null;
+  conversationId: string;
+  actor: WorkFoldActor;
+  startedAt: string;
+}
+
 export interface WorkFoldTasksSnapshot {
   kind: "work-fold.tasks";
   version: typeof workFoldKernelSnapshotVersion;
@@ -405,6 +431,7 @@ export class WorkFoldKernel {
     | WorkFoldExperimentalCheckRunTask
     | WorkFoldExperimentalPreparedActTask
     | WorkFoldExperimentalAutomationRunTask
+    | WorkFoldExperimentalJobTask
   >();
 
   constructor(options: WorkFoldKernelOptions = {}) {
@@ -591,6 +618,11 @@ export class WorkFoldKernel {
     const targetWorkFolderId = workFolderId.trim();
     if (!targetWorkFolderId) throw new Error("A work-folder id is required.");
     const blockers: string[] = [];
+    // A running background job may be writing into this folder; a restore
+    // would race it (docs/background-jobs.md, F31).
+    for (const job of this.listExperimentalJobTasks(targetWorkFolderId)) {
+      blockers.push(`Stop or wait for the background job "${job.name}" (${job.id}) running in this work-folder first: it may still be writing here.`);
+    }
     const automationRuns = [...this.#tasks.values()]
       .filter((task): task is WorkFoldExperimentalAutomationRunTask => task.kind === "automation_run");
     const readTargets = this.#historyRestoreFenceSources.automationRunFilesHopTargets;
@@ -746,6 +778,37 @@ export class WorkFoldKernel {
     };
     this.#tasks.set(task.id, task);
     return copyExperimentalAutomationRunTask(task);
+  }
+
+  /**
+   * Starts one background job in the shared internal lifecycle without
+   * promoting the experimental kind into the stable `work-fold.tasks` v1
+   * projection. The job service's host finishes it when the job settles.
+   */
+  startExperimentalJobTask(input: WorkFoldExperimentalJobTaskInput): WorkFoldExperimentalJobTask {
+    const id = input.jobId.trim();
+    if (!id) throw new Error("A background job task needs its job id.");
+    if (this.#tasks.has(id)) throw new Error(`A task with this id is already running: ${id}`);
+    const task: WorkFoldExperimentalJobTask = {
+      id,
+      kind: "job",
+      status: "running",
+      name: input.name,
+      workFolderId: input.workFolderId?.trim() || null,
+      conversationId: input.conversationId,
+      actor: normalizeActor(input.actor),
+      startedAt: this.#now().toISOString(),
+    };
+    this.#tasks.set(task.id, task);
+    return { ...task, actor: { ...task.actor } };
+  }
+
+  /** Running background jobs, optionally in one work-folder; the restore and removal fences read this. */
+  listExperimentalJobTasks(workFolderId?: string): WorkFoldExperimentalJobTask[] {
+    return [...this.#tasks.values()]
+      .filter((task): task is WorkFoldExperimentalJobTask => task.kind === "job")
+      .filter((task) => workFolderId === undefined || task.workFolderId === workFolderId)
+      .map((task) => ({ ...task, actor: { ...task.actor } }));
   }
 
   finishTask(taskId: string): boolean {
