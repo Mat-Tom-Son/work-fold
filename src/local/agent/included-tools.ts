@@ -10,6 +10,7 @@ import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
 import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
+import { workFoldRolePreambleExtension, type WorkFoldSessionRole } from "./role-preamble.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
@@ -52,11 +53,15 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
   ];
 }
 
-/** A per-runtime native event bus; no process-global current Chat or renderer capability. */
-export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session") {
+/**
+ * A per-runtime native event bus; no process-global current Chat or renderer capability.
+ * A Chat session names its role, which opens each request with that role instead of Pi's coding preamble.
+ */
+export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", role?: WorkFoldSessionRole) {
   const config = runtime.config.includedTools;
   const extensionFactories = [
     { name: "tool_input_feedback", builtin: true, factory: toolInputFeedbackExtension },
+    ...(role ? [{ name: "work_fold_role", builtin: true, factory: workFoldRolePreambleExtension(role) }] : []),
     { name: "codemode", builtin: true, replaceable: true, factory: createCodemodeExtension() },
     { name: "tool_search", builtin: true, replaceable: true, factory: createToolSearchExtension() },
   ];
