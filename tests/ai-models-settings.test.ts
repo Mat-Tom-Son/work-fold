@@ -102,9 +102,11 @@ test("OpenRouter live catalog normalizes tool-capable text models and persists t
   });
   const parsed = parseOpenRouterModels(payload);
   assert.equal(parsed.length, 1);
-  assert.deepEqual(parsed[0]?.input, ["text", "image"]);
-  assert.deepEqual(parsed[0]?.cost, { input: 2, output: 8, cacheRead: 0, cacheWrite: 0 });
-  assert.equal(parsed[0]?.reasoning, true);
+  const reasoningModel = parsed[0];
+  assert.deepEqual(reasoningModel?.input, ["text", "image"]);
+  // No listed cache rate: cached prompt tokens are priced like the prompt, never as free.
+  assert.deepEqual(reasoningModel?.cost, { input: 2, output: 8, cacheRead: 2, cacheWrite: 2 });
+  assert.equal(reasoningModel?.reasoning, true);
 
   const requests: Array<{ authorization: string | null }> = [];
   const fakeFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
@@ -247,3 +249,31 @@ async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
   assert.equal(response.ok, true, text);
   return text ? JSON.parse(text) : null;
 }
+
+test("OpenRouter's listed cache rates price cached prompt tokens", () => {
+  const [model] = parseOpenRouterModels(JSON.stringify({ data: [{
+    id: "example/cached-model",
+    name: "Example: Cached Model",
+    context_length: 200_000,
+    architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+    pricing: { prompt: "0.000003", completion: "0.000015", input_cache_read: "0.0000003", input_cache_write: "0.00000375" },
+    supported_parameters: ["tools"],
+  }] }));
+  assert.equal(model?.cost.input, 3);
+  assert.ok(Math.abs(model!.cost.cacheRead - 0.3) < 1e-9);
+  assert.ok(Math.abs(model!.cost.cacheWrite - 3.75) < 1e-9);
+});
+
+test("a model list saved before cache rates were read prices cached prompt tokens like the prompt", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-openrouter-v1-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const cachePath = join(root, "openrouter.json");
+  await writeFile(cachePath, JSON.stringify({
+    version: 1,
+    provider: "openrouter",
+    refreshedAt: "2026-10-01T00:00:00.000Z",
+    models: [{ id: "example/old", name: "Old", reasoning: false, input: ["text"], cost: { input: 2, output: 8, cacheRead: 0, cacheWrite: 0 }, contextWindow: 4096, maxTokens: 1024 }],
+  }), "utf8");
+  const loaded = await new OpenRouterModelCatalog({ cachePath }).load();
+  assert.deepEqual(loaded?.config.models?.[0]?.cost, { input: 2, output: 8, cacheRead: 2, cacheWrite: 2 });
+});

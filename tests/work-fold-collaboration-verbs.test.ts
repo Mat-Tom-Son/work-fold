@@ -351,6 +351,77 @@ test("the checklist a turn keeps shows in its Chat's work view", async (t) => {
   }
 });
 
+for (const reader of ["worker", "work-fold agent"] as const) {
+  test(`a child result the ${reader} read mid-turn through chat wait is not repeated in a follow-up turn`, async (t) => {
+    const h = await collaborationHarness(t);
+    const api = await h.open();
+    try {
+      const { workFolder: childWorkFolder } = await api.actFacade.createWorkFolder({ name: "Reader child" });
+      h.held.add(childWorkFolder.id);
+      let parentScope: string;
+      let parentTaskId: string;
+      let childTaskId: string;
+      if (reader === "worker") {
+        const { workFolder: parentWorkFolder } = await api.actFacade.createWorkFolder({ name: "Reader parent" });
+        h.held.add(parentWorkFolder.id);
+        const parent = await api.actFacade.sendMessage({ workFolder: parentWorkFolder.id, newConversation: true, content: "/hold" });
+        parentScope = parentWorkFolder.id;
+        parentTaskId = parent.taskId;
+        childTaskId = (await api.actFacade.chatHandoff({ workFolder: parentWorkFolder.id, taskId: parent.taskId, toWorkFolder: childWorkFolder.id, message: "/hold", files: [] })).taskId;
+      } else {
+        h.held.add(workFoldAgentScopeId);
+        const root = await api.actFacade.agentSend({ content: "/hold" });
+        parentScope = workFoldAgentScopeId;
+        parentTaskId = root.taskId;
+        childTaskId = (await api.actFacade.sendMessage({ workFolder: childWorkFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId })).taskId;
+      }
+      await api.actFacade.chatReport({ workFolder: childWorkFolder.id, taskId: childTaskId, summary: "Read once by the parent", outcome: "succeeded", files: [] });
+      await h.release(childTaskId);
+      await settled(api, childWorkFolder.id, childTaskId);
+      // `chat wait` ends with exactly this read while the parent's turn runs.
+      const read = await api.actFacade.turnResult({ workFolder: childWorkFolder.id, taskId: childTaskId });
+      assert.equal(read.result?.summary, "Read once by the parent");
+      const requestId = api.requests.byTaskId(parentTaskId)!.requestId;
+      assert.deepEqual(api.requests.get(requestId)!.deliveredChildTaskIds, [childTaskId]);
+      await h.release(parentTaskId);
+      await settled(api, parentScope, parentTaskId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(api.requests.get(requestId)!.turns.length, 1, "no follow-up turn repeats a result the parent already read");
+    } finally {
+      h.releaseAll();
+      await api.close();
+    }
+  });
+}
+
+test("a child result read after its parent's turn ended still arrives in one follow-up turn", async (t) => {
+  const h = await collaborationHarness(t);
+  const api = await h.open();
+  try {
+    const { workFolder: parentWorkFolder } = await api.actFacade.createWorkFolder({ name: "Late parent" });
+    const { workFolder: childWorkFolder } = await api.actFacade.createWorkFolder({ name: "Late child" });
+    h.held.add(parentWorkFolder.id);
+    h.held.add(childWorkFolder.id);
+    const parent = await api.actFacade.sendMessage({ workFolder: parentWorkFolder.id, newConversation: true, content: "/hold" });
+    const child = await api.actFacade.chatHandoff({ workFolder: parentWorkFolder.id, taskId: parent.taskId, toWorkFolder: childWorkFolder.id, message: "/hold", files: [] });
+    await api.actFacade.chatReport({ workFolder: childWorkFolder.id, taskId: child.taskId, summary: "Arrives later", outcome: "succeeded", files: [] });
+    await h.release(parent.taskId);
+    await settled(api, parentWorkFolder.id, parent.taskId);
+    const requestId = api.requests.byTaskId(parent.taskId)!.requestId;
+    await h.release(child.taskId);
+    await settled(api, childWorkFolder.id, child.taskId);
+    await waitFor(async () => api.requests.get(requestId)!.turns.length === 2);
+    // Someone reading it now does not undo or repeat that delivery.
+    await api.actFacade.turnResult({ workFolder: childWorkFolder.id, taskId: child.taskId });
+    const followUp = api.requests.get(requestId)!;
+    assert.deepEqual(followUp.deliveredChildTaskIds, [child.taskId]);
+    assert.match(followUp.content, /succeeded: Arrives later/);
+  } finally {
+    h.releaseAll();
+    await api.close();
+  }
+});
+
 test("file and work-folder deletion refuse running, waiting, and stopped-but-draining work until it settles", async (t) => {
   const h = await collaborationHarness(t);
   const api = await h.open();
@@ -987,15 +1058,17 @@ test("a work-folder receives a child result that finished before its own turn, e
     const child = await api.actFacade.chatHandoff({ workFolder: source.id, taskId: parent.taskId, toWorkFolder: target.id, message: "/hold Find a fact.", files: [] });
     await api.actFacade.chatReport({ workFolder: target.id, taskId: child.taskId, summary: "Selected fact", outcome: "succeeded", data: { count: 7 }, files: [] });
     await h.release(child.taskId); await settled(api, target.id, child.taskId);
-    const read = await api.actFacade.turnResult({ workFolder: target.id, taskId: child.taskId });
-    assert.deepEqual(read.result?.data, { count: 7 });
-    assert.equal(read.result?.summary, "Selected fact");
+    // The parent never read it mid-turn (a `chat wait` read would count as
+    // delivered), so the result arrives in the follow-up turn instead.
     const record = api.requests.byTaskId(parent.taskId)!;
     assert.equal(record.turns.length, 1);
     await h.release(parent.taskId); await settled(api, source.id, parent.taskId);
     await waitFor(async () => api.requests.get(record.requestId)!.turns.length === 2);
     const continued = api.requests.get(record.requestId)!;
     await waitFor(async () => h.pending.some((p) => p.taskId === continued.turns[1]!.taskId));
+    const read = await api.actFacade.turnResult({ workFolder: target.id, taskId: child.taskId });
+    assert.deepEqual(read.result?.data, { count: 7 });
+    assert.equal(read.result?.summary, "Selected fact");
     assert.ok(continued.deliveredChildTaskIds.includes(child.taskId));
     assert.match(continued.content, /Selected fact/);
     assert.match(continued.content, /Submit any needed chat report before your final reply, then give the complete useful answer in that reply/);

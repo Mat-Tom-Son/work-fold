@@ -7,6 +7,7 @@ import { describeModelContextDispatch, installModelContextInspection, installMod
 import { includedResourceOptions } from "./included-tools.js";
 import type { WorkFoldSessionRole } from "./role-preamble.js";
 import { currentTurnEnvironment, describeTurnEnvironment, type PiTurnEnvironment } from "./turn-environment.js";
+import { promptTokensOf } from "./usage-tokens.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -1999,7 +2000,7 @@ interface SessionUsageBaseline {
 function sessionUsageBaseline(session: AgentSession): SessionUsageBaseline | null {
   try {
     const stats = session.getSessionStats();
-    return { inputTokens: stats.tokens.input, outputTokens: stats.tokens.output, amountUsd: stats.cost };
+    return { inputTokens: promptTokensOf(stats.tokens), outputTokens: stats.tokens.output, amountUsd: stats.cost };
   } catch {
     // Usage is attribution. A session that cannot report totals still runs its turn.
     return null;
