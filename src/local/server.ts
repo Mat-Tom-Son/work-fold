@@ -46,6 +46,7 @@ import {
   type PiChatEvent,
   type PiRuntimeProvider,
 } from "./agent/pi-client.js";
+import { workFoldHelperToolEnabled } from "./agent/helper-tool.js";
 import { parseAssistantPresentation } from "./agent/turn-presentation.js";
 import {
   maxDurableTurnTextChars,
@@ -11848,6 +11849,7 @@ async function runAgentTurn(
     // turn and what Pi reported it used. App-requested tasks read it back from
     // the turn journal as their receipt (docs/receipts-not-gates.md, F22).
     const turnUsage = client?.getTurnUsage() ?? null;
+    const helperRuns = client?.getTurnHelperRuns() ?? [];
     await state.turnStore.settle(taskId, {
       status: settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
@@ -11855,6 +11857,7 @@ async function runAgentTurn(
       assistantText: durableText,
       fileChanges: turnFileChanges(beforeCheckpoint, afterCheckpoint),
       ...(turnUsage ? { usage: turnUsage } : {}),
+      ...(helperRuns.length ? { helpers: helperRuns } : {}),
     }).catch((error) => {
       console.error(`Could not persist turn settlement: ${errorMessage(error)}`);
       return null;
@@ -12131,6 +12134,8 @@ async function getClient(
     imageModel: () => state.imageModelPreference.get(),
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
     ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
+    // Development experiment (WORKFOLD_DEV_HELPER_TOOL=1): Workers only.
+    ...(workFolderId !== workFoldAgentScopeId && workFoldHelperToolEnabled() ? { helperTool: true } : {}),
   });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(workFolderId, conversationId), assistantEventForRenderer(event));

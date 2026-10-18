@@ -24,7 +24,7 @@ import {
 /** Pi's inline image content shape, as accepted by `AgentSession.prompt`. */
 type ImageContent = NonNullable<NonNullable<Parameters<AgentSession["prompt"]>[1]>["images"]>[number];
 
-import { normalizeContext } from "@earendil-works/pi-ai";
+import { normalizeContext, type Usage } from "@earendil-works/pi-ai";
 
 import type { LoadedConversationContextAttachment } from "../conversation-context.js";
 import { prepareAttachmentContext, availableAttachmentTokens, type AttachmentReferenceManifest } from "./attachment-budget.js";
@@ -60,6 +60,7 @@ import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
+import { createHelperTool, type HelperRunRecord } from "./helper-tool.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -170,6 +171,8 @@ export interface PiConversationClientOptions {
   imageModel?: () => Promise<{ provider: string; id: string } | undefined>;
   /** Keeps generated pictures so a Chat can show them inline. */
   imageStore?: GeneratedImageSink;
+  /** Development experiment: offer Workers the read-only `helper` tool (helper-tool.ts). */
+  helperTool?: boolean;
 }
 
 export interface PiConversationState {
@@ -263,6 +266,12 @@ export class PiConversationClient extends EventEmitter {
    * turn outcome; nothing here decides whether a turn is accepted or how it ends.
    */
   private lastTurnUsage: WorkFoldDurableTurnUsage | null = null;
+  /** Helpers running inside this Chat's turn; Stop aborts them and the turn waits for each to unwind. */
+  private readonly helperRuns = new Set<{ controller: AbortController; settled: Promise<unknown> }>();
+  /** Helper runs settled during the current (or last) turn, recorded under it. */
+  private turnHelperRuns: HelperRunRecord[] = [];
+  /** Spend from helpers whose result never reached Pi (stopped), added to the turn's usage. */
+  private turnHelperUnreported: Usage[] = [];
 
   constructor(
     private readonly conversationId: string,
@@ -302,6 +311,8 @@ export class PiConversationClient extends EventEmitter {
     this.cancellationRequested = null;
     this.promptInFlight = true;
     this.lastTurnUsage = null;
+    this.turnHelperRuns = [];
+    this.turnHelperUnreported = [];
     // Measured around this turn only, so a later Chat title request or a bounded
     // app inference call on the same session cannot be charged to it.
     let measuredSession: AgentSession | null = null;
@@ -372,7 +383,16 @@ export class PiConversationClient extends EventEmitter {
       return reply;
     } finally {
       if (this.activeThinkingTrailId) this.emitThinkingEvent("end", undefined, undefined);
-      this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
+      // Stop rejects the prompt while native tools unwind. A helper is this
+      // turn's own work: it is aborted and fully drained here, so the host's
+      // final History checkpoint and its release of active-work reservations
+      // (both after prompt settles) never run beside a live helper.
+      await this.drainHelpers();
+      this.lastTurnUsage = withUnreportedHelperUsage(
+        measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null,
+        this.turnHelperUnreported,
+        measuredSession,
+      );
       owner.settled = true;
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
@@ -388,6 +408,19 @@ export class PiConversationClient extends EventEmitter {
    */
   getTurnUsage(): WorkFoldDurableTurnUsage | null {
     return this.lastTurnUsage ? { ...this.lastTurnUsage } : null;
+  }
+
+  /** Helper runs settled in the turn this client last ran (development experiment). */
+  getTurnHelperRuns(): HelperRunRecord[] {
+    return this.turnHelperRuns.map((run) => structuredClone(run));
+  }
+
+  /** Aborts every running helper and resolves once each has unwound. */
+  private async drainHelpers(): Promise<void> {
+    if (!this.helperRuns.size) return;
+    const runs = [...this.helperRuns];
+    for (const run of runs) run.controller.abort();
+    await Promise.all(runs.map((run) => run.settled));
   }
 
   /**
@@ -417,6 +450,7 @@ export class PiConversationClient extends EventEmitter {
     this.turnError = error;
     if (this.activeExtensionTurn) this.activeExtensionTurn.cancelled = true;
     this.resolvedRuntime?.config.extensionUi?.cancelScope?.(this.extensionUiScope());
+    for (const run of this.helperRuns) run.controller.abort();
     this.emitEvent({ type: "status", message: reason });
     this.rejectPrompt?.(error);
     if (session) void session.abort().catch(() => undefined);
@@ -658,6 +692,7 @@ export class PiConversationClient extends EventEmitter {
     this.resolvedRuntime?.config.extensionUi?.forgetScope?.(this.extensionUiScope());
     // Bounded app inference has no turn to settle; abort it so callers see an interruption, not a hang.
     for (const call of this.boundedCalls) call.abort();
+    for (const run of this.helperRuns) run.controller.abort();
     const session = this.runtimeHost?.session;
     if (this.promptInFlight) {
       const error = new Error("The turn stopped because work-fold is closing.");
@@ -768,6 +803,23 @@ export class PiConversationClient extends EventEmitter {
           })]
           : []),
         ...restrictedAppTools,
+        ...(this.options.helperTool ? [createHelperTool({
+          root: options.cwd,
+          session: () => (this.runtimeHost?.session ?? null) as never,
+          turn: () => {
+            const owner = this.activeExtensionTurn;
+            return owner && !owner.cancelled && !owner.settled ? { ...(owner.taskId ? { taskId: owner.taskId } : {}) } : null;
+          },
+          instructions: () => runtime.config.workerInstructions,
+          track: (run) => {
+            this.helperRuns.add(run);
+            void run.settled.finally(() => this.helperRuns.delete(run));
+          },
+          record: (run, unreported) => {
+            this.turnHelperRuns.push(run);
+            if (unreported) this.turnHelperUnreported.push(unreported);
+          },
+        })] : []),
       ];
       const result = await createAgentSessionFromServices({
         services,
@@ -1929,6 +1981,28 @@ function settledTurnUsage(session: AgentSession, baseline: SessionUsageBaseline)
     // Pi can only price a model that carries rates. Without them the cost is
     // unknown, so the receipt omits it instead of claiming the turn was free.
     ...(modelCarriesPricing(model) && Number.isFinite(amountUsd) ? { amountUsd } : {}),
+  };
+}
+
+/** A stopped helper's spend never reached Pi as a tool result; the turn still owes it. */
+function withUnreportedHelperUsage(
+  usage: WorkFoldDurableTurnUsage | null,
+  unreported: Usage[],
+  session: AgentSession | null,
+): WorkFoldDurableTurnUsage | null {
+  if (!unreported.length) return usage;
+  const model = session?.model;
+  const inputTokens = unreported.reduce((sum, part) => sum + part.input, 0);
+  const outputTokens = unreported.reduce((sum, part) => sum + part.output, 0);
+  const amountUsd = unreported.reduce((sum, part) => sum + part.cost.total, 0);
+  if (!usage && !model) return null;
+  const base = usage ?? { provider: model!.provider, modelId: model!.id, inputTokens: 0, outputTokens: 0,
+    ...(model && modelCarriesPricing(model) ? { amountUsd: 0 } : {}) };
+  return {
+    ...base,
+    inputTokens: base.inputTokens + inputTokens,
+    outputTokens: base.outputTokens + outputTokens,
+    ...(base.amountUsd !== undefined ? { amountUsd: base.amountUsd + amountUsd } : {}),
   };
 }
 

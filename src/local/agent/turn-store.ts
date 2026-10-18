@@ -51,6 +51,20 @@ export interface WorkFoldDurableTurnRecord {
   error?: string;
   fileChanges?: WorkFoldTurnFileChanges;
   usage?: WorkFoldDurableTurnUsage;
+  /** Development experiment: read-only helpers this turn ran (helper-tool.ts). Counts, ids and paths only. */
+  helpers?: WorkFoldTurnHelperRun[];
+}
+
+export interface WorkFoldTurnHelperRun {
+  helperId: string;
+  taskId?: string;
+  startedAt: string;
+  settledAt: string;
+  outcome: "succeeded" | "partial" | "failed" | "stopped";
+  model: { provider: string; id: string };
+  modelCalls: number;
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number };
+  activity: Array<{ tool: string; target?: string; refused?: boolean; error?: boolean }>;
 }
 
 export interface WorkFoldTurnStoreOptions {
@@ -188,7 +202,7 @@ export class WorkFoldTurnStore {
 
   settle(
     turnId: string,
-    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string; fileChanges?: WorkFoldTurnFileChanges; usage?: WorkFoldDurableTurnUsage },
+    input: { status: Exclude<WorkFoldDurableTurnStatus, "accepted" | "running">; messageId?: string; error?: string; assistantText?: string; fileChanges?: WorkFoldTurnFileChanges; usage?: WorkFoldDurableTurnUsage; helpers?: WorkFoldTurnHelperRun[] },
   ): Promise<WorkFoldDurableTurnRecord | null> {
     return this.#update(turnId, (record) => ({
       ...record,
@@ -200,6 +214,7 @@ export class WorkFoldTurnStore {
       ...(input.fileChanges ? { fileChanges: parseTurnFileChanges(input.fileChanges) } : {}),
       // Attribution only: a settled turn's usage never changes what the turn did.
       ...(input.usage ? { usage: parseTurnUsage(input.usage) } : {}),
+      ...(input.helpers?.length ? { helpers: parseTurnHelperRuns(input.helpers) } : {}),
     }));
   }
 
@@ -344,7 +359,53 @@ function parseRecord(value: unknown): WorkFoldDurableTurnRecord {
   if (record.messageId !== undefined) validateStableId(record.messageId, "response message id");
   if (record.error !== undefined && (typeof record.error !== "string" || record.error.length > 2_048)) throw new Error("Turn error is invalid.");
   if (record.usage !== undefined) record.usage = parseTurnUsage(record.usage);
+  if (record.helpers !== undefined) record.helpers = parseTurnHelperRuns(record.helpers);
   return record as WorkFoldDurableTurnRecord;
+}
+
+/** A helper record is attribution: ids, outcome, counts and the paths it touched, never file content. */
+export function parseTurnHelperRuns(value: unknown): WorkFoldTurnHelperRun[] {
+  if (!Array.isArray(value)) throw new Error("Turn helpers are invalid.");
+  const count = (input: unknown, label: string) => {
+    if (typeof input !== "number" || !Number.isFinite(input) || input < 0) throw new Error(`Turn helper ${label} is invalid.`);
+    return input;
+  };
+  const text = (input: unknown, label: string, max = 200) => {
+    if (typeof input !== "string" || !input.length || input.length > max) throw new Error(`Turn helper ${label} is invalid.`);
+    return input;
+  };
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Turn helper is invalid.");
+    const run = item as Record<string, unknown>;
+    const outcome = run.outcome;
+    if (outcome !== "succeeded" && outcome !== "partial" && outcome !== "failed" && outcome !== "stopped") throw new Error("Turn helper outcome is invalid.");
+    const model = (run.model ?? {}) as Record<string, unknown>;
+    const usage = (run.usage ?? {}) as Record<string, unknown>;
+    const activity = Array.isArray(run.activity) ? run.activity.slice(0, 200) : [];
+    return {
+      helperId: text(run.helperId, "id"),
+      ...(run.taskId !== undefined ? { taskId: text(run.taskId, "task id") } : {}),
+      startedAt: text(run.startedAt, "start time"),
+      settledAt: text(run.settledAt, "settle time"),
+      outcome,
+      model: { provider: text(model.provider, "provider"), id: text(model.id, "model") },
+      modelCalls: count(run.modelCalls, "model calls"),
+      usage: {
+        input: count(usage.input, "input tokens"), output: count(usage.output, "output tokens"),
+        cacheRead: count(usage.cacheRead, "cache reads"), cacheWrite: count(usage.cacheWrite, "cache writes"),
+        costUsd: count(usage.costUsd, "cost"),
+      },
+      activity: activity.map((entry) => {
+        const record = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+        return {
+          tool: text(record.tool, "activity tool", 64),
+          ...(typeof record.target === "string" && record.target.length ? { target: record.target.slice(0, 300) } : {}),
+          ...(record.refused === true ? { refused: true } : {}),
+          ...(record.error === true ? { error: true } : {}),
+        };
+      }),
+    };
+  });
 }
 
 /** A usage receipt records only counts and identifiers, never prompt or reply content. */
@@ -393,5 +454,6 @@ function copyRecord(record: WorkFoldDurableTurnRecord): WorkFoldDurableTurnRecor
     ...record,
     ...(record.fileChanges ? { fileChanges: structuredClone(record.fileChanges) } : {}),
     ...(record.usage ? { usage: { ...record.usage } } : {}),
+    ...(record.helpers ? { helpers: structuredClone(record.helpers) } : {}),
   };
 }
