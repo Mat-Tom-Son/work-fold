@@ -22,21 +22,27 @@ Otherwise, defer it.
 
 **Answer.**
 
-- **(a) holds, once and narrowly.** Only one model compacted mid-turn: GPT-6
-  Luna, at an artificially low trigger (one I lowered on purpose). In 1 of
-  those 2 runs the single Chat lost its task identity, so its report was never
-  recorded, and it lost 3 of its 10 findings. Same-folder handoff kept the
-  parent below the trigger and stayed perfect.
-- **The root cause is a compaction bug, not missing helpers.** Pi's summary
-  wrote the previous turn's task id into its "Critical context". That bug
-  should be fixed first; it is cheap and protects every Worker.
+- **(a) holds, for quality.** Only one model compacted mid-turn: GPT-6 Luna,
+  at a trigger I lowered on purpose. Across 6 such single-Chat turns, 4 lost
+  findings, scoring 7, 7, 4 and 4 out of 10. The Worker reported each partial
+  list as complete. Same-folder handoff kept the parent below the trigger and
+  stayed perfect.
+- **Task identity is now fixed separately.** Before the fix, one of those runs
+  also lost its task id. Pi's summary had written the previous turn's id into
+  its "Critical context", so the report was refused. Branch
+  `claude/compaction-keeps-task-id` (ec260a4) restates the turn's exact ids
+  after any mid-turn compaction. With it, 4 of 4 compacting turns recorded
+  their report under the right id. Lost findings are a separate problem the
+  fix doesn't touch.
 - **(b) does not hold.** About 80–94% of a turn's time is model round trips,
   and Workers already batch their reads or write scripts to scan files. Every
   helper path needs about 5 or more round trips one after another, so it can't
   be much faster. The one-helper arm was 1.3–2.3× slower than a single Chat.
-- **Recommendation:** fix the compaction bug first. Then, following Mat's
-  rule, resume the helper, aimed only at long Chats near their compaction
-  point, and re-measure that case before shipping anything. Don't teach
+- **Recommendation:** merge the task-id fix. Following Mat's rule, resume the
+  helper, aimed at long Chats near their compaction point, where a fresh reader
+  keeps findings that compaction drops. Re-measure that case against the
+  single Chat before shipping anything. Improving what Pi's compaction summary
+  keeps is the other lever. Don't teach
   same-folder handoff for reading. It's accurate under pressure but 1.2–2.2×
   slower, and it trips the duplicate-turn bug every time.
 
@@ -150,6 +156,17 @@ The other GPT-6 Luna run also compacted, and it reported correctly with a
 perfect list. In handoff, the parent stayed below its trigger and the child
 started fresh, so both handoff runs stayed perfect.
 
+**After the task-id fix** (`claude/compaction-keeps-task-id`, ec260a4), I ran
+4 more GPT-6 Luna single-Chat runs, same task and trigger:
+
+- **Compaction:** all 4 compacted mid-turn.
+- **Reports:** all 4 were recorded under the correct task id.
+- **Quality:** 7/10, 10/10, 4/10 and 4/10.
+
+Findings gathered before compaction didn't survive the summary. The Worker
+then presented the partial list as the answer, for example "Found and reported
+four matches", and recorded it as succeeded.
+
 Opus never compacted: not in its 4 single-Chat turns, and not in the handoff
 parents. Single-Chat usage reached 154–164k tokens against triggers of 145k
 and 155k. I haven't established why Pi's mid-turn
@@ -262,13 +279,18 @@ single Chat's. With the hint, it grew 0.14–0.34× as much.
 
 Each of these is independent of the helper.
 
-- **Compaction drops or confuses the turn's task id. Fix this first.**
-  - *What happens:* Pi's summary carried an earlier turn's task id as the
-    current one, and the hidden turn context was summarized away. The Worker
-    lost the ability to record its result, and lost findings with it.
-  - *Options:* re-inject the turn context after an auto-compaction; have the
-    act lane default `--task` from an environment variable set for that turn's
-    bash processes; or both. Re-test with the long-Chat task in this harness.
+- **Compaction lost the turn's task id. Fixed on branch
+  `claude/compaction-keeps-task-id` (ec260a4), not yet merged.** A request-local
+  hook restates the turn's exact ids after any mid-turn compaction. Measured:
+  4 of 4 compacting turns recorded their report under the right id.
+- **Compaction loses findings collected earlier in the same turn.** 4 of 6
+  compacting GPT-6 Luna turns returned a partial list as if it were complete.
+  Options:
+  - teach the Worker to keep running findings in a `.worker/` file during long
+    searches;
+  - give Pi's summary instructions that preserve in-progress results (Pi offers
+    a `session_before_compact` hook);
+  - hand the reading to a fresh context: handoff today, or the helper.
 - **Why Opus never compacted mid-turn.** Its turns passed the trigger without
   compacting. Find out whether Pi's mid-turn check behaves differently for some
   providers or models.
@@ -338,12 +360,13 @@ written to disk.
    npx tsx scripts/helper-eval/score.ts --fixtures out/helper-eval/fixtures out/helper-eval/run1 --answers
    ```
 
-**Spend.** OpenRouter billed about $17.70 in total:
+**Spend.** OpenRouter billed about $17.85 in total:
 
 - $0.50 for steps 1–2 and the Stop runs (GPT-6 Luna);
 - $10.42 for step 3's measured turns, mostly Opus;
 - $5.85 for step 3's untimed long-Chat setup turns;
-- $0.91 for calibration and smoke runs.
+- $0.91 for calibration and smoke runs;
+- $0.15 for the post-fix check.
 
 There are two or three runs per cell, so these are observations, not success
 rates.
