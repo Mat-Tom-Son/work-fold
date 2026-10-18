@@ -1,9 +1,10 @@
 # Background jobs
 
-> **Status:** Proposed 2026-10-18 for owner decision. It extends
+> **Status:** Accepted 2026-10-18 (owner decision) and built. It extends
 > [the collaboration contract](collaboration-contract.md) (F25–F30) under
-> [Receipts, not gates](receipts-not-gates.md). Where this document and either
-> of those differ, they govern until this proposal is accepted.
+> [Receipts, not gates](receipts-not-gates.md); where they differ, those
+> records govern. `src/local/jobs/`, `src/local/agent/job-tools.ts`, the
+> `jobs` act verbs, and their suites are the implementation authority.
 
 A Worker or the work-fold agent starts a shell command, keeps working or ends
 its turn, and is woken with the result when the command exits. Exports,
@@ -71,7 +72,8 @@ work-fold jobs stop   --work-folder <id> --job <id> [--parent-task <id>] --json
   `--task` to be the caller's own running turn, as `chat report` does.
 - `list`, `show`, and `output` are act reads. A job is readable only through
   its own work-folder. A read counts as delivery only when `--task` names the
-  reader's running turn in the job's own Chat.
+  reader's running turn in the job's own Chat; `jobs stop` takes no `--task`,
+  so a job stopped from the CLI still wakes its Chat once.
 - The work-fold agent reaches its own jobs through the tools; `requests show`
   lists them. The work-fold agent can read and stop any Worker's job through
   `--work-folder`.
@@ -110,14 +112,18 @@ not start) | `interrupted` (work-fold closed or restarted first).
 - **Deletion and restore.** A running job keeps its request unfinished, so
   deleting its Chat, a file in its work-folder, or the work-folder refuses
   until the job ends or is stopped, as settled deletion already does for
-  turns. Removing the work-folder's registration and restoring the whole
-  work-folder from History refuse while a job runs in it. Each refusal names
-  the job and how to stop it.
+  turns, and a job a Stop is still ending keeps it unfinished until it has.
+  Removing the work-folder's registration and restoring the whole
+  work-folder from History refuse while a job runs in it; the restore
+  refusal names the job. Installing, updating, or removing Skills &
+  Extensions does not wait for jobs: a shell process loads no Pi resources.
 
 ## Wake-up
 
 When a job ends, the host records it, captures History, and then evaluates
-delivery on the same settle chain as turn settles:
+delivery on the same settle chain as turn settles. The job's reference on
+its request settles only after that decision, so a request whose follow-up
+is reserved never reads `done` in between:
 
 1. If a turn in the job's Chat has already read its end, nothing more happens.
 2. If a turn is running in that Chat, it can read the job directly. When that
@@ -201,7 +207,11 @@ work is done.
 - The work line shows **Running in the background** with the job's name and
   running time while the request's only outstanding work is jobs, and keeps
   Stop available.
-- A job tool call renders in the Chat's work trail like `bash`.
+- A job tool call renders in the Chat's work trail like any other tool.
+- Settings → Automations → Limits lists the job bounds, and its one switch
+  ("Continue requests when handed-out work or background jobs finish") also
+  turns job follow-ups off; a finished job then reaches the next turn's
+  context instead.
 - `requests show` and the request record list their jobs; `jobs list`
   lists a work-folder's.
 
@@ -215,20 +225,20 @@ work is done.
   panel.
 - CLI access to the work-fold agent's own jobs (it uses the tools).
 
-## Open decisions
+## Owner decisions (2026-10-18)
 
-1. **Name.** Proposed: **background job** in the interface, `jobs` on the
-   CLI, `job_start`/`job_output`/`job_stop` as tools. ("Command" collides
-   with "the `work-fold` command"; "task" is already the turn id.)
-2. **Capability mutations.** The brief asked that capability mutations wait
-   for a job, as they wait for a turn. Proposed instead: deletion, registration
-   removal, and whole-work-folder History restore wait; installing, updating,
-   or removing Skills & Extensions does not. A shell process does not load Pi
-   resources, and a dev server would otherwise block installs for hours.
-3. **Default `wait` on `job_start`.** Proposed: 3 seconds, so a typo or a
-   missing program comes back in the same call. 0 returns immediately.
+1. **Name.** **Background job** in the interface, `jobs` on the CLI,
+   `job_start`/`job_output`/`job_stop` as tools. ("Command" collides with
+   "the `work-fold` command"; "task" is already the turn id.)
+2. **Capability mutations do not wait.** Deletion, registration removal,
+   and whole-work-folder History restore wait for a running job; installing,
+   updating, or removing Skills & Extensions does not. A shell process does
+   not load Pi resources, and a dev server would otherwise block installs for
+   hours.
+3. **`job_start` waits 3 seconds by default**, so a typo or a missing
+   program comes back in the same call; `wait: 0` returns at once.
 
-## Build plan and acceptance
+## Build and acceptance
 
 1. Job store and records (`src/local/jobs/`), state paths, retention, and
    restart reconciliation before request reconciliation.
@@ -243,10 +253,20 @@ work is done.
    (this one, the collaboration contract, the CLI guide, the act ledger, README,
    SECURITY, PRIVACY).
 
-Focused tests cover start, output paging and `until`, stop, timeout, the
-wake-up follow-up (exactly once, batched, not after Stop, not while a question
-waits, not when a turn already read it), restart-interrupted with no wake-up,
-Stop propagation to descendants' jobs, deletion and restore refusal while
-running, quit, and the CLI family end to end. A real turn through
-`npm run work-fold:drive` in a disposable folder starts a job that outlives
-the turn and confirms the follow-up turn arrives with its result.
+`tests/background-job-service.test.ts` covers the service on real processes:
+start, exit, History and settle ports, `until`, process-group stop, timeout,
+paging, line-boundary segment rotation, the running bound, refusals, quit,
+restart reconciliation with provable-identity reaping, single delivery, and
+retention. `tests/background-jobs-journey.test.ts` drives real turns on a
+scripted provider: the one follow-up with exit, History, and output; delivery
+by a read and by the next turn's context; request Stop with deletion waiting;
+the restore fence; quit and restart without a wake-up; and the work-fold
+agent's own jobs and scope. `tests/work-fold-cli-jobs-verbs.test.ts` runs the
+`jobs` family through the real executor and facade inside a held turn.
+
+Real turn, 2026-10-18 (`npm run work-fold:drive -- --follow-ups 1`, OpenRouter
+`openai/gpt-6-luna`, disposable folder): asked to run a 40-second command
+without waiting, the Worker called `job_start` and ended its turn; 40 seconds
+later one follow-up turn arrived carrying exit code 0, a History checkpoint
+covering the file the command wrote, and its output line, and the Worker
+reported that line. Nothing was re-run and no second follow-up started.

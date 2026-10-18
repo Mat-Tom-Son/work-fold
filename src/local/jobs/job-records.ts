@@ -349,7 +349,7 @@ export function describeJobHistory(history: WorkFoldJobHistory | null): string {
       const skipped = history.skippedFileCount
         ? `; ${history.skippedFileCount} skipped (${Object.entries(history.skippedByReason).map(([reason, count]) => `${count} ${reason.replace(/_/g, " ")}`).join(", ")})`
         : "";
-      return `History: checkpoint ${history.checkpointId} after it ended (${history.fileCount} files kept${skipped}).`;
+      return `History: checkpoint ${history.checkpointId} after it ended (${history.fileCount} file${history.fileCount === 1 ? "" : "s"} kept${skipped}).`;
     }
     case "unavailable": return `History: no checkpoint after it ended — ${history.reason}`;
     case "not_applicable": return `History: ${history.reason}`;

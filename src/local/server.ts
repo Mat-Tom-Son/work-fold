@@ -11858,6 +11858,7 @@ async function composeBackgroundJobLines(state: LocalApiState, jobs: readonly Wo
     );
     if (output.text) lines.push("", fenceJobOutput(output.text), "");
   }
+  if (lines.at(-1) === "") lines.pop();
   return lines;
 }
 

@@ -85,6 +85,25 @@ request by owner.
   rules, and docs section stay as Pi renders them, the transcript keeps Pi's
   recorded sections, and a person's own `SYSTEM.md` is left as written.
 
+### 2026-10-18 amendment: background jobs
+
+[Background jobs](background-jobs.md) (F31–F33) add a request's own
+long-running work to this contract without a new lifecycle:
+
+- **A job is outstanding work of its request.** A shell command a running
+  Worker or work-fold agent turn starts with `job_start` or `jobs start`
+  joins that turn's request, which reads `working` while it runs (state rule
+  6) and `failed` if a restart interrupted it (rule 9). Stop on the request,
+  or any ancestor, stops it; settled deletion waits for it.
+- **A finished job continues its request once (F28).** Its end is delivered
+  by a read in its Chat, by the next turn's context, or by one host follow-up
+  joined to its request, carrying the exit status, History coverage, and the
+  end of the output. Delivery is recorded by job id. A finished job does not
+  wait for delegated children, and the Limits switch, Stop fences, and
+  "restart never replays" apply unchanged.
+- **Output stays machine-local.** Only what a turn reads or the follow-up
+  carries enters a Chat.
+
 ## Verbs
 
 All are act-lane and receipted; `chat` verbs name a work-folder and `agent` verbs own management questions. They are available to the work-fold agent, a work-folder

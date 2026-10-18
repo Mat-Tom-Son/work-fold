@@ -322,12 +322,11 @@ export async function readJobOutputPage(
 /** One header line a model or a person reads above the output text. */
 export function describeJobOutputRead(read: JobOutputRead): string {
   if (!read.totalLines) return "No output yet.";
-  const dropped = read.droppedLines ? `; the first ${read.droppedLines} lines were dropped to bound disk use` : "";
-  if (!read.fromLine) return `Output: ${read.totalLines} lines (${formatBytes(read.totalBytes)})${dropped}; nothing at that offset.`;
-  const range = read.fromLine === 1 && read.toLine === read.totalLines
-    ? `all ${read.totalLines} lines`
-    : `lines ${read.fromLine}–${read.toLine} of ${read.totalLines}`;
-  return `Output: ${range} (${formatBytes(read.totalBytes)} in all)${dropped}.`;
+  const lines = (count: number) => `${count} line${count === 1 ? "" : "s"}`;
+  const dropped = read.droppedLines ? `; the first ${lines(read.droppedLines)} were dropped to bound disk use` : "";
+  if (!read.fromLine) return `Output: ${lines(read.totalLines)} (${formatBytes(read.totalBytes)})${dropped}; nothing at that offset.`;
+  if (read.fromLine === 1 && read.toLine === read.totalLines) return `Output: ${lines(read.totalLines)} (${formatBytes(read.totalBytes)})${dropped}.`;
+  return `Output: lines ${read.fromLine}–${read.toLine} of ${read.totalLines} (${formatBytes(read.totalBytes)} in all)${dropped}.`;
 }
 
 export function formatBytes(bytes: number): string {
