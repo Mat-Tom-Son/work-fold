@@ -359,7 +359,9 @@ settled when the owning Chat is idle and selected child results have not been de
 follow-up turn in that conversation — a `system`-actor turn joined to the root,
 naming each settled child, its outcome, the files it chose, and any question
 still open beneath it. Delivered child turns are recorded so a result is not
-delivered twice. There is no continuation-count quota. Continuations never
+delivered twice. A child result the parent's still-running turn reads with
+`chat result` or `agent result` (the last step of `chat wait`) counts as
+delivered too, so the follow-up never repeats it. There is no continuation-count quota. Continuations never
 follow a root Stop, an expired legacy request, a configured spending-cap
 failure, or a restart, and a person can turn them off in Settings → Automations
 → Limits. Compaction cleanup reevaluates deliveries deferred by that Chat,

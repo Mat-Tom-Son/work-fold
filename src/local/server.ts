@@ -9521,13 +9521,33 @@ async function turnResultForScope(
   const messages = await runActOperation(() => readConversation(rootPath, conversationId));
   const message = messages.find((item) => item.id === task.messageId);
   if (!message) throw new WorkFoldCliError("failure", "The turn's response message could not be found in the transcript.");
+  const result = await completedRequestEnvelope(state, taskId);
+  await noteResultReadByRunningParent(state, taskId);
   return {
     conversationId,
     task: { taskId, state: "succeeded" as const, endedAt: task.endedAt! },
     message: toActChatMessage(message),
     request: state.requests.byTaskId(taskId) ? toActRequestRefForWorkFolder(state, state.requests.byTaskId(taskId)!) : null,
-    result: await completedRequestEnvelope(state, taskId),
+    result,
   };
+}
+
+/**
+ * A parent that reads a child's settled result while its own turn is still
+ * running has received it: `chat wait` and `agent wait` end with exactly this
+ * read. Recording that delivery by the child's turn identity keeps the host
+ * from starting a follow-up turn that repeats the same result (F28). A later
+ * child turn, such as an answer's continuation, is a new identity and is
+ * still delivered.
+ */
+async function noteResultReadByRunningParent(state: LocalApiState, taskId: string): Promise<void> {
+  const child = state.requests.byTaskId(taskId);
+  if (!child?.parentRequestId || !isWorkFoldRequestTerminalState(child.state) || child.turns.at(-1)!.taskId !== taskId) return;
+  const parent = state.requests.get(child.parentRequestId);
+  const parentTurn = parent?.turns.at(-1);
+  if (!parent || !parentTurn || (parentTurn.state !== "accepted" && parentTurn.state !== "running")) return;
+  if (parent.deliveredChildTaskIds.includes(taskId)) return;
+  await state.requests.noteChildDelivery(parent.requestId, [taskId]);
 }
 
 /** Only a request's selected report/final reply, never its transcript or graph. */

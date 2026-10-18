@@ -135,7 +135,10 @@ work-fold requests list|show --request <id> --json                          # ma
   acceptance path, links it as a child of the caller's root request, and the
   destination's report flows back to that root.
 - Delivery of a report to a parent whose turn is still running is available
-  to that turn through `chat wait`; a parent whose turn has ended sees it in
+  to that turn through `chat wait`. Reading a child's settled result with
+  `chat result` or `agent result` while the parent's turn runs, which is how
+  `chat wait` ends, records that child turn as delivered, so no follow-up
+  turn repeats it (2026-10-18). A parent whose turn has ended sees it in
   `agent status`, `requests show`, the overview, and the continuation turn.
 
 ## Completion, delivery and recovery
@@ -151,7 +154,7 @@ work-folder continuation rebuilds its assignment and delegated handle from that
 record. Selected direct-child reports may be admitted into a new turn's hidden
 context; their delivery identities are recorded. Otherwise an idle owner can
 receive one synthesis turn. Children finishing before their parent
-ends are eligible too. Nested owners synthesize before their own parent wakes.
+ends are eligible too, unless the parent already read that result mid-turn. Nested owners synthesize before their own parent wakes.
 When compaction holds an otherwise idle owner, both successful and failed
 compaction cleanup reevaluate its pending child deliveries. This releases
 only results settled during the current app run; restart never replays them.
