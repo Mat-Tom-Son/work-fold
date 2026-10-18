@@ -1,4 +1,7 @@
 /**
+ * WORK IN PROGRESS — ON HOLD (2026-10-18). Do not merge. Kept for the helper
+ * experiment; resume only if the context-pressure results justify it.
+ *
  * Development-only read-only helper for Workers (`WORKFOLD_DEV_HELPER_TOOL=1`).
  *
  * An experiment, not a product surface: see docs/archive/helper-tool-experiment.md.
