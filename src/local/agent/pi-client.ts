@@ -62,6 +62,14 @@ import { type RestrictedAppProposalHost, type RestrictedAppProposalResult } from
 import { restrictedAppAutomationIntervalMinutes } from "./restricted-app-manifest.js";
 import { restrictedAppStarterFiles, writeRestrictedAppStarter } from "./restricted-app-starter.js";
 import { createImageGenerationTool, type GeneratedImageSink } from "./image-generation-tool.js";
+import {
+  buildTurnIdentity,
+  turnIdentityAfterCompactionExtension,
+  workFoldAgentTaskLines,
+  workFoldTurnContextCustomType,
+  workFolderTurnIdentityLines,
+  type WorkFoldTurnIdentity,
+} from "./turn-identity.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -269,6 +277,8 @@ export class PiConversationClient extends EventEmitter {
    * turn outcome; nothing here decides whether a turn is accepted or how it ends.
    */
   private lastTurnUsage: WorkFoldDurableTurnUsage | null = null;
+  /** The running turn's ids, restated after a mid-turn compaction (turn-identity.ts). */
+  private turnIdentity: WorkFoldTurnIdentity | null = null;
 
   constructor(
     private readonly conversationId: string,
@@ -308,6 +318,7 @@ export class PiConversationClient extends EventEmitter {
     this.cancellationRequested = null;
     this.promptInFlight = true;
     this.lastTurnUsage = null;
+    this.turnIdentity = null;
     // Measured around this turn only, so a later Chat title request or a bounded
     // app inference call on the same session cannot be charged to it.
     let measuredSession: AgentSession | null = null;
@@ -344,10 +355,11 @@ export class PiConversationClient extends EventEmitter {
         const contextMessage = buildTurnContextMessage(context);
         if (contextMessage) {
           await this.awaitCancellation(session.sendCustomMessage({
-            customType: "work-fold-turn-context",
+            customType: workFoldTurnContextCustomType,
             content: contextMessage,
             display: false,
           }, { deliverAs: "nextTurn" }));
+          this.turnIdentity = buildTurnIdentity(context);
         }
       }
 
@@ -383,6 +395,7 @@ export class PiConversationClient extends EventEmitter {
       owner.settled = true;
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
+      this.turnIdentity = null;
       this.promptInFlight = false;
     }
   }
@@ -734,7 +747,7 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await includedResourceOptions(options.cwd, runtime, "session", this.options.role ?? "worker"),
+          ...await sessionResourceOptions(options.cwd, runtime, this.options.role ?? "worker", () => this.turnIdentity),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -1726,6 +1739,23 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
   return model && runtime.modelRuntime.hasConfiguredAuth(model.provider) ? model : undefined;
 }
 
+/** Included resources for a Chat session, plus the hook that restates a turn's ids after compaction. */
+async function sessionResourceOptions(
+  cwd: string,
+  runtime: ResolvedPiRuntime,
+  role: NonNullable<PiConversationClientOptions["role"]>,
+  turnIdentity: () => WorkFoldTurnIdentity | null,
+) {
+  const included = await includedResourceOptions(cwd, runtime, "session", role);
+  return {
+    ...included,
+    extensionFactories: [
+      ...included.extensionFactories,
+      { name: "work_fold_turn_identity", builtin: true, factory: turnIdentityAfterCompactionExtension(turnIdentity) },
+    ],
+  };
+}
+
 export function buildTurnContextMessage(context: PiTurnContext): string {
   const lines: string[] = [];
   if (context.environment) lines.push(describeTurnEnvironment(context.environment));
@@ -1735,11 +1765,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
     // work-folders it names are the ones nested inside this one and the ones the
     // person addressed with @ (collaboration contract, 2026-10-01 amendment).
     const turn = context.workFolderTurn;
-    lines.push(
-      "This turn's work-fold identity (host-owned; use these exact ids):",
-      JSON.stringify({ workFolderId: turn.workFolderId, taskId: turn.taskId, requestId: turn.requestId }, null, 2),
-      "Pass --work-folder with that work-folder id and --task with that task id on chat report, chat ask, and chat handoff. A task id is accepted only while that exact turn is yours and running.",
-    );
+    lines.push(...workFolderTurnIdentityLines(turn));
     if (turn.history) {
       lines.push("History capture before this turn (host-owned):", JSON.stringify(turn.history),
         "A captured checkpoint may reuse identical saved content. Coverage is limited to the files captured; skipped entries are not backed up by this checkpoint. Use history read/diff to inspect saved content without restoring. Do not make another save solely to duplicate this checkpoint.");
@@ -1798,13 +1824,7 @@ export function buildTurnContextMessage(context: PiTurnContext): string {
       );
     }
   }
-  if (context.workFoldAgentTaskId) {
-    lines.push(
-      "This work-fold agent request's task id is:",
-      context.workFoldAgentTaskId,
-      "Add --parent-task with that exact id to each chat send, work-folders create/register, or files add command you run for this request. Do not reuse it in a later request.",
-    );
-  }
+  if (context.workFoldAgentTaskId) lines.push(...workFoldAgentTaskLines(context.workFoldAgentTaskId));
   if (context.automation) {
     // An Automation step's turn (docs/automations.md, 2026-10-11): the message
     // is the whole instruction, nobody reads the reply while it runs, and the
