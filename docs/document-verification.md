@@ -136,3 +136,77 @@ runs. Nothing is bundled.
   without LibreOffice.
 - One-click install through Homebrew from inside work-fold.
 - Exporting through the person's own Word or PowerPoint with Computer Control.
+
+## Addendum: a Quick Look preview without LibreOffice
+
+Design note, 2026-10-18. Approved by Mat on 2026-10-18: Word page 1 plus any slide of a deck, with the partial preview mentioned in the Documents detail on macOS.
+
+The evaluation found that the fault seen most often on pages nobody looked at
+was a word or amount split across lines in a narrow table column. Every Mac
+can already draw Office files without LibreOffice or Microsoft Office:
+Quick Look's built-in generator (`/System/Library/QuickLook/Office.qlgenerator`)
+handles Word, PowerPoint and Excel files, and `qlmanage -t` writes its
+thumbnail as a PNG.
+
+### What a survey of `qlmanage` showed
+
+- **Fast and faithful enough.** About 0.1 seconds per file. A Word page came
+  out at 1246 × 1600 pixels with `-s 1600`, and up to 3200 pixels on request.
+  It showed the same split words and amounts LibreOffice did. Fonts are
+  substituted differently from Word, as with LibreOffice.
+- **One page only.** A thumbnail is the first page of a Word file, the first
+  slide of a deck, or part of the first sheet of a workbook.
+- **Any slide, via a private copy.** Reordering the slide list in a private
+  copy of a deck makes Quick Look draw any chosen slide. A Word document has
+  no such order to change, so only page 1 can be drawn.
+- **Workbooks are not worth it.** Their thumbnails crop the sheet oddly
+  (a two-column sheet showed only its first column and part of the second)
+  and show cached values only.
+- **It hangs on failure.** On a missing, empty or damaged file, `qlmanage`
+  writes nothing and never exits. It needs a deadline and a kill.
+- **No sandboxing.** It cannot start inside a `sandbox-exec` profile.
+- `qlmanage --version` reports the Quick Look framework version.
+
+### Proposal
+
+1. **A `preview` operation on `document_engine`, macOS only.**
+   - It takes a DOCX or PPTX source and a new PNG output path, plus an
+     optional `slide` number for a deck.
+   - For a slide other than the first, it makes a private copy with that
+     slide moved to the front. The source file is never changed.
+   - Otherwise it works exactly like `render`: it captures a private copy,
+     reports source and output hashes and the Quick Look version, keeps a
+     log, and supports Stop.
+   - It has a 60-second default deadline, because a file Quick Look cannot
+     draw never finishes. `timeoutMs` overrides it.
+   - When no image appears, it says: "Quick Look couldn't draw this file. It
+     may be damaged, or a kind Quick Look doesn't know."
+2. **`status` lists Quick Look** as an engine: available on macOS, nothing
+   to install, operations `["preview"]`. The tool and the Documents status
+   look in the same places. A host's `documentEngineSearch` now reaches the
+   tool as well as the strip.
+3. **The Documents status word does not change.** It stays **Setup Needed**
+   without LibreOffice, because Quick Look covers one page and calculates
+   nothing. On macOS the detail becomes: "Your Worker can preview the first
+   page of a Word file and each slide of a deck, but can't check every page
+   or what spreadsheet formulas calculate. Install LibreOffice to turn that
+   on." Set up is unchanged.
+4. **The Skill: without LibreOffice on a Mac,**
+   - preview page 1 of every Word file and every slide of a deck, look at
+     them, fix, and preview again;
+   - to see a later part of a Word document it made, build a review copy
+     that starts with that part;
+   - say in the report which pages were seen and which were not, and still
+     point to Set Up.
+5. **Evaluation.** Quick Look cannot run inside the sandbox profile, so a new
+   no-LibreOffice condition hides LibreOffice and Tesseract through the
+   host's `documentEngineSearch`, and drops Homebrew's folders from the
+   host's `PATH`. Transcripts are checked for any use of `soffice`. The
+   report and deck tasks are rerun, and the results are added to the
+   evaluation page.
+
+As built, the evaluation added two Skill rules:
+- never reshape the deliverable to suit the preview, because one Worker
+  split its report into three sparse pages so each part could be previewed;
+- end the report with the Set Up sentence even when a preview showed the
+  whole file.

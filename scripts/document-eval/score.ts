@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 
 const [runsArgument, ...requested] = process.argv.slice(2);
 const runs = resolve(runsArgument ?? ".");
-const conditions = requested.length ? requested : ["engines", "no-engines", "baseline"];
+const conditions = requested.length ? requested : ["engines", "no-engines", "no-libreoffice", "baseline"];
 const summaries: any[] = [];
 for (const condition of conditions) {
   const path = join(runs, condition, "summaries.json");
@@ -19,7 +19,7 @@ for (const condition of conditions) {
 }
 
 const yes = (value: boolean) => value ? "yes" : "no";
-const checksDone = (item: any) => `${item.behavior.engineStatus} / ${item.behavior.renders} / ${item.behavior.recalculations} / ${item.behavior.imagesViewed}`;
+const checksDone = (item: any) => `${item.behavior.engineStatus} / ${item.behavior.renders}${item.behavior.previews ? ` (+${item.behavior.previews} previews)` : ""} / ${item.behavior.recalculations} / ${item.behavior.imagesViewed}`;
 const says = (item: any) => {
   const text = String(item.finalMessage ?? "");
   return [/check|verif|render|recalcul|look/i.test(text) ? "says what it checked" : "", /couldn.t|could not|wasn.t able|not able|unable|not (?:visually )?(?:checked|verified|calculated)|without libreoffice/i.test(text) ? "names a gap" : "", /set up/i.test(text) ? "points to Set Up" : ""].filter(Boolean).join(", ") || "none";

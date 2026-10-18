@@ -38,7 +38,7 @@ test("readiness summaries stay cold, preserve unknown setup, and disclose no sav
   const authStorage = FileCredentialStore.inMemory();
   // Documents looks for its optional engines only where this test says, never on the test computer.
   const engines = join(root, "engines");
-  const documentEngineSearch = { path: "", home: root, platform: "darwin", candidates: { libreoffice: [join(engines, "soffice")], tesseract: [join(engines, "tesseract")], homebrew: [] } };
+  const documentEngineSearch = { path: "", home: root, platform: "darwin", candidates: { libreoffice: [join(engines, "soffice")], tesseract: [join(engines, "tesseract")], quicklook: [], homebrew: [] } };
   const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: authStorage, includedTools: { rootPath: included, stateRoot: join(root, "state"), documentEngineSearch } }) };
   const originalFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = originalFetch; });

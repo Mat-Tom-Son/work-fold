@@ -32,6 +32,13 @@ with and without the optional engines, before and after the
     Documents → Set Up.
 - **Checking costs about a minute.** The median turn took 2.6 minutes with
   engines, against 1.8 minutes without them.
+- **Quick Look closes most of the gap on a Mac.** With LibreOffice hidden
+  but macOS Quick Look available, Workers previewed every slide of every
+  deck and page 1 of every report. None of the 9 reports had a word or
+  amount broken mid-word or unreadably small text, against 7 of 9 without
+  any preview. The first Skill wording led one Worker to reshape its report
+  into three sparse pages so each part could be previewed. The final wording
+  forbids that, and also gets every report to point to Set Up.
 
 ## Setup
 
@@ -133,6 +140,33 @@ rendered pages of the no-engines reports:
 The one remaining report (v1, run 2) was clean. macOS Quick Look draws the
 same splits in the v2 run 1 report, so they are not LibreOffice artifacts.
 
+### Quick Look preview without LibreOffice
+
+After the `preview` operation landed (see the addendum to
+[document verification](document-verification.md)), the report and deck tasks
+ran three times each in a fourth condition, *no LibreOffice*. LibreOffice and
+Tesseract were hidden from the tools and from the shell's `PATH`, while Quick
+Look stayed available. Quick Look cannot start inside the sandbox profile.
+No transcript touched LibreOffice, Microsoft Office or `qlmanage` directly.
+The Skill wording changed twice between rounds:
+
+| Round and Skill wording | Decks: previews, slides outside box | Reports: previews, faults seen on the page | Pointed to Set Up |
+| --- | --- | --- | --- |
+| v1: preview page 1 and every slide | 10 to 15 each, none | 7 or 8 each; none | 3 of 6 |
+| v2: plus "a preview is not the full check" | 10 to 15 each, none | 2 to 17 each; one report reshaped into three sparse pages with its table split in two so each part could be previewed | 4 of 6 |
+| v3: never reshape the deliverable; end with Set Up even when the preview showed everything | 10 each, none | 6 or 7 each; short dates wrapped at the space ("Nov / 21") in two reports, and one put its table on page 2 | 6 of 6 |
+
+Across the 9 reports, none had a word or amount broken mid-word, and none had
+5 pt text. Without any preview, 7 of 9 had such faults. Two caveats:
+- **Different renderers.** LibreOffice wrapped short dates that Quick Look's
+  own fonts probably fit, so a Quick Look check is not the same as a check
+  in Word.
+- **Page 1 only.** Word documents longer than a page were checked only
+  through review copies.
+
+Turns took about the same time as with LibreOffice: a median of 2.7
+minutes, with one report at 9.4 minutes.
+
 ### Reports to the person
 
 No run claimed a check it did not do. Without engines, every run said what it
@@ -162,15 +196,12 @@ flagged it, in both conditions.
 - **Not available to the Workers.** Computer Control and the person's own
   Office apps were not available in any condition. Quick Look could not
   start inside the sandbox profile either, so the no-engines Workers could
-  not have used it.
+  not have used it. The no-LibreOffice condition hid LibreOffice only from
+  the tools and the shell's `PATH`; its transcripts show no other route to
+  it.
 
 ## Follow-ups
 
-- **A first-page check without installing anything.** `qlmanage -t` (Quick
-  Look) renders the first page of a Word file or the first slide of a deck
-  on any Mac. It showed the same faults that the no-engines Workers could not
-  see. Offering it as a partial check when LibreOffice is missing would
-  catch the most common fault on a typical Mac.
 - **First-run setup.** First run's "Let your Worker use your Mac" step
   offers Chrome and Computer Control. It could offer LibreOffice too.
 - **Harder numeric tasks.** These tasks never separated the conditions on
@@ -191,7 +222,11 @@ npx tsx scripts/document-eval/run.ts --condition no-engines --repeat 2 --out /tm
 ```
 
 ```bash
-npx tsx scripts/document-eval/score.ts /tmp/document-eval engines no-engines
+npx tsx scripts/document-eval/run.ts --condition no-libreoffice --tasks report,deck --repeat 3 --out /tmp/document-eval/no-libreoffice
+```
+
+```bash
+npx tsx scripts/document-eval/score.ts /tmp/document-eval engines no-engines no-libreoffice
 ```
 
 `--host-repo <checkout>` runs the host from another checkout, such as a

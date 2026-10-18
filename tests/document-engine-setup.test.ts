@@ -12,9 +12,9 @@ import { documentEngineInstallCommand } from "../web-local/src/components/panes/
 
 const posixOnly = { skip: process.platform === "win32" };
 
-function found(libreoffice: string | null, tesseract: string | null = null, platform = "darwin"): DocumentEnginesDiscovery {
+function found(libreoffice: string | null, tesseract: string | null = null, platform = "darwin", quicklook: string | null = null): DocumentEnginesDiscovery {
   const engine = (executable: string | null, operations: string[]) => ({ available: Boolean(executable), executable, operations, setup: executable ? null : "Install it." });
-  return { platform, homebrew: "/opt/homebrew/bin/brew", libreoffice: engine(libreoffice, ["render", "recalculate"]), tesseract: engine(tesseract, ["ocr"]) };
+  return { platform, homebrew: "/opt/homebrew/bin/brew", libreoffice: engine(libreoffice, ["render", "recalculate"]), tesseract: engine(tesseract, ["ocr"]), quicklook: engine(quicklook, ["preview"]) };
 }
 const libraries = (state: IncludedToolStatus["state"], extra: Partial<IncludedToolStatus> = {}): IncludedToolStatus =>
   ({ id: "documents", state, detail: state === "unavailable" ? "The bundled PDF renderer failed to load." : "Document libraries and PDF rendering are ready.", checkedAt: "2026-10-18T12:00:00.000Z", ...extra });
@@ -33,6 +33,12 @@ test("the Documents word asks for setup only when LibreOffice is missing, never 
   assert.equal(ready.stale, false);
 
   assert.equal(includedDocumentsStatus(undefined, found("/usr/bin/soffice")).state, "unknown", "a found engine is not proof the bundled libraries work");
+  const mac = includedDocumentsStatus(libraries("ready"), found(null, null, "darwin", "/usr/bin/qlmanage"));
+  assert.equal(mac.state, "setup_required", "a one-page preview is not the check LibreOffice gives");
+  assert.equal(mac.detail, "Your Worker can preview the first page of a Word file and each slide of a deck, but can't check every page or what spreadsheet formulas calculate. Install LibreOffice to turn that on.");
+  assert.deepEqual(mac.documentsSetup?.quicklook, { found: true, path: "/usr/bin/qlmanage" });
+  const brokenPreview = libraries("ready", { documentsSetup: { platform: "darwin", homebrew: false, libreoffice: { found: false }, tesseract: { found: false }, quicklook: { found: true, path: "/usr/bin/qlmanage", problem: "It exited 1." } } });
+  assert.match(includedDocumentsStatus(brokenPreview, found(null, null, "darwin", "/usr/bin/qlmanage")).detail, /can make documents but can't check/, "a previewer that failed its Check is not offered");
   const broken = includedDocumentsStatus(libraries("unavailable"), found(null));
   assert.equal(broken.state, "unavailable", "bundled libraries that fail are not something an install fixes");
   assert.match(broken.detail, /bundled PDF renderer/);
@@ -95,7 +101,7 @@ test("an explicit Check starts each engine once and reports a version, a failure
   const stopping = verifyDocumentEngine(hanging, { signal: controller.signal });
   controller.abort();
   assert.deepEqual(await stopping, { problem: "The check was stopped." });
-  assert.deepEqual(await checkDocumentEngines({ path: "", home: root, platform: "darwin", candidates: { libreoffice: [failing], tesseract: [good], homebrew: [] } }), {
+  assert.deepEqual(await checkDocumentEngines({ path: "", home: root, platform: "darwin", candidates: { libreoffice: [failing], tesseract: [good], quicklook: [], homebrew: [] } }), {
     platform: "darwin", homebrew: false,
     libreoffice: { found: true, path: failing, problem: "It exited 3: dyld: Library not loaded" },
     tesseract: { found: true, path: good, version: "tesseract 5.5.1" },
@@ -108,7 +114,7 @@ test("Set up rechecks by itself: installing and removing LibreOffice changes the
   const included = join(root, "included"), engines = join(root, "engines");
   await mkdir(join(included, "documents"), { recursive: true });
   await writeFile(join(included, "documents", "runtime.mjs"), "export async function probeIncludedDocuments() { return { state: 'ready', reason: 'Document libraries and PDF rendering are ready.', versions: { docx: '9.5.1' }, runtime: 'test' }; }");
-  const documentEngineSearch = { path: "", home: root, platform: "darwin", candidates: { libreoffice: [join(engines, "soffice")], tesseract: [join(engines, "tesseract")], homebrew: [] } };
+  const documentEngineSearch = { path: "", home: root, platform: "darwin", candidates: { libreoffice: [join(engines, "soffice")], tesseract: [join(engines, "tesseract")], quicklook: [], homebrew: [] } };
   const provider = { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials: FileCredentialStore.inMemory(), includedTools: { rootPath: included, stateRoot: join(root, "state"), documentEngineSearch } }) };
   const documents = async () => (await listIncludedToolStatus(root, provider)).find(({ id }) => id === "documents")!;
 

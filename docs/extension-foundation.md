@@ -282,7 +282,12 @@ and records the version or the start problem for that exact path. See
 [Document verification](document-verification.md) for the status word and Set up.
 `render` uses LibreOffice to produce PDF, `recalculate` uses an isolated LibreOffice
 Calc profile configured to recalculate OOXML on load and writes a separate XLSX, and
-`ocr` uses Tesseract on a selected page image. An explicit executable path is supported.
+`ocr` uses Tesseract on a selected page image. On macOS, `preview` uses Quick Look
+(`/usr/bin/qlmanage -t`) to draw page 1 of a DOCX, or one chosen slide of a PPTX from a
+private copy with that slide moved first, as a PNG. Quick Look never exits on a file it
+cannot draw, so `preview` alone has a default 60-second deadline and reports that plainly.
+A host's `documentEngineSearch` reaches the tool as well as the Documents status, so both
+look in the same places. An explicit executable path is supported.
 The engine tool runs in the parent native Extension, owns process-group cancellation
 and session-shutdown cleanup, has no default deadline, and retains a complete log.
 It captures a private source copy, reports source/output SHA-256 and engine version,

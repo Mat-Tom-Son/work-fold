@@ -13,7 +13,7 @@ The runtime is full trust, like Pi's shell. Its separate worker makes Stop effec
 
 A document is not done until you have looked at the result. After you create or change a Word document, workbook, deck or PDF, check it, fix what is wrong, check again, and only then report. Plan the check when you plan the document.
 
-1. **Find out what you can check.** Call `document_engine` with `{input:{operation:"status"}}` once per Chat. It starts nothing. LibreOffice renders Word and PowerPoint files to PDF and recalculates workbooks; Tesseract reads text in page images.
+1. **Find out what you can check.** Call `document_engine` with `{input:{operation:"status"}}` once per Chat. It starts nothing. LibreOffice renders Word and PowerPoint files to PDF and recalculates workbooks; Tesseract reads text in page images; on a Mac, Quick Look previews one page or slide at a time without installing anything.
 2. **Check by file type.** Put review files in `.worker/<task-id>/`, never beside the deliverable, and give each render a new name (`review-2.pdf`): engine outputs never overwrite.
    - **Excel.** Reopen the file with ExcelJS and confirm sheets, values, formulas and number formats. Then `recalculate` it to `.worker/<task-id>/calculated.xlsx`, reopen that copy, and read the result of every formula that matters: totals, subtotals, cross-sheet references, and in a small workbook every formula. Compare each with the value you expect from the inputs, worked out separately in your script. Look for error results (`{error:"#REF!"}`, `#DIV/0!`, `#NAME?`, `#VALUE!`, `#N/A`). ExcelJS reads a calculated result of exactly 0 as a formula with no `result`; confirm such a cell from the sheet XML with JSZip (its `<v>` value) instead of calling it uncalculated. When the calculated values are right, write them as the cached `result` of each formula in the delivered file, so apps that show cached values (Quick Look, previews, phones) show the right numbers too.
    - **Word.** `render` it to PDF, then render the pages with `document_run` and look at them with `emitImage`: page count, headings, tables that fit the page width (no cut-off columns, no one-word-per-line cells, no word, amount or heading broken across lines), text at a readable size (body text about 10–12 pt, no section much smaller than the rest), no large empty areas from page breaks, images, headers and footers, and no leftover placeholder or repeated text. Read the PDF text to confirm nothing is missing.
@@ -27,14 +27,18 @@ LibreOffice is not Microsoft Office. Fonts can be substituted (Calibri becomes C
 
 ### When a check is not possible
 
-If `status` shows LibreOffice missing, still do every check that does not need it:
+If `status` shows LibreOffice missing, still do every check that does not need it.
+
+**On a Mac, preview what you can.** `status` lists Quick Look, which is built into macOS. Use `{input:{operation:"preview",source:"report.docx",output:".worker/<task-id>/page-1.png"}}` to draw page 1 of a Word file, and add `slide` to draw any slide of a deck: `{input:{operation:"preview",source:"deck.pptx",output:".worker/<task-id>/slide-3.png",slide:3}}`. Look at each image with `emitImage` in a `document_run` script, fix what is wrong, and preview again under a new name. Preview every slide of a deck you made or changed. Quick Look draws one page at a time and calculates nothing, and it cannot show a Word document's later pages: to see a later part of a Word document you made, build a separate review copy in `.worker/<task-id>/` that starts with that part (for example, the table alone) and preview the copy. Never reshape the deliverable to suit the preview: no extra page breaks, split tables or emptier pages. Fonts can differ from Word and PowerPoint, as with LibreOffice. Workbooks are not previewed; their thumbnails crop the sheet.
+
+On any computer, also:
 
 - Reopen the file and confirm its content, sheets, slide count and formulas. Confirm every formula refers to cells and sheets that exist.
 - Work out each important formula's expected value in your script from the inputs, and write it as the cached `result`. Say that these values came from your script, not from a spreadsheet app.
 - For slides, estimate whether text fits its box. At a font size of `f` points, an average character is about `0.5 × f` points wide and a line is about `1.2 × f` points tall; a box is `72` points per inch. Count the lines each paragraph needs and compare the total height with the box. Keep a clear margin, and split a slide that is close.
 - For Word tables, use the same estimate to confirm each column is wider than its longest word, amount and heading at its font size, plus the cell margins. A word or amount broken across lines is the fault people most often see when nobody looked at the page.
 
-Then say exactly what you could not check, for example "I couldn't see how the slides look" or "the formulas weren't calculated by a spreadsheet app; the totals shown are values I worked out in my script". End that report, for every file type, with where to set it up: "Install LibreOffice from **Skills & Extensions → Documents → Set Up** and I can check layout and formulas next time." Never claim a visual check or a calculated value that did not happen.
+Then say exactly what you could not check, for example "I previewed page 1 and every slide with Quick Look, but couldn't see pages 2 and 3" or "the formulas weren't calculated by a spreadsheet app; the totals shown are values I worked out in my script". End that report, for every file type and even when a Quick Look preview showed the whole file, with where to set it up: "Install LibreOffice from **Skills & Extensions → Documents → Set Up** and I can check layout and formulas next time." Quick Look is a different renderer from Word and PowerPoint and calculates nothing, so a preview never replaces that sentence. Never claim a visual check or a calculated value that did not happen.
 
 Do not install anything unless the person asks. If they ask, you may run the command Set up shows for their computer (for example `brew install --cask libreoffice` when Homebrew is present), in the open, and then call `status` again. The person's own Word, PowerPoint or Excel can also be used through Computer Control, but only when they want that: it takes over their screen.
 
@@ -145,6 +149,12 @@ export default async ({ args, libraries }) => {
   return { formulas, errors };
 };
 ```
+
+On macOS, `{input:{operation:"preview",source:"deck.pptx",output:".worker/task/slide-2.png",slide:2}}`
+draws one page or slide as a PNG with Quick Look (see When a check is not possible). It works on DOCX and
+PPTX only, never changes the source (another slide is drawn from a private reordered copy), and has a
+60-second deadline because Quick Look never finishes on a file it cannot draw. Prefer `render` when
+LibreOffice is available: it shows every page.
 
 With Tesseract installed, `{input:{operation:"ocr",source:"page.png",output:".worker/task/page.txt",language:"eng"}}`
 recognizes a selected page image. Render PDF pages first. The `language` option accepts

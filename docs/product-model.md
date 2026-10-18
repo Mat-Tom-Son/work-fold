@@ -655,6 +655,13 @@ Owner decisions, recorded here in dated form; the body of this document and
   macOS has not approved yet shows up as one.
 - A Worker installs an engine only when the person asks it to, by running
   the same command in the open.
+- On a Mac without LibreOffice, a Worker still previews what it can with
+  Quick Look, which is built into macOS: page 1 of a Word file and any
+  slide of a deck, one at a time. The tile still says **Setup Needed**, and
+  its detail reads: "Your Worker can preview the first page of a Word file
+  and each slide of a deck, but can't check every page or what spreadsheet
+  formulas calculate. Install LibreOffice to turn that on." Set up does not
+  list Quick Look, since there is nothing to install.
 
 ### 2026-10-01 work-folders inside work-folders
 

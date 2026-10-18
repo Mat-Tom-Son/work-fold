@@ -77,6 +77,7 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
     Reflect.set(value, "context", {
       version: 1, mode, cwd: resolve(cwd), agentDir: runtime.agentDir, stateRoot: config.stateRoot,
       helperAppPath: config.helperAppPath,
+      ...(config.documentEngineSearch ? { documentEngineSearch: config.documentEngineSearch } : {}),
       prepareComputerHelper: config.prepareComputerHelper,
       ...(mode === "session" ? { beginIncludedToolObservation: (id: "computer" | "documents") => beginIncludedToolObservation(runtime, id) } : {}),
       companionPath: join(config.stateRoot, "chrome-companion"),

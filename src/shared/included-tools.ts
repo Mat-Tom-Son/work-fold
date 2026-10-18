@@ -21,4 +21,5 @@ export interface IncludedToolStatus {
 
 /** One optional checking program. `version` and `problem` come only from an explicit Check of this exact path. */
 export interface DocumentEngineSetup { found: boolean; path?: string; version?: string; problem?: string }
-export interface DocumentsSetup { platform: string; homebrew: boolean; libreoffice: DocumentEngineSetup; tesseract: DocumentEngineSetup }
+/** `quicklook` is macOS's built-in previewer (2026-10-18): nothing to install, so Set up never lists it. */
+export interface DocumentsSetup { platform: string; homebrew: boolean; libreoffice: DocumentEngineSetup; tesseract: DocumentEngineSetup; quicklook?: DocumentEngineSetup }

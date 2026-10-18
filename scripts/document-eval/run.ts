@@ -10,6 +10,9 @@
  *   engines     LibreOffice and Tesseract visible, as on a set-up Mac.
  *   no-engines  The host runs under no-engines.sb, so neither it nor any tool
  *               it starts can find LibreOffice, Tesseract or Microsoft Office.
+ *   no-libreoffice  The host runs with --hide-engines: LibreOffice and Tesseract
+ *               are hidden from the tools and the shell's PATH, while macOS
+ *               Quick Look stays available (it cannot start in the sandbox).
  *
  * --host-repo runs the host from another checkout (for a baseline of an older
  * Skill); the drive client and checker always come from this one.
@@ -36,7 +39,7 @@ const argument = (name: string, fallback?: string) => {
   throw new Error(`${name} is required`);
 };
 const condition = argument("--condition");
-if (!["engines", "no-engines"].includes(condition)) throw new Error("--condition must be engines or no-engines");
+if (!["engines", "no-engines", "no-libreoffice"].includes(condition)) throw new Error("--condition must be engines, no-engines or no-libreoffice");
 const out = resolve(argument("--out"));
 const selected = argument("--tasks", "budget,deck,report").split(",");
 const repeat = Number(argument("--repeat", "1"));
@@ -57,7 +60,7 @@ if (!key) throw new Error("No OpenRouter key in the environment or Pi's auth.jso
 const hostOut = join(out, "host");
 await mkdir(hostOut, { recursive: true });
 const node = process.execPath;
-const hostCommand = [node, "--import", "tsx", join(hostRepo, "scripts", "document-eval", "host.ts"), "--out", hostOut, "--model", model];
+const hostCommand = [node, "--import", "tsx", join(hostRepo, "scripts", "document-eval", "host.ts"), "--out", hostOut, "--model", model, ...(condition === "no-libreoffice" ? ["--hide-engines"] : [])];
 const command = condition === "no-engines" ? ["/usr/bin/sandbox-exec", "-f", join(repo, "scripts", "document-eval", "no-engines.sb"), ...hostCommand] : hostCommand;
 const host = spawn(command[0]!, command.slice(1), { cwd: hostRepo, env: { ...process.env, OPENROUTER_API_KEY: key }, stdio: ["ignore", "pipe", "pipe"] });
 const hostLog = collect(host);
@@ -80,7 +83,7 @@ async function sessionBehavior(since: number, folder: string) {
     }
   };
   await walk(join(hostOut, "pi-agent"));
-  const calls: Array<{ name: string; operation?: string; source?: string; images?: number }> = [];
+  const calls: Array<{ name: string; operation?: string; source?: string; command?: string; images?: number }> = [];
   for (const path of sessions) {
     const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
     if (!lines.some((line) => line.includes(folder))) continue;
@@ -91,7 +94,7 @@ async function sessionBehavior(since: number, folder: string) {
       if (message?.role === "assistant" && Array.isArray(message.content)) {
         for (const part of message.content) if (part?.type === "toolCall") {
           const input = part.arguments?.input ?? part.arguments ?? {};
-          const call = { name: part.name, ...(input.operation ? { operation: input.operation } : {}), ...(input.source ? { source: input.source } : {}), ...(input.script ? { source: input.script } : {}) };
+          const call = { name: part.name, ...(input.operation ? { operation: input.operation } : {}), ...(input.source ? { source: input.source } : {}), ...(input.script ? { source: input.script } : {}), ...(part.name === "bash" && input.command ? { command: String(input.command).slice(0, 400) } : {}) };
           calls.push(call); byId.set(part.id, call);
         }
       }
@@ -105,7 +108,7 @@ async function sessionBehavior(since: number, folder: string) {
   const engine = (operation: string) => calls.filter((call) => call.name === "document_engine" && call.operation === operation).length;
   return {
     toolCalls: calls.length, documentRuns: calls.filter((call) => call.name === "document_run").length,
-    engineStatus: engine("status"), renders: engine("render"), recalculations: engine("recalculate"), ocr: engine("ocr"),
+    engineStatus: engine("status"), renders: engine("render"), recalculations: engine("recalculate"), ocr: engine("ocr"), previews: engine("preview"),
     imagesViewed: calls.reduce((sum, call) => sum + (call.images ?? 0), 0),
     shellCalls: calls.filter((call) => call.name === "bash").length, calls,
   };
