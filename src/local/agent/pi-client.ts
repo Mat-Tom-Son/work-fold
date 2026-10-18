@@ -73,6 +73,7 @@ import {
 } from "./turn-identity.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
 import { createChecklistTool, describeChecklist, type ChecklistToolHost } from "./checklist-tool.js";
+import type { WorkFoldChecklistItem } from "../requests/request-records.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
 import type {
@@ -293,6 +294,8 @@ export class PiConversationClient extends EventEmitter {
   private lastTurnUsage: WorkFoldDurableTurnUsage | null = null;
   /** The running turn's ids, restated after a mid-turn compaction (turn-identity.ts). */
   private turnIdentity: WorkFoldTurnIdentity | null = null;
+  /** The running request's checklist as the checklist tool last saved it, restated with the ids. */
+  private turnChecklist: WorkFoldChecklistItem[] | null = null;
 
   constructor(
     private readonly conversationId: string,
@@ -333,6 +336,7 @@ export class PiConversationClient extends EventEmitter {
     this.promptInFlight = true;
     this.lastTurnUsage = null;
     this.turnIdentity = null;
+    this.turnChecklist = context.checklist?.length ? context.checklist.map((item) => ({ ...item })) : null;
     // Measured around this turn only, so a later Chat title request or a bounded
     // app inference call on the same session cannot be charged to it.
     let measuredSession: AgentSession | null = null;
@@ -410,6 +414,7 @@ export class PiConversationClient extends EventEmitter {
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
       this.turnIdentity = null;
+      this.turnChecklist = null;
       this.promptInFlight = false;
     }
   }
@@ -761,7 +766,9 @@ export class PiConversationClient extends EventEmitter {
           additionalSkillPaths: runtime.config.additionalSkillPaths,
           additionalPromptTemplatePaths: runtime.config.additionalPromptTemplatePaths,
           additionalThemePaths: runtime.config.additionalThemePaths,
-          ...await sessionResourceOptions(options.cwd, runtime, this.options.role ?? "worker", () => this.turnIdentity),
+          ...await sessionResourceOptions(options.cwd, runtime, this.options.role ?? "worker", () => this.turnIdentity
+            ? { ...this.turnIdentity, ...(this.turnChecklist?.length ? { checklist: this.turnChecklist } : {}) }
+            : null),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -795,7 +802,14 @@ export class PiConversationClient extends EventEmitter {
         }),
         // Every session can keep a visible checklist for a multi-step request.
         ...(this.options.checklist ? [createChecklistTool({
-          host: this.options.checklist,
+          host: {
+            set: async (input) => {
+              const saved = await this.options.checklist!.set(input);
+              // Kept here too, so a mid-turn compaction can restate the plan as it stands.
+              this.turnChecklist = saved?.items.length ? saved.items.map((item) => ({ ...item })) : null;
+              return saved;
+            },
+          },
           taskId: () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId,
         })] : []),
         // Every session can run long commands in the background and be woken when they end.

@@ -140,3 +140,16 @@ test("after a real mid-turn compaction the next request carries the current turn
   assert.match(saved, /"type":"compaction"/);
   assert.ok(!saved.includes(restatement), "the restatement is request-local");
 });
+
+test("the restatement after compaction carries the request's checklist as it stands", () => {
+  const identity = buildTurnIdentity({ workFolderTurn: { workFolderId, taskId: "turn-current", requestId: "req-current" } })!;
+  const summary = { role: "compactionSummary", summary: "Earlier work.", timestamp: 10 };
+  const messages = [summary, { role: "user", content: "Keep going.", timestamp: 20 }];
+  const withChecklist = restateTurnIdentity(messages, { ...identity, checklist: [{ text: "Read the quotes", status: "done" }, { text: "Write the summary", status: "doing" }] })!;
+  const note = withChecklist.find((message) => (message as { customType?: string }).customType === workFoldTurnIdentityCustomType) as { content: string };
+  assert.match(note.content, /Your checklist for this request as it stands/);
+  assert.match(note.content, /\[x\] Read the quotes\n\[~\] Write the summary/);
+  const without = restateTurnIdentity(messages, identity)!;
+  const plain = without.find((message) => (message as { customType?: string }).customType === workFoldTurnIdentityCustomType) as { content: string };
+  assert.doesNotMatch(plain.content, /checklist/i);
+});

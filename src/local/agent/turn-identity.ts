@@ -1,5 +1,8 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
+import { describeChecklist } from "./checklist-tool.js";
+import type { WorkFoldChecklistItem } from "../requests/request-records.js";
+
 /**
  * A turn survives compaction: its ids, its request, and the care it needs.
  *
@@ -36,6 +39,8 @@ export interface WorkFoldTurnIdentity {
   taskId: string;
   text: string;
   request?: string;
+  /** The request's checklist as it stands now, so the plan survives the summary too (2026-10-18). */
+  checklist?: readonly WorkFoldChecklistItem[];
 }
 
 /**
@@ -114,7 +119,12 @@ export function restateTurnIdentity<T extends ContextMessage>(messages: T[], ide
   const note = {
     role: "custom",
     customType: workFoldTurnIdentityCustomType,
-    content: [identity.text, ...(identity.request && !requestVisible ? [restatedRequest(identity.request)] : []), recheckReminder].join("\n\n"),
+    content: [
+      identity.text,
+      ...(identity.request && !requestVisible ? [restatedRequest(identity.request)] : []),
+      ...(identity.checklist?.length ? [`Your checklist for this request as it stands (host-kept; [x] done, [~] doing, [ ] to do):\n${describeChecklist(identity.checklist)}`] : []),
+      recheckReminder,
+    ].join("\n\n"),
     display: false,
     timestamp: messages[summaryIndex]!.timestamp ?? Date.now(),
   } as unknown as T;
