@@ -17,11 +17,11 @@ const rows = async (path: string): Promise<any[]> => (await readFile(path, "utf8
 const latest = (records: any[], key: string): any[] => [...new Map(records.map(record => [record[key], record])).values()];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const repairSource = `export function summarize(rows) {\n  const totals = {};\n  for (const row of rows) {\n    if (row.status !== 'settled') continue;\n    totals[row.currency] = (totals[row.currency] || 0) + Math.abs(Number(row.amount));\n  }\n  return totals;\n}\n`;
+const reconciliationSource = "id,currency,amount,status,updated\nA,USD,100.00,settled,1\nB,USD,50.00,settled,1\nC,USD,-20.00,settled,1\nD,USD,999.00,pending,1\nE,EUR,200.00,settled,1\nF,EUR,-30.00,settled,1\nG,EUR,40.00,settled,1\nH,USD,15.00,settled,1\nI,EUR,999.00,disputed,1\nJ,USD,10.00,cancelled,1\nK,EUR,5.00,settled,1\nL,USD,-5.00,settled,1\nB,USD,55.00,settled,2\n";
 
 async function seed(folder: string) {
   if (scenario === "reconcile") {
-    const data = "id,currency,amount,status,updated\nA,USD,100.00,settled,1\nB,USD,50.00,settled,1\nC,USD,-20.00,settled,1\nD,USD,999.00,pending,1\nE,EUR,200.00,settled,1\nF,EUR,-30.00,settled,1\nG,EUR,40.00,settled,1\nH,USD,15.00,settled,1\nI,EUR,999.00,disputed,1\nJ,USD,10.00,cancelled,1\nK,EUR,5.00,settled,1\nL,USD,-5.00,settled,1\nB,USD,55.00,settled,2\n";
-    await writeFile(join(folder, "payments.csv"), data);
+    await writeFile(join(folder, "payments.csv"), reconciliationSource);
     await writeFile(join(folder, "policy.md"), "Use the newest updated value for a repeated transaction id. Include settled payments and negative refunds. Exclude pending and cancelled rows. Keep currencies separate and use exact cents. Disputed-row policy has not been decided.\n");
     return { prompt: "Reconcile the payments against policy.md. The disputed-row policy needs my decision; ask me about it, and keep making any useful independent progress while I answer. Deliver reconciliation.json with totals (currency to two-decimal string), includedIds and excludedIds, plus a short reconciliation.md explaining the treatment and checks. Preserve the source files.", answer: "Exclude disputed rows. I also corrected K's amount in payments.csv from 5.00 to 8.00; use the corrected file. Keep the other policies as documented.", expected: { totals: { USD: "145.00", EUR: "218.00" }, includedIds: ["A", "B", "C", "E", "F", "G", "H", "K", "L"], excludedIds: ["D", "I", "J"] } };
   }
@@ -56,6 +56,7 @@ async function verify() {
       for (const item of actual) { const expected = meta.expected.find((entry: any) => entry.id === item.id); assert.equal(item.path, expected.path); assert.ok(typeof item.quote === "string" && item.quote.length >= 35 && expected.quote.includes(item.quote)); }
       assert.ok((await readFile(join(folder, "findings.md"), "utf8")).length > 100);
     } else if (meta.scenario === "reconcile") {
+      assert.equal(await readFile(join(folder, "payments.csv"), "utf8"), reconciliationSource.replace("K,EUR,5.00", "K,EUR,8.00"), "Only the person's exact source correction is allowed");
       const actual = JSON.parse(await readFile(join(folder, "reconciliation.json"), "utf8"));
       assert.deepEqual(actual.totals, meta.expected.totals);
       for (const key of ["includedIds", "excludedIds"]) assert.deepEqual([...actual[key]].sort(), [...meta.expected[key]].sort());
@@ -121,7 +122,7 @@ try {
     const questions = latest(await rows(join(info.stateBase, "requests/questions.jsonl")), "questionId");
     for (const question of questions.filter(question => question.respondent === "person" && question.state === "open" && !answered.has(question.questionId))) {
       if (answered.size >= 5) throw new Error("More than five clarification questions; evaluation needs attention.");
-      if (scenario === "reconcile" && !answered.size) { const path = join(folder, "payments.csv"); await writeFile(path, (await readFile(path, "utf8")).replace("K,EUR,5.00", "K,EUR,8.00")); meta.sourceHashes["payments.csv"] = digest(await readFile(path, "utf8")); }
+      if (scenario === "reconcile" && !answered.size) { const path = join(folder, "payments.csv"); assert.equal(await readFile(path, "utf8"), reconciliationSource, "The model changed the source before the person's correction"); const corrected = reconciliationSource.replace("K,EUR,5.00", "K,EUR,8.00"); await writeFile(path, corrected); meta.sourceHashes["payments.csv"] = digest(corrected); }
       const owner = latest(await rows(join(info.stateBase, "requests/requests.jsonl")), "requestId").find(record => record.requestId === question.requestId);
       const answer = await exec(join(info.binDir, "work-fold"), ["chat", "answer", "--work-folder", owner?.owner.workFolderId ?? workFolderId, "--question", question.questionId, "--answer", spec.answer, "--json"], { cwd: base, timeout: 30_000 });
       answered.add(question.questionId); await writeFile(join(base, `answer-${answered.size}.json`), answer.stdout);
