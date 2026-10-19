@@ -239,6 +239,25 @@ requiring a paid model or production user data.
 
 ## Real-model harness acceptance
 
+`npm run harness:autonomous -- --model openrouter/openai/gpt-6-luna --case
+research --out out/autonomous-eval/research-luna` runs an outcome-based live
+case in an isolated profile with an explicitly supplied `OPENROUTER_API_KEY`.
+Cases are `research` (confirmed saved-edit loss with exact quotes), `reconcile`
+(a policy question and a source correction), and `repair` (a validated patch
+while preserving original and uncommitted files). Prompts specify deliverables
+and constraints without naming tools or ordering execution. The driver answers
+person-directed questions through the real CLI; parent questions remain the
+parent's responsibility. Independent checks grade final bytes, source
+preservation and request settlement; tool choices, compactions, recovery use,
+cost and duration are observations. No tool count is required for a pass.
+
+Each fresh output directory preserves the exact prompt, its digest, source
+commit and diff digest, hidden fixture expectations, native journals, provider
+usage and result. `--verify --out <saved-directory>` checks saved evidence
+without another model call. Preserve failed runs and freeze prompts before
+comparing models; repeated coached attempts do not establish an autonomous
+success rate. The live cases are separate from deterministic regression tests.
+
 `npm run harness:check` checks the evaluation scripts without making model
 requests; it is also part of `npm run check`.
 Use `npm run harness:eval -- --verify --out <saved-directory> --helper-model

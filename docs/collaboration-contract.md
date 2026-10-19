@@ -156,6 +156,14 @@ graph, receipts, and Stop above.
   to re-check its answer against the sources. Nothing is written to the
   session (docs/archive/helper-tool-experiment.md).
 
+- **Progress and evidence recovery.** `progress` retains bounded completed-tool
+  observations and agent-authored findings in the existing machine-local Pi
+  session. A request-local index survives compaction and own answer turns;
+  host-owned request membership scopes recovery. File fingerprints disclose
+  stale or untracked sources rather than turning a checklist into proof. See
+  [Worker tools](worker-tools.md#progress-and-evidence-recovery) for pagination,
+  retention and source-binding limits. Recovery never replays execution.
+
 "Handed work to" is a host check: some request in the target Chat has a
 parent request owned by the caller's Chat. Nothing else about other Chats
 is revealed, and the person's own CLI use, which carries no `--task`, is

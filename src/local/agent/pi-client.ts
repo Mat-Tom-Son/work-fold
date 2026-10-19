@@ -78,6 +78,7 @@ import { createHelperTool, type HelperRunRecord, type HelperSession } from "./he
 import type { Usage } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { createChecklistTool, describeChecklist, type ChecklistToolHost } from "./checklist-tool.js";
+import { ProgressRecovery } from "./progress-recovery.js";
 import type { WorkFoldChecklistItem } from "../requests/request-records.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
 import { restrictedAppInferenceLimits } from "../../shared/restricted-app-inference.js";
@@ -207,6 +208,8 @@ export interface PiConversationClientOptions {
   collaboration?: CollaborationToolHost;
   worktrees?: WorktreeToolHost;
   helperTool?: boolean;
+  /** Host-owned membership of this request's own turns, never another Chat. */
+  recoveryScope?: (taskId: string) => { requestId: string; taskIds: string[] } | null;
 }
 
 export interface PiConversationState {
@@ -313,6 +316,7 @@ export class PiConversationClient extends EventEmitter {
   private turnIdentity: WorkFoldTurnIdentity | null = null;
   /** The running request's checklist as the checklist tool last saved it, restated with the ids. */
   private turnChecklist: WorkFoldChecklistItem[] | null = null;
+  private turnProgressRequestId: string | undefined;
 
   constructor(
     private readonly conversationId: string,
@@ -355,6 +359,7 @@ export class PiConversationClient extends EventEmitter {
     this.promptInFlight = true;
     this.lastTurnUsage = null;
     this.turnIdentity = null;
+    this.turnProgressRequestId = context.workFolderTurn?.requestId;
     this.turnChecklist = context.checklist?.length ? context.checklist.map((item) => ({ ...item })) : null;
     // Measured around this turn only, so a later Chat title request or a bounded
     // app inference call on the same session cannot be charged to it.
@@ -782,6 +787,13 @@ export class PiConversationClient extends EventEmitter {
     }) => {
       const runtime = await resolvePiRuntime(options.cwd, this.runtimeProvider);
       this.resolvedRuntime = runtime;
+      const recovery = new ProgressRecovery(options.cwd, options.sessionManager, () => {
+        const owner = this.extensionTurn.getStore() ?? this.activeExtensionTurn;
+        if (!owner?.taskId || owner.cancelled || owner.settled) return null;
+        const scope = this.options.recoveryScope ? this.options.recoveryScope(owner.taskId)
+          : this.turnProgressRequestId ? { requestId: this.turnProgressRequestId, taskIds: [owner.taskId] } : null;
+        return scope ? { ...scope, taskId: owner.taskId } : null;
+      });
       // Same provider transport as the Pi CLI: proxy settings, idle timeouts,
       // and the guarded dispatcher are installed before the first request.
       configurePiHttpTransport(runtime.settingsManager);
@@ -797,7 +809,7 @@ export class PiConversationClient extends EventEmitter {
           additionalThemePaths: runtime.config.additionalThemePaths,
           ...await sessionResourceOptions(options.cwd, runtime, this.options.role ?? "worker", () => this.turnIdentity
             ? { ...this.turnIdentity, ...(this.turnChecklist?.length ? { checklist: this.turnChecklist } : {}) }
-            : null),
+            : null, recovery),
           // work-folder instructions first, then the operations guide (F26), so the
           // person's own text keeps the position it always had.
           appendSystemPromptOverride: (base) => appendToolFeedbackGuide(appendWorkFolderOperationsGuide(
@@ -822,6 +834,7 @@ export class PiConversationClient extends EventEmitter {
         : [];
       this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
+        recovery.tool(),
         ...(this.options.worktrees ? [createWorktreeTool(this.options.worktrees, () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId)] : []),
         ...(this.options.helperTool ? [createHelperTool({
           root: options.cwd,
@@ -1838,6 +1851,7 @@ async function sessionResourceOptions(
   runtime: ResolvedPiRuntime,
   role: NonNullable<PiConversationClientOptions["role"]>,
   turnIdentity: () => WorkFoldTurnIdentity | null,
+  recovery: ProgressRecovery,
 ) {
   const included = await includedResourceOptions(cwd, runtime, "session", role);
   return {
@@ -1845,6 +1859,7 @@ async function sessionResourceOptions(
     extensionFactories: [
       ...included.extensionFactories,
       { name: "work_fold_turn_identity", builtin: true, factory: turnIdentityAfterCompactionExtension(turnIdentity) },
+      { name: "work_fold_progress", builtin: true, factory: recovery.extension },
     ],
   };
 }

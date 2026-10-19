@@ -27,6 +27,7 @@
     "test": "node scripts/run-tests.mjs",
     "local:api": "tsx src/local/server-dev.ts",
     "harness:eval": "tsx scripts/harness-eval/run.ts",
+    "harness:autonomous": "tsx scripts/harness-eval/autonomous.ts",
     "harness:check": "tsc --noEmit -p tsconfig.harness-eval.json",
     "work-fold:drive": "tsx scripts/work-fold-drive.ts",
     "work-fold:appearance": "tsx scripts/work-fold-appearance.ts",

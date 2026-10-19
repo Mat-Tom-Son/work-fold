@@ -68,7 +68,9 @@ this computer, and Stop or quitting ends it. See
 
 Workers also have structured collaboration tools, asynchronous questions,
 interactive terminal input, managed Git working copies, and focused read-only
-helpers. See [Worker tools](docs/worker-tools.md) for their lifecycle and limits.
+helpers. Workers and the work-fold agent can recover completed tool evidence
+and saved findings after compaction with `progress`, including file freshness
+checks. See [Worker tools](docs/worker-tools.md) for their lifecycle and limits.
 
 The work-fold agent's menu-bar popover has a **Chats** view that reopens saved
 conversations and keeps unsent drafts while you switch. The paired web client

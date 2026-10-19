@@ -1,8 +1,40 @@
 # Worker tools and working copies
 
-The Worker has five complementary ways to keep complex work moving. All use
+The Worker has complementary ways to keep complex work moving. All use
 the accepted turn's request, authority, Stop and receipts. The CLI remains
 available to every shell-capable agent.
+
+## Progress and evidence recovery
+
+Workers and the work-fold agent carry `progress` with actions `list`, `read`
+and `save`. Completed native tool results, including nested calls, receive stable
+evidence ids. `save` records an agent-authored finding with selected evidence ids
+and optional ordinary files. After compaction or an answer continuation, a
+bounded context index points back to recorded work so the model can recover it
+without repeating a helper, read or mutation. Index pages contain 40 records;
+output pages contain up to 16,000 characters.
+
+Records use invisible custom entries in the existing machine-local Pi session,
+with the same session retention. They create no portable transcript records or
+second request store. The host admits only the current request's own turns in
+this Chat; another request, copied Chat or unrelated child cannot retrieve them.
+Recovery never dispatches work. Stop prevents late observations and findings
+from being recorded. The injected index is request-local and is not saved as
+instructions in the session.
+
+Each observation retains up to 256,000 text characters and image counts, with
+original length and truncation disclosed. Original tool warnings remain intact;
+recovery cannot turn a partial observation into full coverage or recover image
+pixels. Explicit file reads are bracketed by SHA-256 fingerprints when their
+ordinary source is inside this work-folder and at most 32 MiB. Changes during
+the call are flagged; a later recovery checks whether the captured source still
+matches. This is a bracketing observation, not an atomic file snapshot. Shell,
+helper and other implicit inputs remain untracked, and dynamic results remain
+historical observations. Findings and completed checklist items are agent claims,
+not host-attested conclusions. Files selected on a finding are fingerprinted at
+save time; that does not bind an earlier tool's output to those bytes. Reserved
+metadata, directories, escaping links and paths outside the work-folder cannot
+be selected for fingerprinting.
 
 ## Structured collaboration
 

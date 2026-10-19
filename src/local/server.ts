@@ -12950,6 +12950,13 @@ async function getClient(
     backgroundJobs: createBackgroundJobToolHost(state, workFolderId, conversationId),
     ...(workFolderId === workFoldAgentScopeId ? {} : { collaboration: createCollaborationToolHost(state, workFolderId, conversationId) }),
     helperTool: workFolderId !== workFoldAgentScopeId,
+    recoveryScope: taskId => {
+      const request = state.requests.byTaskId(taskId);
+      if (!request || request.owner.conversationId !== conversationId
+        || (request.owner.workFolderId ?? workFoldAgentScopeId) !== workFolderId
+        || !request.turns.some(turn => turn.taskId === taskId && turn.state === "running")) return null;
+      return { requestId: request.requestId, taskIds: request.turns.map(turn => turn.taskId) };
+    },
     ...(workFolderId === workFoldAgentScopeId ? {} : { worktrees: createWorktreeToolHost(state, workFolderId) }),
     checklist: {
       async set({ taskId, items }) {

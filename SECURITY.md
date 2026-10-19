@@ -1,5 +1,11 @@
 # Security
 
+Progress recovery is a scoped historical read, not execution authority or proof
+of a model's conclusion. Host-owned request membership controls access. Captured
+file fingerprints expose staleness; untracked inputs, original truncation and
+agent-authored findings retain their limits. Recovery never replays tools or
+widens the full-trust Pi runtime's filesystem authority.
+
 Worker read-only helpers enforce real-path confinement and a fixed reading
 tool set; they do not inherit shell, editing, browser or Extension powers.
 Ordinary Workers and terminal jobs retain full-trust Pi authority. Interactive
