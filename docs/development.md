@@ -239,6 +239,13 @@ requiring a paid model or production user data.
 
 ## Real-model harness acceptance
 
+`npm run harness:check` checks the evaluation scripts without making model
+requests; it is also part of `npm run check`.
+Use `npm run harness:eval -- --verify --out <saved-directory> --helper-model
+<the-original-helper-model>` to recheck saved evidence without model calls.
+Verification resolves files from the host's working-copy identities and stops
+the evaluation's own service if it is still running.
+
 With `OPENROUTER_API_KEY` explicitly provided, run `npm run harness:eval --
 --model openrouter/openai/gpt-6-luna --helper-model
 openrouter/deepseek/deepseek-v4.1-flash --out out/harness-eval/luna`. This spends
