@@ -165,6 +165,7 @@ export type WorkFoldCliActCommandName =
   | "jobs.show"
   | "jobs.output"
   | "jobs.stop"
+  | "chat.children"
   | "jobs.input"
   | "worktrees.manage";
 
@@ -980,6 +981,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "chat children":
+      allowOnlyFlags("--work-folder", "--task");
+      return { name: "chat.children", output, workFolder: requireWorkFolder(), task: requireBoundedFlag("--task", "task-id") };
     case "chat steer": {
       // One more message into a Chat's running turn, delivered after its
       // current step. --task names the caller's own running turn when a
@@ -2271,6 +2275,8 @@ async function runActCommand(
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
+    case "chat.children":
+      return toChecksJson(await facade.chatChildren({ workFolder: command.workFolder!, taskId: command.task! }));
     case "chat.ask":
       return toChecksJson(await facade.chatAsk({
         workFolder: command.workFolder!,

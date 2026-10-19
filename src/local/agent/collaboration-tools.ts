@@ -1,12 +1,13 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
-export type CollaborationOperation = "handoff" | "steer" | "stop" | "copy" | "report" | "ask" | "answer" | "wait";
+export type CollaborationOperation = "children" | "handoff" | "steer" | "stop" | "copy" | "report" | "ask" | "answer" | "wait";
 export interface CollaborationToolHost {
   invoke(operation: CollaborationOperation, taskId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
 }
 const text = { type: "string", minLength: 1 };
 const strings = { type: "array", items: text };
 const specs: Array<{ operation: CollaborationOperation; description: string; properties: Record<string, unknown>; required: string[] }> = [
+  { operation: "children", description: "Recover the stable task, Chat and work-folder ids of work this request delegated. Use after compaction when a child result or handle is no longer visible, then retrieve it again with chat_wait. Returns only your own direct children; it never lists unrelated Chats.", properties: {}, required: [] },
   { operation: "handoff", description: "Delegate work to a new Chat, or follow up in a child Chat. Defaults to this work-folder. Pass assignment text directly; no shell quoting or own task ids are needed.", properties: { message: text, workFolder: text, conversation: text, files: strings }, required: ["message"] },
   { operation: "steer", description: "Redirect a running child Chat after its current step. Only Chats you handed work to may be steered.", properties: { conversation: text, message: text, workFolder: text }, required: ["conversation", "message"] },
   { operation: "stop", description: "Stop a child Chat and its outstanding delegated work and jobs. Only Chats you handed work to may be stopped.", properties: { conversation: text, workFolder: text }, required: ["conversation"] },

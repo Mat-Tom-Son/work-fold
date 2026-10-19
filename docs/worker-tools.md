@@ -7,12 +7,15 @@ available to every shell-capable agent.
 ## Structured collaboration
 
 `chat_handoff`, `chat_steer`, `chat_copy`, `chat_report`, `chat_ask`,
-`chat_answer`, `chat_stop` and `chat_wait` call the existing act facade directly. The host
+`chat_answer`, `chat_stop`, `chat_children` and `chat_wait` call the existing act facade directly. The host
 supplies the Worker's own current task and work-folder. Assignment text is
 ordinary structured input, so code, quotes, dollar signs and newlines never
 pass through a shell. A handoff defaults to the same work-folder; another
 destination must be named explicitly. Child ownership, file copies, selected
 results and one-time delivery are the collaboration contract's existing rules.
+After compaction, `chat_children` (CLI `chat children --work-folder <id>
+--task <own-task-id> --json`) recovers the caller's delegated task handles so
+`chat_wait` can read a result again. It exposes no unrelated Chats.
 
 ## Asynchronous questions
 

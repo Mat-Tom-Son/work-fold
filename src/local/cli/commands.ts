@@ -193,6 +193,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       `       ${executable} chat archive --work-folder <id-or-name> --conversation <id> [--json]`,
       `       ${executable} chat resume --work-folder <id-or-name> --conversation <id> [--json]`,
       `       ${executable} chat compact --work-folder <id-or-name> --conversation <id> [--json]`,
+      `       ${executable} chat children --work-folder <id> --task <own-task-id> --json`,
       `       ${executable} chat steer --work-folder <id-or-name> --conversation <id> [--task <own-task-id>] (--message <text> | --message-file <path>) [--json]`,
       `       ${executable} chat copy --work-folder <id-or-name> --conversation <id> [--title <title>] [--task <own-task-id>] [--message <text> | --message-file <path>] [--json]`,
       `       ${executable} chat report --work-folder <id-or-name> --task <id> (--summary <text> | --summary-file <path>) [--data <json-or-@path>] [--file <work-folder-path>]... [--outcome <succeeded|partial|failed>] [--json]`,

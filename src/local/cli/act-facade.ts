@@ -818,6 +818,7 @@ export interface WorkFoldActFacade {
     result: WorkFoldResultEnvelope;
     request: WorkFoldActRequestRef;
   }>;
+  chatChildren(input: { workFolder: string; taskId: string }): Promise<{ children: Array<{ taskId: string; conversationId: string; workFolderId?: string; state: string; resultAvailable: boolean }> }>;
   chatAsk(input: {
     workFolder: string;
     taskId: string;

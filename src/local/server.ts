@@ -6811,6 +6811,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         };
       });
     },
+    async chatChildren(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const own = assertOwnTask(state, workFolder.id, input.taskId);
+      return { children: state.requests.children(own.requestId).map(child => ({ taskId: child.turns.at(-1)!.taskId, conversationId: child.owner.conversationId, ...(child.owner.workFolderId ? { workFolderId: child.owner.workFolderId } : {}), state: child.state, resultAvailable: child.results.length > 0 })) };
+    },
     async chatAsk(input) { return chatAsk(await resolveWorkFolder(input.workFolder), input); },
     async chatAnswer(input) { return chatAnswer(await resolveWorkFolder(input.workFolder), input); },
     async agentAsk(input) {
@@ -12880,6 +12885,7 @@ function createCollaborationToolHost(state: LocalApiState, workFolderId: string,
     };
     const files = Array.isArray(input.files) ? input.files as string[] : [];
     switch (operation) {
+      case "children": return facade.chatChildren({ workFolder: workFolderId, taskId });
       case "handoff": return facade.chatHandoff({ workFolder: workFolderId, taskId, toWorkFolder: target, message: required("message"), files, ...(typeof input.conversation === "string" ? { toConversationId: input.conversation } : {}) });
       case "steer": return facade.chatSteer({ workFolder: target, taskId, conversationId: required("conversation"), message: required("message") });
       case "copy": return facade.chatCopy({ workFolder: target, taskId, conversationId: typeof input.conversation === "string" ? input.conversation : conversationId, ...(typeof input.message === "string" ? { message: input.message } : {}), ...(typeof input.title === "string" ? { title: input.title } : {}) });

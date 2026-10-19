@@ -58,6 +58,18 @@ test("an asynchronous answer can arrive during independent work and continues ex
   assert.equal(await readFile(join(h.workFolder.workFolderRoot, "independent.txt"), "utf8"), "independent work finished");
 });
 
+test("a Worker recovers only its own delegated handles after reading a result", async t => {
+  const h = await harness(t);
+  const child = await h.api.actFacade.chatHandoff({ workFolder: h.workFolder.id, taskId: h.turn.taskId, toWorkFolder: h.workFolder.id, message: "/hold", files: [] });
+  const unrelated = await h.api.actFacade.sendMessage({ workFolder: h.workFolder.id, newConversation: true, content: "/hold" });
+  await until(async () => (await h.api.actFacade.turnStatus({ workFolder: h.workFolder.id, taskId: child.taskId })).task.state === "succeeded");
+  await h.api.actFacade.turnResult({ workFolder: h.workFolder.id, taskId: child.taskId });
+  const handles = await h.api.actFacade.chatChildren({ workFolder: h.workFolder.id, taskId: h.turn.taskId });
+  assert.deepEqual(handles.children.map(item => item.taskId), [child.taskId]);
+  assert.equal(handles.children[0]!.conversationId, child.conversationId);
+  assert.ok(!handles.children.some(item => item.taskId === unrelated.taskId));
+});
+
 test("Stop closes a queued asynchronous answer without starting its continuation", async t => {
   const h = await harness(t);
   const asked = await h.api.actFacade.chatAsk({ workFolder: h.workFolder.id, taskId: h.turn.taskId, question: "Format?", respondent: "person", asynchronous: true });

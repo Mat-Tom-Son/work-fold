@@ -44,6 +44,7 @@ export function workFoldWorkFolderOperationsGuide(executable = "work-fold"): str
     "### Report, ask, answer, hand off",
     "",
     "Prefer the native chat_handoff, chat_steer, chat_stop, chat_copy, chat_report, chat_ask, chat_answer and chat_wait tools when available. They use these same verbs and receipts, supply your own current identity, and take assignment text directly without shell quoting. The CLI below remains available to other harnesses.",
+    "If a child's result or task id is missing after compaction, call chat_children (CLI: chat children --work-folder <id> --task <own-task-id> --json) to recover your delegated handles, then chat_wait to read the recorded result again. A result leaving visible context does not mean it is unavailable; use the durable record before concluding the work is incomplete.",
     "Use helper for a focused read-only task inside this turn and this work-folder; it has its own narrow context and returns one result. It may select an already-connected model and a narrower reading tool set. Use handoff for work that edits files, needs questions, or should outlive this turn. For independent parallel edits to a Git repository, worktree creates separate working copies registered as work-folders; hand off to their returned workFolderId. Archive retains files and restore reopens the same copy; nothing is automatically merged.",
     "Direct Chat answers need no `chat report`; replies are saved. Report delegated work, requested reports, or structured data and deliverables.",
     "",
