@@ -288,6 +288,20 @@ checks is flagged separately for review of its completion claims. Inspect
 explanations as well as machine-graded bytes. Three repetitions per cell provide
 an initial signal, not a precise production success-rate estimate.
 
+The repair case's original small-value checker does not establish unrestricted
+decimal exactness. The separate `scripts/harness-eval/precision-audit.ts` audit
+applies every saved repair patch to a fresh copy and tests 40 independently
+specified cases including large magnitudes and cancellation. Freeze that
+checker before a comparison with `node --import tsx
+scripts/harness-eval/precision-audit.ts --freeze
+out/frozen-eval/precision-checker.json`, then run it with `--manifest
+out/frozen-eval/precision-checker.json --results
+out/frozen-eval/baseline/results.json` (and each later phase). It validates its
+own hashes and writes `audited-results.json` beside the untouched original
+grades. This supplemental audit was added after the first frozen baseline
+exposed a grading blind spot; report both grades and apply the same audit to
+every cohort. It makes no model calls and never edits a model's saved patch.
+
 `npm run harness:check` checks the evaluation scripts without making model
 requests; it is also part of `npm run check`.
 Use `npm run harness:eval -- --verify --out <saved-directory> --helper-model

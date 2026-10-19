@@ -53,7 +53,8 @@ test("the identity is restated after a compaction summary only when the turn's o
   assert.equal(note.timestamp, 10, "it sits with the summary, so its position is stable across requests");
   assert.match(note.content, /"taskId": "turn-current"/);
 
-  assert.match(note.content, /re-check what your answer depends on against the files and tools themselves/, "every restatement asks for a re-check");
+  assert.match(note.content, /Recover applicable observations and findings with progress first/, "restatement recovers completed work before more verification");
+  assert.match(note.content, /Recheck changed sources, dynamic state, missing coverage or unresolved concerns/);
   assert.doesNotMatch(note.content, /<request>/, "no request was given, so none is restated");
 
   const agent = buildTurnIdentity({ workFoldAgentTaskId: "agent-task-9" })!;
@@ -70,7 +71,7 @@ test("after compaction the turn's own request is restated only when it is no lon
   const gone = restateTurnIdentity([summary, tool], identity)!;
   const note = gone[1]!.content as string;
   assert.match(note, /This turn's request \(the person's message, restated because the summary above may not include it\):\n<request>\nWhich interviewees reported the export bug\? People describe it in many different ways\.\n<\/request>/);
-  assert.ok(note.indexOf("<request>") < note.indexOf("re-check what your answer depends on"), "the reminder comes last");
+  assert.ok(note.indexOf("<request>") < note.indexOf("Recover applicable observations"), "the reminder comes last");
 
   const prompt = { role: "user", content: [{ type: "text", text: request }], timestamp: 25 };
   const visible = restateTurnIdentity([summary, prompt, tool], identity)!;
@@ -131,7 +132,7 @@ test("after a real mid-turn compaction the next request carries the current turn
   const requestAt = afterCompaction.indexOf("Which reporters are there?");
   assert.ok(requestAt > afterCompaction.indexOf("This turn's request"), "the turn's own request, summarized away, is restated");
   assert.equal(afterCompaction.indexOf("Which reporters are there?", requestAt + 1), -1, "only once");
-  assert.ok(afterCompaction.includes("re-check what your answer depends on"), "with the re-check reminder");
+  assert.ok(afterCompaction.includes("Recover applicable observations"), "with recovery and targeted rechecks rather than repeating every check");
   assert.match(afterCompaction, /\\"taskId\\": \\"turn-second-0002\\"/, "with the current turn's exact task id");
   assert.ok(afterCompaction.indexOf(restatement) > afterCompaction.indexOf("Critical Context"), "after the summary that names the old one");
   for (const before of requests.slice(0, 2)) assert.ok(!before.includes(restatement), "no restatement before any compaction");

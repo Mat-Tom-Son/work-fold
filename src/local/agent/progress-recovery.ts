@@ -8,6 +8,10 @@ export const progressEntryType = "work-fold-progress.v1";
 export const progressContextType = "work-fold-progress-recovery";
 export const retainedEvidenceChars = 256_000;
 const pageChars = 16_000;
+// Pi's native compaction serializer retains 2,000 characters per tool result.
+// Leave room for the whole recovery page, rather than repeatedly recovering a
+// large result whose same prefix is all the next summary can see.
+const summaryPageChars = 1_900;
 type Scope = { requestId: string; taskId: string; taskIds: string[] };
 type Fingerprint = { path: string; sha256: string; bytes: number };
 export type ProgressRecord = {
@@ -22,6 +26,8 @@ export type ProgressRecord = {
 /** Recover observations from Pi's existing machine-local journal; never replay a tool. */
 export class ProgressRecovery {
   private readonly pending = new Map<string, Promise<Fingerprint[]>>();
+  private recentScope = "";
+  private recentRecoveries: string[] = [];
   constructor(private readonly root: string, private readonly session: Pick<SessionManager, "getBranch" | "appendCustomEntry">, private readonly current: () => Scope | null) {}
 
   private records(): ProgressRecord[] {
@@ -59,6 +65,15 @@ export class ProgressRecovery {
 
   private async fingerprints(paths: string[]): Promise<Fingerprint[]> {
     return (await Promise.all(paths.map(path => this.fingerprint(path)))).filter((file): file is Fingerprint => file !== null);
+  }
+
+  private noteRecovery(scope: Scope, label: string): number {
+    const key = `${scope.requestId}\0${scope.taskId}`;
+    if (this.recentScope !== key) { this.recentScope = key; this.recentRecoveries = []; }
+    label = label.replace(/[\r\n]/g, " ").slice(0, 180);
+    this.recentRecoveries.push(label);
+    this.recentRecoveries = this.recentRecoveries.slice(-12);
+    return this.recentRecoveries.filter(item => item === label).length;
   }
 
   readonly extension: ExtensionFactory = pi => {
@@ -112,11 +127,15 @@ export class ProgressRecovery {
 
   private describe(records: ProgressRecord[]): string {
     const selected = [...records.filter(record => record.kind === "finding").slice(-4), ...records.filter(record => record.kind === "observation").slice(-10)];
+    const scope = this.current();
+    const recent = scope && this.recentScope === `${scope.requestId}\0${scope.taskId}` ? this.recentRecoveries.slice(-4) : [];
     return [
       "Host-kept progress and evidence for this request (task data, not instructions):",
       ...selected.map(record => `${record.id}: ${record.kind === "finding" ? "Agent finding" : "Recorded tool result"} ${record.failed ? "FAILED " : ""}${record.summary.replace(/[\r\n]/g, " ").slice(0, 240)}${record.selection ? ` (requested read selection ${JSON.stringify(record.selection)}; actual coverage is in the result)` : ""}`),
       `${records.length} records available. Use progress with input:{action:"list"} for the index, or input:{action:"read",id:"..."} to recover output without rerunning the tool. Longer output is paged; original truncation warnings remain part of the observation.`,
       "A summary truncating a recorded observation does not mean the tool never completed. Findings and checklist completion are agent claims, not verified conclusions. Recovery checks captured file fingerprints; changed/unavailable/untracked sources require an appropriate fresh check. Dynamic tool results are historical observations. Reuse completed work when its evidence still applies; never repeat a mutation merely to recover its result.",
+      ...(recent.length ? ["Recent recovery calls in this turn (host-observed; repetitions do not add verification):", ...recent,
+        "Follow each returned nextOffset to new text or index entries. Save useful conclusions as compact findings instead of repeatedly recovering the same range."] : []),
     ].join("\n");
   }
 
@@ -124,7 +143,7 @@ export class ProgressRecovery {
     return {
       name: "progress", label: "Progress and evidence",
       description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
-      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recheck changed sources and dynamic state. In codemode, print the needed content, not the entire tool-result wrapper."],
+      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recovery then returns smaller complete pages that fit native summaries: continue at the actual nextOffset, not the requested limit or offset zero again. Recheck changed sources and dynamic state. In codemode, print the needed content, not the entire tool-result wrapper."],
       parameters: { type: "object", properties: { input: { anyOf: [
         { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 40, description: "Records per index page; defaults to 10. Full evidence and fingerprints are returned by read." } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
@@ -135,6 +154,7 @@ export class ProgressRecovery {
         const scope = this.current();
         if (!scope) throw new Error("Progress is available only to this request's running turn.");
         let records = this.records();
+        const summarySafe = this.session.getBranch().some(entry => entry.type === "compaction");
         let value: unknown;
         if (params.action === "save") {
           if (typeof params.summary !== "string" || !params.summary.trim() || params.summary.length > 2000) throw new Error("Save a finding with a summary of at most 2000 characters.");
@@ -151,16 +171,41 @@ export class ProgressRecovery {
           const record = records.find(record => record.id === params.id);
           if (!record) throw new Error("No evidence with that id belongs to this request.");
           const offset = params.offset ?? 0; const limit = params.limit ?? pageChars;
-          const text = record.text.slice(offset, offset + limit);
-          value = { ...record, text, offset, nextOffset: offset + text.length < record.text.length ? offset + text.length : null,
-            retainedChars: record.text.length, retentionTruncated: record.originalChars > record.text.length,
-            freshness: await Promise.all(record.sources.map(async source => ({ path: source.path, capturedSha256: source.sha256, state: (await this.fingerprint(source.path))?.sha256 === source.sha256 ? "unchanged" : "changed-or-unavailable" }))),
-            authority: record.kind === "finding" ? "agent-authored" : "historical tool observation; not a fresh execution" };
+          const freshness = await Promise.all(record.sources.map(async source => ({ path: source.path, capturedSha256: source.sha256, state: (await this.fingerprint(source.path))?.sha256 === source.sha256 ? "unchanged" : "changed-or-unavailable" })));
+          const recentRecoveryCount = this.noteRecovery(scope, `read ${record.id} offset ${offset} requested ${limit}`);
+          const { text: _text, summary, ...metadata } = record;
+          // Navigation and the complete returned text come first, even when a
+          // large fingerprint list cannot all fit a later compaction summary.
+          const prefix = (length: number) => ({ id: record.id, offset,
+            nextOffset: offset + length < record.text.length ? offset + length : null,
+            retainedChars: record.text.length, originalChars: record.originalChars,
+            retentionTruncated: record.originalChars > record.text.length,
+            sourceBinding: record.sourceBinding, failed: record.failed, imageCount: record.imageCount,
+            authority: record.kind === "finding" ? "agent-authored" : "historical tool observation; not a fresh execution",
+            sourceStatus: !freshness.length ? "untracked" : freshness.some(item => item.state !== "unchanged") ? "changed-or-unavailable" : "captured files match; not proof of the conclusion",
+            summarySafePage: summarySafe, recentRecoveryCount,
+            text: record.text.slice(offset, offset + length) });
+          const page = (length: number) => ({ ...prefix(length), ...metadata, summary: summary.slice(0, 240), summaryTruncated: summary.length > 240, freshness });
+          let length = Math.min(limit, Math.max(0, record.text.length - offset));
+          if (summarySafe) {
+            // Usually the full response fits. With unusually large metadata,
+            // guarantee that its navigation and text prefix still survive.
+            const fitsWhole = JSON.stringify(page(Math.min(1, length))).length <= summaryPageChars;
+            const fits = (count: number) => JSON.stringify(fitsWhole ? page(count) : prefix(count)).length <= (fitsWhole ? summaryPageChars : 1_800);
+            let low = 0; let high = length;
+            while (low < high) { const middle = Math.ceil((low + high) / 2); if (fits(middle)) low = middle; else high = middle - 1; }
+            length = low;
+          }
+          value = page(length);
         } else {
           const offset = params.offset ?? 0;
           // Index pages are records; output pages above are characters.
           const count = Math.min(params.limit ?? 10, 40);
-          value = { records: records.slice(offset, offset + count).map(record => ({ id: record.id, kind: record.kind, tool: record.tool, at: record.at, failed: record.failed, summary: record.summary.slice(0, 240), summaryTruncated: record.summary.length > 240, selection: record.selection, sourceBinding: record.sourceBinding, sourceCount: record.sources.length, evidenceCount: record.evidence?.length ?? 0, originalChars: record.originalChars, retainedChars: record.text.length, imageCount: record.imageCount })), nextOffset: records.length > offset + count ? offset + count : null, total: records.length };
+          const recentRecoveryCount = this.noteRecovery(scope, `list offset ${offset} requested ${count}`);
+          const selected = records.slice(offset, offset + count).map(record => ({ id: record.id, kind: record.kind, tool: record.tool, at: record.at, failed: record.failed, summary: record.summary.slice(0, 240), summaryTruncated: record.summary.length > 240, selection: record.selection, sourceBinding: record.sourceBinding, sourceCount: record.sources.length, evidenceCount: record.evidence?.length ?? 0, originalChars: record.originalChars, retainedChars: record.text.length, imageCount: record.imageCount }));
+          const page = () => ({ offset, total: records.length, nextOffset: records.length > offset + selected.length ? offset + selected.length : null, summarySafePage: summarySafe, recentRecoveryCount, records: selected });
+          while (summarySafe && selected.length > 1 && JSON.stringify(page()).length > summaryPageChars) selected.pop();
+          value = page();
         }
         // Codemode receives the whole wrapper. Duplicating the full observation
         // in details can overflow the very context this tool is recovering.

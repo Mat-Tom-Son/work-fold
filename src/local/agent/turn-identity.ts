@@ -49,7 +49,7 @@ export interface WorkFoldTurnIdentity {
  */
 export const restatedRequestMaxChars = 32_000;
 
-const recheckReminder = "Earlier work in this turn is only summarized above, and a summary can leave out results or how thoroughly you had checked. Before you finish, re-check what your answer depends on against the files and tools themselves rather than the summary, and say plainly if anything is still incomplete.";
+const recheckReminder = "Earlier work in this turn is summarized above; the summary can omit completed results or checks. Recover applicable observations and findings with progress first, including their coverage and freshness. Keep completed verification when its evidence still applies. Recheck changed sources, dynamic state, missing coverage or unresolved concerns with the appropriate tools; compaction alone is not a reason to repeat every check. Never replay a mutation to recover its result. Finish when the requested outcome has supporting evidence, and say plainly if anything is still incomplete.";
 
 /** The identity lines a Worker turn's context opens with. */
 export function workFolderTurnIdentityLines(turn: { workFolderId: string; taskId: string; requestId: string }): string[] {

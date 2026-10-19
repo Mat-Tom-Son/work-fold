@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
-import { FileCredentialStore, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { FileCredentialStore, ModelRuntime, SessionManager, SettingsManager, serializeConversation } from "@earendil-works/pi-coding-agent";
 import { ProgressRecovery, progressContextType, retainedEvidenceChars } from "../src/local/agent/progress-recovery.js";
 import { PiConversationClient } from "../src/local/agent/pi-client.js";
 import { buildWorkFolderTurnContext } from "../src/local/agent/work-folder-turn-context.js";
@@ -121,6 +121,75 @@ test("malformed invisible journal entries cannot poison recovery context", async
   h.session.appendCustomEntry("work-fold-progress.v1", { requestId: "req-a", taskId: "turn-a", id: "bad", text: "bad", sources: [] });
   assert.equal((await h.run({ action: "list" })).total, 0);
   assert.equal(await h.handlers.get("context")!({ messages: [{ role: "compactionSummary", summary: "Earlier work" }] }), undefined);
+});
+
+test("recovery text pages and their cursors remain complete in native compaction summaries", async t => {
+  const h = await fixture(t);
+  const original = Array.from({ length: 48 }, (_, i) => `Part ${i}: exact quote \"saved edits gone after reopening\" — 🔎\n`).join("");
+  await h.capture("helper", { task: "review" }, original);
+  const id = (await h.run({ action: "list" })).records[0].id;
+  assert.equal((await h.run({ action: "read", id, limit: 16000 })).text, original, "normal recovery keeps its generous requested size");
+  h.session.appendCompaction("Earlier work was summarized", h.session.getLeafId(), 18000);
+  let offset: number | null = 0; let restored = ""; let pages = 0;
+  while (offset !== null) {
+    const page = await h.run({ action: "read", id, offset, limit: 16000 });
+    const summarized = serializeConversation([{ role: "toolResult", toolCallId: "recover", toolName: "progress", content: [{ type: "text", text: JSON.stringify(page) }], isError: false, timestamp: 0 }]);
+    assert.ok(summarized.includes(JSON.stringify(page.text)), "the summarizer must see the entire returned text page");
+    assert.ok(summarized.includes(`\"nextOffset\":${JSON.stringify(page.nextOffset)}`), "the summarizer must see the actual continuation cursor");
+    assert.equal(page.offset, offset); assert.ok(page.text.length > 0);
+    restored += page.text; offset = page.nextOffset; assert.ok(++pages < 100);
+  }
+  assert.equal(restored, original, "paging preserves escaped text and Unicode without repeating a tool");
+  assert.ok(pages > 1);
+});
+
+test("recovery index pages survive compaction without losing ids or their next offset", async t => {
+  const h = await fixture(t);
+  for (let i = 0; i < 24; i++) await h.capture("bash", { command: `case-${i} ${"long descriptive target ".repeat(8)}` }, `result-${i}`, `call-${i}`);
+  const expected = (await h.run({ action: "list", limit: 40 })).records.map((item: any) => item.id);
+  h.session.appendCompaction("Earlier work was summarized", h.session.getLeafId(), 18000);
+  const restored: string[] = []; let offset: number | null = 0; let pages = 0;
+  while (offset !== null) {
+    const page = await h.run({ action: "list", offset, limit: 40 });
+    const json = JSON.stringify(page);
+    const summarized = serializeConversation([{ role: "toolResult", toolCallId: "index", toolName: "progress", content: [{ type: "text", text: json }], isError: false, timestamp: 0 }]);
+    assert.ok(summarized.includes(json), "the complete index page must fit the native summary");
+    assert.equal(page.total, expected.length); restored.push(...page.records.map((item: any) => item.id));
+    offset = page.nextOffset; assert.ok(++pages < 40);
+  }
+  assert.deepEqual(restored, expected); assert.ok(pages > 1);
+});
+
+test("summary-safe recovery preserves navigation and stale-source warnings with a large fingerprint list", async t => {
+  const h = await fixture(t);
+  const files = Array.from({ length: 20 }, (_, i) => `source-${i}.txt`);
+  for (const file of files) await writeFile(join(h.root, file), "captured source");
+  const finding = await h.run({ action: "save", summary: "A finding with many sources. ".repeat(60), files });
+  await writeFile(join(h.root, files[0]), "changed source");
+  h.session.appendCompaction("Earlier work", h.session.getLeafId(), 18000);
+  const page = await h.run({ action: "read", id: finding.finding.id });
+  const summarized = serializeConversation([{ role: "toolResult", toolCallId: "recover", toolName: "progress", content: [{ type: "text", text: JSON.stringify(page) }], isError: false, timestamp: 0 }]);
+  assert.ok(summarized.includes(JSON.stringify(page.text)));
+  assert.ok(page.text.length > 0); assert.ok(page.nextOffset > 0);
+  assert.ok(summarized.includes(`"nextOffset":${page.nextOffset}`));
+  assert.ok(summarized.includes('"sourceStatus":"changed-or-unavailable"'));
+  assert.ok(summarized.includes('"authority":"agent-authored"'));
+  assert.equal(page.freshness.length, files.length, "full source metadata remains available in the live result");
+  assert.equal(page.freshness[0].state, "changed-or-unavailable");
+});
+
+test("recovery activity is bounded to its running task and never blocks repeated recovery", async t => {
+  const h = await fixture(t);
+  await h.capture("helper", {}, "completed result");
+  const id = (await h.run({ action: "list" })).records[0].id;
+  assert.equal((await h.run({ action: "read", id })).recentRecoveryCount, 1);
+  assert.equal((await h.run({ action: "read", id })).recentRecoveryCount, 2);
+  h.setScope({ requestId: "req-a", taskId: "answer", taskIds: ["turn-a", "answer"] });
+  assert.equal((await h.run({ action: "read", id })).recentRecoveryCount, 1);
+  h.setScope({ requestId: "req-b", taskId: "other", taskIds: ["other"] });
+  await assert.rejects(h.run({ action: "read", id }), /belongs to this request/);
+  const context = await h.handlers.get("context")!({ messages: [{ role: "compactionSummary", summary: "Earlier work" }] });
+  assert.ok(!JSON.stringify(context ?? null).includes(`read ${id}`), "a different request sees no recovery activity from the old one");
 });
 
 test("a native compaction recovers a completed read despite a misleading summary, without rereading its file", { timeout: 30_000 }, async t => {

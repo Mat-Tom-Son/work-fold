@@ -1,0 +1,1118 @@
+{
+  "version": 1,
+  "reason": "The unchanged prompt requires exact totals for valid two-decimal amounts without a magnitude bound. A review found Number-based patches passed the original small-value checker but lost cents. This supplemental audit is applied uniformly; original frozen grades remain unchanged.",
+  "cases": [
+    {
+      "name": "large-9007199254740991-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547409.92",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740991-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547409.93",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740991-10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547410.01",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740991-99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547410.90",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740991--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547409.92",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740991--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547409.93",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740991--10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547410.01",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740991--99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547410.90",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740989-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547409.90",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740989-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547409.91",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740989-10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547409.99",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9007199254740989-99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "90071992547410.88",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740989--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547409.90",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740989--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547409.91",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740989--10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547409.99",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9007199254740989--99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.89",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-90071992547410.88",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9999999999999999-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.00",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9999999999999999-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.01",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9999999999999999-10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.09",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-9999999999999999-99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.98",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9999999999999999--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.00",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9999999999999999--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.01",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9999999999999999--10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.09",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--9999999999999999--99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.98",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-10000000000000001-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.02",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-10000000000000001-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.03",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-10000000000000001-10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000000.11",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large-10000000000000001-99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "100000000000001.00",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--10000000000000001--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.02",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--10000000000000001--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.03",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--10000000000000001--10",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.10",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000000.11",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "large--10000000000000001--99",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "-100000000000000.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.99",
+          "status": "settled"
+        },
+        {
+          "currency": "EUR",
+          "amount": "0.03",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "99.99",
+          "status": "pending"
+        }
+      ],
+      "expected": {
+        "USD": "-100000000000001.00",
+        "EUR": "0.03"
+      }
+    },
+    {
+      "name": "cancellation-9007199254740991-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "0.01"
+      }
+    },
+    {
+      "name": "cancellation-9007199254740991--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "-0.01"
+      }
+    },
+    {
+      "name": "cancellation-9007199254740991-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "0.02"
+      }
+    },
+    {
+      "name": "cancellation-9007199254740991--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "90071992547409.91",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-90071992547409.91",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "-0.02"
+      }
+    },
+    {
+      "name": "cancellation-9999999999999999-1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "0.01"
+      }
+    },
+    {
+      "name": "cancellation-9999999999999999--1",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.01",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "-0.01"
+      }
+    },
+    {
+      "name": "cancellation-9999999999999999-2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "0.02"
+      }
+    },
+    {
+      "name": "cancellation-9999999999999999--2",
+      "rows": [
+        {
+          "currency": "USD",
+          "amount": "99999999999999.99",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-0.02",
+          "status": "settled"
+        },
+        {
+          "currency": "USD",
+          "amount": "-99999999999999.99",
+          "status": "settled"
+        }
+      ],
+      "expected": {
+        "USD": "-0.02"
+      }
+    }
+  ]
+}

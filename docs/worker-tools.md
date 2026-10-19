@@ -17,10 +17,22 @@ without repeating a helper, read or mutation. Compact index pages default to ten
 records (up to 40 with `limit`); full fingerprints, evidence links and findings
 remain available through `read`, rather than being duplicated in the index;
 output pages contain up to 16,000 characters.
+After native compaction, index and text pages shrink to fit Pi's summary
+serialization budget. Navigation and authority/freshness warnings precede the
+payload; unusually large fingerprint metadata remains available in the live
+result but may exceed a later summary. Treat `limit` as an upper bound and
+continue at the returned `nextOffset`, which reflects the actual page size.
+The host also supplies bounded, task-local recent recovery activity so a later
+summary can distinguish a new page from repeated recovery of the same range.
 Results carry JSON text in `content`; `details` contains only operation/id
 metadata, so Code Mode does not duplicate large recovered observations. Save
 compact findings once a conclusion is useful rather than repeatedly recovering
 every full input after compaction.
+Recover applicable completed observations and checks first; recheck changed
+sources, dynamic state, missing coverage and unresolved concerns. Compaction
+alone does not invalidate completed verification. Exact numeric claims also
+need arithmetic that preserves the promised range and precision, with
+independent expectations for signs, cancellation and range limits.
 
 Records use invisible custom entries in the existing machine-local Pi session,
 with the same session retention. They create no portable transcript records or
