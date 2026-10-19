@@ -624,6 +624,7 @@ export function createHelperTool(host: HelperToolHost): ToolDefinition<any> {
     promptSnippet: "Hand a focused read-only task to a helper with its own context",
     promptGuidelines: [
       "helper keeps heavy reading out of your context: give it a complete, self-contained task (what to find, which details matter, what to report) because it cannot see this conversation. Check anything doubtful in its result yourself, and resolve a partial result or ask the person through the usual verbs.",
+      "Set any requested model, thinking and tools options in the first call. Reuse a successful result; call again only for a changed question, new evidence or an explicitly requested independent check. If you have trouble constructing optional arguments, inspect the schema or construct one complete call in codemode instead of repeating successful work.",
     ],
     parameters: {
       type: "object",
