@@ -86,6 +86,26 @@ test("finding fingerprints refuse metadata, traversal and outgoing links, and St
   assert.equal((await h.run({ action: "list" })).total, 0);
 });
 
+test("the index pages completed results and distinguishes failed tools and image-only observations", async t => {
+  const h = await fixture(t);
+  for (let i = 0; i < 41; i++) await h.capture("bash", { command: `case-${i}` }, `output-${i}`, `call-${i}`);
+  const first = await h.run({ action: "list" }); assert.equal(first.records.length, 40); assert.equal(first.nextOffset, 40);
+  assert.equal((await h.run({ action: "list", offset: 40 })).records.length, 1);
+  await h.handlers.get("tool_result")!({ toolCallId: "failure", toolName: "edit", input: { path: "source.txt" }, content: [{ type: "text", text: "Could not find the old text" }], isError: true });
+  await h.handlers.get("tool_result")!({ toolCallId: "image", toolName: "read", input: { path: "image.png" }, content: [{ type: "image", data: "not-retained", mimeType: "image/png" }], isError: false });
+  const last = (await h.run({ action: "list", offset: 40 })).records;
+  assert.equal(last[1].failed, true); assert.equal(last[2].imageCount, 1);
+  assert.equal((await h.run({ action: "read", id: last[2].id })).text, "");
+  assert.ok(!(await readFile(h.session.getSessionFile()!, "utf8")).includes("not-retained"));
+});
+
+test("malformed invisible journal entries cannot poison recovery context", async t => {
+  const h = await fixture(t);
+  h.session.appendCustomEntry("work-fold-progress.v1", { requestId: "req-a", taskId: "turn-a", id: "bad", text: "bad", sources: [] });
+  assert.equal((await h.run({ action: "list" })).total, 0);
+  assert.equal(await h.handlers.get("context")!({ messages: [{ role: "compactionSummary", summary: "Earlier work" }] }), undefined);
+});
+
 test("a native compaction recovers a completed read despite a misleading summary, without rereading its file", { timeout: 30_000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-progress-compact-"));
   t.after(() => rm(root, { recursive: true, force: true }));

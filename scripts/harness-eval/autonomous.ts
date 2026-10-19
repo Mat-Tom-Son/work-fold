@@ -35,7 +35,7 @@ async function seed(folder: string) {
   await mkdir(join(folder, "interviews"));
   const expected: Array<{ id: string; path: string; quote: string }> = [];
   const positive = new Set([1, 4, 7, 11, 16, 19, 23, 28, 31, 35]);
-  const quotes = ["I reopened the draft and the paragraphs I had saved yesterday were gone.", "After the window came back, my last saved changes had vanished.", "It said saved before I quit; on returning I found the old version instead."];
+  const quotes = ["I reopened the draft and the paragraphs I had saved yesterday were gone.", "After the window came back, my last saved changes had vanished.", "It said saved before I quit; after reopening I checked the saved file itself, and my edits were missing from it."];
   for (let i = 0; i < 36; i++) {
     const id = `P${String(i + 1).padStart(2, "0")}`; const path = `interviews/${id}.md`;
     const quote = positive.has(i) ? quotes[i % quotes.length]! : i % 3 === 0 ? "The old preview made me worry, but the saved document was intact when I reopened it." : i % 3 === 1 ? "I lost unsaved typing after the crash; I had not saved that text." : "My saved edits remained intact; the problem was only a slow export.";
@@ -82,11 +82,11 @@ async function verify() {
   const calls = entries.flatMap(entry => entry.message?.role === "assistant" ? entry.message.content.filter((part: any) => part.type === "toolCall") : []);
   const counts: Record<string, number> = {}; for (const call of calls) counts[call.name] = (counts[call.name] ?? 0) + 1;
   const provider = await rows(host.tapLog);
-  const summary = { outcome: errors.length ? "failed" : "passed", model: meta.model, scenario: meta.scenario, promptSha256: digest(meta.prompt), sourceCommit: meta.sourceCommit, sourceDiffSha256: meta.sourceDiffSha256, durationSeconds: meta.durationSeconds, requestState: root?.state, parentTurns: root?.turns.length, compactions: entries.filter(entry => entry.type === "compaction").length, observationsRetained: entries.filter(entry => entry.type === "custom" && entry.customType === "work-fold-progress.v1").length, toolCalls: counts, evidenceReads: calls.filter(call => call.name === "progress" && call.arguments.action === "read").length, findingsSaved: calls.filter(call => call.name === "progress" && call.arguments.action === "save").length, providerCalls: provider.length, providerCost: provider.reduce((sum, call) => sum + (call.usage?.cost ?? 0), 0), errors };
+  const summary = { outcome: errors.length ? "failed" : "passed", model: meta.model, scenario: meta.scenario, fixtureRevision: meta.fixtureRevision ?? 1, promptSha256: digest(meta.prompt), sourceCommit: meta.sourceCommit, sourceDiffSha256: meta.sourceDiffSha256, durationSeconds: meta.durationSeconds, requestState: root?.state, parentTurns: root?.turns.length, compactions: entries.filter(entry => entry.type === "compaction").length, observationsRetained: entries.filter(entry => entry.type === "custom" && entry.customType === "work-fold-progress.v1").length, toolCalls: counts, evidenceReads: calls.filter(call => call.name === "progress" && call.arguments.action === "read").length, findingsSaved: calls.filter(call => call.name === "progress" && call.arguments.action === "save").length, providerCalls: provider.length, providerCost: provider.reduce((sum, call) => sum + (call.usage?.cost ?? 0), 0), errors };
   await writeFile(join(base, "summary.json"), JSON.stringify(summary, null, 2)); return summary;
 }
 
-if (process.argv.includes("--verify")) { console.log(JSON.stringify(await verify())); process.exit(0); }
+if (process.argv.includes("--verify")) { const summary = await verify(); console.log(JSON.stringify(summary)); process.exit(summary.outcome === "passed" ? 0 : 1); }
 if (!process.env.OPENROUTER_API_KEY) throw new Error("Provide OPENROUTER_API_KEY explicitly for live evaluation.");
 await mkdir(base, { recursive: true }); if (existsSync(join(base, "case.json"))) throw new Error("Choose a fresh --out; never replay an evaluation.");
 const folder = await mkdtemp(join(tmpdir(), `work-fold-autonomous-${scenario}-`));
@@ -95,13 +95,14 @@ const sourceHashes: Record<string, string> = {};
 async function sources(path: string, prefix = "") { for (const item of await readdir(path, { withFileTypes: true })) { const name = join(prefix, item.name); if (item.isDirectory()) await sources(join(path, item.name), name); else sourceHashes[name] = digest(await readFile(join(folder, name), "utf8")); } }
 await sources(folder);
 if (scenario === "repair") { await exec("git", ["init", "-q"], { cwd: folder }); await exec("git", ["add", "ledger.mjs", "visible-test.mjs"], { cwd: folder }); await exec("git", ["-c", "user.name=Evaluation", "-c", "user.email=eval@example.invalid", "commit", "-qm", "Seed candidate task"], { cwd: folder }); }
-const meta = { scenario, model, folder, ...spec, sourceHashes, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
+const meta = { scenario, model, folder, ...spec, sourceHashes, fixtureRevision: scenario === "research" ? 2 : 1, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
 await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2)); await writeFile(join(base, "prompt.txt"), spec.prompt);
-const host = spawn(process.execPath, ["--import", "tsx", "scripts/helper-eval/host.ts", "--out", join(base, "host"), "--model", model, "--thinking", "high", "--compact-at", arg("--compact-at", "40000")], { stdio: ["ignore", "pipe", "pipe"] });
+const host = spawn(process.execPath, ["--import", "tsx", "scripts/helper-eval/host.ts", "--out", join(base, "host"), "--model", model, "--thinking", "high", "--compact-at", arg("--compact-at", "40000"), ...(process.argv.includes("--keep-recent") ? ["--keep-recent", arg("--keep-recent", "2000")] : [])], { stdio: ["ignore", "pipe", "pipe"] });
 let log = ""; host.stdout.on("data", data => { log += data; }); host.stderr.on("data", data => { log += data; });
 const closed = new Promise<void>(done => host.once("close", () => done())); const startedAt = Date.now();
 const pause = () => new Promise(done => setTimeout(done, 250));
 let drive: ReturnType<typeof spawn> | undefined;
+process.on("SIGTERM", () => { drive?.kill("SIGTERM"); host.kill("SIGTERM"); });
 try {
   while (!existsSync(join(base, "host/host.json"))) { if (host.exitCode !== null || Date.now() - startedAt > 60_000) throw new Error(log.slice(-2000)); await pause(); }
   const info = JSON.parse(await readFile(join(base, "host/host.json"), "utf8"));
@@ -128,6 +129,6 @@ try {
   }
   await writeFile(join(base, "drive.json"), output); await writeFile(join(base, "drive.log"), errors);
   meta.durationSeconds = Math.round((Date.now() - startedAt) / 1000); await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2));
-  console.log(JSON.stringify(await verify()));
+  const summary = await verify(); console.log(JSON.stringify(summary)); if (summary.outcome !== "passed") process.exitCode = 1;
 } catch (error) { await writeFile(join(base, "failure.txt"), error instanceof Error ? error.stack ?? error.message : String(error)); throw error; }
 finally { if (drive?.exitCode === null) drive.kill("SIGTERM"); host.kill("SIGTERM"); await closed; await writeFile(join(base, "host.log"), log); }

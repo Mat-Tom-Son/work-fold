@@ -117,7 +117,9 @@ narrowed further with `tools`. It has no shell, edits, browser, MCP or nested
 helper. Read-only helpers may run in parallel through native Pi scheduling.
 
 An optional `model: { provider, id }` selects an already-connected model;
-`thinking` selects a supported reasoning level. Otherwise it uses its parent's
+omission or `model: null` inherits the connected parent without guessing ids.
+`thinking` selects a supported reasoning level. Optional settings also accept
+null for inheritance/defaults. Otherwise it uses its parent's
 model and reasoning. Steps appear in the Chat activity, usage joins the
 parent's turn/request totals, and content-free helper records remain on the
 turn journal, including stopped runs. Stop aborts and drains helpers before

@@ -257,6 +257,9 @@ usage and result. `--verify --out <saved-directory>` checks saved evidence
 without another model call. Preserve failed runs and freeze prompts before
 comparing models; repeated coached attempts do not establish an autonomous
 success rate. The live cases are separate from deterministic regression tests.
+For a context-pressure variant, keep the same prompt and add `--compact-at
+18000 --keep-recent 2000`; the host records those explicit compaction settings.
+This is a stress configuration, not the production default.
 
 `npm run harness:check` checks the evaluation scripts without making model
 requests; it is also part of `npm run check`.

@@ -841,7 +841,7 @@ export class PiConversationClient extends EventEmitter {
           session: () => this.runtimeHost?.session as unknown as HelperSession ?? null,
           selectSession: (model, thinking) => {
             const selected = runtime.modelRuntime.getModel(model.provider, model.id);
-            if (!selected || !runtime.modelRuntime.hasConfiguredAuth(model.provider)) throw new Error("Choose an already-connected helper model.");
+            if (!selected || !runtime.modelRuntime.hasConfiguredAuth(model.provider)) throw new Error("Choose an already-connected helper model. Omit model, or set model:null, to inherit this turn's connected model. Empty provider/id strings are not a model choice.");
             const parent = this.runtimeHost?.session;
             if (!parent) throw new Error("The parent model session is not ready.");
             if (thinking && !getSupportedThinkingLevels(selected).includes(thinking as ModelThinkingLevel)) throw new Error("Choose a supported helper reasoning level.");

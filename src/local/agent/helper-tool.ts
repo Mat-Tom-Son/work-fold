@@ -630,10 +630,10 @@ export function createHelperTool(host: HelperToolHost): ToolDefinition<any> {
       type: "object",
       properties: {
         task: { type: "string", minLength: 1, description: "Self-contained task: what to find or check, and exactly what to report back." },
-        model: { type: "object", properties: { provider: { type: "string" }, id: { type: "string" } }, required: ["provider", "id"], additionalProperties: false, description: "Optional already-connected model. Defaults to the parent model." },
-        thinking: { type: "string", description: "Optional supported reasoning level for the selected model." },
-        tools: { type: "array", items: { type: "string", enum: ["read", "grep", "find", "ls"] }, description: "Narrow the helper to these read-only tools." },
-        paths: { type: "array", items: { type: "string" }, description: "Optional work-folder-relative files or folders to start from." },
+        model: { anyOf: [{ type: "object", properties: { provider: { type: "string" }, id: { type: "string" } }, required: ["provider", "id"], additionalProperties: false }, { type: "null" }], description: "Omit or set null to inherit the connected parent model. Otherwise choose an already-connected model; never guess a provider or send empty ids." },
+        thinking: { type: ["string", "null"], description: "Optional supported reasoning level; null inherits the parent's setting." },
+        tools: { type: ["array", "null"], items: { type: "string", enum: ["read", "grep", "find", "ls"] }, description: "Narrow the helper to these read-only tools; null uses all four." },
+        paths: { type: ["array", "null"], items: { type: "string" }, description: "Optional work-folder-relative files or folders to start from; null starts in this work-folder." },
       },
       required: ["task"],
       additionalProperties: false,
@@ -642,10 +642,10 @@ export function createHelperTool(host: HelperToolHost): ToolDefinition<any> {
     async execute(_toolCallId, params, signal) {
       const turn = host.turn();
       if (!turn) throw new Error("The helper runs only inside an accepted turn.");
-      const value = params as { task?: unknown; paths?: unknown; model?: { provider: string; id: string }; thinking?: string; tools?: string[] };
+      const value = params as { task?: unknown; paths?: unknown; model?: { provider: string; id: string } | null; thinking?: string | null; tools?: string[] | null };
       const parent = host.session();
       const choice = value.model ?? (value.thinking && parent?.model ? { provider: parent.model.provider, id: parent.model.id } : undefined);
-      const session = choice && host.selectSession ? host.selectSession(choice, value.thinking) : parent;
+      const session = choice && host.selectSession ? host.selectSession(choice, value.thinking ?? undefined) : parent;
       if (!session) throw new Error("This Chat's model session is not ready.");
       const controller = new AbortController();
       const forward = () => controller.abort();

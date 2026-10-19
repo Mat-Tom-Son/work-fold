@@ -48,7 +48,10 @@ export class ProgressRecovery {
       const info = await stat(real);
       if (!info.isFile() || info.size > 32 * 1024 * 1024) return null;
       const hash = createHash("sha256");
-      for await (const chunk of createReadStream(real)) hash.update(chunk);
+      let bytes = 0;
+      for await (const chunk of createReadStream(real)) { bytes += chunk.length; if (bytes > 32 * 1024 * 1024) return null; hash.update(chunk); }
+      const after = await stat(real);
+      if (bytes !== info.size || after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ino !== info.ino) return null;
       return { path: name, sha256: hash.digest("hex"), bytes: info.size };
     } catch { return null; }
   }
@@ -58,11 +61,13 @@ export class ProgressRecovery {
   }
 
   readonly extension: ExtensionFactory = pi => {
-    pi.on("tool_call", event => {
+    pi.on("tool_call", async event => {
       if (!this.current() || event.toolName === "progress") return;
       // Only explicit file reads are bracketed; a shell/helper's implicit inputs are unknown.
       const path = event.toolName === "read" && typeof event.input.path === "string" ? event.input.path : null;
-      this.pending.set(event.toolCallId, path ? this.fingerprints([path]) : Promise.resolve([]));
+      const capture = path ? this.fingerprints([path]) : Promise.resolve([]);
+      this.pending.set(event.toolCallId, capture);
+      await capture;
     });
     pi.on("tool_result", async event => {
       const pending = this.pending.get(event.toolCallId);
