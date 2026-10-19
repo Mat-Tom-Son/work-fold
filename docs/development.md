@@ -257,9 +257,36 @@ usage and result. `--verify --out <saved-directory>` checks saved evidence
 without another model call. Preserve failed runs and freeze prompts before
 comparing models; repeated coached attempts do not establish an autonomous
 success rate. The live cases are separate from deterministic regression tests.
+Without compaction flags the autonomous driver uses native Pi settings (the
+normal model window, 16,384 reserved tokens and 20,000 recent tokens in Pi
+1.1.0). Earlier versions of this driver silently forced a 40,000-token trigger;
+do not label those runs production-default context trials.
 For a context-pressure variant, keep the same prompt and add `--compact-at
 18000 --keep-recent 2000`; the host records those explicit compaction settings.
 This is a stress configuration, not the production default.
+
+For repeated first-attempt comparisons, commit the evaluator, then create an
+immutable plan with `npm run harness:repeat -- --create-plan
+out/frozen-eval/plan.json --repetitions 3`. It freezes the three cases, prompts,
+answers, expected results, source-file hashes, evaluator files, dependency
+lockfile, Node runtime and a copied model catalog. The 36 interleaved trials use
+GLM 5.3 and GPT-6 Luna at high reasoning, both normal and stressed settings,
+with three concurrent disposable hosts. Hosted model weights and provider
+routing are outside this client-side freeze.
+
+With `OPENROUTER_API_KEY` explicitly supplied, run `npm run harness:repeat --
+--plan out/frozen-eval/plan.json --out out/frozen-eval/baseline`. Every phase
+requires clean committed source and a fresh output directory, refuses changed
+evaluation inputs, and preserves each attempt, including failures. Make product
+fixes only between phases, commit them, then use the same plan and a new output
+directory. `results.json` records every trial and aggregates each model/case/
+context cell; no failed attempt is replaced by a retry. Source changes while a
+phase is running invalidate it. Exact repeated reads with unchanged bracketed
+fingerprints and repeated helper arguments are diagnostic proxies, not proof
+that the work was unnecessary. A Done request with failing independent artifact
+checks is flagged separately for review of its completion claims. Inspect
+explanations as well as machine-graded bytes. Three repetitions per cell provide
+an initial signal, not a precise production success-rate estimate.
 
 `npm run harness:check` checks the evaluation scripts without making model
 requests; it is also part of `npm run check`.
