@@ -66,6 +66,8 @@ Git worktree. Archive refuses active work, removes only the registration, and
 retains tracked changes, untracked files, conversations and Git history.
 Restore validates the Git repository identity and re-registers that same
 folder. There is no automatic merge, dependency setup, file deletion or purge.
+The creating work-folder owns these management operations. A child edits and
+reports from its own copy; it cannot list or archive its parent's copies.
 
 ## Read-only helpers
 

@@ -115,6 +115,7 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
       "Use job_start for anything that may take more than a couple of minutes, or whose partial output decides the next step; use bash for everything else.",
       "After job_start, keep working, or finish your turn and say what is running: work-fold brings a job's result back to this Chat once when it ends. Never poll in a loop or sleep waiting for it. Use job_output's wait or until only when nothing else is left and the result is close, such as a server's ready line.",
       "Stop servers and watchers you started with job_stop when the work no longer needs them.",
+      "timeout is the maximum lifetime of the whole command in seconds; wait controls how soon this tool returns. For an immediate return set wait:0 and omit timeout, or give the command enough time for model/tool round trips. Never use a tiny timeout to make job_start return quickly.",
     ],
     parameters: {
       type: "object",
@@ -124,7 +125,7 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
         service: { type: "boolean", description: "Keep a server or watcher alive independently of request completion. It still stops on quit and blocks deletion while running. Stop it explicitly when no longer needed; its exit does not wake a turn." },
         name: { type: "string", maxLength: 200, description: "A short label the person sees, for example \"Export the video\". Defaults to the command." },
         cwd: { type: "string", description: "Folder to run in: relative to this Chat's folder, or absolute. Defaults to this Chat's folder." },
-        timeout: { type: "number", exclusiveMinimum: 0, description: "Stop the job after this many seconds. No limit by default." },
+        timeout: { type: "number", exclusiveMinimum: 0, description: "Maximum lifetime of the entire command in seconds, not the call's return delay (use wait for that). No limit by default; interactive jobs need time for model/tool round trips." },
         wait: { type: "number", minimum: 0, description: `Seconds to wait before returning, for early output or an exit. Defaults to ${defaultWait}; 0 returns at once.` },
         until: { type: "string", description: "A pattern (JavaScript regular expression); return as soon as a line of output matches it, for example \"ready|listening on\"." },
       },
