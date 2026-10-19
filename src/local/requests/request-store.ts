@@ -528,13 +528,14 @@ export class WorkFoldRequestStore {
    * Attaches a job to the request whose turn started it, before its process
    * starts. A stopped request refuses, so no job outlives a Stop.
    */
-  noteJobStarted(input: { taskId: string; jobId: string; name: string; startedAt?: string }): Promise<WorkFoldRequestRecord> {
+  noteJobStarted(input: { taskId: string; jobId: string; name: string; startedAt?: string; service?: boolean }): Promise<WorkFoldRequestRecord> {
     return this.#run(async () => {
       const existing = this.#byJob.get(input.jobId);
       if (existing) return copyRecord(this.#records.get(existing)!);
       const record = this.#requireByTask(input.taskId);
       this.assertCanContinue(record.requestId);
       const ref: WorkFoldRequestJobRef = {
+        ...(input.service ? { service: true } : {}),
         jobId: input.jobId,
         taskId: input.taskId,
         name: input.name,
@@ -625,6 +626,7 @@ export class WorkFoldRequestStore {
     text: string;
     /** Suggested answers shown as choices; a free-text answer is still accepted. */
     options?: readonly string[];
+    asynchronous?: boolean;
   }): Promise<WorkFoldQuestionRecord> {
     return this.#run(async () => {
       const record = this.#requireRecord(input.requestId);
@@ -644,6 +646,7 @@ export class WorkFoldRequestStore {
         respondent: input.respondent,
         text: input.text,
         ...(input.options?.length ? { options: [...input.options] } : {}),
+        ...(input.asynchronous ? { asynchronous: true } : {}),
         askedAt: at,
         updatedAt: at,
         expiresAt: record.deadline,
@@ -967,7 +970,7 @@ export class WorkFoldRequestStore {
       const doomed: TrimmedRequestRef[] = [];
       for (const members of family.values()) {
         const settledOut = members.every((member) =>
-          isWorkFoldRequestTerminalState(member.state) && member.settledAt !== null && Date.parse(member.settledAt) <= cutoff);
+          isWorkFoldRequestTerminalState(member.state) && !(this.#records.get(member.requestId)?.jobs ?? []).some(job => job.state === "running" || (job.settledAt !== null && Date.parse(job.settledAt) > cutoff)) && member.settledAt !== null && Date.parse(member.settledAt) <= cutoff);
         if (settledOut) doomed.push(...members);
       }
       // The ids retention removes are the only ids a rewrite may drop; the
@@ -1175,11 +1178,12 @@ export class WorkFoldRequestStore {
       turnStates: [record.turns.at(-1)!.state,
         ...(record.continuationState === "pending" ? ["accepted" as const] : record.continuationState === "failed" ? ["failed" as const] : [])],
       openQuestions: this.#openQuestionCount(record.requestId),
+      openBlockingQuestions: this.questions(record.requestId).filter(question => !question.asynchronous && (question.state === "open" || (question.state === "answered" && question.continuationTaskId === null))).length,
       openDescendantQuestions: record.childRequestIds.reduce((total, id) => total + this.#openQuestionCount(id, true), 0),
       childStates: record.childRequestIds.map((id) => this.#records.get(id)?.state ?? null),
       resultOutcomes: record.results.filter((ref) => ref.taskId === record.turns.at(-1)!.taskId).slice(-1).map((ref) => ref.outcome),
       limitHit: record.limitHit,
-      jobStates: (record.jobs ?? []).map((job) => job.state),
+      jobStates: (record.jobs ?? []).filter(job => !job.service).map((job) => job.state),
     });
     const terminal = isWorkFoldRequestTerminalState(state);
     return {
@@ -1381,7 +1385,7 @@ export class WorkFoldRequestStore {
   #trimMemory(): void {
     if (this.#records.size <= this.#maxRecords) return;
     const records = [...this.#records.values()]
-      .filter((record) => isWorkFoldRequestTerminalState(record.state))
+      .filter((record) => isWorkFoldRequestTerminalState(record.state) && !(record.jobs ?? []).some(job => job.state === "running"))
       .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
     for (const record of records.slice(0, Math.max(0, this.#records.size - this.#maxRecords))) {
       for (const turn of record.turns) this.#byTask.delete(turn.taskId);

@@ -164,7 +164,10 @@ export type WorkFoldCliActCommandName =
   | "jobs.list"
   | "jobs.show"
   | "jobs.output"
-  | "jobs.stop";
+  | "jobs.stop"
+  | "chat.children"
+  | "jobs.input"
+  | "worktrees.manage";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -271,6 +274,7 @@ export interface WorkFoldCliActParsedCommand {
   appendInstructions?: boolean;
   /** chat.ask and agent.ask suggested answers (`--option`, repeatable), shown as choices. */
   options?: string[];
+  asynchronous?: boolean;
   /** chat.answer target. `--question` carries an id here and free text in chat.ask. */
   questionId?: string;
   /** chat.answer answer text. */
@@ -292,6 +296,13 @@ export interface WorkFoldCliActParsedCommand {
   job?: string;
   /** jobs.start: the shell command, or "" when `--command-file` supplies it. */
   jobCommand?: string;
+  interactive?: boolean;
+  service?: boolean;
+  terminalText?: string;
+  eof?: boolean;
+  worktreeAction?: "create" | "list" | "archive" | "restore";
+  worktreeId?: string;
+  worktreeRef?: string;
   /** jobs.start: the label a person sees. */
   jobName?: string;
   /** jobs.start: folder to run in, relative to the work-folder or absolute. */
@@ -450,8 +461,11 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--wait",
     "--option",
     "--append",
+    "--text",
+    "--action",
+    "--ref",
   ]);
-  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running"]);
+  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running", "--asynchronous", "--interactive", "--service", "--eof"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index] ?? "";
@@ -784,6 +798,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "pages widen",
     "pages snapshot-off",
     "recently-deleted restore",
+    "jobs input",
+    "worktrees manage",
     "jobs start",
     "jobs stop",
   ]);
@@ -928,7 +944,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     case "chat ask": {
       // F27: recording a question never suspends the asking turn. The turn
       // ends; the task's request is what waits.
-      allowOnlyFlags(...(command === "agent ask" ? ["--task", "--question", "--question-file", "--parent-task"] : ["--work-folder", "--task", "--question", "--question-file", "--to", "--parent-task"]));
+      allowOnlyFlags(...(command === "agent ask" ? ["--task", "--question", "--question-file", "--parent-task", "--asynchronous"] : ["--work-folder", "--task", "--question", "--question-file", "--to", "--parent-task", "--asynchronous"]));
       // --option is collected apart from flags and checked above.
       const rawRespondent = stringFlag("--to")?.trim();
       if (rawRespondent !== undefined && rawRespondent !== "person" && rawRespondent !== "parent") {
@@ -947,6 +963,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         // person and says it did.
         respondent: (rawRespondent ?? "person") as "person" | "parent",
         ...(optionValues.length ? { options: questionOptions() } : {}),
+        ...(flags.has("--asynchronous") ? { asynchronous: true } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
     }
@@ -964,6 +981,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(parentTaskId ? { parentTaskId } : {}),
       };
+    case "chat children":
+      allowOnlyFlags("--work-folder", "--task");
+      return { name: "chat.children", output, workFolder: requireWorkFolder(), task: requireBoundedFlag("--task", "task-id") };
     case "chat steer": {
       // One more message into a Chat's running turn, delivered after its
       // current step. --task names the caller's own running turn when a
@@ -1914,7 +1934,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     // Background jobs (docs/background-jobs.md). start needs the caller's own
     // running turn, as chat report does; every verb names the job's work-folder.
     case "jobs start": {
-      allowOnlyFlags("--work-folder", "--task", "--command", "--command-file", "--name", "--cwd", "--timeout", "--parent-task");
+      allowOnlyFlags("--work-folder", "--task", "--command", "--command-file", "--name", "--cwd", "--timeout", "--parent-task", "--interactive", "--service");
       const jobCommand = (() => {
         if (textFileFlag("--command", "command") !== undefined) return "";
         const value = stringFlag("--command");
@@ -1938,6 +1958,8 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         workFolder: requireWorkFolder(),
         task: requireBoundedFlag("--task", "task-id"),
         jobCommand,
+        ...(flags.has("--interactive") ? { interactive: true } : {}),
+        ...(flags.has("--service") ? { service: true } : {}),
         ...(Object.keys(textFiles).length ? { textFiles } : {}),
         ...(jobName ? { jobName } : {}),
         ...(jobCwd ? { jobCwd } : {}),
@@ -1982,6 +2004,16 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         ...(task ? { task } : {}),
       };
     }
+    case "worktrees manage": {
+      allowOnlyFlags("--work-folder", "--task", "--action", "--id", "--ref");
+      const action = stringFlag("--action");
+      if (action !== "create" && action !== "list" && action !== "archive" && action !== "restore") throw usageError("--action must be create, list, archive, or restore.");
+      return { name: "worktrees.manage", output, workFolder: requireWorkFolder(), task: requireBoundedFlag("--task", "task-id"), worktreeAction: action, ...(stringFlag("--id") ? { worktreeId: stringFlag("--id")! } : {}), ...(stringFlag("--ref") ? { worktreeRef: stringFlag("--ref")! } : {}) };
+    }
+    case "jobs input":
+      allowOnlyFlags("--work-folder", "--task", "--job", "--text", "--eof");
+      if (stringFlag("--text") === undefined) throw usageError("--text is required (it may be empty).");
+      return { name: "jobs.input", output, workFolder: requireWorkFolder(), task: requireBoundedFlag("--task", "task-id"), job: requireBoundedFlag("--job", "job-id"), terminalText: stringFlag("--text")!, ...(flags.has("--eof") ? { eof: true } : {}) };
     case "jobs stop":
       allowOnlyFlags("--work-folder", "--job", "--parent-task");
       return {
@@ -2232,6 +2264,7 @@ async function runActCommand(
         taskId: command.task!,
         question: command.question!,
         ...(command.options?.length ? { options: command.options } : {}),
+        ...(command.asynchronous ? { asynchronous: true } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -2242,6 +2275,8 @@ async function runActCommand(
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
+    case "chat.children":
+      return toChecksJson(await facade.chatChildren({ workFolder: command.workFolder!, taskId: command.task! }));
     case "chat.ask":
       return toChecksJson(await facade.chatAsk({
         workFolder: command.workFolder!,
@@ -2249,6 +2284,7 @@ async function runActCommand(
         question: command.question!,
         respondent: command.respondent ?? "person",
         ...(command.options?.length ? { options: command.options } : {}),
+        ...(command.asynchronous ? { asynchronous: true } : {}),
         requestId: request.id,
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
       }));
@@ -2306,6 +2342,8 @@ async function runActCommand(
         workFolder: command.workFolder!,
         taskId: command.task!,
         command: command.jobCommand ?? "",
+        ...(command.interactive ? { interactive: true } : {}),
+        ...(command.service ? { service: true } : {}),
         ...(command.jobName ? { name: command.jobName } : {}),
         ...(command.jobCwd ? { cwd: command.jobCwd } : {}),
         ...(command.timeoutSeconds !== undefined ? { timeoutSeconds: command.timeoutSeconds } : {}),
@@ -2329,6 +2367,10 @@ async function runActCommand(
         ...(command.until ? { until: command.until } : {}),
         ...(command.task ? { taskId: command.task } : {}),
       }));
+    case "worktrees.manage":
+      return toChecksJson(await facade.worktreesManage({ workFolder: command.workFolder!, taskId: command.task!, action: command.worktreeAction!, ...(command.worktreeId ? { id: command.worktreeId } : {}), ...(command.worktreeRef ? { ref: command.worktreeRef } : {}) }));
+    case "jobs.input":
+      return toChecksJson(await facade.jobsInput({ workFolder: command.workFolder!, taskId: command.task!, jobId: command.job!, text: command.terminalText!, ...(command.eof ? { eof: true } : {}) }));
     case "jobs.stop":
       return toChecksJson(await facade.jobsStop({
         workFolder: command.workFolder!,

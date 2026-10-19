@@ -850,3 +850,12 @@ ignored. Legacy aggregate text and streaming remain unchanged. This is an additi
 backend contract for the separate chat-rendering work, not an automatic change to
 how desktop, management or paired-web replies are displayed. Selected native edit
 evidence is described in [the feedback contract](tool-feedback.md#selected-edit-evidence-and-presentation).
+
+## Worker execution controls (2026-10-18)
+
+[Worker tools](worker-tools.md) documents the structured collaboration adapters,
+`chat ask --asynchronous`, `jobs start --interactive|--service`, `jobs input`,
+and `worktrees manage`. These use this facade and explicit work-folder/task
+lineage; they introduce no second authority mode. Queued asynchronous answers
+return `continuation: null` and `queued: true` until idle delivery starts the
+one linked turn. Existing blocking-answer responses are unchanged.

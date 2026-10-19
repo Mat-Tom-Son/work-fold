@@ -22,7 +22,8 @@ import type { WorkFoldJobShell, WorkFoldJobWaitOutcome } from "../jobs/job-servi
 
 /** What the tools need from the host; one instance per Chat client. */
 export interface BackgroundJobToolHost {
-  start(input: { taskId: string; command: string; name?: string; cwd: string; timeoutSeconds?: number; shell: WorkFoldJobShell }): Promise<WorkFoldJobRecord>;
+  start(input: { taskId: string; command: string; name?: string; cwd: string; timeoutSeconds?: number; shell: WorkFoldJobShell; interactive?: boolean; service?: boolean }): Promise<WorkFoldJobRecord>;
+  input?(input: { taskId: string; jobId: string; text: string; eof?: boolean }): Promise<WorkFoldJobRecord>;
   /** This Chat's jobs, then running jobs elsewhere in the same scope. */
   list(input: { taskId: string }): { here: WorkFoldJobRecord[]; elsewhere: WorkFoldJobRecord[] };
   read(input: { taskId: string; jobId: string; offset?: number; limit?: number }): Promise<{ job: WorkFoldJobRecord; output: JobOutputRead }>;
@@ -40,7 +41,7 @@ export interface BackgroundJobToolsInput {
   shell: () => WorkFoldJobShell;
 }
 
-export const backgroundJobToolNames = ["job_start", "job_output", "job_stop"] as const;
+export const backgroundJobToolNames = ["job_start", "job_output", "job_stop", "job_input"] as const;
 
 function requireTask(input: BackgroundJobToolsInput): string {
   const taskId = input.taskId();
@@ -114,14 +115,17 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
       "Use job_start for anything that may take more than a couple of minutes, or whose partial output decides the next step; use bash for everything else.",
       "After job_start, keep working, or finish your turn and say what is running: work-fold brings a job's result back to this Chat once when it ends. Never poll in a loop or sleep waiting for it. Use job_output's wait or until only when nothing else is left and the result is close, such as a server's ready line.",
       "Stop servers and watchers you started with job_stop when the work no longer needs them.",
+      "timeout is the maximum lifetime of the whole command in seconds; wait controls how soon this tool returns. For an immediate return set wait:0 and omit timeout, or give the command enough time for model/tool round trips. Never use a tiny timeout to make job_start return quickly.",
     ],
     parameters: {
       type: "object",
       properties: {
         command: { type: "string", minLength: 1, description: "The shell command, run like bash in this Chat's folder." },
+        interactive: { type: "boolean", description: "Allocate a real terminal (PTY). Send input with job_input, including newline or Ctrl-C as needed." },
+        service: { type: "boolean", description: "Keep a server or watcher alive independently of request completion. It still stops on quit and blocks deletion while running. Stop it explicitly when no longer needed; its exit does not wake a turn." },
         name: { type: "string", maxLength: 200, description: "A short label the person sees, for example \"Export the video\". Defaults to the command." },
         cwd: { type: "string", description: "Folder to run in: relative to this Chat's folder, or absolute. Defaults to this Chat's folder." },
-        timeout: { type: "number", exclusiveMinimum: 0, description: "Stop the job after this many seconds. No limit by default." },
+        timeout: { type: "number", exclusiveMinimum: 0, description: "Maximum lifetime of the entire command in seconds, not the call's return delay (use wait for that). No limit by default; interactive jobs need time for model/tool round trips." },
         wait: { type: "number", minimum: 0, description: `Seconds to wait before returning, for early output or an exit. Defaults to ${defaultWait}; 0 returns at once.` },
         until: { type: "string", description: "A pattern (JavaScript regular expression); return as soon as a line of output matches it, for example \"ready|listening on\"." },
       },
@@ -130,7 +134,7 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
     } as any,
     async execute(_toolCallId, params, signal) {
       const taskId = requireTask(input);
-      const value = params as { command?: unknown; name?: unknown; cwd?: unknown; timeout?: unknown; wait?: unknown; until?: unknown };
+      const value = params as { command?: unknown; name?: unknown; cwd?: unknown; timeout?: unknown; wait?: unknown; until?: unknown; interactive?: boolean; service?: boolean };
       if (typeof value.command !== "string" || !value.command.trim()) throw new Error("job_start needs a command.");
       const timeoutSeconds = optionalSeconds(value.timeout, "timeout");
       if (timeoutSeconds === 0) throw new Error("timeout must be more than 0 seconds.");
@@ -139,6 +143,8 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
       const job = await input.host.start({
         taskId,
         command: value.command,
+        ...(value.interactive ? { interactive: true } : {}),
+        ...(value.service ? { service: true } : {}),
         ...(typeof value.name === "string" && value.name.trim() ? { name: value.name } : {}),
         cwd: resolveCwd(input.root, value.cwd),
         ...(timeoutSeconds !== undefined ? { timeoutSeconds } : {}),
@@ -158,7 +164,9 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
         `Command: ${job.command.split("\n", 1)[0]}${job.command.includes("\n") ? " …" : ""}`,
         `Folder: ${job.cwd}`,
         ...describeWait(waitNote, seconds),
-        ...(ended ? [] : [`It keeps running. Read it with job_output (job "${job.jobId}"; wait or until to wait for it) and stop it with job_stop. If your turn ends first, work-fold brings its result back to this Chat when it ends.`]),
+        ...(ended ? [] : [job.service
+          ? `This service keeps running independently of request completion. Read it with job_output (job "${job.jobId}") and stop it with job_stop when no longer needed. Its exit does not start a follow-up turn.`
+          : `It keeps running. Read it with job_output (job "${job.jobId}"; wait or until to wait for it) and stop it with job_stop. If your turn ends first, work-fold brings its result back to this Chat when it ends.`]),
       ];
       const endedBadly = ended && (read.job.state !== "exited" || read.job.exitCode !== 0);
       return {
@@ -237,5 +245,16 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
     },
   };
 
-  return [start, output, stop];
+  const inputTool: ToolDefinition<any> = {
+    name: "job_input", label: "Terminal input",
+    description: "Send text or control characters to a running interactive terminal job. Include a newline to submit a line; \\u0003 sends Ctrl-C. Input may have effects: inspect output before retrying an uncertain call.",
+    parameters: { type: "object", properties: { job: { type: "string" }, text: { type: "string", description: "Exact characters to send, at most 64 KiB." }, eof: { type: "boolean", description: "Close the input stream after this text." } }, required: ["job", "text"], additionalProperties: false } as any,
+    async execute(_id, params) {
+      if (!input.host.input) throw new Error("This host does not support terminal input.");
+      const value = params as { job: string; text: string; eof?: boolean };
+      const job = await input.host.input({ taskId: requireTask(input), jobId: value.job, text: value.text, ...(value.eof ? { eof: true } : {}) });
+      return { content: [{ type: "text", text: `Input sent to ${job.jobId}. Read its response with job_output.` }], details: { jobId: job.jobId } };
+    },
+  };
+  return [start, output, stop, inputTool];
 }

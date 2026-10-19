@@ -1,5 +1,13 @@
 # Security
 
+Worker read-only helpers enforce real-path confinement and a fixed reading
+tool set; they do not inherit shell, editing, browser or Extension powers.
+Ordinary Workers and terminal jobs retain full-trust Pi authority. Interactive
+terminal processes are tracked and stopped by process-group identity. Managed
+Git working copies disable checkout hooks and pin a commit before checkout;
+registering one authorizes its project Pi resources through the normal path.
+See [Worker tools](docs/worker-tools.md).
+
 In this document, current product language calls a registered **work-folder** a
 **work-folder**, its agent a **Worker**, the management agent above
 work-folders the **work-fold agent**, and deterministic cross-work-folder automations

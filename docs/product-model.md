@@ -18,6 +18,11 @@ policies, including the person's ignore choices. It is not hidden metadata,
 private storage or an automatic cleanup area, and existing project edits stay
 in their original locations. work-folder registration creates no scratch files.
 
+Workers can use structured collaboration calls, ask asynchronous questions while
+independent work continues, send input to terminal jobs, create managed Git
+working copies for independent edits, and run focused read-only helpers. These
+use the same request, receipt and Stop paths: [Worker tools](worker-tools.md).
+
 ## The nouns
 
 | Concept | User promise | Boundary |

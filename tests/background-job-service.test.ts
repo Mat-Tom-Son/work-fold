@@ -212,6 +212,25 @@ test("the running bound refuses a start and names its number", async (t) => {
     error instanceof WorkFoldJobLimitError && /1 background jobs are already running/.test(error.message) && /Settings → Automations → Limits/.test(error.message));
 });
 
+test("interactive jobs receive terminal input and keep a real TTY", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
+  const h = await harness(t);
+  const job = await h.service.start({ owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa", command: "test -t 0 && echo TTY_READY; read answer; echo ANSWER:$answer", cwd: h.folder, surface: "tool", interactive: true });
+  assert.equal((await h.service.wait(job.jobId, { seconds: 5, until: /TTY_READY/ })).outcome, "matched");
+  await h.service.input(job.jobId, "café-42 漢字 🚀\n");
+  assert.equal((await h.service.wait(job.jobId, { seconds: 5 })).outcome, "ended");
+  assert.match((await h.service.read(job.jobId)).output.text, /ANSWER:café-42 漢字 🚀/);
+  await assert.rejects(h.service.input(job.jobId, "again"), /running interactive/);
+});
+
+test("Stop drains a terminal's independently grouped children", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
+  const h = await harness(t, { stopGraceMs: 100 });
+  const job = await h.service.start({ owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa", command: "sleep 60 & echo $! > terminal-child.pid; wait", cwd: h.folder, surface: "tool", interactive: true });
+  const child = Number(await readFile(join(h.folder, "terminal-child.pid"), "utf8"));
+  await h.service.stop(job.jobId, "agent");
+  assert.equal(alive(child), false);
+  assert.equal(h.service.runningCount(), 0);
+});
+
 test("concurrent starts reserve a running slot before their first asynchronous check", async (t) => {
   const h = await harness(t, { runningLimit: 1 });
   const outcomes = await Promise.allSettled([start(h, "sleep 30"), start(h, "sleep 30")]);

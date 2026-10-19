@@ -268,6 +268,7 @@ export interface WorkFoldActRequestRef {
 }
 
 export interface WorkFoldActQuestionRef {
+  asynchronous?: boolean;
   questionId: string;
   requestId: string;
   /** The asking turn. */
@@ -358,6 +359,8 @@ export interface WorkFoldActRequestDetail extends WorkFoldActRequestSummary {
  * folder are the caller's own; output text arrives only from `jobs output`.
  */
 export interface WorkFoldActJobRef {
+  interactive?: boolean;
+  service?: boolean;
   jobId: string;
   name: string;
   command: string;
@@ -815,6 +818,7 @@ export interface WorkFoldActFacade {
     result: WorkFoldResultEnvelope;
     request: WorkFoldActRequestRef;
   }>;
+  chatChildren(input: { workFolder: string; taskId: string }): Promise<{ children: Array<{ taskId: string; conversationId: string; workFolderId?: string; state: string; resultAvailable: boolean }> }>;
   chatAsk(input: {
     workFolder: string;
     taskId: string;
@@ -822,6 +826,7 @@ export interface WorkFoldActFacade {
     respondent: "person" | "parent";
     /** Suggested answers shown as choices; the person can still write their own. */
     options?: string[];
+    asynchronous?: boolean;
     requestId?: string;
     parentTaskId?: string;
   }): Promise<{
@@ -848,7 +853,8 @@ export interface WorkFoldActFacade {
   }): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     question: WorkFoldActQuestionRef;
-    continuation: { taskId: string; messageId: string; conversationId: string };
+    continuation: { taskId: string; messageId: string; conversationId: string } | null;
+    queued?: boolean;
     request: WorkFoldActRequestRef;
   }>;
   /**
@@ -946,6 +952,8 @@ export interface WorkFoldActFacade {
    * running turn in the job's own Chat counts as its delivery.
    */
   jobsStart(input: {
+    interactive?: boolean;
+    service?: boolean;
     workFolder: string;
     taskId: string;
     command: string;
@@ -972,6 +980,8 @@ export interface WorkFoldActFacade {
     wait: { outcome: "ended" | "matched" | "timed_out" | "aborted"; line?: number; text?: string } | null;
   }>;
   jobsStop(input: { workFolder: string; jobId: string; parentTaskId?: string; requestId?: string }): Promise<{ workFolder: WorkFoldActWorkFolderRef; job: WorkFoldActJobRef }>;
+  jobsInput(input: { workFolder: string; taskId: string; jobId: string; text: string; eof?: boolean }): Promise<{ workFolder: WorkFoldActWorkFolderRef; job: WorkFoldActJobRef }>;
+  worktreesManage(input: { workFolder: string; taskId: string; action: "create" | "list" | "archive" | "restore"; id?: string; ref?: string }): Promise<unknown>;
 
   /**
    * Chat lifecycle verbs (docs/act-ledger.md). Each performs exactly one

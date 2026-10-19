@@ -179,7 +179,7 @@ const cli = new WorkFoldDesktopCliHost({
   resolveLineageParent: (taskId) => handle?.resolveWorkFoldAgentLineageParent(taskId) ?? null,
 });
 await cli.initialize();
-handle = await startLocalApi({ port: 0, appMode: "dev", stateBase, piRuntimeProvider: runtime, actReceipts: cli.receipts });
+handle = await startLocalApi({ port: 0, appMode: "dev", loadEnv: false, stateBase, piRuntimeProvider: runtime, actReceipts: cli.receipts });
 adapter = new WorkFoldCliKernelAdapter(handle.kernel);
 actFacade = handle.actFacade;
 await writeWorkFoldCliActTokenFile(stateBase, actToken, "work-fold");
@@ -223,7 +223,7 @@ process.env.PATH = `${binDir}:${process.env.PATH ?? ""}`;
 
 const info = {
   origin: handle.origin, bridge: `http://127.0.0.1:${bridgePort}`, stateBase, agentDir, binDir, tapLog,
-  model: { provider, id: modelId, thinking }, compactAt, compaction, helperTool: process.env.WORKFOLD_DEV_HELPER_TOOL === "1",
+  model: { provider, id: modelId, thinking }, compactAt, compaction, helperTool: true,
   pid: process.pid, startedAt: new Date().toISOString(),
 };
 await writeFile(join(out, "host.json"), `${JSON.stringify(info, null, 2)}\n`);

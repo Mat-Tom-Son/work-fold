@@ -135,6 +135,7 @@ export interface WorkFoldRequestTurnRef {
 export type WorkFoldRequestJobState = "running" | "exited" | "stopped" | "timed_out" | "failed" | "interrupted";
 
 export interface WorkFoldRequestJobRef {
+  service?: boolean;
   jobId: string;
   /** The turn that started it. */
   taskId: string;
@@ -270,6 +271,10 @@ export const workFoldRequestActionCommands = [
   // Background jobs (docs/background-jobs.md): the tools and the CLI record the same act.
   "jobs.start",
   "jobs.stop",
+  "jobs.input",
+  "worktrees.create",
+  "worktrees.archive",
+  "worktrees.restore",
   "pages.share",
   "pages.share-app",
   "recently-deleted.restore",
@@ -388,6 +393,7 @@ export interface WorkFoldQuestionRecord {
    * accepted either way.
    */
   options?: string[];
+  asynchronous?: boolean;
   askedAt: string;
   updatedAt: string;
   /** A question lives exactly as long as its request. */
@@ -517,6 +523,7 @@ export interface WorkFoldRequestStateInput {
   turnStates: readonly WorkFoldRequestTurnState[];
   /** Open questions this request asked itself. */
   openQuestions: number;
+  openBlockingQuestions?: number;
   /** Open questions anywhere below this request. */
   openDescendantQuestions: number;
   /** One entry per recorded child id; `null` when that id resolves to no record. */
@@ -570,8 +577,9 @@ export function computeWorkFoldRequestState(input: WorkFoldRequestStateInput): W
   const deadlineAt = input.deadline ? Date.parse(input.deadline) : Number.NaN;
   if (outstanding && Number.isFinite(deadlineAt) && input.now.getTime() >= deadlineAt) return "expired";
 
-  if (input.openQuestions > 0) return "waiting";
+  if ((input.openBlockingQuestions ?? input.openQuestions) > 0) return "waiting";
   if (running) return "working";
+  if (input.openQuestions > 0) return "waiting";
   if (input.openDescendantQuestions > 0) return "waiting";
   if (input.childStates.some((state) => state === "working" || state === "waiting" || state === "handed_off")) {
     return "handed_off";
@@ -766,13 +774,15 @@ function parseTurnRef(value: unknown, index: number): WorkFoldRequestTurnRef {
 function parseJobRef(value: unknown, index: number): WorkFoldRequestJobRef {
   const label = `Request background job ${index + 1}`;
   const record = objectValue(value, label);
-  assertClosedShape(record, ["jobId", "taskId", "name", "state", "startedAt", "settledAt", "exitCode"], label);
+  assertClosedShape(record, ["jobId", "taskId", "name", "state", "startedAt", "settledAt", "exitCode", "service"], label);
+  if (record.service !== undefined && typeof record.service !== "boolean") throw new Error(`${label} service must be boolean.`);
   const jobId = stableId(record.jobId, `${label} id`);
   if (!workFoldJobRefIdPattern.test(jobId)) throw new Error(`${label} id is invalid.`);
   const exitCode = record.exitCode === null || record.exitCode === undefined ? null : record.exitCode;
   if (exitCode !== null && (typeof exitCode !== "number" || !Number.isSafeInteger(exitCode))) throw new Error(`${label} exit code is invalid.`);
   return {
     jobId,
+    ...(record.service === undefined ? {} : { service: record.service as boolean }),
     taskId: stableId(record.taskId, `${label} task id`),
     name: boundedText(record.name, `${label} name`, 512),
     state: enumValue(record.state, ["running", "exited", "stopped", "timed_out", "failed", "interrupted"] as const, `${label} state`),
@@ -968,12 +978,13 @@ function parseRemoteRef(value: unknown, label: string): WorkFoldRequestRemoteRef
 export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRecord {
   const label = "Question record";
   const record = objectValue(value, label);
+  if (record.asynchronous !== undefined && typeof record.asynchronous !== "boolean") throw new Error("Question asynchronous must be a boolean.");
   if (record.schema !== workFoldQuestionRecordSchema) throw new Error(`${label} schema is unsupported.`);
   assertClosedShape(
     record,
     [
       "schema", "questionId", "requestId", "rootId", "taskId", "respondent", "text", "options", "askedAt", "updatedAt",
-      "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredByWorkFolderId",
+      "expiresAt", "state", "answer", "answeredAt", "continuationTaskId", "answeredByWorkFolderId", "asynchronous",
     ],
     label,
   );
@@ -992,6 +1003,7 @@ export function parseWorkFoldQuestionRecord(value: unknown): WorkFoldQuestionRec
     respondent: enumValue(record.respondent, ["person", "parent"] as const, `${label} respondent`),
     text: boundedText(record.text, `${label} text`, workFoldRequestLimits.maxQuestionTextBytes, "questionText"),
     ...(record.options === undefined || record.options === null ? {} : { options: parseWorkFoldQuestionOptions(record.options) }),
+    ...(record.asynchronous === undefined ? {} : { asynchronous: record.asynchronous as boolean }),
     askedAt: isoDate(record.askedAt, `${label} time`),
     updatedAt: isoDate(record.updatedAt, `${label} update time`),
     expiresAt: nullableIsoDate(record.expiresAt, `${label} window`),

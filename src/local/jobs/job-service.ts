@@ -11,9 +11,9 @@
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, stat, readFile, writeFile } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
-import { delimiter } from "node:path";
+import { delimiter, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { promisify } from "node:util";
 
@@ -55,6 +55,8 @@ export interface WorkFoldJobShell {
 }
 
 export interface WorkFoldJobStartInput {
+  interactive?: boolean;
+  service?: boolean;
   owner: { workFolderId?: string; workFolderName?: string; conversationId: string };
   taskId: string;
   requestId: string;
@@ -97,6 +99,7 @@ export type WorkFoldJobWaitOutcome =
   | { outcome: "aborted"; job: WorkFoldJobRecord };
 
 interface LiveJob {
+  terminalGroupId?: number;
   jobId: string;
   child: ChildProcess | null;
   writer: JobOutputWriter;
@@ -123,7 +126,7 @@ export class WorkFoldJobService {
   #closing = false;
   readonly #exitHandler = () => {
     // The app is exiting without close(): no process group outlives it.
-    for (const live of this.#live.values()) if (!live.exited) killGroup(live.child?.pid, "SIGKILL");
+    for (const live of this.#live.values()) if (!live.exited) { if (live.terminalGroupId) killGroup(live.terminalGroupId, "SIGKILL"); killGroup(live.child?.pid, "SIGKILL"); }
   };
 
   constructor(options: WorkFoldJobServiceOptions) {
@@ -170,6 +173,7 @@ export class WorkFoldJobService {
   async start(input: WorkFoldJobStartInput): Promise<WorkFoldJobRecord> {
     if (this.#closing) throw new Error("work-fold is closing; no new background job can start.");
     const command = assertJobCommand(input.command);
+    if (input.interactive && process.platform === "win32") throw new Error("Interactive terminal jobs are available on macOS and POSIX hosts.");
     if (this.runningCount() >= this.#runningLimit) throw new WorkFoldJobLimitError(workFoldJobRunningLimitMessage(this.#runningLimit));
     const timeoutSeconds = input.timeoutSeconds;
     if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0 || timeoutSeconds * 1000 > 2_147_483_647)) {
@@ -191,6 +195,8 @@ export class WorkFoldJobService {
       const at = this.#now().toISOString();
       const jobId = this.store.newJobId();
       const draft: WorkFoldJobRecord = {
+        ...(input.interactive ? { interactive: true } : {}),
+        ...(input.service ? { service: true } : {}),
         schema: workFoldJobRecordSchema,
         jobId,
         conversationId: input.owner.conversationId,
@@ -248,6 +254,7 @@ export class WorkFoldJobService {
     const config = getShellConfig(shell.shellPath);
     const resolvedCommand = shell.commandPrefix ? `${shell.commandPrefix}\n${accepted.command}` : accepted.command;
     const fromStdin = (config as { commandTransport?: string }).commandTransport === "stdin";
+    if (accepted.interactive && fromStdin) throw new Error("Interactive jobs require a shell that accepts commands as arguments.");
     const writer = new JobOutputWriter(this.store.outputDirectory(accepted.jobId), this.#segmentBytes ? { segmentBytes: this.#segmentBytes } : {});
     let resolveSettled!: (record: WorkFoldJobRecord) => void;
     const settled = new Promise<WorkFoldJobRecord>((resolve) => { resolveSettled = resolve; });
@@ -267,11 +274,14 @@ export class WorkFoldJobService {
     live.events.setMaxListeners(0);
     let child: ChildProcess;
     try {
-      child = spawn(config.shell, fromStdin ? config.args : [...config.args, resolvedCommand], {
+      const pidFile = join(this.store.outputDirectory(accepted.jobId), "terminal.pid");
+      const terminalScript = join(this.store.outputDirectory(accepted.jobId), "terminal.exp");
+      if (accepted.interactive) await writeFile(terminalScript, terminalRelayScript, { mode: 0o600 });
+      child = spawn(accepted.interactive ? "/usr/bin/expect" : config.shell, accepted.interactive ? [terminalScript, pidFile, config.shell, ...config.args, resolvedCommand] : fromStdin ? config.args : [...config.args, resolvedCommand], {
         cwd: accepted.cwd,
         detached: process.platform !== "win32",
         env: jobEnvironment(accepted.jobId, shell.binDir),
-        stdio: [fromStdin ? "pipe" : "ignore", "pipe", "pipe"],
+        stdio: [accepted.interactive || fromStdin ? "pipe" : "ignore", "pipe", "pipe"],
         windowsHide: true,
       });
     } catch (error) {
@@ -279,8 +289,8 @@ export class WorkFoldJobService {
       throw error;
     }
     live.child = child;
-    if (fromStdin) {
-      child.stdin?.on("error", () => undefined);
+    child.stdin?.on("error", () => undefined);
+    if (fromStdin && !accepted.interactive) {
       child.stdin?.end(resolvedCommand);
     }
     const spawnError = await new Promise<Error | null>((resolve) => {
@@ -313,6 +323,28 @@ export class WorkFoldJobService {
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     child.once("error", () => undefined);
+    let terminal: Partial<WorkFoldJobRecord> = {};
+    if (accepted.interactive) {
+      const deadline = Date.now() + 2_000;
+      while (Date.now() < deadline) {
+        const pid = Number((await readFile(join(this.store.outputDirectory(accepted.jobId), "terminal.pid"), "utf8").catch(() => "")).trim());
+        if (Number.isInteger(pid) && pid > 1) {
+          // Expect's forkpty child leads its own session/process group. Keep
+          // it stoppable even if ps cannot observe a very short-lived shell.
+          live.terminalGroupId = pid;
+          terminal = { terminalPid: pid, terminalGroupId: pid };
+          const identity = await processStartTime(pid);
+          const group = Number((await execFileAsync("ps", ["-o", "pgid=", "-p", String(pid)]).catch(() => ({ stdout: "" }))).stdout.trim());
+          if (identity && group > 1 && group !== process.pid) {
+            live.terminalGroupId = group;
+            terminal = { terminalPid: pid, terminalGroupId: group, terminalProcessStartedAt: identity };
+          }
+          break;
+        }
+        if (child.exitCode !== null) break;
+        await new Promise(done => setTimeout(done, 10));
+      }
+    }
     const startedAt = this.#now().toISOString();
     const processStartedAt = await processStartTime(child.pid);
     const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
@@ -321,6 +353,7 @@ export class WorkFoldJobService {
       startedAt,
       pid: child.pid ?? null,
       processStartedAt,
+      ...terminal,
     });
     if (accepted.timeoutSeconds !== null) {
       live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
@@ -337,9 +370,9 @@ export class WorkFoldJobService {
     // A shell can exit successfully while its background children still
     // run. Keep the job live, its slot reserved, and History/deletion fenced
     // until the entire owned process group has stopped.
-    if (process.platform !== "win32" && child.pid && processGroupExists(child.pid)) {
+    if (process.platform !== "win32" && child.pid && (processGroupExists(child.pid) || (live.terminalGroupId && processGroupExists(live.terminalGroupId)))) {
       this.#signalStop(live);
-      while (await processGroupRunning(child.pid)) {
+      while (await processGroupRunning(child.pid) || (live.terminalGroupId && await processGroupRunning(live.terminalGroupId))) {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     }
@@ -397,15 +430,24 @@ export class WorkFoldJobService {
   }
 
   #signalStop(live: LiveJob): void {
+    if (live.terminalGroupId) killGroup(live.terminalGroupId, "SIGTERM");
     killGroup(live.child?.pid, "SIGTERM");
-    live.killTimer ??= setTimeout(() => killGroup(live.child?.pid, "SIGKILL"), this.#stopGraceMs);
+    live.killTimer ??= setTimeout(() => { if (live.terminalGroupId) killGroup(live.terminalGroupId, "SIGKILL"); killGroup(live.child?.pid, "SIGKILL"); }, this.#stopGraceMs);
     live.killTimer.unref();
   }
 
-  /**
-   * SIGTERM to the job's process group, then SIGKILL after the grace period.
-   * Resolves once the job has settled. Stopping an ended job returns it as is.
-   */
+  /** Exact input bytes, with no shell interpolation or implicit newline. */
+  async input(jobId: string, text: string, eof = false): Promise<WorkFoldJobRecord> {
+    const live = this.#live.get(jobId);
+    const job = this.require(jobId);
+    if (!job.interactive || !live?.child?.stdin || live.exited) throw new Error("Input requires a running interactive terminal job.");
+    if (Buffer.byteLength(text) > 64 * 1024) throw new Error("Terminal input is limited to 64 KiB per call.");
+    await new Promise<void>((done, reject) => live.child!.stdin!.write(text, error => error ? reject(error) : done()));
+    if (eof) live.child.stdin.end();
+    return job;
+  }
+
+  /** SIGTERM then SIGKILL to all owned groups; resolves only after settlement. */
   async stop(jobId: string, cause: WorkFoldJobStopCause, options: { skipHistory?: boolean } = {}): Promise<WorkFoldJobRecord> {
     const live = this.#live.get(jobId);
     if (!live) {
@@ -593,7 +635,7 @@ export class WorkFoldJobService {
       Promise.allSettled(pending),
       new Promise((resolve) => setTimeout(resolve, this.#stopGraceMs + 2_000).unref()),
     ]);
-    for (const live of this.#live.values()) if (!live.exited) killGroup(live.child?.pid, "SIGKILL");
+    for (const live of this.#live.values()) if (!live.exited) { if (live.terminalGroupId) killGroup(live.terminalGroupId, "SIGKILL"); killGroup(live.child?.pid, "SIGKILL"); }
     await this.store.flush();
     process.off("exit", this.#exitHandler);
   }
@@ -608,6 +650,10 @@ export async function reapOrphanedJobProcesses(records: readonly WorkFoldJobReco
   if (process.platform === "win32") return 0;
   let reaped = 0;
   for (const record of records) {
+    if (record.terminalPid && record.terminalGroupId && record.terminalProcessStartedAt) {
+      const terminal = await processIdentity(record.terminalPid);
+      if (terminal?.startedAt === record.terminalProcessStartedAt && terminal.pgid === record.terminalGroupId) killGroup(record.terminalGroupId, "SIGKILL");
+    }
     if (!record.pid || !record.processStartedAt) continue;
     const observed = await processIdentity(record.pid);
     if (!observed || observed.pgid !== record.pid || observed.startedAt !== record.processStartedAt) continue;
@@ -717,3 +763,31 @@ function emptyRead(job: WorkFoldJobRecord): JobOutputRead {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** macOS ships Expect: it allocates the PTY even when Electron has no controlling terminal. */
+const terminalRelayScript = `
+log_user 0
+set timeout -1
+fconfigure stdin -blocking 0 -translation binary -encoding binary
+fconfigure stdout -buffering none -translation binary -encoding binary
+spawn -noecho {*}[lrange $argv 1 end]
+fconfigure $spawn_id -blocking 0 -translation binary -encoding binary -buffering none
+if {[catch {set pidfile [open [lindex $argv 0] w]; puts $pidfile [exp_pid]; close $pidfile}]} {
+  catch {exec /bin/kill -KILL -- -[exp_pid]}
+  exit 1
+}
+fileevent stdin readable {
+  set bytes [read stdin 65536]
+  if {[string length $bytes] > 0} { catch {puts -nonewline $spawn_id $bytes; flush $spawn_id} }
+  if {[eof stdin]} { fileevent stdin readable {}; catch {puts -nonewline $spawn_id "\\004"; flush $spawn_id} }
+}
+fileevent $spawn_id readable {
+  if {[catch {set bytes [read $spawn_id 65536]}]} { set ended 1 } else {
+    if {[string length $bytes] > 0} { puts -nonewline stdout $bytes }
+    if {[eof $spawn_id]} { set ended 1 }
+  }
+}
+vwait ended
+set status [wait]
+exit [lindex $status 3]
+`;

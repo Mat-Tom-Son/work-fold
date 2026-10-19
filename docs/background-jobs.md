@@ -224,12 +224,11 @@ work is done.
 - `requests show` and the request record list their jobs; `jobs list`
   lists a work-folder's.
 
+Interactive terminals (`interactive`, `job_input`) and services (`service`)
+are now supported by the same job service; see [Worker tools](worker-tools.md).
+
 ## Not in this version
 
-- **Interactive input.** No PTY and no keystrokes. A later `job_input`
-  could write to a PTY-backed job for prompts, REPLs, and TUIs.
-- **Long-lived services detached from a request**, so a dev server would not
-  keep its request `working`.
 - Port and URL detection, notifications when a job ends, and a dedicated jobs
   panel.
 - CLI access to the work-fold agent's own jobs (it uses the tools).
