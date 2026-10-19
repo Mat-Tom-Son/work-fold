@@ -30,6 +30,13 @@ uses the collaboration verbs below.
 
 ## Register entries
 
+The 2026-10-18 follow-on [Worker tools](worker-tools.md) add typed adapters over
+these same verbs, asynchronous questions whose answers queue behind active
+work, managed Git working copies registered as ordinary work-folders, and
+turn-scoped read-only helpers. Ordinary questions keep F27's blocking behavior.
+An asynchronous question reads working during its asking turn and waiting
+afterward; an accepted answer starts its single continuation only when idle.
+
 | # | Decision | What it does not change |
 |---|---|---|
 | F25 | **Durable requests.** Every accepted agent turn belongs to a machine-local request record. A work-fold agent turn creates a root request; a `chat send --parent-task` creates a child request under it; a work-folder turn with no parent creates its own root. Records live under the state root (`requests/`), survive restart, are reconciled against the turn journal, and are never replayed. The in-memory work-fold agent request registry is replaced by this store; `agent status` keeps its projection. | Turn acceptance, conflict rules, History checkpoints, and kernel task records stay where they are. work-folder transcripts carry nothing new. |

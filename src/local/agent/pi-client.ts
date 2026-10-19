@@ -72,6 +72,11 @@ import {
   type WorkFoldTurnIdentity,
 } from "./turn-identity.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
+import { createCollaborationTools, type CollaborationToolHost } from "./collaboration-tools.js";
+import { createWorktreeTool, type WorktreeToolHost } from "./worktree-tool.js";
+import { createHelperTool, type HelperRunRecord, type HelperSession } from "./helper-tool.js";
+import type { Usage } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { createChecklistTool, describeChecklist, type ChecklistToolHost } from "./checklist-tool.js";
 import type { WorkFoldChecklistItem } from "../requests/request-records.js";
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../../shared/restricted-app-tasks.js";
@@ -199,6 +204,9 @@ export interface PiConversationClientOptions {
   backgroundJobs?: BackgroundJobToolHost;
   /** Where the `checklist` tool keeps its request's checklist (2026-10-18). */
   checklist?: ChecklistToolHost;
+  collaboration?: CollaborationToolHost;
+  worktrees?: WorktreeToolHost;
+  helperTool?: boolean;
 }
 
 export interface PiConversationState {
@@ -242,6 +250,15 @@ export class PiTurnDrainingError extends Error {
 }
 
 export class PiConversationClient extends EventEmitter {
+  private readonly helperRuns = new Set<{ controller: AbortController; settled: Promise<unknown> }>();
+  private turnHelperRuns: HelperRunRecord[] = [];
+  private turnHelperUnreported: Usage[] = [];
+  getTurnHelperRuns(): HelperRunRecord[] { return structuredClone(this.turnHelperRuns); }
+  private async drainHelpers(): Promise<void> {
+    const runs = [...this.helperRuns];
+    for (const run of runs) run.controller.abort();
+    await Promise.all(runs.map(run => run.settled));
+  }
   private runtimeHost: AgentSessionRuntime | null = null;
   private resolvedRuntime: ResolvedPiRuntime | null = null;
   private uninstallRuntimeInspection: (() => void) | null = null;
@@ -333,6 +350,8 @@ export class PiConversationClient extends EventEmitter {
     this.resetTurnState();
     this.presentationTaskId = owner.taskId;
     this.cancellationRequested = null;
+    this.turnHelperRuns = [];
+    this.turnHelperUnreported = [];
     this.promptInFlight = true;
     this.lastTurnUsage = null;
     this.turnIdentity = null;
@@ -409,7 +428,15 @@ export class PiConversationClient extends EventEmitter {
       return reply;
     } finally {
       if (this.activeThinkingTrailId) this.emitThinkingEvent("end", undefined, undefined);
+      await this.drainHelpers();
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
+      for (const usage of this.turnHelperUnreported) {
+        if (this.lastTurnUsage) {
+          this.lastTurnUsage.inputTokens += promptTokensOf(usage);
+          this.lastTurnUsage.outputTokens += usage.output;
+          if (this.lastTurnUsage.amountUsd !== undefined) this.lastTurnUsage.amountUsd += usage.cost.total;
+        }
+      }
       owner.settled = true;
       this.activeExtensionTurn = null;
       if (owner.taskId) this.resolvedRuntime?.config.extensionUi?.cancelScope?.({ ...this.extensionUiScope(), taskId: owner.taskId });
@@ -447,6 +474,7 @@ export class PiConversationClient extends EventEmitter {
   }
 
   async abort(reason = "Agent turn cancelled by the user."): Promise<boolean> {
+    for (const run of this.helperRuns) run.controller.abort();
     const session = this.runtimeHost?.session;
     if (!this.promptInFlight) return false;
     const error = new Error(reason);
@@ -690,6 +718,7 @@ export class PiConversationClient extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    for (const run of this.helperRuns) run.controller.abort();
     const preserveActiveTurnTrail = this.promptInFlight;
     this.authController?.abort();
     this.runtimeGeneration += 1;
@@ -793,6 +822,25 @@ export class PiConversationClient extends EventEmitter {
         : [];
       this.appToolTitles = restrictedAppToolTitles(restrictedApps);
       const customTools = [
+        ...(this.options.worktrees ? [createWorktreeTool(this.options.worktrees, () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId)] : []),
+        ...(this.options.helperTool ? [createHelperTool({
+          root: options.cwd,
+          session: () => this.runtimeHost?.session as unknown as HelperSession ?? null,
+          selectSession: (model, thinking) => {
+            const selected = runtime.modelRuntime.getModel(model.provider, model.id);
+            if (!selected || !runtime.modelRuntime.hasConfiguredAuth(model.provider)) throw new Error("Choose an already-connected helper model.");
+            const parent = this.runtimeHost?.session;
+            if (!parent) throw new Error("The parent model session is not ready.");
+            if (thinking && !getSupportedThinkingLevels(selected).includes(thinking as ModelThinkingLevel)) throw new Error("Choose a supported helper reasoning level.");
+            return { model: selected as unknown as HelperSession["model"], thinkingLevel: clampThinkingLevel(selected, (thinking ?? parent.thinkingLevel) as ModelThinkingLevel), agent: parent.agent as unknown as HelperSession["agent"] };
+          },
+          turn: () => { const owner = this.extensionTurn.getStore() ?? this.activeExtensionTurn; return owner && !owner.cancelled && !owner.settled ? { taskId: owner.taskId } : null; },
+          instructions: () => runtime.config.workerInstructions,
+          activity: activity => this.emitEvent({ type: "tool", toolName: "helper", phase: "streaming", message: `Helper: ${activity.tool}`, detail: activity.target }),
+          track: run => { this.helperRuns.add(run); void run.settled.then(() => this.helperRuns.delete(run)); },
+          record: (run, unreported) => { this.turnHelperRuns.push(run); if (unreported) this.turnHelperUnreported.push(unreported); },
+        })] : []),
+        ...(this.options.collaboration ? createCollaborationTools(this.options.collaboration, () => this.extensionTurn.getStore()?.taskId ?? this.activeExtensionTurn?.taskId) : []),
         // Every session can make pictures with a connected image model, saved in its own folder.
         createImageGenerationTool({
           root: options.cwd,

@@ -1,5 +1,13 @@
 # Privacy
 
+Read-only helpers send their selected task and file content to the parent's
+model provider, or an explicitly selected already-connected helper model.
+Their usage and content-free activity are recorded under the parent turn.
+Interactive terminal input goes to the local process; only output read by an
+agent enters model context. Managed Git working copies remain on this computer
+in an app-owned sibling directory; archiving retains their files and history.
+See [Worker tools](docs/worker-tools.md).
+
 This privacy description uses technical storage and protocol names where
 needed. In the product, a registered work-folder is presented as a **work-folder**, its
 agent as a **Worker**, the management agent as the **work-fold agent**,

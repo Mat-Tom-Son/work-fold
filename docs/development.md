@@ -236,3 +236,17 @@ The deterministic harness coverage now includes `local-history-review`,
 `history-comparison-ui`, `history-comparison-keyboard`, and `work-fold-turn-store`
 test files. They cover scope, completeness, persistence and UI behavior without
 requiring a paid model or production user data.
+
+## Real-model harness acceptance
+
+With `OPENROUTER_API_KEY` explicitly provided, run `npm run harness:eval --
+--model openrouter/openai/gpt-6-luna --helper-model
+openrouter/deepseek/deepseek-v4.1-flash --out out/harness-eval/luna`. This spends
+real model credit. Use a fresh output directory for each run. It starts the
+isolated development host, uses disposable Git folders, answers the model
+question through the real CLI while the turn runs, and verifies structured
+collaboration, narrow helpers, PTY input, service lifetime, working-copy
+isolation/archive/recovery, and one answer continuation from native records.
+It never reads personal provider credentials, installs an app, merges code, or
+replays old jobs. Output includes provider usage, sessions, journals and an
+independently checked summary. Host shutdown stops leftover processes.

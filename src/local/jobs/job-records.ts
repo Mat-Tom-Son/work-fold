@@ -88,6 +88,11 @@ export interface WorkFoldJobRecord {
   requestId: string;
   name: string;
   command: string;
+  interactive?: boolean;
+  service?: boolean;
+  terminalPid?: number;
+  terminalGroupId?: number;
+  terminalProcessStartedAt?: string;
   cwd: string;
   surface: WorkFoldJobSurface;
   state: WorkFoldJobState;
@@ -260,9 +265,10 @@ export function parseWorkFoldJobRecord(value: unknown): WorkFoldJobRecord {
   assertClosedShape(record, [
     "schema", "jobId", "workFolderId", "workFolderName", "conversationId", "taskId", "requestId", "name", "command", "cwd",
     "surface", "state", "createdAt", "updatedAt", "startedAt", "endedAt", "settledAt", "pid", "processStartedAt",
-    "timeoutSeconds", "exitCode", "signal", "stoppedBy", "error", "output", "history", "delivery",
+    "timeoutSeconds", "exitCode", "signal", "stoppedBy", "error", "output", "history", "delivery", "interactive", "service", "terminalPid", "terminalGroupId", "terminalProcessStartedAt",
   ], label);
   const jobId = stableId(record.jobId, `${label} id`);
+  for (const key of ["interactive", "service"]) if (record[key] !== undefined && typeof record[key] !== "boolean") throw new Error(`${label} ${key} must be boolean.`);
   if (!workFoldJobIdPattern.test(jobId)) throw new Error(`${label} id is invalid.`);
   const name = boundedText(record.name, `${label} name`, maximumNameBytes);
   if (forbiddenNamePattern.test(name)) throw new Error(`${label} name is invalid.`);
@@ -278,6 +284,11 @@ export function parseWorkFoldJobRecord(value: unknown): WorkFoldJobRecord {
     requestId: stableId(record.requestId, `${label} request`),
     name,
     command: assertJobCommand(boundedText(record.command, `${label} command`, workFoldBackgroundJobLimits.maxCommandBytes)),
+    ...(record.interactive === undefined ? {} : { interactive: record.interactive as boolean }),
+    ...(record.service === undefined ? {} : { service: record.service as boolean }),
+    ...(record.terminalPid === undefined ? {} : { terminalPid: nullableInteger(record.terminalPid, `${label} terminal pid`)! }),
+    ...(record.terminalGroupId === undefined ? {} : { terminalGroupId: nullableInteger(record.terminalGroupId, `${label} terminal group`)! }),
+    ...(record.terminalProcessStartedAt === undefined ? {} : { terminalProcessStartedAt: boundedText(record.terminalProcessStartedAt, `${label} terminal start`, 128) }),
     cwd: boundedText(record.cwd, `${label} folder`, maximumPathBytes),
     surface: enumValue(record.surface, ["tool", "cli"] as const, `${label} surface`),
     state: enumValue(record.state, ["accepted", "running", ...workFoldJobTerminalStates] as const, `${label} state`),
