@@ -123,7 +123,7 @@ export class ProgressRecovery {
       parameters: { type: "object", properties: { input: { anyOf: [
         { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
-        { type: "object", properties: { action: { type: "string", enum: ["save"] }, summary: { type: "string", minLength: 1, maxLength: 2000 }, evidence: { type: "array", items: { type: "string" }, maxItems: 32 }, files: { type: "array", items: { type: "string" }, maxItems: 32 } }, required: ["action", "summary"], additionalProperties: false },
+        { type: "object", properties: { action: { type: "string", enum: ["save"] }, summary: { type: "string", minLength: 1, maxLength: 2000, description: "Your finding and any explanation; this remains an agent claim." }, evidence: { type: "array", items: { type: "string", pattern: "^(ev|note)-[a-f0-9]{20}$" }, maxItems: 32, description: "Optional stable ev-/note- ids copied from list. These are references, not prose or file paths. Omit if no ids are needed." }, files: { type: "array", items: { type: "string" }, maxItems: 32, description: "Optional ordinary source files to fingerprint now; this does not verify your finding." } }, required: ["action", "summary"], additionalProperties: false },
       ] } }, required: ["input"], additionalProperties: false } as any,
       execute: async (callId, input) => {
         const params = (input as { input: { action: "list" | "read" | "save"; id?: string; summary?: string; evidence?: string[]; files?: string[]; offset?: number; limit?: number } }).input;
@@ -134,7 +134,7 @@ export class ProgressRecovery {
         if (params.action === "save") {
           if (typeof params.summary !== "string" || !params.summary.trim() || params.summary.length > 2000) throw new Error("Save a finding with a summary of at most 2000 characters.");
           const evidence: string[] = params.evidence ?? [];
-          if (evidence.some(id => !records.some(record => record.id === id))) throw new Error("Evidence must belong to this request.");
+          if (evidence.some(id => !records.some(record => record.id === id))) throw new Error('Evidence ids must belong to this request. Copy exact ids from progress input:{action:"list"}, or omit evidence. Put explanations in summary, not evidence.');
           const files: string[] = params.files ?? [];
           const sources = await this.fingerprints(files);
           if (sources.length !== new Set(files).size) throw new Error("Each evidence file must be a readable ordinary file inside this work-folder (up to 32 MiB), outside reserved metadata.");
