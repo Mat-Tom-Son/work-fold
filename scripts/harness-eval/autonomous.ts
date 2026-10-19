@@ -35,7 +35,7 @@ async function seed(folder: string) {
   await mkdir(join(folder, "interviews"));
   const expected: Array<{ id: string; path: string; quote: string }> = [];
   const positive = new Set([1, 4, 7, 11, 16, 19, 23, 28, 31, 35]);
-  const quotes = ["I reopened the draft and the paragraphs I had saved yesterday were gone.", "After the window came back, my last saved changes had vanished.", "It said saved before I quit; after reopening I checked the saved file itself, and my edits were missing from it."];
+  const quotes = ["I reopened the draft and the paragraphs I had saved yesterday were gone.", "After closing and reopening the document, I checked the saved file itself: my last saved changes had vanished.", "It said saved before I quit; after reopening I checked the saved file itself, and my edits were missing from it."];
   for (let i = 0; i < 36; i++) {
     const id = `P${String(i + 1).padStart(2, "0")}`; const path = `interviews/${id}.md`;
     const quote = positive.has(i) ? quotes[i % quotes.length]! : i % 3 === 0 ? "The old preview made me worry, but the saved document was intact when I reopened it." : i % 3 === 1 ? "I lost unsaved typing after the crash; I had not saved that text." : "My saved edits remained intact; the problem was only a slow export.";
@@ -98,7 +98,7 @@ const sourceHashes: Record<string, string> = {};
 async function sources(path: string, prefix = "") { for (const item of await readdir(path, { withFileTypes: true })) { const name = join(prefix, item.name); if (item.isDirectory()) await sources(join(path, item.name), name); else sourceHashes[name] = digest(await readFile(join(folder, name), "utf8")); } }
 await sources(folder);
 if (scenario === "repair") { await exec("git", ["init", "-q"], { cwd: folder }); await exec("git", ["add", "ledger.mjs", "visible-test.mjs"], { cwd: folder }); await exec("git", ["-c", "user.name=Evaluation", "-c", "user.email=eval@example.invalid", "commit", "-qm", "Seed candidate task"], { cwd: folder }); }
-const meta = { scenario, model, folder, ...spec, sourceHashes, fixtureRevision: scenario === "research" ? 2 : 1, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
+const meta = { scenario, model, folder, ...spec, sourceHashes, fixtureRevision: scenario === "research" ? 3 : 1, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
 await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2)); await writeFile(join(base, "prompt.txt"), spec.prompt);
 const host = spawn(process.execPath, ["--import", "tsx", "scripts/helper-eval/host.ts", "--out", join(base, "host"), "--model", model, "--thinking", "high", "--compact-at", arg("--compact-at", "40000"), ...(process.argv.includes("--keep-recent") ? ["--keep-recent", arg("--keep-recent", "2000")] : [])], { stdio: ["ignore", "pipe", "pipe"] });
 let log = ""; host.stdout.on("data", data => { log += data; }); host.stderr.on("data", data => { log += data; });
