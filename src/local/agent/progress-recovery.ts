@@ -126,7 +126,7 @@ export class ProgressRecovery {
       description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
       promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recheck changed sources and dynamic state. In codemode, print the needed content, not the entire tool-result wrapper."],
       parameters: { type: "object", properties: { input: { anyOf: [
-        { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 } }, required: ["action"], additionalProperties: false },
+        { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 40, description: "Records per index page; defaults to 10. Full evidence and fingerprints are returned by read." } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["save"] }, summary: { type: "string", minLength: 1, maxLength: 2000, description: "Your finding and any explanation; this remains an agent claim." }, evidence: { type: "array", items: { type: "string", pattern: "^(ev|note)-[a-f0-9]{20}$" }, maxItems: 32, description: "Optional stable ev-/note- ids copied from list. These are references, not prose or file paths. Omit if no ids are needed." }, files: { type: "array", items: { type: "string" }, maxItems: 32, description: "Optional ordinary source files to fingerprint now; this does not verify your finding." } }, required: ["action", "summary"], additionalProperties: false },
       ] } }, required: ["input"], additionalProperties: false } as any,
@@ -159,7 +159,8 @@ export class ProgressRecovery {
         } else {
           const offset = params.offset ?? 0;
           // Index pages are records; output pages above are characters.
-          value = { records: records.slice(offset, offset + 40).map(({ text: _text, ...record }) => record), nextOffset: records.length > offset + 40 ? offset + 40 : null, total: records.length };
+          const count = Math.min(params.limit ?? 10, 40);
+          value = { records: records.slice(offset, offset + count).map(record => ({ id: record.id, kind: record.kind, tool: record.tool, at: record.at, failed: record.failed, summary: record.summary.slice(0, 240), summaryTruncated: record.summary.length > 240, selection: record.selection, sourceBinding: record.sourceBinding, sourceCount: record.sources.length, evidenceCount: record.evidence?.length ?? 0, originalChars: record.originalChars, retainedChars: record.text.length, imageCount: record.imageCount })), nextOffset: records.length > offset + count ? offset + count : null, total: records.length };
         }
         // Codemode receives the whole wrapper. Duplicating the full observation
         // in details can overflow the very context this tool is recovering.

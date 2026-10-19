@@ -13,7 +13,9 @@ the fields each action needs. Completed native tool results, including nested ca
 evidence ids. `save` records an agent-authored finding with selected evidence ids
 and optional ordinary files. After compaction or an answer continuation, a
 bounded context index points back to recorded work so the model can recover it
-without repeating a helper, read or mutation. Index pages contain 40 records;
+without repeating a helper, read or mutation. Compact index pages default to ten
+records (up to 40 with `limit`); full fingerprints, evidence links and findings
+remain available through `read`, rather than being duplicated in the index;
 output pages contain up to 16,000 characters.
 Results carry JSON text in `content`; `details` contains only operation/id
 metadata, so Code Mode does not duplicate large recovered observations. Save

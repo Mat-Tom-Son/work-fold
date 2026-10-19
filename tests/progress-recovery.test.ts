@@ -100,7 +100,8 @@ test("finding fingerprints refuse metadata, traversal and outgoing links, and St
 test("the index pages completed results and distinguishes failed tools and image-only observations", async t => {
   const h = await fixture(t);
   for (let i = 0; i < 41; i++) await h.capture("bash", { command: `case-${i}` }, `output-${i}`, `call-${i}`);
-  const first = await h.run({ action: "list" }); assert.equal(first.records.length, 40); assert.equal(first.nextOffset, 40);
+  const first = await h.run({ action: "list", limit: 40 }); assert.equal(first.records.length, 40); assert.equal(first.nextOffset, 40);
+  const small = await h.run({ action: "list" }); assert.equal(small.records.length, 10); assert.equal(small.nextOffset, 10);
   assert.equal((await h.run({ action: "list", offset: 40 })).records.length, 1);
   await h.handlers.get("tool_result")!({ toolCallId: "failure", toolName: "edit", input: { path: "source.txt" }, content: [{ type: "text", text: "Could not find the old text" }], isError: true });
   await h.handlers.get("tool_result")!({ toolCallId: "image", toolName: "read", input: { path: "image.png" }, content: [{ type: "image", data: "not-retained", mimeType: "image/png" }], isError: false });
@@ -108,6 +109,11 @@ test("the index pages completed results and distinguishes failed tools and image
   assert.equal(last[1].failed, true); assert.equal(last[2].imageCount, 1);
   assert.equal((await h.run({ action: "read", id: last[2].id })).text, "");
   assert.ok(!(await readFile(h.session.getSessionFile()!, "utf8")).includes("not-retained"));
+  await writeFile(join(h.root, "source.txt"), "source");
+  await h.run({ action: "save", summary: "A".repeat(2000), files: ["source.txt"] });
+  const note = (await h.run({ action: "list", offset: 43 })).records[0];
+  assert.equal(note.summary.length, 240); assert.equal(note.summaryTruncated, true);
+  assert.equal(note.sourceCount, 1); assert.equal(note.sources, undefined, "index pages do not repeat full fingerprint payloads");
 });
 
 test("malformed invisible journal entries cannot poison recovery context", async t => {

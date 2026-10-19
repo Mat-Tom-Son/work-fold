@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { assertExactSupportingQuote } from "./assertions.js";
 const exec = promisify(execFile);
 const arg = (name: string, fallback: string) => { const i = process.argv.indexOf(name); return i < 0 ? fallback : process.argv[i + 1]!; };
 const model = arg("--model", "openrouter/openai/gpt-6-luna");
@@ -53,7 +54,7 @@ async function verify() {
     if (meta.scenario === "research") {
       const actual = JSON.parse(await readFile(join(folder, "findings.json"), "utf8"));
       assert.deepEqual(actual.map((item: any) => item.id).sort(), meta.expected.map((item: any) => item.id).sort());
-      for (const item of actual) { const expected = meta.expected.find((entry: any) => entry.id === item.id); assert.equal(item.path, expected.path); assert.ok(typeof item.quote === "string" && item.quote.length >= 35 && expected.quote.includes(item.quote)); }
+      for (const item of actual) { const expected = meta.expected.find((entry: any) => entry.id === item.id); assert.equal(item.path, expected.path); assertExactSupportingQuote(item.quote, expected.quote, await readFile(join(folder, expected.path), "utf8")); }
       assert.ok((await readFile(join(folder, "findings.md"), "utf8")).length > 100);
     } else if (meta.scenario === "reconcile") {
       assert.equal(await readFile(join(folder, "payments.csv"), "utf8"), reconciliationSource.replace("K,EUR,5.00", "K,EUR,8.00"), "Only the person's exact source correction is allowed");
