@@ -1,8 +1,49 @@
 # Worker tools and working copies
 
-The Worker has five complementary ways to keep complex work moving. All use
+The Worker has complementary ways to keep complex work moving. All use
 the accepted turn's request, authority, Stop and receipts. The CLI remains
 available to every shell-capable agent.
+
+## Progress and evidence recovery
+
+Workers and the work-fold agent carry `progress` with a typed `input` object:
+`{ action: "list" }`, `{ action: "read", id }`, or
+`{ action: "save", summary, evidence?, files? }`. The native schema requires
+the fields each action needs. Completed native tool results, including nested calls, receive stable
+evidence ids. `save` records an agent-authored finding with selected evidence ids
+and optional ordinary files. After compaction or an answer continuation, a
+bounded context index points back to recorded work so the model can recover it
+without repeating a helper, read or mutation. Compact index pages default to ten
+records (up to 40 with `limit`); full fingerprints, evidence links and findings
+remain available through `read`, rather than being duplicated in the index;
+output pages contain up to 16,000 characters.
+Results carry JSON text in `content`; `details` contains only operation/id
+metadata, so Code Mode does not duplicate large recovered observations. Save
+compact findings once a conclusion is useful rather than repeatedly recovering
+every full input after compaction.
+
+Records use invisible custom entries in the existing machine-local Pi session,
+with the same session retention. They create no portable transcript records or
+second request store. The host admits only the current request's own turns in
+this Chat; another request, copied Chat or unrelated child cannot retrieve them.
+Recovery never dispatches work. Stop prevents late observations and findings
+from being recorded. The injected index is request-local and is not saved as
+instructions in the session.
+
+Each observation retains up to 256,000 text characters and image counts, with
+original length and truncation disclosed. Requested read offsets/limits are
+retained separately from actual coverage. Original tool warnings remain intact;
+recovery cannot turn a partial observation into full coverage or recover image
+pixels. Explicit file reads are bracketed by SHA-256 fingerprints when their
+ordinary source is inside this work-folder and at most 32 MiB. Changes during
+the call are flagged; a later recovery checks whether the captured source still
+matches. This is a bracketing observation, not an atomic file snapshot. Shell,
+helper and other implicit inputs remain untracked, and dynamic results remain
+historical observations. Findings and completed checklist items are agent claims,
+not host-attested conclusions. Files selected on a finding are fingerprinted at
+save time; that does not bind an earlier tool's output to those bytes. Reserved
+metadata, directories, escaping links and paths outside the work-folder cannot
+be selected for fingerprinting.
 
 ## Structured collaboration
 
@@ -85,7 +126,9 @@ narrowed further with `tools`. It has no shell, edits, browser, MCP or nested
 helper. Read-only helpers may run in parallel through native Pi scheduling.
 
 An optional `model: { provider, id }` selects an already-connected model;
-`thinking` selects a supported reasoning level. Otherwise it uses its parent's
+omission or `model: null` inherits the connected parent without guessing ids.
+`thinking` selects a supported reasoning level. Optional settings also accept
+null for inheritance/defaults. Otherwise it uses its parent's
 model and reasoning. Steps appear in the Chat activity, usage joins the
 parent's turn/request totals, and content-free helper records remain on the
 turn journal, including stopped runs. Stop aborts and drains helpers before

@@ -64,6 +64,21 @@ function runtimeWith(root: string) {
   };
 }
 
+test("a helper accepts explicit null defaults through native argument validation and inherits the connected parent", async t => {
+  const { root } = await fixture(t); const setup = runtimeWith(root);
+  setup.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall(helperToolName, { task: "Return a short acknowledgement.", model: null, thinking: null, tools: null, paths: null })),
+    fauxAssistantMessage(fauxToolCall(helperResultToolName, { summary: "Acknowledged", outcome: "succeeded" })),
+    fauxAssistantMessage("Done."),
+  ]);
+  const client = new PiConversationClient("null-defaults", root, await setup.provider(), undefined, { helperTool: true });
+  t.after(() => client.stop());
+  const workFolderTurn = buildWorkFolderTurnContext({ workFolderId: "space-0123456789abcdef", taskId: "turn-null", requestId: "req-null", handleSalt: "salt" });
+  assert.equal(await client.prompt("Do focused reading as appropriate.", { workFolderTurn }), "Done.");
+  const runs = client.getTurnHelperRuns(); assert.equal(runs.length, 1); assert.equal(runs[0]!.outcome, "succeeded");
+  assert.deepEqual(runs[0]!.model, { provider: "fixture-helper", id: "chat" });
+});
+
 function texts(value: unknown): string {
   return JSON.stringify(value);
 }

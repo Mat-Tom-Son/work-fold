@@ -55,12 +55,17 @@ await mkdir(binDir, { recursive: true });
 const catalogSource = join(homedir(), "Library", "Application Support", "work-fold", "model-catalogs", "openrouter.json");
 const catalogPath = join(out, "openrouter-catalog.json");
 if (existsSync(catalogSource)) await copyFile(catalogSource, catalogPath);
-let compaction: { reserveTokens: number } | null = null;
+let compaction: { reserveTokens: number; keepRecentTokens?: number } | null = null;
 if (compactAt !== null) {
   const catalog = JSON.parse(await readFile(catalogPath, "utf8")) as { models: Array<{ id: string; contextWindow: number }> };
   const window = catalog.models.find((model) => model.id === modelId)?.contextWindow;
   if (!window || !(compactAt > 0) || compactAt >= window) throw new Error(`--compact-at needs a known window for ${modelId}.`);
   compaction = { reserveTokens: window - compactAt };
+  if (process.argv.includes("--keep-recent")) {
+    const keepRecentTokens = Number(argument("--keep-recent"));
+    if (!(keepRecentTokens > 0) || keepRecentTokens >= compactAt) throw new Error("--keep-recent must be positive and below --compact-at.");
+    compaction.keepRecentTokens = keepRecentTokens;
+  }
 }
 await writeFile(join(agentDir, "settings.json"), `${JSON.stringify({
   defaultProvider: provider, defaultModel: modelId, defaultThinkingLevel: thinking, enableInstallTelemetry: false,

@@ -10,6 +10,12 @@ Many people already have the right raw material—folders, files, cloud-synchron
 
 work-fold is for general computer work. Coding is one valid use, not the organizing metaphor.
 
+Long tasks can recover their own completed tool observations and saved findings
+through `progress` after compaction or an answer. The host preserves evidence
+references and file freshness separately from the request's checklist; a done
+item remains an agent claim. This uses the existing machine-local Pi session
+and request ownership, as documented in [Worker tools](worker-tools.md).
+
 Workers are taught to keep temporary working files in an ordinary `.worker/<task-id>/`
 folder, created only when needed, and deliver requested files outside it.
 The Files tab gives that top-level folder a muted name and icon while keeping

@@ -1,5 +1,12 @@
 # Privacy
 
+Progress recovery retains bounded text from completed tools and selected
+agent-authored findings in the Chat's existing machine-local Pi session. These
+records can contain private task content and share that session's retention.
+Only the current request's own observations are read back to its model; recovery
+does not send another model request by itself. Selected ordinary files carry
+SHA-256 fingerprints for freshness checks; image pixels are not duplicated.
+
 Read-only helpers send their selected task and file content to the parent's
 model provider, or an explicitly selected already-connected helper model.
 Their usage and content-free activity are recorded under the parent turn.
