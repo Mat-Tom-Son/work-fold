@@ -28,11 +28,22 @@ Results carry JSON text in `content`; `details` contains only operation/id
 metadata, so Code Mode does not duplicate large recovered observations. Save
 compact findings once a conclusion is useful rather than repeatedly recovering
 every full input after compaction.
+An answer or result continuation retains the request's original assignment
+separately from its latest message. If native compaction removes that hidden
+context, the host restates both independently, preserving literal output
+requirements while applying later answers and corrections. An already visible
+assignment is not duplicated; long restatements are bounded and disclose the
+missing tail. Only this request's own assignment is admitted.
 Recover applicable completed observations and checks first; recheck changed
 sources, dynamic state, missing coverage and unresolved concerns. Compaction
 alone does not invalidate completed verification. Exact numeric claims also
 need arithmetic that preserves the promised range and precision, with
 independent expectations for signs, cancellation and range limits.
+Integer-valued floating-point cents remain bounded. When no magnitude bound is
+given, use arbitrary precision from original decimal text through final
+formatting; converting a rounded intermediate to an exact type is too late.
+Final artifact checks also compare literal field names and types with the
+original requested contract, not only with an agent-written test's output shape.
 
 Records use invisible custom entries in the existing machine-local Pi session,
 with the same session retention. They create no portable transcript records or
@@ -51,7 +62,12 @@ ordinary source is inside this work-folder and at most 32 MiB. Changes during
 the call are flagged; a later recovery checks whether the captured source still
 matches. This is a bracketing observation, not an atomic file snapshot. Shell,
 helper and other implicit inputs remain untracked, and dynamic results remain
-historical observations. Findings and completed checklist items are agent claims,
+historical observations. Untracked freshness is unknown rather than automatically stale. Judge
+whether an observation still applies from the task and known intervening
+changes. A historical baseline is intentionally historical; a new execution
+cannot recreate its earlier state. Prefer a concise, scoped comparison result
+and its evidence references over repeatedly reconstructing long raw inventories.
+Findings and completed checklist items are agent claims,
 not host-attested conclusions. Files selected on a finding are fingerprinted at
 save time; that does not bind an earlier tool's output to those bytes. Reserved
 metadata, directories, escaping links and paths outside the work-folder cannot

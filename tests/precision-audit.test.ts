@@ -21,5 +21,8 @@ test("the supplemental verifier catches floating-point cents accepted by small-v
     return Object.fromEntries(Object.entries(totals).map(([currency, value]) => { const sign = value < 0n ? "-" : ""; const amount = value < 0n ? -value : value; return [currency, `${sign}${amount / 100n}.${String(amount % 100n).padStart(2, "0")}`]; }));
   };
   assert.equal(checkPrecisionCases(exact, cases).passed, cases.length);
+  const lateExact = (rows: PrecisionCase["rows"]) => exact(rows.map(row => ({ ...row, amount: Number(row.amount).toFixed(2) })));
+  assert.deepEqual(lateExact([{ currency: "USD", amount: "0.10", status: "settled" }, { currency: "USD", amount: "0.20", status: "settled" }]), { USD: "0.30" });
+  assert.ok(checkPrecisionCases(lateExact, cases).passed < cases.length, "exact arithmetic after a lossy parse does not restore missing digits");
   assert.equal(checkPrecisionCases(() => { throw new Error("unsupported range"); }, cases).passed, 0);
 });

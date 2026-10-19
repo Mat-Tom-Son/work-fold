@@ -19,6 +19,37 @@ import { buildWorkFolderTurnContext } from "../src/local/agent/work-folder-turn-
 
 const workFolderId = "space-0123456789abcdef";
 
+test("answer continuations retain the original output contract through compaction", () => {
+  const assignment = 'Deliver result.json with exactly {totals: {currency: "0.00"}, includedIds: [], excludedIds: []}. Preserve sources.';
+  const answer = "Exclude disputed rows and use the corrected source.";
+  const workFolderTurn = buildWorkFolderTurnContext({ workFolderId, taskId: "answer-task", requestId: "request-a", assignment, answeredQuestionId: "question-a", handleSalt: "salt" });
+  const identity = buildTurnIdentity({ workFolderTurn, request: answer })!;
+  const messages = [{ role: "compactionSummary", summary: "The answer says to exclude disputes; write currencyTotals." }, { role: "user", content: answer }];
+  const note = restateTurnIdentity(messages, identity)![1]!.content as string;
+  assert.ok(note.includes(assignment), "the original assignment's literal fields must survive, not just the latest answer");
+  assert.doesNotMatch(note, /<request>/, "the visible answer is not duplicated");
+  assert.ok(!restateTurnIdentity(messages, buildTurnIdentity({ workFolderTurn: { workFolderId, taskId: "other", requestId: "request-b" }, request: "Another request" }))![1]!.content!.includes(assignment), "another request cannot inherit this assignment");
+});
+
+test("assignment recovery is bounded, preserves delegated scope and avoids duplicating visible instructions", () => {
+  const assignment = `Use literal field names. ${"x".repeat(restatedRequestMaxChars)}TAIL`;
+  const turn = buildWorkFolderTurnContext({ workFolderId, taskId: "child-answer", requestId: "child", parentTaskId: "hidden-parent", assignment, handleSalt: "salt" });
+  const identity = buildTurnIdentity({ workFolderTurn: turn, request: "The answer is exclude." })!;
+  const summary = { role: "compactionSummary", summary: "Earlier work." };
+  const note = restateTurnIdentity([summary], identity)![1]!.content as string;
+  assert.match(note, /<assignment>\nUse literal field names\./);
+  assert.ok(!note.includes("TAIL")); assert.match(note, /original assignment continues/);
+  assert.ok(!note.includes("hidden-parent"));
+  const visible = restateTurnIdentity([summary, { role: "user", content: assignment }], identity)![1]!.content as string;
+  assert.ok(!visible.includes("<assignment>"), "a fully visible assignment is not repeated");
+  assert.equal(buildTurnIdentity({ workFolderTurn: turn, request: assignment })!.assignment, undefined, "the current request already carries an identical assignment");
+  const short = { ...turn, delegated: { ...turn.delegated!, assignment: "A bounded excerpt", assignmentTruncated: true } };
+  assert.match(restateTurnIdentity([summary], buildTurnIdentity({ workFolderTurn: short, request: "Continue" }))![1]!.content as string, /already truncated/);
+  const prefix = "p".repeat(200);
+  const latest = buildTurnIdentity({ workFoldAgentTaskId: "agent-a", request: `${prefix}NEW REQUIREMENT` });
+  assert.ok((restateTurnIdentity([summary, { role: "user", content: `${prefix}OLD REQUIREMENT` }], latest)![1]!.content as string).includes("NEW REQUIREMENT"), "a matching prefix cannot stand in for the entire current request");
+});
+
 test("a Worker's turn context still opens with its exact identity", () => {
   const workFolderTurn = buildWorkFolderTurnContext({ workFolderId, taskId: "turn-a", requestId: "req-a", handleSalt: "salt" });
   const text = buildTurnContextMessage({ workFolderTurn });
@@ -122,13 +153,15 @@ test("after a real mid-turn compaction the next request carries the current turn
   assert.ok(held > 0);
   settings.applyOverrides({ compaction: { enabled: true, reserveTokens: 200_000 - (held + 3_000), keepRecentTokens: 500 } });
 
-  assert.equal(await client.prompt("Which reporters are there?", { workFolderTurn: turn("turn-second-0002", "req-second") }), "Done.");
+  const assignment = 'Deliver result.json with exactly {totals: {currency: "0.00"}, includedIds: [], excludedIds: []}.';
+  assert.equal(await client.prompt("Which reporters are there?", { workFolderTurn: { ...turn("turn-second-0002", "req-second"), assignment, answeredQuestionId: "question-current" } }), "Done.");
   assert.ok(summaries >= 1, "Pi compacted during the second turn");
   const afterCompaction = requests.at(-1)!;
 
   assert.match(afterCompaction, /turn-first-0001/, "the misleading summary is still there");
   const restatement = "The conversation above was compacted while this turn was running";
   assert.ok(afterCompaction.includes(restatement), "the identity is restated");
+  assert.ok(afterCompaction.includes(JSON.stringify(assignment).slice(1, -1)), "the original assignment's exact data shape reaches the real post-compaction transport");
   const requestAt = afterCompaction.indexOf("Which reporters are there?");
   assert.ok(requestAt > afterCompaction.indexOf("This turn's request"), "the turn's own request, summarized away, is restated");
   assert.equal(afterCompaction.indexOf("Which reporters are there?", requestAt + 1), -1, "only once");

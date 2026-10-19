@@ -2,6 +2,7 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 import { describeChecklist } from "./checklist-tool.js";
 import type { WorkFoldChecklistItem } from "../requests/request-records.js";
+import type { PiWorkFolderTurnContext } from "./work-folder-turn-context.js";
 
 /**
  * A turn survives compaction: its ids, its request, and the care it needs.
@@ -17,9 +18,9 @@ import type { WorkFoldChecklistItem } from "../requests/request-records.js";
  *
  * This hook restates, request-locally, whenever the model would otherwise see a
  * compaction summary without this turn's own context message: the turn's exact
- * ids; the person's request for this turn when it is no longer visible; and a
- * reminder that earlier work is only summarized, so the answer is re-checked
- * against the sources. Nothing is written to the session, and the note sits
+ * ids; the request's original assignment and this turn's message when no
+ * longer visible; and evidence-aware recovery and verification guidance.
+ * Later answers still apply to the original assignment. Nothing is written to the session, and the note sits
  * right after the summary, so its position is stable from request to request.
  */
 
@@ -29,7 +30,7 @@ export const workFoldTurnContextCustomType = "work-fold-turn-context";
 export const workFoldTurnIdentityCustomType = "work-fold-turn-identity";
 
 export interface WorkFoldTurnIdentityInput {
-  workFolderTurn?: { workFolderId: string; taskId: string; requestId: string };
+  workFolderTurn?: Pick<PiWorkFolderTurnContext, "workFolderId" | "taskId" | "requestId" | "assignment" | "delegated">;
   workFoldAgentTaskId?: string;
   /** The person's message for this turn. */
   request?: string;
@@ -39,6 +40,9 @@ export interface WorkFoldTurnIdentity {
   taskId: string;
   text: string;
   request?: string;
+  /** This request's own original assignment, distinct from a later answer. */
+  assignment?: string;
+  assignmentTruncated?: boolean;
   /** The request's checklist as it stands now, so the plan survives the summary too (2026-10-18). */
   checklist?: readonly WorkFoldChecklistItem[];
 }
@@ -80,7 +84,9 @@ export function buildTurnIdentity(input: WorkFoldTurnIdentityInput): WorkFoldTur
     ...(input.workFoldAgentTaskId ? workFoldAgentTaskLines(input.workFoldAgentTaskId) : []),
   ];
   const request = input.request?.trim();
-  return { taskId, text: lines.join("\n"), ...(request ? { request } : {}) };
+  const assignment = turn?.assignment ?? turn?.delegated?.assignment;
+  return { taskId, text: lines.join("\n"), ...(request ? { request } : {}),
+    ...(assignment?.trim() && assignment.trim() !== request ? { assignment, assignmentTruncated: !!turn?.delegated?.assignmentTruncated } : {}) };
 }
 
 function restatedRequest(request: string): string {
@@ -88,6 +94,14 @@ function restatedRequest(request: string): string {
     ? `${request.slice(0, restatedRequestMaxChars)}\n[The message continues for ${request.length - restatedRequestMaxChars} more characters; it is this turn's message in the Chat.]`
     : request;
   return `This turn's request (the person's message, restated because the summary above may not include it):\n<request>\n${shown}\n</request>`;
+}
+
+function restatedAssignment(identity: WorkFoldTurnIdentity): string {
+  const assignment = identity.assignment!;
+  const shown = assignment.length > restatedRequestMaxChars
+    ? `${assignment.slice(0, restatedRequestMaxChars)}\n[The original assignment continues for ${assignment.length - restatedRequestMaxChars} more characters; the full text is in this Chat's original assignment.]`
+    : assignment;
+  return `Original assignment for this request (host-kept, restated because the summary may omit exact requirements; later answers and corrections still apply):\n<assignment>\n${shown}${identity.assignmentTruncated ? "\n[The host's original assignment context was already truncated; consult the full assignment in this Chat.]" : ""}\n</assignment>`;
 }
 
 type ContextMessage = { role: string; customType?: string; content?: unknown; timestamp?: number };
@@ -113,14 +127,16 @@ export function restateTurnIdentity<T extends ContextMessage>(messages: T[], ide
   const ownContextVisible = messages.some((message) => message.role === "custom"
     && message.customType === workFoldTurnContextCustomType && messageText(message).includes(identity.taskId));
   if (ownContextVisible) return undefined;
-  const requestHead = identity.request?.slice(0, 200);
-  const requestVisible = requestHead !== undefined
-    && messages.some((message) => message.role === "user" && messageText(message).includes(requestHead));
+  const requestVisible = identity.request !== undefined
+    && messages.some((message) => message.role === "user" && messageText(message).includes(identity.request!));
+  const assignmentVisible = identity.assignment !== undefined
+    && messages.some((message) => message.role === "user" && messageText(message).includes(identity.assignment!));
   const note = {
     role: "custom",
     customType: workFoldTurnIdentityCustomType,
     content: [
       identity.text,
+      ...(identity.assignment && !assignmentVisible ? [restatedAssignment(identity)] : []),
       ...(identity.request && !requestVisible ? [restatedRequest(identity.request)] : []),
       ...(identity.checklist?.length ? [`Your checklist for this request as it stands (host-kept; [x] done, [~] doing, [ ] to do):\n${describeChecklist(identity.checklist)}`] : []),
       recheckReminder,
