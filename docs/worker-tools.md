@@ -15,6 +15,10 @@ and optional ordinary files. After compaction or an answer continuation, a
 bounded context index points back to recorded work so the model can recover it
 without repeating a helper, read or mutation. Index pages contain 40 records;
 output pages contain up to 16,000 characters.
+Results carry JSON text in `content`; `details` contains only operation/id
+metadata, so Code Mode does not duplicate large recovered observations. Save
+compact findings once a conclusion is useful rather than repeatedly recovering
+every full input after compaction.
 
 Records use invisible custom entries in the existing machine-local Pi session,
 with the same session retention. They create no portable transcript records or

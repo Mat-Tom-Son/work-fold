@@ -124,7 +124,7 @@ export class ProgressRecovery {
     return {
       name: "progress", label: "Progress and evidence",
       description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
-      promptGuidelines: ["Save useful findings with progress, citing evidence ids and relevant files. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recheck changed sources and dynamic state."],
+      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recheck changed sources and dynamic state. In codemode, print the needed content, not the entire tool-result wrapper."],
       parameters: { type: "object", properties: { input: { anyOf: [
         { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
@@ -161,7 +161,9 @@ export class ProgressRecovery {
           // Index pages are records; output pages above are characters.
           value = { records: records.slice(offset, offset + 40).map(({ text: _text, ...record }) => record), nextOffset: records.length > offset + 40 ? offset + 40 : null, total: records.length };
         }
-        return { content: [{ type: "text", text: JSON.stringify(value) }], details: value };
+        // Codemode receives the whole wrapper. Duplicating the full observation
+        // in details can overflow the very context this tool is recovering.
+        return { content: [{ type: "text", text: JSON.stringify(value) }], details: { action: params.action, ...(params.id ? { id: params.id } : {}) } };
       },
     };
   }

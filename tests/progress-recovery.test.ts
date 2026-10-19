@@ -21,7 +21,10 @@ async function fixture(t: { after(fn: () => unknown): void }) {
   await recovery.extension({ on: (name: string, handler: (event: any) => any) => handlers.set(name, handler) } as any);
   const tool = recovery.tool();
   let calls = 0;
-  const run = async (params: any) => (await tool.execute(`progress-${calls++}`, { input: params }, undefined, undefined, {} as never)).details as any;
+  const run = async (params: any) => {
+    const result = await tool.execute(`progress-${calls++}`, { input: params }, undefined, undefined, {} as never);
+    return JSON.parse((result.content[0] as { text: string }).text);
+  };
   const capture = async (toolName: string, input: Record<string, unknown>, text: string, id = "call-1", between?: () => Promise<void>) => {
     await handlers.get("tool_call")!({ toolCallId: id, toolName, input });
     await between?.();
@@ -39,8 +42,10 @@ test("completed results and agent findings survive reopen and answer turns witho
   const reopened = SessionManager.open(h.session.getSessionFile()!, join(h.root, "sessions"));
   const recovery = new ProgressRecovery(h.root, reopened, () => ({ requestId: "req-a", taskId: "turn-answer", taskIds: ["turn-a", "turn-answer"] }));
   const read = await recovery.tool().execute("recover", { input: { action: "read", id } }, undefined, undefined, {} as never);
-  assert.match(JSON.stringify(read.details), /USD 140; EUR 215/);
-  assert.equal((read.details as any).sourceBinding, "untracked", "helper output never claims its implicit file inputs were pinned");
+  const recovered = JSON.parse((read.content[0] as { text: string }).text);
+  assert.match(recovered.text, /USD 140; EUR 215/);
+  assert.equal(recovered.sourceBinding, "untracked", "helper output never claims its implicit file inputs were pinned");
+  assert.ok(JSON.stringify(read.details).length < 200, "codemode cannot duplicate the observation through details");
   h.setScope({ requestId: "req-b", taskId: "turn-b", taskIds: ["turn-a", "turn-b"] });
   assert.equal((await h.run({ action: "list" })).total, 0);
   await assert.rejects(h.run({ action: "read", id }), /belongs to this request/);
