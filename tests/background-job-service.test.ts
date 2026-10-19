@@ -212,6 +212,70 @@ test("the running bound refuses a start and names its number", async (t) => {
     error instanceof WorkFoldJobLimitError && /1 background jobs are already running/.test(error.message) && /Settings → Automations → Limits/.test(error.message));
 });
 
+test("concurrent starts reserve a running slot before their first asynchronous check", async (t) => {
+  const h = await harness(t, { runningLimit: 1 });
+  const outcomes = await Promise.allSettled([start(h, "sleep 30"), start(h, "sleep 30")]);
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+  const refused = outcomes.find((outcome) => outcome.status === "rejected");
+  assert.ok(refused?.status === "rejected" && refused.reason instanceof WorkFoldJobLimitError);
+  assert.equal(h.service.runningCount(), 1);
+});
+
+test("a refused folder and a failed shell release their reserved running slot", async (t) => {
+  const h = await harness(t, { runningLimit: 1 });
+  await assert.rejects(h.service.start({
+    owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa",
+    command: "true", cwd: join(h.folder, "missing"), surface: "cli",
+  }), /does not exist/);
+  assert.equal(h.service.runningCount(), 0);
+  const failed = await h.service.start({
+    owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa",
+    command: "true", cwd: h.folder, surface: "cli", shell: { shellPath: join(h.folder, "no-such-shell") },
+  });
+  assert.equal(failed.state, "failed");
+  assert.equal(h.service.runningCount(), 0);
+  const job = await start(h, "echo slot-reused");
+  assert.equal((await h.service.wait(job.jobId, { seconds: 10 })).outcome, "ended");
+});
+
+for (const ignoresTerm of [false, true]) {
+  test(`a shell exit drains its background child${ignoresTerm ? " with SIGKILL when SIGTERM is ignored" : ""} before History and settlement`, { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
+    let childPid = 0;
+    let historySawChildAlive: boolean | undefined;
+    const h = await harness(t, { stopGraceMs: 100, ports: {
+      captureHistory: async () => {
+        childPid = Number((await readFile(join(h.folder, "child.pid"), "utf8")).trim());
+        historySawChildAlive = alive(childPid);
+        return { status: "captured", checkpointId: "cp-after-drain", fileCount: 1, skippedFileCount: 0, skippedByReason: {} };
+      },
+    } });
+    t.after(async () => {
+      childPid ||= Number((await readFile(join(h.folder, "child.pid"), "utf8").catch(() => "0")).trim());
+      if (childPid) { try { process.kill(childPid, "SIGKILL"); } catch { /* Already drained. */ } }
+    });
+    await writeFile(join(h.folder, "child.cjs"), `
+      const { writeFileSync } = require('node:fs');
+      ${ignoresTerm ? "process.on('SIGTERM', () => {});" : ""}
+      writeFileSync('child.pid', String(process.pid));
+      setInterval(() => {}, 1000);
+    `);
+    const executable = `'${process.execPath.replace(/'/g, "'\\''")}'`;
+    // The child's pid file is its ready signal. The shell exits only after
+    // that signal, leaving a live child in the job's original process group.
+    const job = await start(h, `${executable} child.cjs & while [ ! -s child.pid ]; do sleep 0.01; done`);
+    const waited = await h.service.wait(job.jobId, { seconds: 10 });
+    assert.equal(waited.outcome, "ended");
+    assert.equal(waited.job.state, "exited");
+    assert.equal(waited.job.exitCode, 0);
+    assert.equal(historySawChildAlive, false, "History cannot capture while an owned descendant can still write");
+    await h.service.stop(job.jobId, "agent");
+    await h.service.close();
+    assert.equal(alive(childPid), false, "no background child survives settlement, Stop, or host close");
+    assert.equal(h.service.runningCount(), 0);
+    assert.equal(h.settled.length, 1);
+  });
+}
+
 test("a missing folder is refused before anything is recorded; a shell that cannot start is recorded failed", async (t) => {
   const h = await harness(t);
   await assert.rejects(h.service.start({
