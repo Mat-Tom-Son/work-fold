@@ -25,7 +25,8 @@ from being recorded. The injected index is request-local and is not saved as
 instructions in the session.
 
 Each observation retains up to 256,000 text characters and image counts, with
-original length and truncation disclosed. Original tool warnings remain intact;
+original length and truncation disclosed. Requested read offsets/limits are
+retained separately from actual coverage. Original tool warnings remain intact;
 recovery cannot turn a partial observation into full coverage or recover image
 pixels. Explicit file reads are bracketed by SHA-256 fingerprints when their
 ordinary source is inside this work-folder and at most 32 MiB. Changes during

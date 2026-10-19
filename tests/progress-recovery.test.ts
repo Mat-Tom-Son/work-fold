@@ -50,10 +50,11 @@ test("completed results and agent findings survive reopen and answer turns witho
 test("recovered file observations expose changed, removed and concurrently changed sources", async t => {
   const h = await fixture(t); const path = join(h.root, "source.txt");
   await writeFile(path, "old bytes");
-  await h.capture("read", { path: "source.txt" }, "old bytes");
+  await h.capture("read", { path: "source.txt", offset: 5, limit: 10 }, "old bytes");
   let id = (await h.run({ action: "list" })).records[0].id;
   assert.equal((await h.run({ action: "read", id })).freshness[0].state, "unchanged");
   assert.equal((await h.run({ action: "read", id })).sourceBinding, "bracketed");
+  assert.deepEqual((await h.run({ action: "read", id })).selection, { offset: 5, limit: 10 }, "requested range survives independently of a summarized output");
   await writeFile(path, "new bytes");
   assert.equal((await h.run({ action: "read", id })).freshness[0].state, "changed-or-unavailable");
   assert.equal((await h.run({ action: "read", id })).text, "old bytes", "recovery does not silently replace historical evidence");
