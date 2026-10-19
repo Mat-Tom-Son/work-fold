@@ -6,8 +6,10 @@ available to every shell-capable agent.
 
 ## Progress and evidence recovery
 
-Workers and the work-fold agent carry `progress` with actions `list`, `read`
-and `save`. Completed native tool results, including nested calls, receive stable
+Workers and the work-fold agent carry `progress` with a typed `input` object:
+`{ action: "list" }`, `{ action: "read", id }`, or
+`{ action: "save", summary, evidence?, files? }`. The native schema requires
+the fields each action needs. Completed native tool results, including nested calls, receive stable
 evidence ids. `save` records an agent-authored finding with selected evidence ids
 and optional ordinary files. After compaction or an answer continuation, a
 bounded context index points back to recorded work so the model can recover it

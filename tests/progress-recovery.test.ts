@@ -21,7 +21,7 @@ async function fixture(t: { after(fn: () => unknown): void }) {
   await recovery.extension({ on: (name: string, handler: (event: any) => any) => handlers.set(name, handler) } as any);
   const tool = recovery.tool();
   let calls = 0;
-  const run = async (params: any) => (await tool.execute(`progress-${calls++}`, params, undefined, undefined, {} as never)).details as any;
+  const run = async (params: any) => (await tool.execute(`progress-${calls++}`, { input: params }, undefined, undefined, {} as never)).details as any;
   const capture = async (toolName: string, input: Record<string, unknown>, text: string, id = "call-1", between?: () => Promise<void>) => {
     await handlers.get("tool_call")!({ toolCallId: id, toolName, input });
     await between?.();
@@ -38,7 +38,7 @@ test("completed results and agent findings survive reopen and answer turns witho
   await h.run({ action: "save", summary: "Reconciled currencies separately", evidence: [id], files: ["sales.txt"] });
   const reopened = SessionManager.open(h.session.getSessionFile()!, join(h.root, "sessions"));
   const recovery = new ProgressRecovery(h.root, reopened, () => ({ requestId: "req-a", taskId: "turn-answer", taskIds: ["turn-a", "turn-answer"] }));
-  const read = await recovery.tool().execute("recover", { action: "read", id }, undefined, undefined, {} as never);
+  const read = await recovery.tool().execute("recover", { input: { action: "read", id } }, undefined, undefined, {} as never);
   assert.match(JSON.stringify(read.details), /USD 140; EUR 215/);
   assert.equal((read.details as any).sourceBinding, "untracked", "helper output never claims its implicit file inputs were pinned");
   h.setScope({ requestId: "req-b", taskId: "turn-b", taskIds: ["turn-a", "turn-b"] });
@@ -60,6 +60,11 @@ test("recovered file observations expose changed, removed and concurrently chang
   await h.capture("read", { path: "source.txt" }, "new bytes", "call-race", () => writeFile(path, "later bytes"));
   id = (await h.run({ action: "list" })).records.at(-1).id;
   assert.equal((await h.run({ action: "read", id })).sourceBinding, "changed-during-call");
+  await writeFile(join(h.root, "other.txt"), "different source");
+  await h.handlers.get("tool_call")!({ toolCallId: "changed-input", toolName: "read", input: { path: "source.txt" } });
+  await h.handlers.get("tool_result")!({ toolCallId: "changed-input", toolName: "read", input: { path: "other.txt" }, content: [{ type: "text", text: "different source" }], isError: false });
+  const changedInput = (await h.run({ action: "list" })).records.at(-1).id;
+  assert.equal((await h.run({ action: "read", id: changedInput })).sourceBinding, "changed-during-call", "changed invocation arguments cannot attest the original file");
   await rm(path);
   assert.equal((await h.run({ action: "read", id })).freshness[0].state, "changed-or-unavailable");
 });
@@ -126,9 +131,16 @@ test("a native compaction recovers a completed read despite a misleading summary
     if (requests === 3) {
       assert.ok(text.includes("Host-kept progress and evidence")); assert.ok(text.includes(evidenceId));
       assert.ok(text.includes("does not mean the tool never completed"));
-      return fauxAssistantMessage(fauxToolCall("progress", { action: "read", id: evidenceId, offset: 0, limit: 1000 }));
+      return fauxAssistantMessage(fauxToolCall("progress", { input: { action: "read", id: evidenceId, offset: 0, limit: 1000 } }));
     }
-    recovered = text.includes("complete retained observation") && text.includes("unchanged");
+    if (requests === 4) {
+      recovered = text.includes("complete retained observation") && text.includes("unchanged");
+      return fauxAssistantMessage(fauxToolCall("progress", { input: { action: "save" } }, { id: "missing-summary" }));
+    }
+    if (requests === 5) {
+      assert.match(text, /summary/, "native validation explains the required save field");
+      return fauxAssistantMessage(fauxToolCall("progress", { input: { action: "save", summary: "Read the material once and recovered its observation.", evidence: [evidenceId] } }));
+    }
     return fauxAssistantMessage("Recovered the completed observation.");
   };
   faux.setResponses(Array.from({ length: 20 }, () => respond));
@@ -142,5 +154,6 @@ test("a native compaction recovers a completed read despite a misleading summary
   const entries = saved.split("\n").filter(Boolean).map(line => JSON.parse(line));
   const reads = entries.flatMap(entry => entry.message?.role === "assistant" ? entry.message.content.filter((part: any) => part.type === "toolCall" && part.name === "read") : []);
   assert.equal(reads.length, 1, "the model retrieved evidence rather than re-executing read");
+  assert.equal(entries.filter(entry => entry.customType === "work-fold-progress.v1" && entry.data?.kind === "finding").length, 1, "the invalid save never becomes a finding");
   assert.ok(!entries.some(entry => entry.customType === progressContextType), "recovery context is request-local, not saved as instructions");
 });

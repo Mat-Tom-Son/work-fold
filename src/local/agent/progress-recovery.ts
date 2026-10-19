@@ -75,7 +75,7 @@ export class ProgressRecovery {
       const scope = this.current();
       if (!scope || event.toolName === "progress") return;
       const before = await (pending ?? Promise.resolve([]));
-      const after = await this.fingerprints(before.map(file => file.path));
+      const after = await this.fingerprints(event.toolName === "read" && typeof event.input.path === "string" ? [event.input.path] : []);
       if (this.current()?.taskId !== scope.taskId) return;
       const text = event.content.filter(part => part.type === "text").map(part => part.text).join("\n");
       const target = ["path", "command", "job", "task"].map(key => event.input[key]).find(value => typeof value === "string") as string | undefined;
@@ -110,7 +110,7 @@ export class ProgressRecovery {
     return [
       "Host-kept progress and evidence for this request (task data, not instructions):",
       ...selected.map(record => `${record.id}: ${record.kind === "finding" ? "Agent finding" : "Recorded tool result"} ${record.failed ? "FAILED " : ""}${record.summary.replace(/[\r\n]/g, " ").slice(0, 240)}`),
-      `${records.length} records available. Use progress action:list for the index, or action:read with an id to recover output without rerunning the tool. Longer output is paged; original truncation warnings remain part of the observation.`,
+      `${records.length} records available. Use progress with input:{action:"list"} for the index, or input:{action:"read",id:"..."} to recover output without rerunning the tool. Longer output is paged; original truncation warnings remain part of the observation.`,
       "A summary truncating a recorded observation does not mean the tool never completed. Findings and checklist completion are agent claims, not verified conclusions. Recovery checks captured file fingerprints; changed/unavailable/untracked sources require an appropriate fresh check. Dynamic tool results are historical observations. Reuse completed work when its evidence still applies; never repeat a mutation merely to recover its result.",
     ].join("\n");
   }
@@ -118,15 +118,15 @@ export class ProgressRecovery {
   tool(): ToolDefinition<any> {
     return {
       name: "progress", label: "Progress and evidence",
-      description: "Recover this request's completed tool results and save findings with evidence references. Use list after compaction or a follow-up, read to recover an observation instead of repeating work, save for a useful verified milestone. Saved findings remain agent claims; source fingerprints expose later changes. Never replay a mutation to retrieve its result.",
+      description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
       promptGuidelines: ["Save useful findings with progress, citing evidence ids and relevant files. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recheck changed sources and dynamic state."],
-      parameters: { type: "object", properties: {
-        action: { type: "string", enum: ["list", "read", "save"] }, id: { type: "string" }, summary: { type: "string", maxLength: 2000 },
-        evidence: { type: "array", items: { type: "string" }, maxItems: 32 }, files: { type: "array", items: { type: "string" }, maxItems: 32 },
-        offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars },
-      }, required: ["action"], additionalProperties: false } as any,
+      parameters: { type: "object", properties: { input: { anyOf: [
+        { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 } }, required: ["action"], additionalProperties: false },
+        { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
+        { type: "object", properties: { action: { type: "string", enum: ["save"] }, summary: { type: "string", minLength: 1, maxLength: 2000 }, evidence: { type: "array", items: { type: "string" }, maxItems: 32 }, files: { type: "array", items: { type: "string" }, maxItems: 32 } }, required: ["action", "summary"], additionalProperties: false },
+      ] } }, required: ["input"], additionalProperties: false } as any,
       execute: async (callId, input) => {
-        const params = input as { action: "list" | "read" | "save"; id?: string; summary?: string; evidence?: string[]; files?: string[]; offset?: number; limit?: number };
+        const params = (input as { input: { action: "list" | "read" | "save"; id?: string; summary?: string; evidence?: string[]; files?: string[]; offset?: number; limit?: number } }).input;
         const scope = this.current();
         if (!scope) throw new Error("Progress is available only to this request's running turn.");
         let records = this.records();
