@@ -55,7 +55,8 @@ The CLI is `worktrees manage --work-folder <source-id> --task <own-task-id>
 The source work-folder must be the repository root. Creation resolves and pins
 a committed revision (HEAD by default), journals before checkout, disables
 checkout hooks, excludes source `.work-fold/` identity/transcripts from
-materialization, and registers a new work-folder. Local uncommitted source
+materialization, leaves legacy `.workspace/` metadata unmaterialized, and
+registers a new work-folder. Local uncommitted source
 changes are left untouched and are not copied. Delegate edits to the returned
 workFolderId through the ordinary handoff path.
 

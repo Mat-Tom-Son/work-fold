@@ -56,7 +56,7 @@ export class ManagedWorktrees {
         // not the new working context. Never materialize it in the copy.
         const sparsePath = resolve(record.path, (await exec("git", ["rev-parse", "--git-path", "info/sparse-checkout"], { cwd: record.path })).stdout.trim());
         await mkdir(dirname(sparsePath), { recursive: true });
-        await writeFile(sparsePath, "/*\n!/.work-fold/\n", { mode: 0o600 });
+        await writeFile(sparsePath, "/*\n!/.work-fold/\n!/.workspace/\n", { mode: 0o600 });
         await exec("git", ["-c", "core.hooksPath=/dev/null", "-c", "core.sparseCheckout=true", "-c", "core.sparseCheckoutCone=false", "read-tree", "-mu", commit], { cwd: record.path, timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
         record = { ...record, workFolderId: await register(record.path), state: "active" };
         await this.save(record);
