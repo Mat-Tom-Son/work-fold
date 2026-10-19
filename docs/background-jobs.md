@@ -97,6 +97,11 @@ not start) | `interrupted` (work-fold closed or restarted first).
   `check_run`, outside the stable `work-fold.tasks` v1 projection) lives while it runs.
 - **Turn end.** The starting turn ends normally; the job keeps running. The
   turn's post-turn History checkpoint covers what the job wrote by then.
+- **Shell exit.** On macOS and other POSIX hosts, remaining processes in the
+  job's process group receive SIGTERM, then SIGKILL after the same grace
+  period used by Stop. The job stays live until that group has drained,
+  before History capture and request settlement; a shell's background child
+  cannot keep writing after its job is reported finished.
 - **Stop.** Stopping a request (the Chat's Stop, the work line's Stop, `agent
   stop`, a paired browser, or an App's cancel) stops every running job of that
   request and its descendants: SIGTERM to the process group, then SIGKILL after
@@ -189,6 +194,10 @@ Settings → Automations → Limits:
 | Running jobs on this computer | 256 | `job_start` is refused and names the number |
 | Command text | 1 MiB | refused before anything is recorded |
 | Retention | the request retention window (30 days) after the job ends | the record and its output are removed |
+
+A start reserves its running slot before its first asynchronous check, so
+concurrent starts cannot exceed the bound. Refused or failed starts release
+their slots, and a live process group holds its slot until it drains.
 
 ## Teaching
 

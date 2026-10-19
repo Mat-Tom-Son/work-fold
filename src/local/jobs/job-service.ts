@@ -104,7 +104,7 @@ interface LiveJob {
   timeoutTimer: NodeJS.Timeout | null;
   killTimer: NodeJS.Timeout | null;
   skipHistory: boolean;
-  /** The process has exited; the job stays here until History and the host have recorded it. */
+  /** The process group has drained; the job stays here through History and host settlement. */
   exited: boolean;
   events: EventEmitter;
   settled: Promise<WorkFoldJobRecord>;
@@ -175,11 +175,19 @@ export class WorkFoldJobService {
     if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0 || timeoutSeconds * 1000 > 2_147_483_647)) {
       throw new Error("A background job's timeout must be a positive number of seconds.");
     }
-    const folder = await stat(input.cwd).catch(() => null);
-    if (!folder?.isDirectory()) throw new Error(`The folder to run in does not exist: ${input.cwd}`);
+    // Reserve before the first await: starts from different Chats share this
+    // service and must not both pass the last available slot.
     this.#starting += 1;
+    let reserved = true;
+    const releaseStarting = () => {
+      if (!reserved) return;
+      reserved = false;
+      this.#starting -= 1;
+    };
     let accepted: WorkFoldJobRecord;
     try {
+      const folder = await stat(input.cwd).catch(() => null);
+      if (!folder?.isDirectory()) throw new Error(`The folder to run in does not exist: ${input.cwd}`);
       const at = this.#now().toISOString();
       const jobId = this.store.newJobId();
       const draft: WorkFoldJobRecord = {
@@ -213,13 +221,13 @@ export class WorkFoldJobService {
       if (input.owner.workFolderName !== undefined) draft.workFolderName = input.owner.workFolderName;
       accepted = await this.store.create(draft);
     } catch (error) {
-      this.#starting -= 1;
+      releaseStarting();
       throw error;
     }
     try {
       await this.#ports.beforeSpawn?.(accepted);
       await mkdir(this.store.outputDirectory(accepted.jobId), { recursive: true, mode: 0o700 });
-      return await this.#spawn(accepted, input.shell ?? {});
+      return await this.#spawn(accepted, input.shell ?? {}, releaseStarting);
     } catch (error) {
       const failed = await this.store.update(accepted.jobId, (record) => ({
         ...record,
@@ -232,11 +240,11 @@ export class WorkFoldJobService {
       await Promise.resolve(this.#ports.afterSettle(failed)).catch(() => undefined);
       return failed;
     } finally {
-      this.#starting -= 1;
+      releaseStarting();
     }
   }
 
-  async #spawn(accepted: WorkFoldJobRecord, shell: WorkFoldJobShell): Promise<WorkFoldJobRecord> {
+  async #spawn(accepted: WorkFoldJobRecord, shell: WorkFoldJobShell, releaseStarting: () => void): Promise<WorkFoldJobRecord> {
     const config = getShellConfig(shell.shellPath);
     const resolvedCommand = shell.commandPrefix ? `${shell.commandPrefix}\n${accepted.command}` : accepted.command;
     const fromStdin = (config as { commandTransport?: string }).commandTransport === "stdin";
@@ -288,6 +296,9 @@ export class WorkFoldJobService {
       throw spawnError ?? new Error("The command could not start.");
     }
     this.#live.set(accepted.jobId, live);
+    // Transfer the reserved slot to the live group without an asynchronous
+    // gap or counting the same job as both starting and live.
+    releaseStarting();
     const onData = (chunk: Buffer) => {
       try {
         writer.write(chunk);
@@ -322,6 +333,16 @@ export class WorkFoldJobService {
 
   async #finish(live: LiveJob, exit: { code: number | null; signal: NodeJS.Signals | null }): Promise<void> {
     const child = live.child!;
+    if (live.timeoutTimer) clearTimeout(live.timeoutTimer);
+    // A shell can exit successfully while its background children still
+    // run. Keep the job live, its slot reserved, and History/deletion fenced
+    // until the entire owned process group has stopped.
+    if (process.platform !== "win32" && child.pid && processGroupExists(child.pid)) {
+      this.#signalStop(live);
+      while (await processGroupRunning(child.pid)) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
     live.exited = true;
     // Output still in the pipes arrives before stdio closes. A descendant that
     // kept a pipe open must not hold the job open, so wait only briefly.
@@ -331,7 +352,6 @@ export class WorkFoldJobService {
     ]);
     child.stdout?.destroy();
     child.stderr?.destroy();
-    if (live.timeoutTimer) clearTimeout(live.timeoutTimer);
     if (live.killTimer) clearTimeout(live.killTimer);
     live.writer.close();
     const counters = live.writer.counters;
@@ -376,6 +396,12 @@ export class WorkFoldJobService {
     live.events.emit("settled", ended);
   }
 
+  #signalStop(live: LiveJob): void {
+    killGroup(live.child?.pid, "SIGTERM");
+    live.killTimer ??= setTimeout(() => killGroup(live.child?.pid, "SIGKILL"), this.#stopGraceMs);
+    live.killTimer.unref();
+  }
+
   /**
    * SIGTERM to the job's process group, then SIGKILL after the grace period.
    * Resolves once the job has settled. Stopping an ended job returns it as is.
@@ -397,9 +423,7 @@ export class WorkFoldJobService {
     if (live.stopCause === null) {
       live.stopCause = cause;
       if (options.skipHistory) live.skipHistory = true;
-      killGroup(live.child?.pid, "SIGTERM");
-      live.killTimer = setTimeout(() => killGroup(live.child?.pid, "SIGKILL"), this.#stopGraceMs);
-      live.killTimer.unref();
+      this.#signalStop(live);
     } else if (options.skipHistory) {
       live.skipHistory = true;
     }
@@ -627,6 +651,30 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
     } catch {
       // Already gone.
     }
+  }
+}
+
+function processGroupExists(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+/** Adopted zombies cannot write or receive signals; only live group members hold settlement. */
+async function processGroupRunning(pgid: number): Promise<boolean> {
+  if (!processGroupExists(pgid)) return false;
+  try {
+    const { stdout } = await execFileAsync("ps", ["-axo", "pgid=,stat="], { timeout: 5_000, maxBuffer: 8 * 1024 * 1024 });
+    return stdout.split("\n").some((line) => {
+      const match = /^\s*(\d+)\s+(\S+)/.exec(line);
+      return match && Number(match[1]) === pgid && !match[2]!.startsWith("Z");
+    });
+  } catch {
+    // A failed observation never establishes that a group is gone.
+    return processGroupExists(pgid);
   }
 }
 
