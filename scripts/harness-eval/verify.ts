@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 const exec = promisify(execFile);
 const rows = async (path: string): Promise<any[]> => (await readFile(path, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
@@ -18,7 +18,17 @@ export async function verifyHarnessEvaluation(base: string, helperName: string) 
   for (const key of ["terminalPassed", "sourceUnchanged", "copyRecoveryPassed"]) assert.equal(result[key], true);
   assert.equal((await readFile(join(folder, "branch.txt"), "utf8")).trim(), "SOURCE");
   assert.equal(evidence.copies.length, 2);
-  for (const copy of evidence.copies) { assert.equal((await readFile(join(copy.path, "branch.txt"), "utf8")).trim(), copy.expected); assert.equal(existsSync(join(copy.path, "ESCAPED")), false); }
+  const managedCopies = latest(await rows(join(info.stateBase, "worktrees/records.jsonl")), "id");
+  assert.deepEqual(evidence.copies.map((copy: any) => copy.expected).sort(), ["ALPHA", "BETA"]);
+  for (const copy of evidence.copies) {
+    const owned = managedCopies.find(record => record.id === copy.id);
+    assert.ok(owned, "The copy exists in the host's journal");
+    assert.equal(owned.workFolderId, copy.workFolderId);
+    assert.equal(resolve(owned.path), resolve(`${info.stateBase}-working-copies`, copy.id));
+    // Resolve from the host's pinned identity, never a model-selected path.
+    assert.equal((await readFile(join(owned.path, "branch.txt"), "utf8")).trim(), copy.expected);
+    assert.equal(existsSync(join(owned.path, "ESCAPED")), false);
+  }
   const requests = latest(await rows(join(info.stateBase, "requests/requests.jsonl")), "requestId"); const root = requests.find(record => record.parentRequestId === null)!;
   assert.equal(root.state, "done"); assert.equal(root.turns.length, 2);
   const questions = latest(await rows(join(info.stateBase, "requests/questions.jsonl")), "questionId"); assert.equal(questions.length, 1); assert.equal(questions[0].continuationTaskId, root.turns[1].taskId);
