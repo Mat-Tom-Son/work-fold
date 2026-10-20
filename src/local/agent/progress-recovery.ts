@@ -143,7 +143,13 @@ export class ProgressRecovery {
     return {
       name: "progress", label: "Progress and evidence",
       description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
-      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. Prefer concise verification outcomes with their scope and evidence references over repeatedly reconstructing large inventories or raw hash lists; do a bounded comparison while the full data is available. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recovery then returns smaller pages that fit native summaries and prefer complete physical lines; very long lines still split. Continue at the actual nextOffset, not the requested limit or offset zero again. Recheck changed sources and current dynamic state when the task needs it; untracked means unknown freshness, not automatic invalidation. In codemode, print the needed content, not the entire tool-result wrapper."],
+      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. Prefer concise verification outcomes with their scope and evidence references over repeatedly reconstructing large inventories or raw hash lists; do a bounded comparison while the full data is available. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recovery then returns smaller pages that fit native summaries and prefer complete physical lines; very long lines still split. Continue at the actual nextOffset, not the requested limit or offset zero again. Recheck changed sources and current dynamic state when the task needs it; untracked means unknown freshness, not automatic invalidation. In codemode, progress resolves to structured data: use page.text and page.nextOffset directly. Stop on a null cursor and require any continuation to be an integer greater than the current offset; never loop on an undefined cursor. Print only the needed content."],
+      outputSchema: { type: "object", properties: {
+        id: { type: "string" }, text: { type: "string" }, offset: { type: "integer" },
+        nextOffset: { type: ["integer", "null"] }, total: { type: "integer" },
+        records: { type: "array", items: { type: "object", properties: { id: { type: "string" } }, additionalProperties: true } },
+        saved: { type: "boolean" }, finding: { type: "object", properties: { id: { type: "string" } }, additionalProperties: true },
+      }, additionalProperties: true },
       parameters: { type: "object", properties: { input: { anyOf: [
         { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 40, description: "Records per index page; defaults to 10. Full evidence and fingerprints are returned by read." } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
@@ -214,9 +220,11 @@ export class ProgressRecovery {
           while (summarySafe && selected.length > 1 && JSON.stringify(page()).length > summaryPageChars) selected.pop();
           value = page();
         }
-        // Codemode receives the whole wrapper. Duplicating the full observation
-        // in details can overflow the very context this tool is recovering.
-        return { content: [{ type: "text", text: JSON.stringify(value) }], details: { action: params.action, ...(params.id ? { id: params.id } : {}) } };
+        // Pi sends text content to the model and structuredContent to codemode.
+        // Serialize once so both surfaces have identical JSON values; details
+        // remain small UI metadata rather than a second copy of the evidence.
+        const serialized = JSON.stringify(value);
+        return { content: [{ type: "text", text: serialized }], structuredContent: JSON.parse(serialized), details: { action: params.action, ...(params.id ? { id: params.id } : {}) } };
       },
     };
   }

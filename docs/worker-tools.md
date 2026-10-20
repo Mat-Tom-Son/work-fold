@@ -26,10 +26,14 @@ Text pages end at a newline when one fits the current budget, keeping short
 physical lines together. A line larger than the budget remains character-paged.
 The host also supplies bounded, task-local recent recovery activity so a later
 summary can distinguish a new page from repeated recovery of the same range.
-Results carry JSON text in `content`; `details` contains only operation/id
-metadata, so Code Mode does not duplicate large recovered observations. Save
-compact findings once a conclusion is useful rather than repeatedly recovering
-every full input after compaction.
+Results carry JSON text in `content` and declare Pi's native `outputSchema`
+with matching `structuredContent`. In codemode, `tools.progress(...)` resolves
+to that structured object: read `page.text` and `page.nextOffset` directly,
+without parsing a string or a tool-result wrapper. Stop at a null cursor and
+require any continuation to be an integer greater than the current offset;
+never loop on an undefined cursor. `details` contains only operation/id metadata.
+Save compact findings once a conclusion is useful rather than repeatedly
+recovering every full input after compaction.
 A Worker's answer or result continuation retains the request's original assignment
 separately from its latest message. If native compaction removes that hidden
 context, the host restates both independently, preserving literal output

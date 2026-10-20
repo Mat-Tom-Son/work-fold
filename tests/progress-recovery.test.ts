@@ -259,3 +259,42 @@ test("a native compaction recovers a completed read despite a misleading summary
   assert.equal(entries.filter(entry => entry.customType === "work-fold-progress.v1" && entry.data?.kind === "finding").length, 1, "the invalid save never becomes a finding");
   assert.ok(!entries.some(entry => entry.customType === progressContextType), "recovery context is request-local, not saved as instructions");
 });
+
+test("native codemode receives structured recovery pages and can advance their cursors", { timeout: 30_000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-progress-code-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const original = Array.from({ length: 40 }, (_, i) => `evidence row ${i}: ${"retained source bytes ".repeat(3)}`).join("\n");
+  await writeFile(join(root, "source.txt"), original);
+  const faux = fauxProvider({ provider: "fixture-progress-code", models: [{ id: "chat" }] });
+  const credentials = FileCredentialStore.inMemory(); const models = await ModelRuntime.create({ credentials, modelsPath: null }); models.registerNativeProvider(faux.provider);
+  const settings = SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } });
+  const client = new PiConversationClient("progress-code", root, { resolveRuntime: async () => ({ agentDir: join(root, "pi"), credentials, settingsManager: settings, modelRuntime: models, preferredModel: { provider: "fixture-progress-code", id: "chat" } }) });
+  t.after(() => client.stop());
+  const id = `ev-${createHash("sha256").update("turn-code\0read-source").digest("hex").slice(0, 20)}`;
+  let returned = "";
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("read", { path: "source.txt" }, { id: "read-source" })),
+    fauxAssistantMessage(fauxToolCall("codemode", { code: `
+      let offset=0; let chunks=[]; let pages=0;
+      while(offset!==null){
+        const r=await tools.progress({input:{action:'read',id:'${id}',offset,limit:200}});
+        if(typeof r!=='object' || r===null) throw Error('Recovery must resolve to structured data');
+        if(r.nextOffset!==null && (!Number.isInteger(r.nextOffset) || r.nextOffset<=offset)) throw Error('Cursor must advance');
+        chunks.push(r.text); offset=r.nextOffset;
+        if(++pages>40) throw Error('Regression safety bound');
+      }
+      const index=await tools.progress({input:{action:'list'}});
+      if(!index.records.some(r=>r.id==='${id}')) throw Error('Structured index missing evidence');
+      const saved=await tools.progress({input:{action:'save',summary:'Recovered the source',evidence:['${id}']}});
+      if(!saved.finding.id) throw Error('Structured save missing finding');
+      text({restored:chunks.join(''),pages});
+    ` })),
+    context => { returned = JSON.stringify((context as { messages: Array<{ role: string; toolName?: string }> }).messages.filter(message => message.role === "toolResult" && message.toolName === "codemode")); return fauxAssistantMessage("Recovery complete."); },
+  ]);
+  const workFolderTurn = buildWorkFolderTurnContext({ workFolderId: "space-0123456789abcdef", taskId: "turn-code", requestId: "req-code", handleSalt: "salt" });
+  await client.prompt("Recover and verify the observation.", { workFolderTurn });
+  assert.match(returned, /Script completed/); assert.doesNotMatch(returned, /Script failed/);
+  assert.ok(returned.includes('evidence row 0:') && returned.includes('evidence row 39:'));
+  const entries = (await readFile((await client.getState()).sessionFile!, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+  assert.equal(entries.filter(entry => entry.customType === "work-fold-progress.v1" && entry.data?.kind === "finding").length, 1);
+});
