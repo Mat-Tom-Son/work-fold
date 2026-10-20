@@ -239,6 +239,8 @@ requiring a paid model or production user data.
 
 ## Real-model harness acceptance
 
+The [2026-10-19 repeated evaluation](frozen-autonomy-evaluation.md) records the frozen comparison, all failed attempts, runtime fixes and its coverage limits.
+
 `npm run harness:autonomous -- --model openrouter/openai/gpt-6-luna --case
 research --out out/autonomous-eval/research-luna` runs an outcome-based live
 case in an isolated profile with an explicitly supplied `OPENROUTER_API_KEY`.
