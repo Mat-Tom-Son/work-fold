@@ -15,7 +15,7 @@ through `progress` after compaction or an answer. The host preserves evidence
 references and file freshness separately from the request's checklist; a done
 item remains an agent claim. This uses the existing machine-local Pi session
 and request ownership, as documented in [Worker tools](worker-tools.md).
-If compaction removes an answer continuation's hidden context, the host
+If compaction removes a Worker answer continuation's hidden context, the host
 restates that request's original assignment separately from its latest answer,
 so the requested deliverable contract remains available alongside corrections.
 

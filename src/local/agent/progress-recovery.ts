@@ -143,7 +143,7 @@ export class ProgressRecovery {
     return {
       name: "progress", label: "Progress and evidence",
       description: 'Recover completed tool results and save findings. Pass input:{action:"list"}, input:{action:"read",id:"ev-..."}, or input:{action:"save",summary:"What you found",evidence:["ev-..."],files:["source.txt"]}. Save requires summary; read requires id. Findings remain agent claims; fingerprints expose later changes. Never replay a mutation merely to recover its result.',
-      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. Prefer concise verification outcomes with their scope and evidence references over repeatedly reconstructing large inventories or raw hash lists; do a bounded comparison while the full data is available. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recovery then returns smaller complete pages that fit native summaries: continue at the actual nextOffset, not the requested limit or offset zero again. Recheck changed sources and current dynamic state when the task needs it; untracked means unknown freshness, not automatic invalidation. In codemode, print the needed content, not the entire tool-result wrapper."],
+      promptGuidelines: ["Save compact findings with progress once you have useful conclusions, citing evidence ids and relevant files, so later compaction need not reconstruct them from full outputs. Prefer concise verification outcomes with their scope and evidence references over repeatedly reconstructing large inventories or raw hash lists; do a bounded comparison while the full data is available. After compaction, recover applicable recorded results before repeating expensive reads, helpers or actions. Recovery then returns smaller pages that fit native summaries and prefer complete physical lines; very long lines still split. Continue at the actual nextOffset, not the requested limit or offset zero again. Recheck changed sources and current dynamic state when the task needs it; untracked means unknown freshness, not automatic invalidation. In codemode, print the needed content, not the entire tool-result wrapper."],
       parameters: { type: "object", properties: { input: { anyOf: [
         { type: "object", properties: { action: { type: "string", enum: ["list"] }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 40, description: "Records per index page; defaults to 10. Full evidence and fingerprints are returned by read." } }, required: ["action"], additionalProperties: false },
         { type: "object", properties: { action: { type: "string", enum: ["read"] }, id: { type: "string", minLength: 1 }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: pageChars } }, required: ["action", "id"], additionalProperties: false },
@@ -195,6 +195,13 @@ export class ProgressRecovery {
             let low = 0; let high = length;
             while (low < high) { const middle = Math.ceil((low + high) / 2); if (fits(middle)) low = middle; else high = middle - 1; }
             length = low;
+            // Preserve short physical lines for later summaries. Character-safe
+            // pages can otherwise split checksum lines or citations into
+            // fragments that the summarizer treats as missing evidence.
+            if (length > 0 && offset + length < record.text.length) {
+              const newline = record.text.lastIndexOf("\n", offset + length - 1);
+              if (newline >= offset) length = newline + 1 - offset;
+            }
           }
           value = page(length);
         } else {

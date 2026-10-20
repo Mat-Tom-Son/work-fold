@@ -22,13 +22,15 @@ serialization budget. Navigation and authority/freshness warnings precede the
 payload; unusually large fingerprint metadata remains available in the live
 result but may exceed a later summary. Treat `limit` as an upper bound and
 continue at the returned `nextOffset`, which reflects the actual page size.
+Text pages end at a newline when one fits the current budget, keeping short
+physical lines together. A line larger than the budget remains character-paged.
 The host also supplies bounded, task-local recent recovery activity so a later
 summary can distinguish a new page from repeated recovery of the same range.
 Results carry JSON text in `content`; `details` contains only operation/id
 metadata, so Code Mode does not duplicate large recovered observations. Save
 compact findings once a conclusion is useful rather than repeatedly recovering
 every full input after compaction.
-An answer or result continuation retains the request's original assignment
+A Worker's answer or result continuation retains the request's original assignment
 separately from its latest message. If native compaction removes that hidden
 context, the host restates both independently, preserving literal output
 requirements while applying later answers and corrections. An already visible

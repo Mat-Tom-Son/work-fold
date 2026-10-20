@@ -152,7 +152,7 @@ graph, receipts, and Stop above.
   turn's hidden context can be folded into the summary. Measured runs then
   reported under the wrong task id and narrowed the work. A request-local
   note after the summary now restates the turn's exact ids, the person's
-  request when it is no longer visible, and the checklist. For answer/result
+  request when it is no longer visible, and the checklist. For Worker answer/result
   continuations it also restores the request's own original assignment,
   separately from the current answer, so the original literal requirements
   remain available beyond the summary. Later answers and

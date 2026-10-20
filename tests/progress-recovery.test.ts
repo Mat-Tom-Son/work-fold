@@ -160,6 +160,27 @@ test("recovery index pages survive compaction without losing ids or their next o
   assert.deepEqual(restored, expected); assert.ok(pages > 1);
 });
 
+test("summary-safe recovery keeps complete short rows together without losing bytes or stalling on a long line", async t => {
+  const h = await fixture(t);
+  const rows = Array.from({ length: 36 }, (_, i) => `${createHash("sha256").update(`source-${i}`).digest("hex")}  interviews/P${String(i + 1).padStart(2, "0")}.md\n`);
+  const original = rows.join("");
+  await h.capture("bash", { command: "compare source files" }, original);
+  const id = (await h.run({ action: "list" })).records[0].id;
+  h.session.appendCompaction("Earlier baseline was summarized", h.session.getLeafId(), 18000);
+  let offset: number | null = 0; const restored: string[] = [];
+  while (offset !== null) {
+    const page = await h.run({ action: "read", id, offset, limit: 16000 });
+    assert.ok(page.text.endsWith("\n"), "a short source row must not be fragmented across summary pages");
+    assert.ok(page.text.split("\n").filter(Boolean).every((line: string) => rows.includes(`${line}\n`)));
+    restored.push(page.text); offset = page.nextOffset; assert.ok(restored.length < 50);
+  }
+  assert.equal(restored.join(""), original);
+  await h.capture("bash", {}, "x".repeat(5000), "long-line");
+  const longId = (await h.run({ action: "list" })).records.at(-1).id;
+  const long = await h.run({ action: "read", id: longId, limit: 16000 });
+  assert.ok(long.text.length > 0 && long.nextOffset > 0, "a line larger than the budget still makes character-wise progress");
+});
+
 test("summary-safe recovery preserves navigation and stale-source warnings with a large fingerprint list", async t => {
   const h = await fixture(t);
   const files = Array.from({ length: 20 }, (_, i) => `source-${i}.txt`);
