@@ -35,4 +35,6 @@ RUN test "$WORKFOLD_BUILD_UID" -gt 0 && test "$WORKFOLD_BUILD_GID" -gt 0 \
     && groupmod --gid "$WORKFOLD_BUILD_GID" ubuntu \
     && usermod --uid "$WORKFOLD_BUILD_UID" --gid "$WORKFOLD_BUILD_GID" ubuntu
 # Run the container as that checkout owner. Chromium's sandbox stays enabled.
+RUN apt-get update && apt-get install -y --no-install-recommends expect \
+    && rm -rf /var/lib/apt/lists/*
 CMD ["bash"]

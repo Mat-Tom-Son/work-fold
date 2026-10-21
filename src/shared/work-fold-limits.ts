@@ -73,7 +73,13 @@ export const workFoldRequestLimits = Object.freeze({
   /** Shipped default is no cap; a host may set one, and reaching it fails the request. */
   providerBudgetUsd: null as number | null,
   maxQuestionTextBytes: 4 * 1024 * 1024,
+  /** Suggested answers a question may offer as choices; the person can still write their own. */
+  maxQuestionOptions: 64,
+  maxQuestionOptionBytes: 4 * 1024,
   maxAnswerTextBytes: 4 * 1024 * 1024,
+  /** The checklist an agent keeps for its request (2026-10-18); long tasks only. */
+  maxChecklistItems: 200,
+  maxChecklistItemBytes: 2 * 1024,
   maxResultSummaryBytes: 4 * 1024 * 1024,
   maxResultDataBytes: 16 * 1024 * 1024,
   /** UI page size; further questions follow as earlier answers are delivered. */
@@ -90,6 +96,29 @@ export const workFoldRequestLimits = Object.freeze({
 
 /** F28: continuation turns are on by default and a person can turn them off. */
 export const workFoldRequestContinuationsDefaultEnabled = true;
+
+/**
+ * Background job bounds (docs/background-jobs.md). A job has no running-time
+ * limit unless its caller sets `timeout`; these only keep a runaway command
+ * from filling the disk or the process table. Settled jobs and their output
+ * follow the request retention window above.
+ */
+export const workFoldBackgroundJobLimits = Object.freeze({
+  /** Jobs running at once on this computer; a further start is refused. */
+  runningMachineWide: 256,
+  /** The command text a job records and runs. */
+  maxCommandBytes: 1024 * 1024,
+  /** Output is kept in segments of this size; only the newest two are kept. */
+  outputSegmentBytes: 512 * 1024 * 1024,
+  outputSegmentsKept: 2,
+  /** One read, and the end of the output a follow-up carries: Pi's own `bash` bounds. */
+  readMaxLines: 2_000,
+  readMaxBytes: 50 * 1024,
+  /** Stop sends SIGTERM to the job's process group, then SIGKILL after this long. */
+  stopGraceMs: 5_000,
+  /** `job_start` waits this long for early output or an exit unless told otherwise. */
+  defaultStartWaitSeconds: 3,
+});
 
 /** Live native Pi callbacks, distinct from durable request questions. */
 export const workFoldExtensionUiLimits = Object.freeze({

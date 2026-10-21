@@ -11,6 +11,7 @@ import { restrictedAppInferenceLimits } from "../src/shared/restricted-app-infer
 import { restrictedAppAssistantLimits, restrictedAppLimitSize } from "../src/shared/restricted-app-tasks.js";
 import {
   workFoldAppAutomationDefaultConcurrency,
+  workFoldBackgroundJobLimits,
   workFoldExtensionUiLimits,
   workFoldRequestLimits,
   workFoldAutomationDeclarationBounds,
@@ -63,6 +64,7 @@ test("the Limits pane reads the frozen contracts instead of retyping them", () =
     "workFoldAutomationDeclarationBounds",
     "workFoldAutomationMaxConcurrentRuns",
     "workFoldAppAutomationDefaultConcurrency",
+    "workFoldBackgroundJobLimits",
   ]) {
     assert.ok(paneSource.includes(contract), `the pane sources ${contract}`);
   }
@@ -113,6 +115,10 @@ test("the Limits pane shows the assistant, automation, and automation numbers a 
   assert.ok(text.includes(`A result summary${sizeText(workFoldRequestLimits.maxResultSummaryBytes)}`), "the summary bound is shown");
   assert.ok(text.includes(`Result Details${sizeText(workFoldRequestLimits.maxResultDataBytes)}`), "the data bound is shown");
   assert.ok(text.includes(`Pending Extension questions per Chat${workFoldExtensionUiLimits.pendingPerChat}`));
+  // Background jobs (docs/background-jobs.md): the running bound a refused start names.
+  assert.ok(text.includes(`Background jobs running on this computer${workFoldBackgroundJobLimits.runningMachineWide}`));
+  assert.ok(text.includes("How long a job runsNo limit unless the job sets one"));
+  assert.ok(text.includes("Output kept for one job1 GB, the newest part"));
   assert.ok(text.includes(`An Extension answer or editor text${sizeText(workFoldExtensionUiLimits.answerBytes)}`));
 });
 

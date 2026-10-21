@@ -22,6 +22,12 @@ Respect reduced motion and retain input through reconnects and failed sends.
 Question drafts stay in session storage for the current renderer/browser tab;
 acceptance clears them, and paired-browser sign-out or grant removal clears all
 question drafts. Typing alone never sends an answer to the host or model.
+When the agent keeps a checklist for the work, the work view lists it under
+the status line, with done, current, and remaining steps, and it updates as
+the agent works.
+A question that offers choices shows each as a button above the answer box;
+one click sends that choice as the answer, and the box stays for a different
+answer.
 
 ## Shared behavior
 

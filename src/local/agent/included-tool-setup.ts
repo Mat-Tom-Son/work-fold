@@ -4,7 +4,7 @@ import { resolvePiRuntime, type PiRuntimeProvider } from "./pi-runtime-config.js
 import type { ChromeConnectionState, ChromeConnectionSummary, ChromeSetupAction } from "../../shared/chrome-connection.js";
 import { includedToolDefinitions, type IncludedToolId, type IncludedToolStatus } from "../../shared/included-tools.js";
 import type { ComputerSessionSummary } from "../../shared/computer-session.js";
-import { includedComputerStatus } from "../../../resources/included-tools/readiness.js";
+import { checkDocumentEngines, discoverDocumentEngines, includedComputerStatus, includedDocumentsStatus } from "../../../resources/included-tools/readiness.js";
 import { beginIncludedToolObservation, includedToolObservation } from "./included-tool-observations.js";
 import { loadIncludedMcpConfig } from "./included-mcp-setup.js";
 
@@ -59,6 +59,8 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
     mcp = { id: "mcp", state: "unavailable", checkedAt: new Date().toISOString(), detail: "Service connection configuration could not be read. Open its settings to check the configuration." };
   }
   const braveCredential = await runtime.credentials.read("work-fold:web:brave");
+  // File checks only, so a person who just installed LibreOffice sees it on the next refresh.
+  const documentEngines = await discoverDocumentEngines(runtime.config.includedTools.documentEngineSearch);
   return includedToolDefinitions.map(({ id }) => {
     if (id === "mcp") return mcp;
     if (id === "chrome") {
@@ -72,6 +74,7 @@ export async function listIncludedToolStatus(cwd: string, provider?: PiRuntimePr
       ? { id, state: "unknown", detail: "Brave Search key saved. The connection is verified when you search. Public page reading is available.", checkedAt: now }
       : { id, state: "ready", detail: "DuckDuckGo search and public page reading are available without setup.", checkedAt: now };
     const checked = includedToolObservation(runtime, id);
+    if (id === "documents") return includedDocumentsStatus(checked, documentEngines);
     return checked ? checked
       : { id, state: "unknown", detail: "Check setup to verify this tool on your computer.", checkedAt: now };
   });
@@ -136,9 +139,12 @@ export async function setupIncludedTool(cwd: string, id: IncludedToolId, action:
   } else if (id === "documents") {
     if (action !== "check") throw new Error("Unknown document setup action.");
     const documents = await jiti.import<{ probeIncludedDocuments(options?: { signal?: AbortSignal }): Promise<{ state: "ready" | "unavailable"; reason: string; versions: Record<string, string>; runtime: string }> }>(join(config.rootPath, "documents", "runtime.mjs"));
-    const result = await documents.probeIncludedDocuments({ signal });
+    const [result, engines] = await Promise.all([documents.probeIncludedDocuments({ signal }), checkDocumentEngines(config.documentEngineSearch, signal)]);
     signal?.throwIfAborted();
-    status = { ...status, state: result.state, detail: result.reason, facts: result.versions };
+    // The observation keeps the libraries' own result and what Check learned about each engine;
+    // the status word is recombined with the engines found at each read.
+    const observed = finishObservation({ ...status, state: result.state, detail: result.reason, facts: result.versions, documentsSetup: engines });
+    return { status: includedDocumentsStatus(observed, await discoverDocumentEngines(config.documentEngineSearch)) };
   } else throw new Error("Use service connection setup to configure MCP.");
   const observed = finishObservation(status);
   return { status: id === "computer" && config.computerSession ? computerStatus(config.computerSession.status(), observed) : observed };

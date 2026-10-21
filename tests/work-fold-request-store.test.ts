@@ -62,6 +62,45 @@ function stateInput(overrides: Partial<WorkFoldRequestStateInput> = {}): WorkFol
   };
 }
 
+test("asynchronous questions and queued answers survive reopening without dispatching a turn", async t => {
+  const root = await temporaryRoot(t);
+  const store = await WorkFoldRequestStore.open({ rootPath: root });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-async" });
+  const question = await store.ask({ requestId: request.requestId, taskId: "task-async", respondent: "person", text: "Format?", asynchronous: true });
+  assert.equal(store.get(request.requestId)!.state, "working");
+  await store.answer({ questionId: question.questionId, answer: "PDF", answeredByWorkFolderId: workFolderOwner.workFolderId });
+  await store.flush();
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root });
+  assert.equal(reopened.question(question.questionId)!.asynchronous, true);
+  assert.equal(reopened.question(question.questionId)!.answer, "PDF");
+  assert.equal(reopened.question(question.questionId)!.continuationTaskId, null);
+  assert.equal(reopened.get(request.requestId)!.turns.length, 1);
+  await reopened.settleTurn("task-async", { status: "succeeded" });
+  assert.equal(reopened.get(request.requestId)!.state, "waiting", "the saved answer stays outstanding until delivery is explicitly linked");
+});
+
+test("an independently running service retains attribution through cache pressure and retention", async t => {
+  const root = await temporaryRoot(t); const clock = clockFrom("2026-10-18T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now, maxRecords: 1 });
+  const request = await store.beginRoot({ kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-service" });
+  const jobId = "job-20261018090000-aaaaaaaa";
+  await store.noteJobStarted({ taskId: "task-service", jobId, name: "Server", service: true });
+  await store.settleTurn("task-service", { status: "succeeded" });
+  assert.equal(store.get(request.requestId)!.state, "done");
+  const other = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "cli", taskId: "task-other" });
+  await store.settleTurn("task-other", { status: "succeeded" });
+  assert.ok(store.get(request.requestId), "an active service cannot lose its request from the read cache");
+  clock.advance((workFoldRequestLimits.retentionDays + 1) * 86400000);
+  await store.purgeExpired(); assert.ok(store.get(request.requestId));
+  await store.flush(); const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  assert.equal(reopened.get(request.requestId)!.jobs![0]!.service, true);
+  await reopened.settleJob(jobId, { state: "stopped", exitCode: null });
+  await reopened.purgeExpired(); assert.ok(reopened.get(request.requestId), "retain the ended service's receipt for its whole window");
+  clock.advance((workFoldRequestLimits.retentionDays + 1) * 86400000);
+  await reopened.purgeExpired(); assert.equal(reopened.get(request.requestId), null);
+  assert.ok(other.requestId);
+});
+
 test("a root, a child, and the graph between them", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");
@@ -930,4 +969,34 @@ test("a reserved child delivery survives restart without starting or repeating a
   assert.equal(store.get(root.requestId)?.continuationState, "failed");
   assert.equal(store.get(root.requestId)?.turns.length, 1);
   assert.deepEqual(await store.noteContinuation(root.requestId, ["child"]), { allowed: false, count: 1 });
+});
+
+test("a question record keeps its choices, and records written before choices existed still read", async () => {
+  const { parseWorkFoldQuestionRecord, workFoldQuestionRecordSchema } = await import("../src/local/requests/request-records.js");
+  const base = {
+    schema: workFoldQuestionRecordSchema, questionId: "q-20261018000000-abcdef01", requestId: "req-20261018000000-abcdef01",
+    rootId: "req-20261018000000-abcdef01", taskId: "task-1", respondent: "person", text: "Which quarter?",
+    askedAt: "2026-10-18T00:00:00.000Z", updatedAt: "2026-10-18T00:00:00.000Z", expiresAt: null, state: "open",
+    answer: null, answeredAt: null, continuationTaskId: null, answeredByWorkFolderId: null,
+  };
+  const older = parseWorkFoldQuestionRecord(base);
+  assert.equal("options" in older, false);
+  assert.deepEqual(parseWorkFoldQuestionRecord({ ...base, options: ["Q3", "Q4"] }).options, ["Q3", "Q4"]);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: ["Q3", "Q3"] }), /same choice twice/);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: ["Line one\nline two"] }), /one line/);
+  assert.throws(() => parseWorkFoldQuestionRecord({ ...base, options: Array.from({ length: workFoldRequestLimits.maxQuestionOptions + 1 }, (_, index) => `Choice ${index}`) }), /at most 64 choices/);
+});
+
+test("only the running turn changes its request's checklist, an empty list clears it, and it survives a restart", async (t) => {
+  const root = await temporaryRoot(t);
+  const store = await WorkFoldRequestStore.open({ rootPath: root });
+  await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-checklist", content: "Plan the budget." });
+  await store.markTurnRunning("task-checklist");
+  await assert.rejects(store.setChecklist("task-other", [{ text: "Read the quotes", status: "doing" }]));
+  const saved = await store.setChecklist("task-checklist", [{ text: "Read the quotes", status: "doing" }]);
+  assert.deepEqual(saved?.items, [{ text: "Read the quotes", status: "doing" }]);
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root });
+  assert.deepEqual(reopened.byTaskId("task-checklist")?.checklist?.items, [{ text: "Read the quotes", status: "doing" }]);
+  assert.equal(await store.setChecklist("task-checklist", []), null);
+  assert.equal(store.byTaskId("task-checklist")?.checklist, undefined);
 });

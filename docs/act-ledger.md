@@ -148,10 +148,12 @@ convenience.
 | Archive Chat | Chat actions popover | none | direct verb | `chat archive --work-folder <id> --conversation <id>` | prior lifecycle state | `chat resume` | same as snooze |
 | Resume Chat | Popover "Resume now" / "Restore to Active", read-only banner | none | direct verb | `chat resume --work-folder <id> --conversation <id>` | prior lifecycle state | re-archive or re-snooze | refused while turn/compaction runs |
 | Compact Chat | Composer `/compact` | none | direct verb | `chat compact --work-folder <id> --conversation <id>` | kernel task id | none — compaction is additive summarization, not deletion | refused while a turn runs; registers the same kernel `compaction` task and capability-mutation fencing as the renderer |
+| Copy Chat | Chat actions popover "Make a Copy" | act | direct verb | `chat copy --work-folder <id> --conversation <id> [--title <t>] [--task <own-task-id>] [--message <text>]` | copied-from Chat, message count, started task id | archive or delete the copy; the original is never written | a turn still running is left out of the copy; refused while compacting; with `--task`, only the caller's own Chat or one it handed work to |
+| Steer a running Chat | Composer while a turn runs | act | direct verb | `chat steer --work-folder <id> --conversation <id> [--task <own-task-id>] --message <text>` | running task id | n/a (delivered after the current step) | refused when no turn runs; with `--task`, only a Chat the caller's Chat handed work to |
 | Report a result | — (Worker, app task, or outside harness) | act | direct verb | `chat report --work-folder <id> --task <own-task-id> --summary <text> [--data <json-or-@path>] [--file <work-folder-path>]... [--outcome …]` | outcome and file count — never the summary or data | none — a report is a record, not a mutation | `--task` must be the caller's own running turn; summary ≤ 4 MiB and data ≤ 16 MiB; each file must be inside the work-folder |
 | Ask a question | — (the same callers) | act | direct verb | `chat ask --work-folder <id> --task <own-task-id> --question <text> [--to person\|parent]` or `agent ask --task <own-task-id> --question <text>` | question id and respondent — never the text | none — the question stays on record; a root Stop closes it | `--to parent` on a root reaches the person and says so; the asking turn is never suspended; the request reads `waiting` |
 | Answer a question | Composer (free-text reply) | act | direct verb | `chat answer --work-folder <id> --question <id> --answer <text>` or `agent answer --question <id> --answer <text>` | question id and the continuation task id — never the answer | none — one accepted answer, one linked continuation turn | refuses a second answer, a stopped request, a work-folder that does not own the question, and a Chat whose turn or compaction is running (the question stays open); the turn store dedups the continuation under `answer-<question-id>` |
-| Hand work on | — (the same callers) | act | direct verb | `chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id-or-name> (--message <text> \| --message-file <path>) [--file <work-folder-path>]...` | destination work-folder, new Chat, task, restore point, copy count | the destination's restore point (copies are additive, exactly `files add`'s path) | concurrency is checked before any copy; copy before acceptance so a refused copy never leaves a started Chat; same-work-folder handoff takes no `--file` |
+| Hand work on | — (the same callers) | act | direct verb | `chat handoff --work-folder <id> --task <own-task-id> --to-work-folder <id-or-name> [--to-conversation <id>] (--message <text> \| --message-file <path>) [--file <work-folder-path>]...` | destination work-folder, new Chat, task, restore point, copy count | the destination's restore point (copies are additive, exactly `files add`'s path) | concurrency is checked before any copy; copy before acceptance so a refused copy never leaves a started Chat; same-work-folder handoff takes no `--file` |
 
 ### Requests
 
@@ -159,6 +161,21 @@ convenience.
 |---|---|---|---|---|---|---|---|
 | List requests | the overview | act | direct verb (content-bearing act read) | `requests list` | — | n/a | newest 50 roots; `truncated` says when more exist; no `--work-folder`, no lineage |
 | Show a request | `agent status --task`, the overview | act | direct verb (content-bearing act read) | `requests show --request <id>` | — | n/a | the root and its subtree with questions (text), results (summary and data), turns, usage; the human form clamps, `--json` carries them whole |
+
+### Background jobs
+
+| Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
+|---|---|---|---|---|---|---|---|
+| Start a background job | — (`job_start` in a Chat) | act | direct verb | `jobs start --work-folder <id> --task <own-task-id> (--command <cmd> \| --command-file <path>) [--name <label>] [--cwd <folder>] [--timeout <s>]` | job id, state, starting task — never the command text | `jobs stop`, or Stop on its request; History captures what it wrote when it ends | `--task` must be the caller's own running turn of a request that can continue; refused past the running-jobs bound; journaled before the process starts and never re-run |
+| List background jobs | the work line | act | direct verb (act read) | `jobs list --work-folder <id> [--conversation <id>] [--running]` | — | n/a | only that work-folder's jobs |
+| Show a background job | the work line | act | direct verb (content-bearing act read) | `jobs show --work-folder <id> --job <id>` | — | n/a | carries the command, state, exit, History coverage, and delivery |
+| Read a job's output | — (`job_output` in a Chat) | act | direct verb (content-bearing act read) | `jobs output --work-folder <id> --job <id> [--offset <line>] [--limit <lines>] [--wait <s>] [--until <pattern>] [--task <own-task-id>]` | — | n/a | at most 2,000 lines or 50 KB per read; `--task` naming a running turn in the job's own Chat delivers a finished job |
+| Stop a background job | the work line's Stop (whole request) | act | direct verb | `jobs stop --work-folder <id> --job <id>` | job id, final state | none — a stopped job is never re-run | SIGTERM to the process group, SIGKILL after 5 seconds; a stopped job still wakes its Chat once |
+
+A job belongs to the request its turn started it in: the request reads
+`working` while the job runs, and its end reaches the Chat once — through a
+read, the next turn's context, or one `continuation-<request-id>-<n>`
+follow-up ([Background jobs](background-jobs.md), F31–F33).
 
 `chat wait` and `agent wait` stay shim-side polls and settle on either a
 terminal turn or a task that is waiting on an answer, printing the status

@@ -1,0 +1,170 @@
+# Worker tools and working copies
+
+The Worker has complementary ways to keep complex work moving. All use
+the accepted turn's request, authority, Stop and receipts. The CLI remains
+available to every shell-capable agent.
+
+## Progress and evidence recovery
+
+Workers and the work-fold agent carry `progress` with a typed `input` object:
+`{ action: "list" }`, `{ action: "read", id }`, or
+`{ action: "save", summary, evidence?, files? }`. The native schema requires
+the fields each action needs. Completed native tool results, including nested calls, receive stable
+evidence ids. `save` records an agent-authored finding with selected evidence ids
+and optional ordinary files. After compaction or an answer continuation, a
+bounded context index points back to recorded work so the model can recover it
+without repeating a helper, read or mutation. Compact index pages default to ten
+records (up to 40 with `limit`); full fingerprints, evidence links and findings
+remain available through `read`, rather than being duplicated in the index;
+output pages contain up to 16,000 characters.
+After native compaction, index and text pages shrink to fit Pi's summary
+serialization budget. Navigation and authority/freshness warnings precede the
+payload; unusually large fingerprint metadata remains available in the live
+result but may exceed a later summary. Treat `limit` as an upper bound and
+continue at the returned `nextOffset`, which reflects the actual page size.
+Text pages end at a newline when one fits the current budget, keeping short
+physical lines together. A line larger than the budget remains character-paged.
+The host also supplies bounded, task-local recent recovery activity so a later
+summary can distinguish a new page from repeated recovery of the same range.
+Results carry JSON text in `content` and declare Pi's native `outputSchema`
+with matching `structuredContent`. In codemode, `tools.progress(...)` resolves
+to that structured object: read `page.text` and `page.nextOffset` directly,
+without parsing a string or a tool-result wrapper. Stop at a null cursor and
+require any continuation to be an integer greater than the current offset;
+never loop on an undefined cursor. `details` contains only operation/id metadata.
+Save compact findings once a conclusion is useful rather than repeatedly
+recovering every full input after compaction.
+A Worker's answer or result continuation retains the request's original assignment
+separately from its latest message. If native compaction removes that hidden
+context, the host restates both independently, preserving literal output
+requirements while applying later answers and corrections. An already visible
+assignment is not duplicated; long restatements are bounded and disclose the
+missing tail. Only this request's own assignment is admitted.
+Recover applicable completed observations and checks first; recheck changed
+sources, dynamic state, missing coverage and unresolved concerns. Compaction
+alone does not invalidate completed verification. Exact numeric claims also
+need arithmetic that preserves the promised range and precision, with
+independent expectations for signs, cancellation and range limits.
+Integer-valued floating-point cents remain bounded. When no magnitude bound is
+given, use arbitrary precision from original decimal text through final
+formatting; converting a rounded intermediate to an exact type is too late.
+Final artifact checks also compare literal field names and types with the
+original requested contract, not only with an agent-written test's output shape.
+
+Records use invisible custom entries in the existing machine-local Pi session,
+with the same session retention. They create no portable transcript records or
+second request store. The host admits only the current request's own turns in
+this Chat; another request, copied Chat or unrelated child cannot retrieve them.
+Recovery never dispatches work. Stop prevents late observations and findings
+from being recorded. The injected index is request-local and is not saved as
+instructions in the session.
+
+Each observation retains up to 256,000 text characters and image counts, with
+original length and truncation disclosed. Requested read offsets/limits are
+retained separately from actual coverage. Original tool warnings remain intact;
+recovery cannot turn a partial observation into full coverage or recover image
+pixels. Explicit file reads are bracketed by SHA-256 fingerprints when their
+ordinary source is inside this work-folder and at most 32 MiB. Changes during
+the call are flagged; a later recovery checks whether the captured source still
+matches. This is a bracketing observation, not an atomic file snapshot. Shell,
+helper and other implicit inputs remain untracked, and dynamic results remain
+historical observations. Untracked freshness is unknown rather than automatically stale. Judge
+whether an observation still applies from the task and known intervening
+changes. A historical baseline is intentionally historical; a new execution
+cannot recreate its earlier state. Prefer a concise, scoped comparison result
+and its evidence references over repeatedly reconstructing long raw inventories.
+Findings and completed checklist items are agent claims,
+not host-attested conclusions. Files selected on a finding are fingerprinted at
+save time; that does not bind an earlier tool's output to those bytes. Reserved
+metadata, directories, escaping links and paths outside the work-folder cannot
+be selected for fingerprinting.
+
+## Structured collaboration
+
+`chat_handoff`, `chat_steer`, `chat_copy`, `chat_report`, `chat_ask`,
+`chat_answer`, `chat_stop`, `chat_children` and `chat_wait` call the existing act facade directly. The host
+supplies the Worker's own current task and work-folder. Assignment text is
+ordinary structured input, so code, quotes, dollar signs and newlines never
+pass through a shell. A handoff defaults to the same work-folder; another
+destination must be named explicitly. Child ownership, file copies, selected
+results and one-time delivery are the collaboration contract's existing rules.
+After compaction, `chat_children` (CLI `chat children --work-folder <id>
+--task <own-task-id> --json`) recovers the caller's delegated task handles so
+`chat_wait` can read a result again. It exposes no unrelated Chats.
+
+## Asynchronous questions
+
+`chat_ask` with `asynchronous: true`, or `chat ask --asynchronous`, records a
+durable question while independent work continues. The request reads working
+while its turn runs, then waiting if an answer is still outstanding. Trusted
+surfaces can accept an answer during the running turn. It is journaled at once;
+the response says queued and has no continuation yet. Once the Chat is idle,
+one answer continuation incorporates the recorded answer. Stop closes that
+path. Restart preserves the answer but never automatically replays a turn;
+the existing answer retry is the explicit recovery path. Ordinary blocking
+questions retain their existing behavior.
+
+## Interactive terminals and services
+
+`job_start` accepts `interactive: true`. `job_input` sends exact text, including
+newlines or Ctrl-C, with an optional EOF. The CLI equivalents are `jobs start
+--interactive` and `jobs input --work-folder <id> --task <own-task-id> --job
+<id> --text <text> [--eof]`. Input is limited to 64 KiB per call and is never
+copied into an act receipt. Inspect output before retrying uncertain input.
+
+The terminal relay uses macOS's `/usr/bin/expect`, which allocates a PTY without
+requiring Electron to have a controlling terminal. Other POSIX hosts need
+that executable; Windows interactive jobs are unavailable. Both the relay and
+the terminal's process group are stopped and drained before settlement and
+History. Restart checks recorded process start identities before killing.
+
+`job_start` with `service: true` (CLI `jobs start --service`) runs a server or
+watcher independently of request completion. The job remains attributable to
+its starting request, but does not hold it working and does not wake a model
+when it exits. `job_output` lists it and `job_stop` ends it. It still holds a
+kernel reservation against deletion/restore/registration removal, and quit
+stops it. End services explicitly when the task no longer needs them.
+
+## Managed working copies
+
+`worktree` creates, lists, archives or restores an isolated Git working copy.
+The CLI is `worktrees manage --work-folder <source-id> --task <own-task-id>
+--action create|list|archive|restore [--ref <committed-ref>] [--id <copy-id>]`.
+The source work-folder must be the repository root. Creation resolves and pins
+a committed revision (HEAD by default), journals before checkout, disables
+checkout hooks, excludes source `.work-fold/` identity/transcripts from
+materialization, leaves legacy `.workspace/` metadata unmaterialized, and
+registers a new work-folder. Local uncommitted source
+changes are left untouched and are not copied. Delegate edits to the returned
+workFolderId through the ordinary handoff path.
+
+Records live under application-data `worktrees/`; copies live in the sibling
+`<application-data>-working-copies/` directory so linked work-folder content
+never contains application state. Every copy is a normal folder and a normal
+Git worktree. Archive refuses active work, removes only the registration, and
+retains tracked changes, untracked files, conversations and Git history.
+Restore validates the Git repository identity and re-registers that same
+folder. There is no automatic merge, dependency setup, file deletion or purge.
+The creating work-folder owns these management operations. A child edits and
+reports from its own copy; it cannot list or archive its parent's copies.
+
+## Read-only helpers
+
+The `helper` tool runs a focused task in a fresh context inside the current
+Worker turn. It sees the assignment, selected paths and Worker instructions,
+and returns the standard summary/data/files/outcome envelope. It creates no
+Chat, request, or session file. Paths resolve inside this work-folder and
+refuse `.work-fold`, `.pi`, `.workspace`, and links out. Traversal skips Git
+and dependency directories. Tools are read, grep, find and ls, optionally
+narrowed further with `tools`. It has no shell, edits, browser, MCP or nested
+helper. Read-only helpers may run in parallel through native Pi scheduling.
+
+An optional `model: { provider, id }` selects an already-connected model;
+omission or `model: null` inherits the connected parent without guessing ids.
+`thinking` selects a supported reasoning level. Optional settings also accept
+null for inheritance/defaults. Otherwise it uses its parent's
+model and reasoning. Steps appear in the Chat activity, usage joins the
+parent's turn/request totals, and content-free helper records remain on the
+turn journal, including stopped runs. Stop aborts and drains helpers before
+History and turn reservations settle. A helper ends partial after 64 model
+calls. Use durable handoff when work needs questions, edits or later follow-up.

@@ -1,5 +1,20 @@
 # Privacy
 
+Progress recovery retains bounded text from completed tools and selected
+agent-authored findings in the Chat's existing machine-local Pi session. These
+records can contain private task content and share that session's retention.
+Only the current request's own observations are read back to its model; recovery
+does not send another model request by itself. Selected ordinary files carry
+SHA-256 fingerprints for freshness checks; image pixels are not duplicated.
+
+Read-only helpers send their selected task and file content to the parent's
+model provider, or an explicitly selected already-connected helper model.
+Their usage and content-free activity are recorded under the parent turn.
+Interactive terminal input goes to the local process; only output read by an
+agent enters model context. Managed Git working copies remain on this computer
+in an app-owned sibling directory; archiving retains their files and history.
+See [Worker tools](docs/worker-tools.md).
+
 This privacy description uses technical storage and protocol names where
 needed. In the product, a registered work-folder is presented as a **work-folder**, its
 agent as a **Worker**, the management agent as the **work-fold agent**,
@@ -35,7 +50,7 @@ By default, work-fold stores:
 - The work-fold agent's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; remote uploads land in an app-owned holding folder under `management/Incoming/Remote/`. Request records — the turns and work-folders one ask spans, its questions and answers, and the results handed back — are durable machine-local app state under the application-data `requests/` directory, reconciled after a restart and never replayed, and kept for 30 days after the request settles; act lineage stays metadata in the receipt journal. Like the other records below, nothing in `requests/` is written into a work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
 - Unsent answers to agent questions in the current renderer or browser tab’s session storage. They survive refresh/reconnect, clear when accepted or when the tab session ends, and are not sent to the host or model until submitted. The paired browser also clears these drafts on sign-out or when its grant is removed.
 - Optional Web Access device credentials, P-256 private keys, paired-browser public keys, and revocation state in the same operating-system-encrypted secure settings file as other application credentials. A paired browser keeps its own non-exportable private keys and grant identity in that browser's IndexedDB; it does not store a transcript or work-folder file cache there.
-- Act receipts; Recently deleted items under the application-data `recently-deleted/` directory, each holding the moved bytes or a recovered copy plus a manifest (source work-folder id, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it), kept for the retention window — 30 days by default, changed in Settings → General → Recently deleted — and then removed; automation declarations with their exact-declaration enablement receipts, cadence anchors, and run receipts (including the summary each chat step's Worker reports); request records with their questions, answers, and results under the application-data `requests/` directory; publication records; and per-surface overview last-seen markers — all under the work-fold application-data directory. Receipts record the initiating surface and, for remote-originated acts, the initiating browser and grant. Publication encryption keys live in the same operating-system-encrypted secure settings as other credentials. None of these records is written into any work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
+- Act receipts; Recently deleted items under the application-data `recently-deleted/` directory, each holding the moved bytes or a recovered copy plus a manifest (source work-folder id, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it), kept for the retention window — 30 days by default, changed in Settings → General → Recently deleted — and then removed; automation declarations with their exact-declaration enablement receipts, cadence anchors, and run receipts (including the summary each chat step's Worker reports); request records with their questions, answers, and results under the application-data `requests/` directory; background job records and each job's combined command output under the application-data `jobs/` directory, kept for 30 days after the job ends (only the part a Worker reads, or the end of it in one follow-up turn, enters a Chat); publication records; and per-surface overview last-seen markers — all under the work-fold application-data directory. Receipts record the initiating surface and, for remote-originated acts, the initiating browser and grant. Publication encryption keys live in the same operating-system-encrypted secure settings as other credentials. None of these records is written into any work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
 
 work-fold uses a new application profile and does not inspect, import, migrate, rewrite, wipe, or delete legacy Workspace application data or `.workspace/` folder metadata. Legacy bytes remain where they already are and are not authoritative in work-fold. The app keeps `.workspace/` hidden and excludes it from History, Search, Checks, and restricted-app file grants. Pi's personal resources and authentication may still be read from the configured Pi agent directory, while work-fold keeps its Pi sessions in the separate `sessions/work-fold/` namespace.
 

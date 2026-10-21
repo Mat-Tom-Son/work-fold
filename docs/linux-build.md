@@ -7,6 +7,16 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
+The local 0.12.2 candidate integrates main through `7f2e871` (Mac 0.12.1):
+background and interactive jobs, structured Worker collaboration, managed working
+copies, read-only helpers, checklists, document-engine setup, and progress/evidence
+recovery across compaction and answer continuations. It retains the Linux title
+bar, native CLI, app-wide Wayland sharing and accepted-turn ownership. The native
+CLI routes `jobs` and `worktrees` through the same authenticated act lane as the
+other platforms. DEB/RPM now require Expect for interactive terminal jobs; AppImage users must install
+their distribution's `expect` package separately. The published preview link
+above continues to identify the existing 0.10.2 build.
+
 The 0.10.2 preview moves the sidebar toggle immediately after **Help** in the
 custom title bar, so its position follows the menu instead of the window's right
 edge. It otherwise retains the 0.10.1 integration baseline described below.

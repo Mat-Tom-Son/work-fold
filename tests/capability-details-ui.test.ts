@@ -97,6 +97,50 @@ test("ready included tools need no repeated setup copy and MCP keeps connection 
   assert.deepEqual(operations, ["open", "check", "close"]);
 });
 
+test("Documents setup guides the LibreOffice and Tesseract installs and ticks each off by itself", async (t) => {
+  const dom = await createDomHarness(); t.after(() => dom.cleanup());
+  const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });
+  const opened: string[] = [], copied: unknown[] = [], posts: unknown[] = [];
+  Object.assign(window, { workFoldDesktop: { api: {}, shell: { openExternal: async (url: string) => { opened.push(url); } }, clipboard: { write: async (content: unknown) => { copied.push(content); } } } });
+  let installed = false;
+  const status = () => ({ id: "documents", checkedAt: "2026-10-18T12:00:00.000Z",
+    state: installed ? "ready" : "setup_required",
+    detail: installed ? "Your Worker can make documents and check how they look and what their formulas calculate." : "Your Worker can make documents but can't check how Word and PowerPoint files look or what spreadsheet formulas calculate. Install LibreOffice to turn that on.",
+    documentsSetup: { platform: "darwin", homebrew: true,
+      libreoffice: installed ? { found: true, path: "/Applications/LibreOffice.app/Contents/MacOS/soffice", version: "LibreOffice 26.8.1.1" } : { found: false },
+      tesseract: { found: false } } });
+  globalThis.fetch = (async (_input, init) => {
+    if (init?.method === "POST") posts.push(JSON.parse(String(init.body)));
+    return Response.json(init?.method === "POST" ? { status: status() } : { tools: [status()] });
+  }) as typeof fetch;
+  await dom.render(createElement(CapabilityDetailsDialog, { item: included("documents"), workFolderId: "workshop", busy: false, onClose() {} }));
+  await dom.waitFor(() => dom.container.textContent!.includes("Setup Needed"));
+  const text = () => dom.container.textContent!;
+  assert.match(text(), /can't check how Word and PowerPoint files look/);
+  const rows = () => [...dom.container.querySelectorAll<HTMLElement>(".documents-engines li")];
+  assert.equal(rows().length, 2);
+  assert.match(rows()[0]!.textContent!, /LibreOffice.*see Word and PowerPoint pages.*brew install --cask libreoffice/);
+  assert.match(rows()[1]!.textContent!, /Tesseract \(optional\).*scanned pages.*brew install tesseract/);
+  assert.match(text(), /open it once so macOS can approve it/);
+  const button = (row: HTMLElement, name: string) => [...row.querySelectorAll("button")].find((item) => item.textContent === name)!;
+  await dom.act(() => button(rows()[0]!, "Download").click());
+  await dom.act(() => button(rows()[1]!, "Install guide").click());
+  assert.deepEqual(opened, ["https://www.libreoffice.org/download/download-libreoffice/", "https://tesseract-ocr.github.io/tessdoc/Installation.html"]);
+  await dom.act(() => button(rows()[0]!, "Copy").click());
+  assert.deepEqual(copied, [{ text: "brew install --cask libreoffice" }]);
+  assert.equal(button(rows()[0]!, "Copied").textContent, "Copied");
+  assert.deepEqual(posts, [], "guidance never asks the host to install anything");
+  installed = true;
+  await dom.act(() => window.dispatchEvent(new window.Event("focus")));
+  await dom.waitFor(() => text().includes("Ready"));
+  assert.equal(rows()[0]!.classList.contains("done"), true);
+  assert.equal(rows()[0]!.querySelector(".setup-checklist-state")!.textContent, "Installed");
+  assert.doesNotMatch(rows()[0]!.textContent!, /brew install/);
+  assert.doesNotMatch(text(), /approve it/);
+  assert.equal(rows()[0]!.querySelector(".setup-checklist-state")!.getAttribute("title"), "/Applications/LibreOffice.app/Contents/MacOS/soffice · LibreOffice 26.8.1.1", "where it is and its version stay supporting detail");
+  Reflect.deleteProperty(window, "workFoldDesktop");
+});
+
 test("Installed separates cold readiness from native loading and keeps a newer setup result through late summary reads", async (t) => {
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const originalFetch = globalThis.fetch; t.after(() => { globalThis.fetch = originalFetch; });

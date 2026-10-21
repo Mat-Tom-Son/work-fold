@@ -41,7 +41,8 @@ fn is_act(argv: &[String]) -> bool {
         .collect();
     match tokens.first().copied().unwrap_or("") {
         "chat" | "chats" | "files" | "agent" | "history" | "search" | "tools"
-        | "apps" | "automations" | "pages" | "recently-deleted" | "requests" => true,
+        | "apps" | "automations" | "pages" | "recently-deleted" | "requests"
+        | "jobs" | "worktrees" => true,
         "checks" => tokens.get(1) != Some(&"status"),
         "work-folders" => tokens.get(1) != Some(&"list"),
         _ => false,

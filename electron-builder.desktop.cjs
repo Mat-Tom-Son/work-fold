@@ -113,14 +113,14 @@ module.exports = {
   deb: {
     afterInstall: "out/generated-linux-assets/after-install.sh",
     afterRemove: "out/generated-linux-assets/after-remove.sh",
-    depends: ["libc6 (>= 2.39)", "libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libglib2.0-bin", "libatspi2.0-0", "libsecret-1-0", "libuuid1", "libgbm1", "libasound2",
+    depends: ["libc6 (>= 2.39)", "libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libglib2.0-bin", "libatspi2.0-0", "libsecret-1-0", "libuuid1", "libgbm1", "libasound2", "expect",
       "libei1 (>= 1.2)", "libxkbcommon0", "libgstreamer1.0-0", "libgstreamer-plugins-base1.0-0", "gstreamer1.0-plugins-base", "gstreamer1.0-pipewire", "xdg-desktop-portal"],
     recommends: ["gnome-keyring"],
   },
   rpm: {
     afterInstall: "out/generated-linux-assets/after-install.sh",
     afterRemove: "out/generated-linux-assets/after-remove.sh",
-    depends: ["glibc >= 2.39", "gtk3", "libnotify", "nss", "libXScrnSaver", "libXtst", "xdg-utils", "glib2", "at-spi2-core", "libsecret", "libuuid", "mesa-libgbm", "alsa-lib",
+    depends: ["glibc >= 2.39", "gtk3", "libnotify", "nss", "libXScrnSaver", "libXtst", "xdg-utils", "glib2", "at-spi2-core", "libsecret", "libuuid", "mesa-libgbm", "alsa-lib", "expect",
       "libei >= 1.2", "libxkbcommon", "gstreamer1", "gstreamer1-plugins-base", "pipewire-gstreamer", "xdg-desktop-portal"],
   },
   mac: {

@@ -1,6 +1,7 @@
 import { IncludedMcpSetup } from "./IncludedMcpSetup";
 import { IncludedChromeSetup } from "./IncludedChromeSetup";
 import { IncludedComputerSetup } from "./IncludedComputerSetup";
+import { DocumentsEngineSetup } from "./IncludedDocumentsSetup";
 import { useEffect, useRef, useState } from "react";
 import type { IncludedToolDefinition, IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
@@ -90,6 +91,7 @@ function IncludedToolSetupSession({ workFolderId, tool, enabled, onStatusChange 
     {enabled && status?.stale && status.state === "ready" ? <p>Last verified {new Date(status.checkedAt).toLocaleString()}. This is an earlier successful check, not a live connection. Readiness refreshes when you use this tool.</p> : null}
     {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
     {tool.id === "web" ? <details className="included-tool-optional"><summary>Brave Search</summary><form onSubmit={(event) => { event.preventDefault(); void act("connect-brave"); }}><label>API Key<input type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} disabled={busy} /></label><div className="included-tool-actions"><button type="submit" className="ui-control ui-control--primary" disabled={busy || !enabled || !secret.trim()}>Connect</button><button type="button" className="ui-control" disabled={busy} onClick={() => void act("disconnect-brave")}>Use DuckDuckGo</button></div></form></details> : null}
+    {tool.id === "documents" ? <DocumentsEngineSetup status={status} enabled={enabled} /> : null}
     {tool.id === "mcp" ? <IncludedMcpSetup workFolderId={workFolderId} enabled={enabled} /> : null}
   </section>;
 }

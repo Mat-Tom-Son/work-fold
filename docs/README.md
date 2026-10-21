@@ -22,7 +22,7 @@ instruction to implement its contents.
 | Area | Read |
 |---|---|
 | Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
-| The work-fold agent and receipts | [Decision register](work-fold-agent-decisions.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Management and CLI](work-fold-agent-and-cli.md), [Act ledger](act-ledger.md) |
+| The work-fold agent and receipts | [Decision register](work-fold-agent-decisions.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Background jobs](background-jobs.md), [Worker tools](worker-tools.md), [Management and CLI](work-fold-agent-and-cli.md), [Act ledger](act-ledger.md) |
 | Checks and Automations | [Checks](checks.md), [Automations (technical automation contract)](automations.md), [The overview](work-fold-agent-overview.md) |
 | Native agent capabilities | [Skills, Extensions, packages, and scopes](skills-and-extensions.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted work-folder apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
@@ -41,6 +41,7 @@ viewer pages and app views are a separate shipped capability.
 
 ## Harness and example boundaries
 
+- [Repeated frozen autonomy evaluation](frozen-autonomy-evaluation.md) records the 2026-10-19 live-model comparison, runtime fixes, all first attempts and remaining limits. It is evidence for those workloads, not a production success-rate estimate.
 - `AGENTS.md` is canonical. [CLAUDE.md](../CLAUDE.md) imports it.
 - The shared [release Skill](../.agents/skills/ship-macos-release/SKILL.md)
   lives under `.agents/skills/`; `.claude/skills/ship-macos-release` is a

@@ -87,7 +87,10 @@ only if you need it, and uncomment only the settings you intend to use.
 
 The installed `work-fold ... --json` CLI addresses the running app.
 `npm run work-fold:drive` is a separate real-Pi-turn test driver and can use a
-chosen agent directory; it is not an offline unit test. See
+chosen agent directory; it is not an offline unit test. `--follow-ups <n>` keeps
+its local API running for n more turns work-fold starts in the same Chat, such as
+a [background job](background-jobs.md)'s wake-up, and reports each with the
+message that started it. See
 [the work-fold agent and CLI](work-fold-agent-and-cli.md) before driving real work.
 
 ## Inspect a model request
@@ -261,3 +264,89 @@ The deterministic harness coverage now includes `local-history-review`,
 `history-comparison-ui`, `history-comparison-keyboard`, and `work-fold-turn-store`
 test files. They cover scope, completeness, persistence and UI behavior without
 requiring a paid model or production user data.
+
+## Real-model harness acceptance
+
+The [2026-10-19 repeated evaluation](frozen-autonomy-evaluation.md) records the frozen comparison, all failed attempts, runtime fixes and its coverage limits.
+
+`npm run harness:autonomous -- --model openrouter/openai/gpt-6-luna --case
+research --out out/autonomous-eval/research-luna` runs an outcome-based live
+case in an isolated profile with an explicitly supplied `OPENROUTER_API_KEY`.
+Cases are `research` (confirmed saved-edit loss with exact quotes), `reconcile`
+(a policy question and a source correction), and `repair` (a validated patch
+while preserving original and uncommitted files). Prompts specify deliverables
+and constraints without naming tools or ordering execution. The driver answers
+person-directed questions through the real CLI; parent questions remain the
+parent's responsibility. Independent checks grade final bytes, source
+preservation and request settlement; tool choices, compactions, recovery use,
+cost and duration are observations. No tool count is required for a pass.
+
+Each fresh output directory preserves the exact prompt, its digest, source
+commit and diff digest, hidden fixture expectations, native journals, provider
+usage and result. `--verify --out <saved-directory>` checks saved evidence
+without another model call. Preserve failed runs and freeze prompts before
+comparing models; repeated coached attempts do not establish an autonomous
+success rate. The live cases are separate from deterministic regression tests.
+Without compaction flags the autonomous driver uses native Pi settings (the
+normal model window, 16,384 reserved tokens and 20,000 recent tokens in Pi
+1.1.0). Earlier versions of this driver silently forced a 40,000-token trigger;
+do not label those runs production-default context trials.
+For a context-pressure variant, keep the same prompt and add `--compact-at
+18000 --keep-recent 2000`; the host records those explicit compaction settings.
+This is a stress configuration, not the production default.
+
+For repeated first-attempt comparisons, commit the evaluator, then create an
+immutable plan with `npm run harness:repeat -- --create-plan
+out/frozen-eval/plan.json --repetitions 3`. It freezes the three cases, prompts,
+answers, expected results, source-file hashes, evaluator files, dependency
+lockfile, Node runtime and a copied model catalog. The 36 interleaved trials use
+GLM 5.3 and GPT-6 Luna at high reasoning, both normal and stressed settings,
+with three concurrent disposable hosts. Hosted model weights and provider
+routing are outside this client-side freeze.
+
+With `OPENROUTER_API_KEY` explicitly supplied, run `npm run harness:repeat --
+--plan out/frozen-eval/plan.json --out out/frozen-eval/baseline`. Every phase
+requires clean committed source and a fresh output directory, refuses changed
+evaluation inputs, and preserves each attempt, including failures. Make product
+fixes only between phases, commit them, then use the same plan and a new output
+directory. `results.json` records every trial and aggregates each model/case/
+context cell; no failed attempt is replaced by a retry. Source changes while a
+phase is running invalidate it. Exact repeated reads with unchanged bracketed
+fingerprints and repeated helper arguments are diagnostic proxies, not proof
+that the work was unnecessary. A Done request with failing independent artifact
+checks is flagged separately for review of its completion claims. Inspect
+explanations as well as machine-graded bytes. Three repetitions per cell provide
+an initial signal, not a precise production success-rate estimate.
+
+The repair case's original small-value checker does not establish unrestricted
+decimal exactness. The separate `scripts/harness-eval/precision-audit.ts` audit
+applies every saved repair patch to a fresh copy and tests 40 independently
+specified cases including large magnitudes and cancellation. Freeze that
+checker before a comparison with `node --import tsx
+scripts/harness-eval/precision-audit.ts --freeze
+out/frozen-eval/precision-checker.json`, then run it with `--manifest
+out/frozen-eval/precision-checker.json --results
+out/frozen-eval/baseline/results.json` (and each later phase). It validates its
+own hashes and writes `audited-results.json` beside the untouched original
+grades. This supplemental audit was added after the first frozen baseline
+exposed a grading blind spot; report both grades and apply the same audit to
+every cohort. It makes no model calls and never edits a model's saved patch.
+
+`npm run harness:check` checks the evaluation scripts without making model
+requests; it is also part of `npm run check`.
+Use `npm run harness:eval -- --verify --out <saved-directory> --helper-model
+<the-original-helper-model>` to recheck saved evidence without model calls.
+Verification resolves files from the host's working-copy identities and stops
+the evaluation's own service if it is still running.
+
+With `OPENROUTER_API_KEY` explicitly provided, run `npm run harness:eval --
+--model openrouter/openai/gpt-6-luna --helper-model
+openrouter/deepseek/deepseek-v4.1-flash --out out/harness-eval/luna`. This spends
+real model credit. Use a fresh output directory for each run. It starts the
+isolated development host, uses disposable Git folders, answers the model
+question through the real CLI while the turn runs, and verifies structured
+collaboration, narrow helpers, PTY input, service lifetime, working-copy
+isolation/archive/recovery, and one answer continuation from native records.
+It never reads personal provider credentials, installs an app, merges code, or
+replays old jobs. Output includes provider usage, sessions, journals and an
+independently checked summary. Host shutdown stops leftover processes.

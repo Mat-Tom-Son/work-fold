@@ -9,8 +9,11 @@ import type { NativeResource } from "./resource-lifecycle.js";
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
 import type { ComputerSessionService, ComputerTurn, NativeComputerOwner } from "./computer-session.js";
+import type { DocumentEngineSearch } from "../../../resources/included-tools/readiness.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
 import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
+import { reservedPathSearchExtension } from "./reserved-path-search.js";
+import { workFoldRolePreambleExtension, type WorkFoldSessionRole } from "./role-preamble.js";
 export { includedToolDefinitions, type IncludedToolId } from "../../shared/included-tools.js";
 export interface IncludedToolsConfiguration {
   rootPath: string;
@@ -20,6 +23,8 @@ export interface IncludedToolsConfiguration {
   repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void>;
   chromeConnection?: IncludedChromeConnectionHost;
   computerSession?: ComputerSessionService;
+  /** Where Documents looks for LibreOffice and Tesseract; defaults to this computer's usual install locations. */
+  documentEngineSearch?: DocumentEngineSearch;
 }
 
 export function includedToolsRoot(): string {
@@ -54,11 +59,16 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
   ];
 }
 
-/** A per-runtime native event bus; no process-global current Chat or renderer capability. */
-export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", computer?: { owner: NativeComputerOwner; turn(): ComputerTurn | undefined }) {
+/**
+ * A per-runtime native event bus; no process-global current Chat or renderer capability.
+ * A Chat session names its role, which opens each request with that role instead of Pi's coding preamble.
+ */
+export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", role?: WorkFoldSessionRole, computer?: { owner: NativeComputerOwner; turn(): ComputerTurn | undefined }) {
   const config = runtime.config.includedTools;
   const extensionFactories = [
     { name: "tool_input_feedback", builtin: true, factory: toolInputFeedbackExtension },
+    { name: "work_fold_reserved_path_search", builtin: true, factory: reservedPathSearchExtension },
+    ...(role ? [{ name: "work_fold_role", builtin: true, factory: workFoldRolePreambleExtension(role) }] : []),
     { name: "codemode", builtin: true, replaceable: true, factory: createCodemodeExtension() },
     { name: "tool_search", builtin: true, replaceable: true, factory: createToolSearchExtension() },
   ];
@@ -71,6 +81,7 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
     Reflect.set(value, "context", {
       version: 1, mode, cwd: resolve(cwd), agentDir: runtime.agentDir, stateRoot: config.stateRoot,
       helperAppPath: config.helperAppPath,
+      ...(config.documentEngineSearch ? { documentEngineSearch: config.documentEngineSearch } : {}),
       prepareComputerHelper: config.prepareComputerHelper,
       ...(mode === "session" ? { beginIncludedToolObservation: (id: "computer" | "documents") => beginIncludedToolObservation(runtime, id) } : {}),
       companionPath: join(config.stateRoot, "chrome-companion"),

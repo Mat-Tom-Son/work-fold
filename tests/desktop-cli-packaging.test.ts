@@ -210,7 +210,7 @@ test("packaged Remote access enrollment carries no shared client credential", as
 function assertActLaneShimContract(shim: string): void {
   const routedFamilies = [
     "chat", "chats", "files", "agent", "checks", "work-folders", "history", "search",
-    "tools", "apps", "automations", "pages", "recently-deleted", "requests",
+    "tools", "apps", "automations", "pages", "recently-deleted", "requests", "jobs",
   ];
   for (const routed of [...routedFamilies, "list", "status", "wait", "task", "result"]) {
     assert.match(shim, new RegExp(`["']${routed}["']`), `act routing must reference ${routed}`);

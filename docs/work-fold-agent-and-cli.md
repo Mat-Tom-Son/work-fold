@@ -214,6 +214,9 @@ work-fold chat answer --work-folder "Home" --question <question-id> --answer "Q3
 work-fold chat handoff --work-folder "Home" --task <own-task-id> --to-work-folder "Vendor Audits" --message "Review the filed invoices." --file "Invoices/2026-09.pdf" --json
 work-fold requests list --json
 work-fold requests show --request <request-id> --json
+work-fold jobs start --work-folder "Home" --task <own-task-id> --command "npm run build" --name "Build" --json
+work-fold jobs output --work-folder "Home" --job <job-id> --until "ready|listening" --wait 120 --json
+work-fold jobs stop --work-folder "Home" --job <job-id> --json
 work-fold tools disable --path <resource-path> --kind extensions --scope everywhere --json
 work-fold tools enable --path <resource-path> --kind extensions --scope work-folder --work-folder "Home" --json
 work-fold recently-deleted list --json
@@ -248,6 +251,26 @@ status documents carry `waiting` and the request ref beside the turn state.
 The records, refusals, waiting semantics, continuation rule, and limits are
 specified under
 [Durable requests, questions, and continuation](#durable-requests-questions-and-continuation).
+
+`work-fold jobs …` drives **background jobs** ([Background jobs](background-jobs.md),
+F31–F33) with the same service and records as the `job_start`, `job_output`,
+and `job_stop` tools every Worker and the work-fold agent carry. `jobs start`
+runs a shell command for the caller's own running turn (`--task`, checked like
+`chat report`) in its own process group, journaled before it spawns and never
+re-run; the job joins that turn's request, which reads `working` while it
+runs. Every verb names the job's work-folder, so a Worker reaches only its own
+work-folder's jobs; the work-fold agent's own jobs are reached through its
+tools and listed by `requests show`. `jobs output` reads the end of the
+output or a page from `--offset`, can `--wait` for the end or `--until` a line
+matches, and with `--task` naming a running turn in the job's own Chat counts
+as the job's delivery. When a job ends, the host captures History for its
+work-folder and brings the exit status, that coverage, and the end of the
+output back to its Chat once — through a read, the next turn's context, or
+one follow-up turn on the F28 path. Stop on the request and quitting work-fold
+stop jobs; a restart records a running job `interrupted` and wakes nothing.
+Output lives under the state root's `jobs/` directory and follows the request
+retention window. Deletion, registration removal, and whole-work-folder
+History restore wait for running jobs; Skills & Extensions changes do not.
 
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
@@ -288,7 +311,7 @@ Without `--conversation`, manage commands target the most recent active work-fol
 
 `agent send --attach <path-or-link>` (repeatable, at most 16) attaches **references, not copies**: absolute or cwd-relative file and folder paths, or http(s) links. A work-folder Chat stages dropped material inside the work-folder because work-folder transcripts are portable; the work-fold agent transcript is deliberately machine-local, so its attachments carry absolute paths, missing sources are refused at send time, and the only copy in the flow stays the restore-pointed `files add` into a destination work-folder. Readable files inline into the turn within the shared context budget; folders, binaries, and oversized files stay honest path-only references; links arrive as a typed list, never as fake files. The typed references persist on the management user message, and `--attach` rides in ordinary act argv — the act protocol's envelope and payload shapes are unchanged.
 
-Every accepted work-fold agent turn is a **request**. Its hidden turn context supplies that request's task id, and the app-owned instructions require `--parent-task <id>` on `chat.send`, `files.add`, `work-folders.create`, and `work-folders.register`. The act host validates that explicit parent while it is active before journaling or running the mutation; attributed actions become the request's action trail, delegated turns become its children, and act receipts gain the same `parentTaskId`. An unrelated same-user CLI action is therefore never credited merely because one work-fold agent turn happens to be running, and concurrent work-fold agent turns remain unambiguous. This is lineage, not a new caller-authentication boundary: the act token still has the documented same-user posture. Every accepted turn — management, work-folder, CLI, automation hop, or app-requested — belongs to one **durable request record** under the state root's `requests/` directory (docs/collaboration-contract.md, F25): a work-fold agent turn creates a root, `chat send --parent-task` creates a child under it, a work-folder turn with no parent is its own root, and a person's reply to a request waiting on their answer joins that request as a further turn rather than opening a second record. The record carries the assignment text, attachment references, the attributed action trail, child request ids, questions and results by id, rolled-up usage, and a state from the vocabulary `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`, `expired`. Records survive restart: after the turn journal repairs itself at startup, every request still believed live is reconciled against it — settled, never re-dispatched — and stamped as recovered so nothing continues it. Settled request graphs are kept for 30 days. Transcripts and act receipts remain the long-lived content records, while the bounded machine-local turn journal preserves acceptance identity, stream checkpoints, and recent terminal outcomes.
+Every accepted work-fold agent turn is a **request**. Its hidden turn context supplies that request's task id and, like every Worker turn's, the host's local time, time zone, and platform (docs/collaboration-contract.md, 2026-10-18 amendment), and the app-owned instructions require `--parent-task <id>` on `chat.send`, `files.add`, `work-folders.create`, and `work-folders.register`. The act host validates that explicit parent while it is active before journaling or running the mutation; attributed actions become the request's action trail, delegated turns become its children, and act receipts gain the same `parentTaskId`. An unrelated same-user CLI action is therefore never credited merely because one work-fold agent turn happens to be running, and concurrent work-fold agent turns remain unambiguous. This is lineage, not a new caller-authentication boundary: the act token still has the documented same-user posture. Every accepted turn — management, work-folder, CLI, automation hop, or app-requested — belongs to one **durable request record** under the state root's `requests/` directory (docs/collaboration-contract.md, F25): a work-fold agent turn creates a root, `chat send --parent-task` creates a child under it, a work-folder turn with no parent is its own root, and a person's reply to a request waiting on their answer joins that request as a further turn rather than opening a second record. The record carries the assignment text, attachment references, the attributed action trail, child request ids, questions and results by id, rolled-up usage, and a state from the vocabulary `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`, `expired`. Records survive restart: after the turn journal repairs itself at startup, every request still believed live is reconciled against it — settled, never re-dispatched — and stamped as recovered so nothing continues it. Settled request graphs are kept for 30 days. Transcripts and act receipts remain the long-lived content records, while the bounded machine-local turn journal preserves acceptance identity, stream checkpoints, and recent terminal outcomes.
 
 `agent status --task` therefore reports a `request` object alongside the turn: per-attachment **dispositions** computed from recorded actions (`placed`, `registered`, or honestly `unrecorded`), recorded actions with restore-point ids, child turns with their own task states, the reply, and a **phase** — `working`, `needs_you` (an open question, or a reply whose final line asks one), `handed_off` (the work-fold agent turn finished but a delegated work-folder turn still runs), `done`, `failed`, or `stopped`. The durable record's own `state` travels beside the phase (`partial` reads as `done` there and `expired` as `stopped`), with the request id, root id, kind, deadline, and bounded question and result references. Done requires both the work-fold agent turn and every child to succeed; a failed or lost child fails the request, and an aborted child or accepted request-level stop stays stopped. A popover reply to `needs_you` joins the same request as a further turn — one record, one story — carrying the prior attachments and action trail without replaying those attachments into model context, and it is recorded as the answer to any open question that was waiting on the person. `agent stop --task` aborts the work-fold agent turn and every turn still running anywhere under that request, withdraws its open questions, and names each turn it touched.
 
@@ -315,7 +338,7 @@ rolled-up usage, and a nullable deadline retained for compatibility. New
 requests have no deadline. Its state comes from one vocabulary:
 `working`, `waiting`, `handed_off`, `done`, `partial`, `failed`, `stopped`,
 `expired`. A **question** carries its id, request id, task id, respondent
-(`person` or `parent`), text, asked-at, state (`open`, `answered`, `expired`,
+(`person` or `parent`), text, optional suggested choices (`--option`), asked-at, state (`open`, `answered`, `expired`,
 `cancelled`), the answer and answered-at, and the continuation task id. A
 **result** is the F29 envelope — `summary`, optional `data`, optional `files`
 as work-folder-relative paths with a fingerprint and size, and an `outcome` of
@@ -350,7 +373,9 @@ settled when the owning Chat is idle and selected child results have not been de
 follow-up turn in that conversation — a `system`-actor turn joined to the root,
 naming each settled child, its outcome, the files it chose, and any question
 still open beneath it. Delivered child turns are recorded so a result is not
-delivered twice. There is no continuation-count quota. Continuations never
+delivered twice. A child result the parent's still-running turn reads with
+`chat result` or `agent result` (the last step of `chat wait`) counts as
+delivered too, so the follow-up never repeats it. There is no continuation-count quota. Continuations never
 follow a root Stop, an expired legacy request, a configured spending-cap
 failure, or a restart, and a person can turn them off in Settings → Automations
 → Limits. Compaction cleanup reevaluates deliveries deferred by that Chat,
@@ -652,6 +677,7 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | Recently deleted (trash store, retention, restore) | `src/local/recently-deleted-store.ts` | `tests/work-fold-recently-deleted-store.test.ts`, `tests/work-fold-cli-recently-deleted-verbs.test.ts`, `tests/recently-deleted-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/agent-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | work-folder turn context and operations guide | `src/local/agent/work-folder-turn-context.ts`, `src/local/agent/work-folder-operations-guide.ts` | `tests/work-folder-turn-context.test.ts`, `tests/work-folder-operations-guide-prompt.test.ts`, `tests/work-fold-agent-turn-context.test.ts` |
+| Turn environment line and role preamble | `src/local/agent/turn-environment.ts`, `src/local/agent/role-preamble.ts` | `tests/turn-environment.test.ts`, `tests/role-preamble-prompt.test.ts` |
 | Report, ask, answer, handoff, waiting, and continuation | `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/server.ts` | `tests/work-fold-collaboration-verbs.test.ts`, `tests/collaboration-result-envelope.test.ts`, `tests/work-fold-collaboration-journeys.test.ts` |
 | App Worker requests and bounded inference | `src/local/agent/restricted-app-tasks.ts`, `src/local/agent/restricted-app-inference.ts`, `src/local/agent/bounded-inference.ts` | `tests/restricted-app-tasks.test.ts`, `tests/restricted-app-inference.test.ts`, `tests/bounded-inference.test.ts` |
 | Automation declarations, store, settle signals, and executor | `src/local/automations/` | `tests/work-fold-automation-declarations.test.ts`, `tests/work-fold-automation-store.test.ts`, `tests/work-fold-automation-settle-signal.test.ts`, `tests/work-fold-automation-service.test.ts` |
@@ -838,3 +864,12 @@ ignored. Legacy aggregate text and streaming remain unchanged. This is an additi
 backend contract for the separate chat-rendering work, not an automatic change to
 how desktop, management or paired-web replies are displayed. Selected native edit
 evidence is described in [the feedback contract](tool-feedback.md#selected-edit-evidence-and-presentation).
+
+## Worker execution controls (2026-10-18)
+
+[Worker tools](worker-tools.md) documents the structured collaboration adapters,
+`chat ask --asynchronous`, `jobs start --interactive|--service`, `jobs input`,
+and `worktrees manage`. These use this facade and explicit work-folder/task
+lineage; they introduce no second authority mode. Queued asynchronous answers
+return `continuation: null` and `queued: true` until idle delivery starts the
+one linked turn. Existing blocking-answer responses are unchanged.

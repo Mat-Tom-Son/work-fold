@@ -38,6 +38,7 @@ import JSZip from "jszip";
 
 import {
   PiConversationClient,
+  copyPiConversationSession,
   isPiTurnNotRunningError,
   isPiTurnTimeoutError,
   PiTurnFailure,
@@ -170,6 +171,7 @@ import {
   type WorkFoldRequestAction,
   type WorkFoldRequestActionCommand,
   type WorkFoldRequestAppRef,
+  type WorkFoldRequestJobState,
   type WorkFoldRequestKind,
   type WorkFoldRequestLimitName,
   type WorkFoldRequestRecord,
@@ -178,6 +180,19 @@ import {
   type WorkFoldResultEnvelope,
 } from "./requests/request-records.js";
 import { WorkFoldRequestStore } from "./requests/request-store.js";
+import {
+  describeJobHistory,
+  describeJobState,
+  isWorkFoldJobTerminalState,
+  WorkFoldJobLimitError,
+  WorkFoldJobNotFoundError,
+  type WorkFoldJobHistory,
+  type WorkFoldJobRecord,
+} from "./jobs/job-records.js";
+import { describeJobOutputRead, fenceJobOutput } from "./jobs/job-output.js";
+import { reapOrphanedJobProcesses, WorkFoldJobService, type WorkFoldJobShell } from "./jobs/job-service.js";
+import { WorkFoldJobStore } from "./jobs/job-store.js";
+import { parseUntilPattern, type BackgroundJobToolHost } from "./agent/job-tools.js";
 import { workFoldRequestLimits, workFoldAutomationDeclarationBounds } from "../shared/work-fold-limits.js";
 import { workFolderOperationsGuideForScope } from "./agent/work-folder-operations-guide.js";
 import { buildWorkFolderTurnContext, workFolderTurnHistory, workFolderTurnParentHandle, type PiWorkFolderTurnContext } from "./agent/work-folder-turn-context.js";
@@ -311,6 +326,7 @@ import {
   workFoldAgentScopeId,
   workFoldStateRoot,
   workFoldRequestsRoot,
+  workFoldJobsRoot,
   workFoldRecentlyDeletedRoot,
 } from "./state-paths.js";
 import { migrateVocabularyState } from "./vocabulary-migration.js";
@@ -324,6 +340,7 @@ import {
   type WorkFoldRecentlyDeletedUncoveredPath,
 } from "./recently-deleted-store.js";
 import { WorkFoldKernel } from "./work-fold-kernel.js";
+import { ManagedWorktrees } from "./managed-worktrees.js";
 import {
   WORKFOLD_CLI_ACT_SURFACES,
   WorkFoldCliActReceipts,
@@ -350,6 +367,7 @@ import type {
   WorkFoldActPublicationRef,
   WorkFoldActQuestionRef,
   WorkFoldActRequestDetail,
+  WorkFoldActJobRef,
   WorkFoldActRequestRef,
   WorkFoldActRequestResult,
   WorkFoldActRequestSummary,
@@ -456,6 +474,8 @@ export interface LocalApiOptions {
   turnStore?: WorkFoldTurnStore;
   /** Test seam for the durable request graph (docs/collaboration-contract.md, F25). */
   requestStore?: WorkFoldRequestStore;
+  /** Test seam for the background job journal (docs/background-jobs.md). */
+  jobStore?: WorkFoldJobStore;
   /**
    * Publication page keys. The desktop passes the operating-system-encrypted
    * secure-settings store (`desktop/src/settings.ts`); without one, keys live
@@ -658,6 +678,8 @@ export interface LocalApiHandle {
   resolveWorkFoldAgentLineageParent: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
   /** The durable request graph every accepted turn belongs to (docs/collaboration-contract.md, F25). */
   requests: WorkFoldRequestStore;
+  /** Background jobs Workers and the work-fold agent started (docs/background-jobs.md). */
+  jobs: WorkFoldJobService;
   /** The automation executor (docs/automations.md), for the desktop surfaces and lifecycle wiring. */
   automations: WorkFoldAutomationService;
   /**
@@ -738,6 +760,13 @@ interface LocalApiState {
   turnsSettledThisRun: Set<string>;
   /** Serializes request-graph settle evaluations so two settles never race one continuation. */
   requestSettleChain: Promise<void>;
+  /**
+   * Background jobs (docs/background-jobs.md). Constructed in the second
+   * phase with the prepared-act executor: its ports close over this state.
+   */
+  jobs: WorkFoldJobService;
+  /** Jobs that settled in this app run; like turnsSettledThisRun, only these can wake a Chat (F32). Bounded. */
+  jobsSettledThisRun: Set<string>;
   /** Per-launch salt behind the opaque parent handle a delegated work-folder turn sees (F26). */
   workFolderTurnHandleSalt: string;
   chatStreams: Map<string, Set<LocalEventSink>>;
@@ -972,6 +1001,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // The durable request graph beside the turn journal it aggregates. It is
   // reconciled against that journal after startup recovery below.
   const requestStore = options.requestStore ?? await WorkFoldRequestStore.open({ rootPath: workFoldRequestsRoot() });
+  // Background jobs and their output live beside the requests they belong to.
+  const jobStore = options.jobStore ?? await WorkFoldJobStore.open({ rootPath: workFoldJobsRoot() });
   // Gate state an older build left behind is removed unread before any
   // facade exists: a pending record there is an intent nobody confirmed
   // (docs/receipts-not-gates.md, F19).
@@ -1050,6 +1081,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     requests: requestStore,
     turnsSettledThisRun: new Set(),
     requestSettleChain: Promise.resolve(),
+    jobs: undefined as unknown as WorkFoldJobService,
+    jobsSettledThisRun: new Set(),
     workFolderTurnHandleSalt: randomBytes(16).toString("hex"),
     chatStreams: new Map(),
     controlStreams: new Set(),
@@ -1280,6 +1313,22 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     },
   });
   await recoverDurableTurnState(state);
+  // Nothing runs across a restart: a job a previous run left running is
+  // recorded interrupted and never re-run, and its process is stopped only
+  // when it is provably the same process (docs/background-jobs.md, F31).
+  const interruptedJobs = await jobStore.reconcile("work-fold closed before this job finished.");
+  if (interruptedJobs.length) {
+    const reaped = await reapOrphanedJobProcesses(interruptedJobs);
+    console.info(`work-fold recorded ${interruptedJobs.length} background job${interruptedJobs.length === 1 ? "" : "s"} as interrupted${reaped ? ` and stopped ${reaped} left running` : ""}.`);
+  }
+  state.jobs = createBackgroundJobService(state, jobStore);
+  // A crash can land between a job's end and its request hearing of it; the
+  // job journal is the authority, so its recorded end reaches the request.
+  for (const job of jobStore.list()) {
+    if (isWorkFoldJobTerminalState(job.state) && state.requests.byJobId(job.jobId)?.jobs?.some((ref) => ref.jobId === job.jobId && ref.state === "running")) {
+      await settleBackgroundJobOnRequest(state, job);
+    }
+  }
   // Strictly after turn recovery: reconciliation consumes the journal's
   // already-repaired outcomes. It settles requests; it never dispatches one.
   const reconciled = await state.requests.reconcile({ turns: state.turnStore.list() });
@@ -1331,6 +1380,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     // Requests past their window close, and settled graphs older than the
     // retention window leave, on the same cadence.
     trackRetention(state.requests.expireDue().then(() => state.requests.purgeExpiredIfDue()), "work-fold could not tidy its request records");
+    trackRetention(state.jobs.store.purgeExpired(), "work-fold could not tidy its background job records");
   }, 60 * 60 * 1_000);
   remoteUploadPruneTimer.unref();
   try {
@@ -1358,6 +1408,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     remoteFacade: createWorkFoldRemoteFacade(state),
     resolveWorkFoldAgentLineageParent: (taskId) => resolveWorkFoldAgentLineageParent(state, taskId),
     requests: state.requests,
+    jobs: state.jobs,
     automations: state.automations,
     automationSettings: createWorkFoldAutomationSettingsFacade(state),
     publications,
@@ -1387,6 +1438,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       // and the drained turn promises below carry any aborted chat hops to
       // their settled records.
       state.automations.close();
+      // Quitting stops every background job and records it interrupted; only
+      // an explicit stop or quit ends one (docs/background-jobs.md).
+      await state.jobs.close().catch((error: unknown) => console.warn("Background jobs could not all stop:", errorMessage(error)));
       for (const streams of state.chatStreams.values()) for (const response of streams) response.close();
       for (const close of [...state.fileStreams.keys()]) close();
       // A settle evaluation in flight (F28) may be accepting a continuation
@@ -3351,6 +3405,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       const stopped = await stopWorkFoldAgentRequest(state, request.turns.at(-1)!.taskId);
       sendJson(res, { aborted: stopped.workFoldAgentAborted || stopped.children.some((child) => child.aborted), stopped });
     } else sendJson(res, { aborted: client ? await client.abort() : false });
+    return;
+  }
+
+  // Make a Copy (2026-10-18): a new Chat with this one's history as of its
+  // last finished reply. The same copy the act lane's `chat copy` makes.
+  const copyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/copy$/);
+  if (method === "POST" && copyMatch) {
+    const workFolder = await getWorkFolder(copyMatch[1]);
+    const body = await readJsonBody<{ title?: unknown }>(state, req);
+    const copied = await copyConversation(state, workFolder, copyMatch[2], typeof body.title === "string" ? body.title : undefined);
+    publishControlHint(state, "work-folders");
+    sendJson(res, { conversation: copied.conversation, copiedMessages: copied.copiedMessages });
     return;
   }
 
@@ -6324,7 +6390,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const respondent = redirectedToPerson ? "person" : input.respondent;
       let question: WorkFoldQuestionRecord;
       try {
-        question = await state.requests.ask({ requestId: record.requestId, taskId, respondent, text: input.question });
+        question = await state.requests.ask({ requestId: record.requestId, taskId, respondent, text: input.question, ...(input.options?.length ? { options: input.options } : {}), ...(input.asynchronous ? { asynchronous: true } : {}) });
       } catch (error) {
         throw collaborationRefusal(error);
       }
@@ -6362,6 +6428,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       // and leaving the answer with nowhere to go (F27: one accepted answer
       // starts exactly one linked continuation).
       const resuming = question.state === "answered" && question.continuationTaskId === null;
+      if (resuming && question.asynchronous && question.answer !== answer) throw new WorkFoldCliError("conflict", "That question already has a different recorded answer. Retry the same answer to continue it.");
       // Every other refusal is named before anything changes: a second
       // answer, an expired question, a closed request, the wrong work-folder, a
       // busy Chat.
@@ -6386,7 +6453,9 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       // Every fence acceptance would apply is checked before the question
       // flips, so a refusal leaves it open and answerable later: a busy
       // Chat, a capability change in flight, an archived or snoozed Chat.
-      assertChatMutable(workFolder.id, record.owner.conversationId);
+      const answerKey = clientKey(workFolder.id, record.owner.conversationId);
+      const queued = question.asynchronous === true && (state.runningTurns.has(answerKey) || state.compactingConversations.has(answerKey));
+      if (!queued) assertChatMutable(workFolder.id, record.owner.conversationId);
       assertNoCapabilityMutationForTurn(state, workFolder.id);
       const summary = await requireConversationSummary(workFolder.workFolderRoot, record.owner.conversationId);
       if (summary.archivedAt) throw new WorkFoldCliError("conflict", "Restore this Chat before answering its question.");
@@ -6400,6 +6469,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         } catch (error) {
           throw collaborationRefusal(error);
         }
+      }
+      if (queued) {
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.answer", workFolder, conversationId: record.owner.conversationId });
+        publishControlHint(state, "work-folders");
+        return { workFolder: toActWorkFolderRef(workFolder), question: toActQuestionRef(answered), continuation: null, queued: true, request: toActRequestRefForWorkFolder(state, state.requests.get(record.requestId) ?? record) };
       }
       // Journal-first: the question is answered; now exactly one linked
       // continuation turn, deduplicated by the turn store under a request
@@ -6569,14 +6643,25 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
       const workFolder = await resolveWorkFolder(input.workFolder);
       let instructions: string;
+      let appended: boolean | undefined;
+      const saved = input.append ? await runActOperation(() => getPiWorkerInstructions(workFolder.workFolderRoot, state.runtimeProvider)) : "";
       try {
-        instructions = normalizeWorkerInstructions(input.instructions);
+        if (input.append) {
+          const line = normalizeWorkerInstructions(input.instructions);
+          if (!line) throw new Error("Provide the line to add.");
+          const current = normalizeWorkerInstructions(saved);
+          // The same remembered line twice adds nothing.
+          appended = !current.split("\n").some((existing) => existing.trim() === line);
+          instructions = appended ? normalizeWorkerInstructions(current ? `${current}\n${line}` : line) : current;
+        } else {
+          instructions = normalizeWorkerInstructions(input.instructions);
+        }
       } catch (error) {
         throw new WorkFoldCliError("usage", errorMessage(error));
       }
-      await runActOperation(() => saveWorkerInstructions(state, workFolder, instructions));
+      if (appended !== false) await runActOperation(() => saveWorkerInstructions(state, workFolder, instructions));
       await recordFacadeAction(state, input.parentTaskId, { command: "work-folders.worker.instructions", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), instructions };
+      return { workFolder: toActWorkFolderRef(workFolder), instructions, ...(appended !== undefined ? { appended } : {}) };
     },
     async createConversation(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
@@ -6643,10 +6728,12 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async abortTurn(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
       const client = state.clients.get(clientKey(workFolder.id, input.conversationId));
+      const request = state.requests.latestForConversation(input.conversationId, { workFolderId: workFolder.id });
+      const stopped = request ? await stopWorkFoldAgentRequest(state, request.turns.at(-1)!.taskId) : null;
       return {
         workFolder: toActWorkFolderRef(workFolder),
         conversationId: input.conversationId,
-        aborted: client ? await client.abort() : false,
+        aborted: stopped ? stopped.workFoldAgentAborted || stopped.children.some(child => child.aborted) : client ? await client.abort() : false,
       };
     },
     async turnStatus(input) {
@@ -6730,6 +6817,11 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         };
       });
     },
+    async chatChildren(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const own = assertOwnTask(state, workFolder.id, input.taskId);
+      return { children: state.requests.children(own.requestId).map(child => ({ taskId: child.turns.at(-1)!.taskId, conversationId: child.owner.conversationId, ...(child.owner.workFolderId ? { workFolderId: child.owner.workFolderId } : {}), state: child.state, resultAvailable: child.results.length > 0 })) };
+    },
     async chatAsk(input) { return chatAsk(await resolveWorkFolder(input.workFolder), input); },
     async chatAnswer(input) { return chatAnswer(await resolveWorkFolder(input.workFolder), input); },
     async agentAsk(input) {
@@ -6766,12 +6858,23 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           );
         }
         const sources = input.files.map((file) => resolveHandoffSource(workFolder, file));
+        // A follow-up goes into a Chat this Chat already handed work to, so
+        // that Worker keeps everything it learned (2026-10-18).
+        const followUpId = input.toConversationId?.trim();
+        if (followUpId) {
+          if (!(await readConversationSummary(destination.workFolderRoot, followUpId))) throw new WorkFoldCliError("notFound", "Conversation not found.");
+          assertCallerHandedWorkTo(state, taskId, { workFolderId: destination.id, conversationId: followUpId });
+          const key = clientKey(destination.id, followUpId);
+          if (state.runningTurns.has(key) || state.compactingConversations.has(key)) {
+            throw new WorkFoldCliError("conflict", "That Chat is still working. Redirect it with chat steer, or wait for it and follow up.");
+          }
+        }
         // Copy first, through the same additive, restore-pointed path as
         // `files add`, so a refused copy never leaves a started Chat behind.
         const copy = sources.length
           ? await addExternalFilesInternal(destination, { fromPaths: sources, cwd: destination.workFolderRoot })
           : { copied: [], checkpointId: null };
-        const conversation = await createConversation(destination.workFolderRoot);
+        const conversation = followUpId ? { id: followUpId } : await createConversation(destination.workFolderRoot);
         const { message, taskId: childTaskId } = await acceptConversationTurn(state, destination, conversation.id, {
           content,
           contextPaths: [],
@@ -6798,6 +6901,79 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
           copied: copy.copied,
           checkpointId: copy.checkpointId,
           request: toActRequestRefForWorkFolder(state, child ?? record),
+          ...(followUpId ? { followUp: true } : {}),
+        };
+      });
+    },
+    async chatSteer(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const conversationId = input.conversationId.trim();
+      const content = input.message.trim();
+      if (!content) throw new WorkFoldCliError("usage", "Message content is required.");
+      return runActOperation(async () => {
+        if (!(await readConversationSummary(workFolder.workFolderRoot, conversationId))) throw new WorkFoldCliError("notFound", "Conversation not found.");
+        const callerTaskId = input.taskId?.trim();
+        if (callerTaskId) assertCallerHandedWorkTo(state, callerTaskId, { workFolderId: workFolder.id, conversationId });
+        const running = state.runningTurns.has(clientKey(workFolder.id, conversationId));
+        let steered: Awaited<ReturnType<typeof steerConversationTurn>>;
+        try {
+          steered = await steerConversationTurn(state, workFolder, conversationId, { content, ...(input.requestId ? { requestId: input.requestId } : {}) });
+        } catch (error) {
+          if ((error as { statusCode?: unknown })?.statusCode === 409) {
+            throw new WorkFoldCliError("conflict", running
+              ? "That Chat's turn is starting or finishing and cannot take a message right now. Try again in a moment, or follow up once it ends."
+              : "That Chat has no turn running. Follow up with chat handoff --to-conversation, or chat send.");
+          }
+          throw error;
+        }
+        await recordFacadeAction(state, input.parentTaskId, { command: "chat.steer", workFolder, conversationId, taskId: steered.taskId });
+        return { workFolder: toActWorkFolderRef(workFolder), conversationId, taskId: steered.taskId, messageId: steered.message.id, replayed: steered.replayed };
+      });
+    },
+    async chatCopy(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const sourceId = input.conversationId.trim();
+      const content = input.message?.trim();
+      if (input.message !== undefined && !content) throw new WorkFoldCliError("usage", "Message content is required.");
+      return runActOperation(async () => {
+        const callerTaskId = input.taskId?.trim();
+        if (callerTaskId) {
+          // A Worker copies its own Chat, or one its Chat handed work to.
+          const caller = assertCallerTurn(state, callerTaskId);
+          const ownChat = (caller.owner.workFolderId ?? workFoldAgentScopeId) === workFolder.id && caller.owner.conversationId === sourceId;
+          if (!ownChat) assertCallerHandedWorkTo(state, callerTaskId, { workFolderId: workFolder.id, conversationId: sourceId });
+          try {
+            state.requests.assertCanAddChild(callerTaskId);
+          } catch (error) {
+            throw collaborationRefusal(error);
+          }
+        }
+        const copied = await copyConversation(state, workFolder, sourceId, input.title);
+        let started: { taskId: string } | null = null;
+        if (content) {
+          started = await acceptConversationTurn(state, workFolder, copied.conversation.id, {
+            content,
+            contextPaths: [],
+            actorKind: "cli",
+            requestId: input.requestId,
+            ...(callerTaskId ? { request: { parentTaskId: callerTaskId, kind: "work-folder" as const } }
+              : input.parentTaskId ? { request: { parentTaskId: input.parentTaskId } } : {}),
+          });
+        }
+        await recordFacadeAction(state, input.parentTaskId, {
+          command: "chat.copy", workFolder, conversationId: copied.conversation.id, ...(started ? { taskId: started.taskId } : {}),
+        });
+        publishControlHint(state, "work-folders");
+        const child = started ? state.requests.byTaskId(started.taskId) : null;
+        return {
+          workFolder: toActWorkFolderRef(workFolder),
+          conversation: toActConversationRef(copied.conversation),
+          copiedFromConversationId: sourceId,
+          copiedMessages: copied.copiedMessages,
+          ...(started ? { taskId: started.taskId } : {}),
+          ...(child ? { request: toActRequestRefForWorkFolder(state, child) } : {}),
         };
       });
     },
@@ -6819,6 +6995,101 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         throw new WorkFoldCliError("notFound", `Request not found. Requests are kept for ${state.requests.retentionDays()} days.`);
       }
       return { request: await requestDetailView(state, record) };
+    },
+    // Background jobs (docs/background-jobs.md): the same service and records
+    // as job_start, job_output, and job_stop.
+    async jobsStart(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      assertOwnTask(state, workFolder.id, input.taskId);
+      const cwd = input.cwd?.trim()
+        ? (isAbsolute(input.cwd.trim()) ? resolve(input.cwd.trim()) : resolve(workFolder.workFolderRoot, input.cwd.trim()))
+        : workFolder.workFolderRoot;
+      // The work-folder's own Pi shell settings, so a job runs the way its bash would.
+      const runtime = await resolvePiRuntime(workFolder.workFolderRoot, state.runtimeProvider, { requestProjectTrust: false }).catch(() => null);
+      const shell: WorkFoldJobShell | undefined = runtime ? {
+        ...(runtime.settingsManager.getShellPath() ? { shellPath: runtime.settingsManager.getShellPath() } : {}),
+        ...(runtime.settingsManager.getShellCommandPrefix() ? { commandPrefix: runtime.settingsManager.getShellCommandPrefix() } : {}),
+        binDir: join(runtime.agentDir, "bin"),
+      } : undefined;
+      const job = await runJobOperation(() => startBackgroundJob(state, {
+        taskId: input.taskId,
+        command: input.command,
+        ...(input.interactive ? { interactive: true } : {}),
+        ...(input.service ? { service: true } : {}),
+        ...(input.name ? { name: input.name } : {}),
+        cwd,
+        ...(input.timeoutSeconds !== undefined ? { timeoutSeconds: input.timeoutSeconds } : {}),
+        surface: "cli",
+        ...(shell ? { shell } : {}),
+      }));
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(job) };
+    },
+    async jobsInput(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const record = assertOwnTask(state, workFolder.id, input.taskId);
+      const host = createBackgroundJobToolHost(state, workFolder.id, record.owner.conversationId);
+      const job = await host.input!({ taskId: input.taskId, jobId: input.jobId, text: input.text, ...(input.eof ? { eof: true } : {}) });
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(job) };
+    },
+    async worktreesManage(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      return createWorktreeToolHost(state, workFolder.id).invoke(input.taskId, input);
+    },
+    async jobsList(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const jobs = state.jobs.list({
+        workFolderId: workFolder.id,
+        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+        ...(input.running ? { running: true } : {}),
+      });
+      return { workFolder: toActWorkFolderRef(workFolder), jobs: jobs.map(toActJobRef) };
+    },
+    async jobsShow(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(ownedJob(state, workFolder.id, input.jobId)) };
+    },
+    async jobsOutput(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const owned = ownedJob(state, workFolder.id, input.jobId);
+      let until: RegExp | undefined;
+      try {
+        until = parseUntilPattern(input.until);
+      } catch (error) {
+        throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
+      }
+      const waited = (input.waitSeconds ?? 0) > 0 || until
+        ? await state.jobs.wait(owned.jobId, {
+          seconds: input.waitSeconds ?? 0,
+          ...(until ? { until } : {}),
+          ...(input.offset !== undefined ? { fromLine: input.offset } : {}),
+        })
+        : null;
+      const { job, output } = await state.jobs.read(owned.jobId, {
+        ...(input.offset !== undefined ? { offset: input.offset } : {}),
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      });
+      // A read from a running turn in the job's own Chat is its delivery (F32).
+      if (input.taskId && isWorkFoldJobTerminalState(job.state) && job.settledAt && state.requests.isAccepting(input.taskId)
+        && state.requests.byTaskId(input.taskId)?.owner.conversationId === job.conversationId
+        && (state.requests.byTaskId(input.taskId)?.owner.workFolderId ?? null) === (job.workFolderId ?? null)) {
+        await deliverBackgroundJobs(state, [job], "read", input.taskId);
+      }
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        job: toActJobRef(state.jobs.get(job.jobId) ?? job),
+        output,
+        wait: waited ? {
+          outcome: waited.outcome,
+          ...(waited.outcome === "matched" ? { line: waited.line, text: waited.text } : {}),
+        } : null,
+      };
+    },
+    async jobsStop(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const owned = ownedJob(state, workFolder.id, input.jobId);
+      const job = await runJobOperation(() => stopBackgroundJob(state, owned.jobId, "cli", input.parentTaskId));
+      return { workFolder: toActWorkFolderRef(workFolder), job: toActJobRef(job) };
     },
     async chatRename(input) {
       assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
@@ -9258,6 +9529,16 @@ async function stopWorkFoldAgentRequest(
       await state.requests.cancelQuestions(descendant.requestId, "stopped");
     }
   }
+  // Stop reaches every background job of this request and the graph below
+  // it: SIGTERM to each process group, then SIGKILL (docs/background-jobs.md).
+  // Deletion waits for them through requestHasUnsettledWork.
+  const runningJobIds = [record, ...descendants].flatMap((item) =>
+    (item.jobs ?? []).filter((job) => job.state === "running").map((job) => job.jobId));
+  if (runningJobIds.length) {
+    void state.jobs.stopMany(runningJobIds, "request").catch((error: unknown) => {
+      console.error(`Background jobs could not all be stopped: ${errorMessage(error)}`);
+    });
+  }
   let workFoldAgentAborted = false;
   if (workFoldAgentWasRunning) {
     workFoldAgentAborted = await cancelAcceptedTurn(state, scopeId, record.owner.conversationId, ownTurn.taskId);
@@ -9386,13 +9667,33 @@ async function turnResultForScope(
   const messages = await runActOperation(() => readConversation(rootPath, conversationId));
   const message = messages.find((item) => item.id === task.messageId);
   if (!message) throw new WorkFoldCliError("failure", "The turn's response message could not be found in the transcript.");
+  const result = await completedRequestEnvelope(state, taskId);
+  await noteResultReadByRunningParent(state, taskId);
   return {
     conversationId,
     task: { taskId, state: "succeeded" as const, endedAt: task.endedAt! },
     message: toActChatMessage(message),
     request: state.requests.byTaskId(taskId) ? toActRequestRefForWorkFolder(state, state.requests.byTaskId(taskId)!) : null,
-    result: await completedRequestEnvelope(state, taskId),
+    result,
   };
+}
+
+/**
+ * A parent that reads a child's settled result while its own turn is still
+ * running has received it: `chat wait` and `agent wait` end with exactly this
+ * read. Recording that delivery by the child's turn identity keeps the host
+ * from starting a follow-up turn that repeats the same result (F28). A later
+ * child turn, such as an answer's continuation, is a new identity and is
+ * still delivered.
+ */
+async function noteResultReadByRunningParent(state: LocalApiState, taskId: string): Promise<void> {
+  const child = state.requests.byTaskId(taskId);
+  if (!child?.parentRequestId || !isWorkFoldRequestTerminalState(child.state) || child.turns.at(-1)!.taskId !== taskId) return;
+  const parent = state.requests.get(child.parentRequestId);
+  const parentTurn = parent?.turns.at(-1);
+  if (!parent || !parentTurn || (parentTurn.state !== "accepted" && parentTurn.state !== "running")) return;
+  if (parent.deliveredChildTaskIds.includes(taskId)) return;
+  await state.requests.noteChildDelivery(parent.requestId, [taskId]);
 }
 
 /** Only a request's selected report/final reply, never its transcript or graph. */
@@ -11028,6 +11329,74 @@ function assertOwnTask(state: LocalApiState, workFolderId: string, taskId: strin
   }
 }
 
+/** The caller's own turn, in whichever scope it runs, while it is still running. */
+function assertCallerTurn(state: LocalApiState, callerTaskId: string): WorkFoldRequestRecord {
+  const record = state.requests.byTaskId(callerTaskId);
+  return assertOwnTask(state, record?.owner.workFolderId ?? workFoldAgentScopeId, callerTaskId);
+}
+
+/**
+ * Whether a Chat is one the caller's own Chat handed work to: some request in
+ * that Chat has a parent request owned by the caller's Chat, in any of its
+ * turns. A Worker may follow up with, redirect, or copy only such work, never
+ * an unrelated Chat (F9 as amended, 2026-10-18). The caller's task must be
+ * its own turn that is still running.
+ */
+function assertCallerHandedWorkTo(state: LocalApiState, callerTaskId: string, target: { workFolderId: string; conversationId: string }): WorkFoldRequestRecord {
+  const caller = assertCallerTurn(state, callerTaskId);
+  const callerScope = caller.owner.workFolderId ?? workFoldAgentScopeId;
+  const handedTo = state.requests.list().some((record) => {
+    if ((record.owner.workFolderId ?? workFoldAgentScopeId) !== target.workFolderId || record.owner.conversationId !== target.conversationId) return false;
+    const parent = record.parentRequestId ? state.requests.get(record.parentRequestId) : null;
+    return parent !== null && parent !== undefined
+      && (parent.owner.workFolderId ?? workFoldAgentScopeId) === callerScope
+      && parent.owner.conversationId === caller.owner.conversationId;
+  });
+  if (!handedTo) {
+    throw new WorkFoldCliError("conflict", "That Chat is not one this Chat handed work to. Hand off new work with chat handoff instead.");
+  }
+  return caller;
+}
+
+/**
+ * Copies a Chat as of its last finished reply into a new Chat in the same
+ * work-folder (2026-10-18, `chat copy`): the visible transcript up to that
+ * reply, and the Pi session along the same path, so the copy starts with the
+ * same context. Copied messages get new ids and lose their turn and request
+ * identities, which belong to the original Chat; the original is never
+ * written. A turn still running in the original is left out.
+ */
+async function copyConversation(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  sourceConversationId: string,
+  title?: string,
+): Promise<{ conversation: ConversationSummary; copiedMessages: number }> {
+  const summary = await readConversationSummary(workFolder.workFolderRoot, sourceConversationId);
+  if (!summary) throw new WorkFoldCliError("notFound", "Conversation not found.");
+  if (state.compactingConversations.has(clientKey(workFolder.id, sourceConversationId))) {
+    throw new WorkFoldCliError("conflict", "That Chat is being compacted. Copy it once that finishes.");
+  }
+  const messages = await readConversation(workFolder.workFolderRoot, sourceConversationId);
+  const lastReply = messages.reduce((found, message, index) => message.role === "assistant" ? index : found, -1);
+  const carried = messages.slice(0, lastReply + 1).filter((message) => message.role !== "system");
+  const forkTitle = (title?.trim() || `${summary.title} (copy)`).slice(0, 200);
+  const conversation = await createConversation(workFolder.workFolderRoot, forkTitle);
+  for (const message of carried) {
+    const { turnId: _turnId, requestId: _requestId, remoteRequestId: _remoteRequestId, delivery: _delivery, ...content } = message;
+    await appendMessage(workFolder.workFolderRoot, conversation.id, { ...content, id: randomUUID() });
+  }
+  if (carried.length) {
+    await copyPiConversationSession({
+      workFolderRoot: workFolder.workFolderRoot,
+      runtimeProvider: state.runtimeProvider,
+      sourceConversationId,
+      targetConversationId: conversation.id,
+    });
+  }
+  return { conversation: (await readConversationSummary(workFolder.workFolderRoot, conversation.id)) ?? conversation, copiedMessages: carried.length };
+}
+
 /** A request bound or lineage refusal is a conflict that carries the store's own sentence; anything else passes through. */
 function collaborationRefusal(error: unknown): unknown {
   if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) {
@@ -11105,6 +11474,8 @@ function toActQuestionRef(question: WorkFoldQuestionRecord): WorkFoldActQuestion
     taskId: question.taskId,
     respondent: question.respondent,
     text: question.text,
+    ...(question.asynchronous ? { asynchronous: true } : {}),
+    ...(question.options?.length ? { options: [...question.options] } : {}),
     state: question.state,
     askedAt: question.askedAt,
     expiresAt: question.expiresAt,
@@ -11192,6 +11563,7 @@ async function requestDetailView(state: LocalApiState, record: WorkFoldRequestRe
     usage: record.usage,
     stopRequestedAt: record.stopRequestedAt,
     reconciledAt: record.reconciledAt,
+    jobs: (record.jobs ?? []).map((job) => ({ ...job })),
     childRequests,
   };
 }
@@ -11307,6 +11679,16 @@ async function evaluateRequestGraphSettle(state: LocalApiState, taskId: string):
     }
   }
   for (const candidate of [...candidates.values()].sort((a, b) => b.depth - a.depth)) {
+    const key = clientKey(candidate.owner.workFolderId ?? workFoldAgentScopeId, candidate.owner.conversationId);
+    if (!state.runningTurns.has(key) && !state.compactingConversations.has(key)) {
+      const answered = state.requests.questions(candidate.requestId).find(question => question.asynchronous && question.state === "answered" && question.continuationTaskId === null);
+      if (answered && candidate.stopRequestedAt === null) {
+        const facade = createWorkFoldActFacade(state);
+        if (candidate.owner.workFolderId) await facade.chatAnswer({ workFolder: candidate.owner.workFolderId, questionId: answered.questionId, answer: answered.answer! });
+        else await facade.agentAnswer({ questionId: answered.questionId, answer: answered.answer! });
+        continue;
+      }
+    }
     await maybeStartRequestContinuation(state, candidate.requestId);
   }
 }
@@ -11338,10 +11720,11 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
       let reason: string | undefined;
       try { state.requests.assertCanContinue(item.requestId); } catch (error) { reason = errorMessage(error); }
       const key = clientKey(item.owner.workFolderId ?? workFoldAgentScopeId, item.owner.conversationId);
-      if (state.runningTurns.has(key) || state.compactingConversations.has(key)) reason = "The agent is finishing its current turn. You can write your answer now.";
+      if (!question.asynchronous && (state.runningTurns.has(key) || state.compactingConversations.has(key))) reason = "The agent is finishing its current turn. You can write your answer now.";
       questions.push({ id: question.questionId, requestId: item.requestId, text: question.text,
         from: item.owner.workFolderName ?? (item.owner.workFolderId ? "Worker" : "work-fold"),
         state: question.state === "answered" ? "recorded" : "open",
+        ...(question.options?.length && question.state !== "answered" ? { options: [...question.options] } : {}),
         ...(question.state === "answered" && question.answer ? { answer: question.answer } : {}),
         canAnswer: !reason, ...(reason ? { reason } : {}) });
     }
@@ -11363,9 +11746,22 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
       if (!detail) detail = "The delegated work is ready. Continue to bring its results together.";
     } catch { canContinue = false; }
   }
+  // A request whose only outstanding work is background jobs says so, and
+  // keeps Stop available between turns (docs/background-jobs.md).
+  const runningJobs = family.flatMap((item) => (item.jobs ?? []).filter((job) => job.state === "running"));
+  const turnLive = family.some((item) => item.turns.some((turn) => turn.state === "accepted" || turn.state === "running"));
+  const inBackground = record.state === "working" && !turnLive && runningJobs.length > 0;
+  if (inBackground && !detail) {
+    const now = Date.now();
+    const named = runningJobs.slice(0, 3).map((job) => `${job.name} · ${formatRunningFor(now - Date.parse(job.startedAt))}`);
+    detail = `${named.join("; ")}${runningJobs.length > 3 ? `; and ${runningJobs.length - 3} more` : ""}`;
+  }
   if (record.limitHit) detail = requestLimitStopMessage(record.limitHit.limit);
   else if (record.state === "expired") detail = "This request’s time window ended. Its saved work remains; start a new message to pick it up.";
   else if (latest.state === "interrupted") detail = "Work was interrupted when the app closed. Saved work remains; nothing was restarted automatically.";
+  else if (record.state === "failed" && (record.jobs ?? []).some((job) => job.state === "interrupted")) {
+    detail = "A background job was interrupted when work-fold closed. Saved work remains; nothing was restarted automatically.";
+  }
   else if (record.state === "failed" && !detail) detail = latest.error ?? "The agent could not finish. Its saved work remains in the Chat.";
   let result: WorkRequestView["result"] = null;
   if (isWorkFoldRequestTerminalState(record.state) && record.state !== "stopped" && record.state !== "expired") {
@@ -11404,14 +11800,23 @@ async function requestPresentation(state: LocalApiState, record: WorkFoldRequest
     if (files.length && !result) result = { summary: "Files from the completed work.", outcome: record.state === "done" ? "succeeded" : record.state === "partial" ? "partial" : "failed", files };
   }
   return { version: 1, requestId: record.requestId, taskId: latest.taskId, owner: record.owner,
-    state: record.state, label: workRequestLabel(record.state, questionCount - savedAnswerCount, savedAnswerCount), detail,
+    state: record.state, label: inBackground ? "Running in the background" : workRequestLabel(record.state, questionCount - savedAnswerCount, savedAnswerCount), detail,
     canStop: outstanding && !record.stopRequestedAt, canContinue, questions, questionCount,
     hadQuestions: family.some((item) => item.questionIds.length > 0), result,
+    ...(record.checklist?.items.length ? { checklist: record.checklist.items.map((item) => ({ ...item })) } : {}),
     children: state.requests.children(record.requestId).map((child) => ({ requestId: child.requestId,
       title: child.owner.workFolderName ?? "work-fold", state: child.state,
       label: workRequestLabel(child.state,
         state.requests.questions(child.requestId).filter((q) => q.respondent === "person" && q.state === "open").length,
         state.requests.questions(child.requestId).filter((q) => q.respondent === "person" && q.state === "answered" && !q.continuationTaskId).length) })) };
+}
+
+/** "running for 4 min" on the work line; whole minutes past the first. */
+function formatRunningFor(milliseconds: number): string {
+  const minutes = Math.floor(Math.max(0, milliseconds) / 60_000);
+  if (minutes < 1) return "just started";
+  if (minutes < 60) return `running for ${minutes} min`;
+  return `running for ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 function assertRemoteWorkOwner(state: LocalApiState, record: WorkFoldRequestRecord, principal: WorkFoldRemotePrincipal): void {
@@ -11473,31 +11878,40 @@ async function maybeStartRequestContinuation(state: LocalApiState, requestId: st
   if (state.requests.questions(requestId).some((q) => q.state === "open" || (q.state === "answered" && q.continuationTaskId === null))) return;
   const key = clientKey(scopeId, request.owner.conversationId);
   if (state.runningTurns.has(key) || state.compactingConversations.has(key)) return;
-  if (state.requests.subtree(requestId).some((child) => child.continuationState === "pending"
-    || child.turns.some((turn) => turn.state === "accepted" || turn.state === "running"))) return;
-  const batch = state.requests.children(requestId).filter((child) => {
+  // Nested owners synthesize before their parent wakes, so delegated results
+  // wait for the whole branch. A finished background job is this request's
+  // own work and does not wait for delegated children (docs/background-jobs.md, F32).
+  const childrenBusy = state.requests.subtree(requestId).some((child) => child.continuationState === "pending"
+    || child.turns.some((turn) => turn.state === "accepted" || turn.state === "running"));
+  const batch = childrenBusy ? [] : state.requests.children(requestId).filter((child) => {
     const turn = child.turns.at(-1)!;
     return turn.settledAt !== null && state.turnsSettledThisRun.has(turn.taskId)
       && !request.deliveredChildTaskIds.includes(turn.taskId);
   });
-  if (!batch.length) return;
+  const jobs = undeliveredSettledJobs(state, request);
+  if (!batch.length && !jobs.length) return;
   // Compose before claiming: a read failure has not accepted a delivery.
-  const content = await composeContinuationMessage(state, request, batch);
+  const content = await composeContinuationMessage(state, request, batch, jobs);
   const workFolder = request.owner.workFolderId ? await getWorkFolder(request.owner.workFolderId)
     : { id: workFoldAgentScopeId, workFolderRoot: workFoldAgentScope(state).rootPath };
-  const note = await state.requests.noteContinuation(requestId, batch.map((child) => child.turns.at(-1)!.taskId));
+  const note = await state.requests.noteContinuation(requestId, batch.map((child) => child.turns.at(-1)!.taskId), jobs.map((job) => job.jobId));
   if (!note.allowed) return;
+  let followUpTaskId: string | null = null;
   try {
-    await acceptConversationTurn(state, workFolder, request.owner.conversationId, {
+    const accepted = await acceptConversationTurn(state, workFolder, request.owner.conversationId, {
       content, contextPaths: [], actorKind: "system",
       ...(request.owner.workFolderId ? {} : { workFoldAgentAttachments: [] }),
       requestId: `continuation-${requestId}-${note.count}`,
       request: { joinRequestId: requestId },
     });
+    followUpTaskId = accepted.taskId;
   } catch (error) {
     await state.requests.failContinuation(requestId);
     console.error(`Request ${requestId} could not start its follow-up turn: ${errorMessage(error)}`);
   }
+  // Reserved above whether or not the turn started: an end is delivered at
+  // most once, and a follow-up that could not start is not retried (F28).
+  await deliverBackgroundJobs(state, jobs, "follow_up", followUpTaskId);
 }
 
 /**
@@ -11509,9 +11923,15 @@ async function composeContinuationMessage(
   state: LocalApiState,
   root: WorkFoldRequestRecord,
   batch: WorkFoldRequestRecord[],
+  jobs: WorkFoldJobRecord[] = [],
 ): Promise<string> {
+  const jobsFinished = jobs.length === 1 ? "a background job this Chat started has finished" : `${jobs.length} background jobs this Chat started have finished`;
   const lines: string[] = [
-    `work-fold is continuing request ${root.requestId}: selected results or questions from work it handed out are ready. Nobody typed this message.`,
+    !jobs.length
+      ? `work-fold is continuing request ${root.requestId}: selected results or questions from work it handed out are ready. Nobody typed this message.`
+      : !batch.length
+        ? `work-fold is continuing request ${root.requestId}: ${jobsFinished}. Nobody typed this message.`
+        : `work-fold is continuing request ${root.requestId}: ${jobsFinished}, and selected results or questions from work it handed out are ready. Nobody typed this message.`,
     "",
   ];
   for (const child of batch) {
@@ -11546,13 +11966,336 @@ async function composeContinuationMessage(
       }
     }
   }
+  if (jobs.length) {
+    if (batch.length) lines.push("");
+    lines.push(...await composeBackgroundJobLines(state, jobs));
+  }
+  const jobsClosing = "Read more of a job's output with job_output if you need it.";
   lines.push(
     "",
-    root.owner.workFolderId
-      ? "Bring these selected results together for your assignment. Answer questions addressed to you. Submit any needed chat report before your final reply, then give the complete useful answer in that reply. Child files remain in their source work-folder until explicitly copied."
-      : `The whole record: work-fold requests show --request ${root.requestId} --json. Bring these results together for the person; answer what is yours to answer; if the request is finished, say so and end your turn.`,
+    batch.length
+      ? `${root.owner.workFolderId
+        ? "Bring these selected results together for your assignment. Answer questions addressed to you. Submit any needed chat report before your final reply, then give the complete useful answer in that reply. Child files remain in their source work-folder until explicitly copied."
+        : `The whole record: work-fold requests show --request ${root.requestId} --json. Bring these results together for the person; answer what is yours to answer; if the request is finished, say so and end your turn.`}${jobs.length ? ` ${jobsClosing}` : ""}`
+      : root.owner.workFolderId
+        ? `Carry on with the work ${jobs.length === 1 ? "this job was" : "these jobs were"} part of. ${jobsClosing} Submit any needed chat report before your final reply, then give the complete useful answer in that reply.`
+        : `Carry on with the work ${jobs.length === 1 ? "this job was" : "these jobs were"} part of. ${jobsClosing} Tell the person how it went; if the request is finished, say so and end your turn.`,
   );
   return clampUtf8(lines.join("\n"), workFoldAutomationDeclarationBounds.maxResolvedMessageBytes);
+}
+
+// ---------------------------------------------------------------------------
+// Background jobs (docs/background-jobs.md, F31–F33): the host side of the job
+// service — what a job means for its request, the kernel, History, the Chat
+// that started it, and the one follow-up turn its end may start.
+// ---------------------------------------------------------------------------
+
+const maxJobsRememberedThisRun = 4_000;
+
+function createBackgroundJobService(state: LocalApiState, store: WorkFoldJobStore): WorkFoldJobService {
+  return new WorkFoldJobService({
+    store,
+    ports: {
+      // Journal-first in both records: the request knows about the job before
+      // its process exists, and a stopped request refuses it.
+      beforeSpawn: async (job) => {
+        await state.requests.noteJobStarted({ taskId: job.taskId, jobId: job.jobId, name: job.name, startedAt: job.createdAt, ...(job.service ? { service: true } : {}) });
+        state.kernel.startExperimentalJobTask({
+          jobId: job.jobId,
+          name: job.name,
+          conversationId: job.conversationId,
+          ...(job.workFolderId ? { workFolderId: job.workFolderId } : {}),
+          actor: { kind: job.surface === "cli" ? "cli" : "assistant" },
+        });
+      },
+      stopRequested: (job) => Boolean(state.requests.byJobId(job.jobId)?.stopRequestedAt),
+      captureHistory: (job) => captureBackgroundJobHistory(job),
+      afterSettle: (job) => {
+        state.kernel.finishTask(job.jobId);
+        if (!job.service) queueBackgroundJobSettle(state, job);
+        else void settleBackgroundJobOnRequest(state, job);
+      },
+    },
+  });
+}
+
+function requestJobState(jobState: WorkFoldJobRecord["state"]): Exclude<WorkFoldRequestJobState, "running"> {
+  return jobState === "accepted" || jobState === "running" ? "interrupted" : jobState;
+}
+
+/** The turn's own checkpoint came before the job ended; this one covers its later writes. */
+async function captureBackgroundJobHistory(job: WorkFoldJobRecord): Promise<WorkFoldJobHistory> {
+  if (!job.workFolderId) return { status: "not_applicable", reason: "the work-fold agent's working folder has no History." };
+  let workFolder: WorkFolderSummary;
+  try {
+    workFolder = await getWorkFolder(job.workFolderId);
+  } catch {
+    return { status: "unavailable", reason: "its work-folder is no longer registered." };
+  }
+  const checkpoint = await createWorkFolderCheckpoint(workFolder.workFolderRoot, {
+    reason: "background_job",
+    label: `After background job: ${job.name}`,
+  });
+  const summary = workFolderTurnHistory(checkpoint);
+  return summary.status === "captured" ? summary : { status: "unavailable", reason: "History could not save a checkpoint." };
+}
+
+/**
+ * On the request settle chain: decide the follow-up first, then settle the
+ * job on its request. A reserved follow-up keeps the request working, so it
+ * never reads done between a job's end and the turn that reports it.
+ */
+function queueBackgroundJobSettle(state: LocalApiState, job: WorkFoldJobRecord): void {
+  state.jobsSettledThisRun.add(job.jobId);
+  while (state.jobsSettledThisRun.size > maxJobsRememberedThisRun) {
+    const oldest = state.jobsSettledThisRun.values().next().value;
+    if (oldest === undefined) break;
+    state.jobsSettledThisRun.delete(oldest);
+  }
+  state.requestSettleChain = state.requestSettleChain
+    .then(() => evaluateRequestGraphSettle(state, job.taskId))
+    .catch((error: unknown) => {
+      console.error(`A background job's follow-up could not be evaluated: ${errorMessage(error)}`);
+    })
+    .then(() => settleBackgroundJobOnRequest(state, job));
+}
+
+async function settleBackgroundJobOnRequest(state: LocalApiState, job: WorkFoldJobRecord): Promise<void> {
+  await state.requests.settleJob(job.jobId, {
+    state: requestJobState(job.state),
+    exitCode: job.exitCode,
+    ...(job.settledAt ? { settledAt: job.settledAt } : {}),
+  }).catch((error: unknown) => console.error(`A background job's end could not reach its request: ${errorMessage(error)}`));
+}
+
+/** Finished jobs of this request whose end has not reached its Chat, settled in this run only. */
+function undeliveredSettledJobs(state: LocalApiState, request: WorkFoldRequestRecord): WorkFoldJobRecord[] {
+  const delivered = new Set(request.deliveredJobIds ?? []);
+  // The job journal decides "ended"; the request's own reference settles
+  // after this decision (queueBackgroundJobSettle).
+  return (request.jobs ?? []).flatMap((ref) => {
+    if (ref.service) return [];
+    if (delivered.has(ref.jobId) || !state.jobsSettledThisRun.has(ref.jobId)) return [];
+    const job = state.jobs.get(ref.jobId);
+    return job && isWorkFoldJobTerminalState(job.state) && job.settledAt && !job.delivery ? [job] : [];
+  });
+}
+
+/** One delivery per job's end, recorded in the job journal and on its request (F32). */
+async function deliverBackgroundJobs(
+  state: LocalApiState,
+  jobs: readonly WorkFoldJobRecord[],
+  by: "read" | "turn_context" | "follow_up",
+  taskId: string | null,
+): Promise<void> {
+  for (const job of jobs) {
+    await state.jobs.markDelivered(job.jobId, by, taskId).catch(() => null);
+    await state.requests.noteJobDelivery(job.requestId, [job.jobId]).catch(() => undefined);
+  }
+}
+
+/** Each finished job's state, History, and the end of its output, for a follow-up message. */
+async function composeBackgroundJobLines(state: LocalApiState, jobs: readonly WorkFoldJobRecord[]): Promise<string[]> {
+  const lines: string[] = [];
+  const now = new Date();
+  for (const job of jobs) {
+    const { output } = await state.jobs.read(job.jobId);
+    const command = job.command.split("\n", 1)[0]!;
+    lines.push(
+      `- Background job ${job.jobId} ${JSON.stringify(job.name)} — ${describeJobState(job, now)}`,
+      `  command: ${clampUtf8(command, 2_000)}${job.command.includes("\n") ? " …" : ""}`,
+      `  ${describeJobHistory(job.history)}`,
+      `  ${describeJobOutputRead(output)}${output.text && output.truncated ? " The end follows." : ""}`,
+    );
+    if (output.text) lines.push("", fenceJobOutput(output.text), "");
+  }
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+/**
+ * The jobs a new turn's context names: this Chat's running jobs, and ones
+ * that finished in this run without reaching the Chat yet, which this turn
+ * now delivers (F32). Delivery reserved by a follow-up is respected.
+ */
+async function backgroundJobsForTurn(
+  state: LocalApiState,
+  workFolderId: string,
+  conversationId: string,
+  taskId: string,
+): Promise<NonNullable<import("./agent/pi-client.js").PiTurnContext["backgroundJobs"]>> {
+  const jobs = state.jobs.list({ workFolderId: workFolderId === workFoldAgentScopeId ? null : workFolderId, conversationId });
+  if (!jobs.length) return [];
+  const now = new Date();
+  const ending = jobs.filter((job) => !isWorkFoldJobTerminalState(job.state) || job.settledAt === null);
+  const finished = jobs.filter((job) => isWorkFoldJobTerminalState(job.state) && job.settledAt !== null && !job.delivery
+    && state.jobsSettledThisRun.has(job.jobId)
+    && !(state.requests.get(job.requestId)?.deliveredJobIds ?? []).includes(job.jobId));
+  await deliverBackgroundJobs(state, finished, "turn_context", taskId);
+  return [
+    ...ending.map((job) => ({ jobId: job.jobId, name: job.name, status: describeJobState(job, now), finished: false })),
+    ...finished.map((job) => ({ jobId: job.jobId, name: job.name, status: describeJobState(job, now), finished: true })),
+  ];
+}
+
+/**
+ * Starts a job for a running turn, through the tools or the CLI, and
+ * attributes the act to that turn's request. Both surfaces end up here.
+ */
+async function startBackgroundJob(state: LocalApiState, input: {
+  interactive?: boolean;
+  service?: boolean;
+  taskId: string;
+  command: string;
+  name?: string;
+  cwd: string;
+  timeoutSeconds?: number;
+  surface: "tool" | "cli";
+  shell?: WorkFoldJobShell;
+}): Promise<WorkFoldJobRecord> {
+  const request = state.requests.byTaskId(input.taskId);
+  if (!request || !state.requests.isAccepting(input.taskId)) {
+    throw new WorkFoldRequestLineageError("A background job starts only from a running turn of its own request.");
+  }
+  const job = await state.jobs.start({
+    owner: {
+      conversationId: request.owner.conversationId,
+      ...(request.owner.workFolderId ? { workFolderId: request.owner.workFolderId } : {}),
+      ...(request.owner.workFolderName ? { workFolderName: request.owner.workFolderName } : {}),
+    },
+    taskId: input.taskId,
+    requestId: request.requestId,
+    command: input.command,
+    ...(input.interactive ? { interactive: true } : {}),
+    ...(input.service ? { service: true } : {}),
+    ...(input.name ? { name: input.name } : {}),
+    cwd: input.cwd,
+    ...(input.timeoutSeconds !== undefined ? { timeoutSeconds: input.timeoutSeconds } : {}),
+    surface: input.surface,
+    ...(input.shell ? { shell: input.shell } : {}),
+  });
+  await state.requests.recordAction(input.taskId, {
+    command: "jobs.start",
+    at: new Date().toISOString(),
+    ...(request.owner.workFolderId ? { workFolderId: request.owner.workFolderId } : {}),
+    ...(request.owner.workFolderName ? { workFolderName: request.owner.workFolderName } : {}),
+    conversationId: request.owner.conversationId,
+    taskId: input.taskId,
+  }).catch(() => null);
+  return job;
+}
+
+/** Stops one job and attributes the stop to the turn that asked, when one did. */
+async function stopBackgroundJob(state: LocalApiState, jobId: string, cause: "agent" | "cli", taskId?: string): Promise<WorkFoldJobRecord> {
+  const job = await state.jobs.stop(jobId, cause);
+  if (taskId) {
+    await state.requests.recordAction(taskId, {
+      command: "jobs.stop",
+      at: new Date().toISOString(),
+      ...(job.workFolderId ? { workFolderId: job.workFolderId } : {}),
+      ...(job.workFolderName ? { workFolderName: job.workFolderName } : {}),
+      conversationId: job.conversationId,
+      taskId: job.taskId,
+    }).catch(() => null);
+  }
+  return job;
+}
+
+/** A job addressed through a work-folder must belong to it. */
+function ownedJob(state: LocalApiState, workFolderId: string, jobId: string): WorkFoldJobRecord {
+  const job = state.jobs.get(jobId.trim());
+  if (!job || job.workFolderId !== workFolderId) {
+    throw new WorkFoldCliError("notFound", `That background job is not on record in this work-folder. Finished jobs are kept for ${state.requests.retentionDays()} days.`);
+  }
+  return job;
+}
+
+/** Job refusals keep their own sentences: a bound is a conflict, an unknown job is not found. */
+async function runJobOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof WorkFoldCliError) throw error;
+    if (error instanceof WorkFoldJobLimitError) throw new WorkFoldCliError("conflict", error.message, { cause: error });
+    if (error instanceof WorkFoldJobNotFoundError) throw new WorkFoldCliError("notFound", error.message, { cause: error });
+    if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) throw collaborationRefusal(error);
+    const message = errorMessage(error);
+    if (/needs a command|does not exist|timeout must|command can be at most|NUL character/.test(message)) {
+      throw new WorkFoldCliError("usage", message, { cause: error });
+    }
+    throw new WorkFoldCliError("failure", message, { cause: error });
+  }
+}
+
+function toActJobRef(job: WorkFoldJobRecord): WorkFoldActJobRef {
+  return {
+    jobId: job.jobId,
+    name: job.name,
+    command: job.command,
+    ...(job.interactive ? { interactive: true } : {}),
+    ...(job.service ? { service: true } : {}),
+    cwd: job.cwd,
+    state: job.state,
+    status: describeJobState(job, new Date()),
+    conversationId: job.conversationId,
+    taskId: job.taskId,
+    requestId: job.requestId,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    endedAt: job.endedAt,
+    exitCode: job.exitCode,
+    signal: job.signal,
+    stoppedBy: job.stoppedBy,
+    error: job.error,
+    timeoutSeconds: job.timeoutSeconds,
+    output: { ...job.output },
+    history: job.history ? structuredClone(job.history) : null,
+    delivery: job.delivery ? { ...job.delivery } : null,
+  };
+}
+
+/** job_start, job_output, and job_stop for one Chat: jobs of this scope only. */
+function createBackgroundJobToolHost(state: LocalApiState, scopeId: string, conversationId: string): BackgroundJobToolHost {
+  const workFolderId = scopeId === workFoldAgentScopeId ? undefined : scopeId;
+  const owned = (jobId: string): WorkFoldJobRecord => {
+    const job = state.jobs.get(jobId);
+    if (!job || (job.workFolderId ?? null) !== (workFolderId ?? null)) {
+      throw new WorkFoldJobNotFoundError(workFolderId
+        ? "That background job is not on record in this work-folder."
+        : "That background job is not one of the work-fold agent's.");
+    }
+    return job;
+  };
+  return {
+    start: (input) => startBackgroundJob(state, { ...input, surface: "tool" }),
+    input: async ({ taskId, jobId, text, eof }) => {
+      owned(jobId);
+      if (!state.requests.isAccepting(taskId)) throw new Error("Terminal input requires your own running turn.");
+      await state.requests.recordAction(taskId, { command: "jobs.input", at: new Date().toISOString(), ...(workFolderId ? { workFolderId } : {}), conversationId, taskId });
+      return state.jobs.input(jobId, text, eof);
+    },
+    list: () => ({
+      here: state.jobs.list({ workFolderId: workFolderId ?? null, conversationId }),
+      elsewhere: state.jobs.list({ workFolderId: workFolderId ?? null, running: true }).filter((job) => job.conversationId !== conversationId),
+    }),
+    read: async ({ taskId, jobId, offset, limit }) => {
+      owned(jobId);
+      const result = await state.jobs.read(jobId, { ...(offset !== undefined ? { offset } : {}), ...(limit !== undefined ? { limit } : {}) });
+      // Reading a finished job in its own Chat is its delivery; no follow-up repeats it.
+      if (result.job.conversationId === conversationId && isWorkFoldJobTerminalState(result.job.state) && result.job.settledAt) {
+        await deliverBackgroundJobs(state, [result.job], "read", taskId);
+      }
+      return result;
+    },
+    wait: ({ jobId, ...rest }) => {
+      owned(jobId);
+      return state.jobs.wait(jobId, rest);
+    },
+    stop: async ({ taskId, jobId }) => {
+      owned(jobId);
+      return await stopBackgroundJob(state, jobId, "agent", taskId);
+    },
+  };
 }
 
 /** Cuts on a byte bound and drops a trailing partial character rather than storing a replacement glyph. */
@@ -11722,6 +12465,7 @@ async function runAgentTurn(
         await state.requests.noteChildDelivery(request.requestId, children.map((child) => child.turns.at(-1)!.taskId));
       }
     }
+    const backgroundJobs = await backgroundJobsForTurn(state, workFolderId, conversationId, taskId);
     beforeCheckpoint = await captureTurnCheckpointSafe(state, workFolderId, workFolderRoot, conversationId, "pre_turn");
     if (workFolderTurn) workFolderTurn.history = workFolderTurnHistory(beforeCheckpoint);
     const ownWorkFolder = registeredWorkFolders.find((item) => item.id === workFolderId);
@@ -11744,6 +12488,9 @@ async function runAgentTurn(
       ...(attachedLinks.length ? { attachedLinks } : {}),
       ...(addressedFolders.length ? { addressedFolders } : {}),
       ...(options.automation ? { automation: options.automation } : {}),
+      ...(backgroundJobs.length ? { backgroundJobs } : {}),
+      // A later turn of the same request picks up the checklist where it was left.
+      ...(request?.checklist?.items.length ? { checklist: request.checklist.items } : {}),
     });
     // Capture synchronously with prompt completion. Shutdown may dispose the
     // client while the server awaits checkpoint persistence below.
@@ -11864,6 +12611,7 @@ async function runAgentTurn(
       assistantText: durableText,
       fileChanges: turnFileChanges(beforeCheckpoint, afterCheckpoint),
       ...(turnUsage ? { usage: turnUsage } : {}),
+      ...(client?.getTurnHelperRuns().length ? { helpers: client.getTurnHelperRuns() } : {}),
     }).catch((error) => {
       console.error(`Could not persist turn settlement: ${errorMessage(error)}`);
       return null;
@@ -11876,6 +12624,7 @@ async function runAgentTurn(
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       ...(turnUsage ? { usage: turnUsage } : {}),
+      ...(client?.getTurnHelperRuns().length ? { helpers: client.getTurnHelperRuns() } : {}),
     }).catch((error: unknown) => {
       console.error(`Could not persist request settlement: ${errorMessage(error)}`);
       return null;
@@ -12111,6 +12860,72 @@ function isModelSetupError(error: unknown): boolean {
     .test(errorMessage(error));
 }
 
+const managedWorktreeServices = new WeakMap<LocalApiState, ManagedWorktrees>();
+function createWorktreeToolHost(state: LocalApiState, workFolderId: string): import("./agent/worktree-tool.js").WorktreeToolHost {
+  let service = managedWorktreeServices.get(state);
+  if (!service) { service = new ManagedWorktrees(join(workFoldStateRoot(), "worktrees"), `${workFoldStateRoot()}-working-copies`); managedWorktreeServices.set(state, service); }
+  const facade = createWorkFoldActFacade(state);
+  return { async invoke(taskId, input) {
+    assertOwnTask(state, workFolderId, taskId);
+    const ports = {
+      register: async (path: string) => (await facade.registerWorkFolder({ workFolderRoot: path })).workFolder.id,
+      unregister: async (id: string, path: string) => {
+        if (resolve((await getWorkFolder(id)).workFolderRoot) !== resolve(path)) throw new Error("The managed work-folder registration changed.");
+        await facade.workFoldersUnregister({ workFolder: id });
+      },
+    };
+    if (input.action === "list") return service!.list(workFolderId);
+    await state.requests.recordAction(taskId, { command: `worktrees.${input.action}`, at: new Date().toISOString(), workFolderId, taskId });
+    if (input.action === "create") return service!.create(workFolderId, (await getWorkFolder(workFolderId)).workFolderRoot, input.ref ?? "HEAD", ports.register);
+    if (!input.id) throw new Error("id is required for archive and restore.");
+    return service!.change(workFolderId, input.id, input.action, ports);
+  } };
+}
+
+function createCollaborationToolHost(state: LocalApiState, workFolderId: string, conversationId: string): import("./agent/collaboration-tools.js").CollaborationToolHost {
+  const facade = createWorkFoldActFacade(state);
+  return { async invoke(operation, taskId, input, signal) {
+    assertOwnTask(state, workFolderId, taskId);
+    const target = typeof input.workFolder === "string" ? input.workFolder : workFolderId;
+    const required = (name: string): string => {
+      const value = input[name];
+      if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
+      return value;
+    };
+    const files = Array.isArray(input.files) ? input.files as string[] : [];
+    switch (operation) {
+      case "children": return facade.chatChildren({ workFolder: workFolderId, taskId });
+      case "handoff": return facade.chatHandoff({ workFolder: workFolderId, taskId, toWorkFolder: target, message: required("message"), files, ...(typeof input.conversation === "string" ? { toConversationId: input.conversation } : {}) });
+      case "steer": return facade.chatSteer({ workFolder: target, taskId, conversationId: required("conversation"), message: required("message") });
+      case "copy": return facade.chatCopy({ workFolder: target, taskId, conversationId: typeof input.conversation === "string" ? input.conversation : conversationId, ...(typeof input.message === "string" ? { message: input.message } : {}), ...(typeof input.title === "string" ? { title: input.title } : {}) });
+      case "stop": {
+        const destination = resolveWorkFoldCliWorkFolderSelector(await listWorkFolders(), target)!;
+        assertCallerHandedWorkTo(state, taskId, { workFolderId: destination.id, conversationId: required("conversation") });
+        return facade.abortTurn({ workFolder: destination.id, conversationId: required("conversation") });
+      }
+      case "report": return facade.chatReport({ workFolder: workFolderId, taskId, summary: required("summary"), files, outcome: input.outcome as "succeeded" | "partial" | "failed", ...(input.data !== undefined ? { data: input.data } : {}) });
+      case "ask": return facade.chatAsk({ workFolder: workFolderId, taskId, question: required("question"), respondent: input.to === "parent" ? "parent" : "person", ...(Array.isArray(input.options) ? { options: input.options as string[] } : {}), ...(input.asynchronous === true ? { asynchronous: true } : {}) });
+      case "answer": return facade.chatAnswer({ workFolder: target, questionId: required("question"), answer: required("answer") });
+      case "wait": {
+        const followed = state.requests.byTaskId(required("task"));
+        if (!followed?.owner.workFolderId) throw new Error("That delegated task is not on record.");
+        assertCallerHandedWorkTo(state, taskId, { workFolderId: followed.owner.workFolderId, conversationId: followed.owner.conversationId });
+        const seconds = input.seconds === undefined ? 30 : Number(input.seconds);
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > 120) throw new Error("seconds must be between 0 and 120.");
+        const deadline = Date.now() + seconds * 1000;
+        for (;;) {
+          signal?.throwIfAborted();
+          const status = await facade.turnStatus({ workFolder: followed.owner.workFolderId, taskId: required("task") });
+          if (status.waiting || status.task.state !== "running" || Date.now() >= deadline) {
+            return status.task.state === "succeeded" ? facade.turnResult({ workFolder: followed.owner.workFolderId, taskId: required("task") }) : status;
+          }
+          await new Promise(done => setTimeout(done, 100));
+        }
+      }
+    }
+  } };
+}
+
 async function getClient(
   state: LocalApiState,
   workFolderId: string,
@@ -12136,10 +12951,35 @@ async function getClient(
   // instructions (F26); the work-fold agent scope has its own taught text.
   const operationsGuide = workFolderOperationsGuideForScope(workFolderId);
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
+    role: workFolderId === workFoldAgentScopeId ? "work-fold-agent" : "worker",
     ...(operationsGuide ? { operationsGuide } : {}),
     imageModel: () => state.imageModelPreference.get(),
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
     ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
+    backgroundJobs: createBackgroundJobToolHost(state, workFolderId, conversationId),
+    ...(workFolderId === workFoldAgentScopeId ? {} : { collaboration: createCollaborationToolHost(state, workFolderId, conversationId) }),
+    helperTool: workFolderId !== workFoldAgentScopeId,
+    recoveryScope: taskId => {
+      const request = state.requests.byTaskId(taskId);
+      if (!request || request.owner.conversationId !== conversationId
+        || (request.owner.workFolderId ?? workFoldAgentScopeId) !== workFolderId
+        || !request.turns.some(turn => turn.taskId === taskId && turn.state === "running")) return null;
+      return { requestId: request.requestId, taskIds: request.turns.map(turn => turn.taskId) };
+    },
+    ...(workFolderId === workFoldAgentScopeId ? {} : { worktrees: createWorktreeToolHost(state, workFolderId) }),
+    checklist: {
+      async set({ taskId, items }) {
+        try {
+          const saved = await state.requests.setChecklist(taskId, items);
+          // The Chat's work view re-reads the request and shows the new list.
+          publishControlHint(state, "work-folders");
+          return saved;
+        } catch (error) {
+          if (error instanceof WorkFoldRequestLimitError || error instanceof WorkFoldRequestLineageError) throw new Error(error.message);
+          throw error;
+        }
+      },
+    },
   });
   client.on("event", (event: PiChatEvent) => {
     broadcast(state, streamKey(workFolderId, conversationId), assistantEventForRenderer(event));
@@ -12233,7 +13073,9 @@ function requestHasUnsettledWork(state: LocalApiState, request: WorkFoldRequestR
   return [request, ...state.requests.subtree(request.requestId)].some((record) =>
     !isWorkFoldRequestTerminalState(record.state)
     || record.continuationState === "pending"
-    || record.turns.some((turn) => turn.state === "accepted" || turn.state === "running"));
+    || record.turns.some((turn) => turn.state === "accepted" || turn.state === "running")
+    // A job a Stop is still ending keeps its request unsettled until it has.
+    || (record.jobs ?? []).some((job) => job.state === "running"));
 }
 
 /** Called with the work-folder's mutation fence held; deletion refuses instead of interrupting work. */

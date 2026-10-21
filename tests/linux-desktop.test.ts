@@ -83,13 +83,16 @@ fs.writeFileSync(path.join(root,'responses',id+'.json'),JSON.stringify(response)
   assert.equal(JSON.parse((await run(join(system, "work-fold"), ["context", "--json"], { env })).stdout).data.protocolVersion, 1, "installed CLI resolves its native sibling through the system symlink");
   let reply = JSON.parse((await run(cli, ["context", "--json"], { env })).stdout).data;
   assert.equal(reply.protocolVersion, 1); assert.equal(reply.actToken, undefined);
-  for (const args of [["agent", "--help"], ["work-folders", "list"], ["checks", "status"], ["automations", "-h"]]) {
+  for (const args of [["agent", "--help"], ["work-folders", "list"], ["checks", "status"], ["automations", "-h"], ["jobs", "--help"], ["worktrees", "-h"]]) {
     const help = JSON.parse((await run(cli, [...args, "--json"], { env })).stdout).data;
     assert.equal(help.protocolVersion, 1, "content-free commands need no launch token");
   }
   await assert.rejects(run(cli, ["files", "list", "--work-folder", "Test"], { env }), (error: any) => error.code === 6);
+  for (const group of ["jobs", "worktrees"]) {
+    await assert.rejects(run(cli, [group, "list", "--json"], { env }), (error: any) => error.code === 6);
+  }
   await writeFile(join(state, "cli/act-token.json"), JSON.stringify({ version: 1, actToken: "a".repeat(64) }), { mode: 0o600 });
-  for (const args of [["agent", "chats"], ["work-folders", "create"], ["automations", "list"], ["recently-deleted", "list"]]) {
+  for (const args of [["agent", "chats"], ["work-folders", "create"], ["automations", "list"], ["recently-deleted", "list"], ["jobs", "list"], ["worktrees", "manage"]]) {
     const act = JSON.parse((await run(cli, [...args, "--json"], { env })).stdout).data;
     assert.equal(act.protocolVersion, 3); assert.equal(act.actToken, "a".repeat(64));
   }
