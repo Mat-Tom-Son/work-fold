@@ -152,8 +152,14 @@ graph, receipts, and Stop above.
   turn's hidden context can be folded into the summary. Measured runs then
   reported under the wrong task id and narrowed the work. A request-local
   note after the summary now restates the turn's exact ids, the person's
-  request when it is no longer visible, and the checklist, and asks the agent
-  to re-check its answer against the sources. Nothing is written to the
+  request when it is no longer visible, and the checklist. For Worker answer/result
+  continuations it also restores the request's own original assignment,
+  separately from the current answer, so the original literal requirements
+  remain available beyond the summary. Later answers and
+  corrections still apply; long excerpts disclose their bound. It asks the agent
+  to recover applicable completed evidence first, then recheck changed sources,
+  dynamic state, missing coverage and unresolved concerns. Compaction alone
+  does not invalidate completed verification. Nothing is written to the
   session (docs/archive/helper-tool-experiment.md).
 
 - **Progress and evidence recovery.** `progress` retains bounded completed-tool

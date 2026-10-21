@@ -17,10 +17,39 @@ without repeating a helper, read or mutation. Compact index pages default to ten
 records (up to 40 with `limit`); full fingerprints, evidence links and findings
 remain available through `read`, rather than being duplicated in the index;
 output pages contain up to 16,000 characters.
-Results carry JSON text in `content`; `details` contains only operation/id
-metadata, so Code Mode does not duplicate large recovered observations. Save
-compact findings once a conclusion is useful rather than repeatedly recovering
-every full input after compaction.
+After native compaction, index and text pages shrink to fit Pi's summary
+serialization budget. Navigation and authority/freshness warnings precede the
+payload; unusually large fingerprint metadata remains available in the live
+result but may exceed a later summary. Treat `limit` as an upper bound and
+continue at the returned `nextOffset`, which reflects the actual page size.
+Text pages end at a newline when one fits the current budget, keeping short
+physical lines together. A line larger than the budget remains character-paged.
+The host also supplies bounded, task-local recent recovery activity so a later
+summary can distinguish a new page from repeated recovery of the same range.
+Results carry JSON text in `content` and declare Pi's native `outputSchema`
+with matching `structuredContent`. In codemode, `tools.progress(...)` resolves
+to that structured object: read `page.text` and `page.nextOffset` directly,
+without parsing a string or a tool-result wrapper. Stop at a null cursor and
+require any continuation to be an integer greater than the current offset;
+never loop on an undefined cursor. `details` contains only operation/id metadata.
+Save compact findings once a conclusion is useful rather than repeatedly
+recovering every full input after compaction.
+A Worker's answer or result continuation retains the request's original assignment
+separately from its latest message. If native compaction removes that hidden
+context, the host restates both independently, preserving literal output
+requirements while applying later answers and corrections. An already visible
+assignment is not duplicated; long restatements are bounded and disclose the
+missing tail. Only this request's own assignment is admitted.
+Recover applicable completed observations and checks first; recheck changed
+sources, dynamic state, missing coverage and unresolved concerns. Compaction
+alone does not invalidate completed verification. Exact numeric claims also
+need arithmetic that preserves the promised range and precision, with
+independent expectations for signs, cancellation and range limits.
+Integer-valued floating-point cents remain bounded. When no magnitude bound is
+given, use arbitrary precision from original decimal text through final
+formatting; converting a rounded intermediate to an exact type is too late.
+Final artifact checks also compare literal field names and types with the
+original requested contract, not only with an agent-written test's output shape.
 
 Records use invisible custom entries in the existing machine-local Pi session,
 with the same session retention. They create no portable transcript records or
@@ -39,7 +68,12 @@ ordinary source is inside this work-folder and at most 32 MiB. Changes during
 the call are flagged; a later recovery checks whether the captured source still
 matches. This is a bracketing observation, not an atomic file snapshot. Shell,
 helper and other implicit inputs remain untracked, and dynamic results remain
-historical observations. Findings and completed checklist items are agent claims,
+historical observations. Untracked freshness is unknown rather than automatically stale. Judge
+whether an observation still applies from the task and known intervening
+changes. A historical baseline is intentionally historical; a new execution
+cannot recreate its earlier state. Prefer a concise, scoped comparison result
+and its evidence references over repeatedly reconstructing long raw inventories.
+Findings and completed checklist items are agent claims,
 not host-attested conclusions. Files selected on a finding are fingerprinted at
 save time; that does not bind an earlier tool's output to those bytes. Reserved
 metadata, directories, escaping links and paths outside the work-folder cannot

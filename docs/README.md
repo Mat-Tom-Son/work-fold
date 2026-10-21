@@ -40,6 +40,7 @@ viewer pages and app views are a separate shipped capability.
 
 ## Harness and example boundaries
 
+- [Repeated frozen autonomy evaluation](frozen-autonomy-evaluation.md) records the 2026-10-19 live-model comparison, runtime fixes, all first attempts and remaining limits. It is evidence for those workloads, not a production success-rate estimate.
 - `AGENTS.md` is canonical. [CLAUDE.md](../CLAUDE.md) imports it.
 - The shared [release Skill](../.agents/skills/ship-macos-release/SKILL.md)
   lives under `.agents/skills/`; `.claude/skills/ship-macos-release` is a

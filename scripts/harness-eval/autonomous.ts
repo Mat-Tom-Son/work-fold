@@ -9,6 +9,8 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { assertExactSupportingQuote } from "./assertions.js";
+import { seedAutonomousCase, repairSource, reconciliationSource } from "./fixtures.js";
+import { summarizeAutonomousTrace, autonomousHostArguments, stableJson, sha256 } from "./frozen.js";
 const exec = promisify(execFile);
 const arg = (name: string, fallback: string) => { const i = process.argv.indexOf(name); return i < 0 ? fallback : process.argv[i + 1]!; };
 const model = arg("--model", "openrouter/openai/gpt-6-luna");
@@ -17,35 +19,6 @@ const base = resolve(arg("--out", `out/autonomous-eval/${scenario}-${Date.now()}
 const rows = async (path: string): Promise<any[]> => (await readFile(path, "utf8").catch(() => "")).split("\n").filter(Boolean).map(line => JSON.parse(line));
 const latest = (records: any[], key: string): any[] => [...new Map(records.map(record => [record[key], record])).values()];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-const repairSource = `export function summarize(rows) {\n  const totals = {};\n  for (const row of rows) {\n    if (row.status !== 'settled') continue;\n    totals[row.currency] = (totals[row.currency] || 0) + Math.abs(Number(row.amount));\n  }\n  return totals;\n}\n`;
-const reconciliationSource = "id,currency,amount,status,updated\nA,USD,100.00,settled,1\nB,USD,50.00,settled,1\nC,USD,-20.00,settled,1\nD,USD,999.00,pending,1\nE,EUR,200.00,settled,1\nF,EUR,-30.00,settled,1\nG,EUR,40.00,settled,1\nH,USD,15.00,settled,1\nI,EUR,999.00,disputed,1\nJ,USD,10.00,cancelled,1\nK,EUR,5.00,settled,1\nL,USD,-5.00,settled,1\nB,USD,55.00,settled,2\n";
-
-async function seed(folder: string) {
-  if (scenario === "reconcile") {
-    await writeFile(join(folder, "payments.csv"), reconciliationSource);
-    await writeFile(join(folder, "policy.md"), "Use the newest updated value for a repeated transaction id. Include settled payments and negative refunds. Exclude pending and cancelled rows. Keep currencies separate and use exact cents. Disputed-row policy has not been decided.\n");
-    return { prompt: "Reconcile the payments against policy.md. The disputed-row policy needs my decision; ask me about it, and keep making any useful independent progress while I answer. Deliver reconciliation.json with totals (currency to two-decimal string), includedIds and excludedIds, plus a short reconciliation.md explaining the treatment and checks. Preserve the source files.", answer: "Exclude disputed rows. I also corrected K's amount in payments.csv from 5.00 to 8.00; use the corrected file. Keep the other policies as documented.", expected: { totals: { USD: "145.00", EUR: "218.00" }, includedIds: ["A", "B", "C", "E", "F", "G", "H", "K", "L"], excludedIds: ["D", "I", "J"] } };
-  }
-  if (scenario === "repair") {
-    await writeFile(join(folder, "ledger.mjs"), repairSource);
-    await writeFile(join(folder, "personal-draft.txt"), "Uncommitted personal writing. Keep every byte.\n");
-    await writeFile(join(folder, "visible-test.mjs"), "import assert from 'node:assert/strict';import {summarize} from './ledger.mjs';assert.deepEqual(summarize([{currency:'USD',amount:'1.00',status:'settled'}]),{USD:'1.00'});console.log('PASS');\n");
-    return { prompt: "Fix the money aggregation bug in ledger.mjs. summarize must return each currency's total as an exact two-decimal string, include negative refunds, exclude non-settled rows, and keep currencies separate. All inputs have valid two-decimal amounts. I need to review the candidate before applying it: deliver candidate.patch and validation.md, with the original ledger.mjs and my uncommitted personal-draft.txt left byte-for-byte unchanged. Validate the candidate with meaningful edge cases.", answer: "Use your judgment within those requirements; preserve my original files and deliver the patch and validation notes.", expected: { original: repairSource, draft: "Uncommitted personal writing. Keep every byte.\n" } };
-  }
-  assert.equal(scenario, "research", "Choose research, reconcile or repair");
-  await mkdir(join(folder, "interviews"));
-  const expected: Array<{ id: string; path: string; quote: string }> = [];
-  const positive = new Set([1, 4, 7, 11, 16, 19, 23, 28, 31, 35]);
-  const quotes = ["I reopened the draft and the paragraphs I had saved yesterday were gone.", "After closing and reopening the document, I checked the saved file itself: my last saved changes had vanished.", "It said saved before I quit; after reopening I checked the saved file itself, and my edits were missing from it."];
-  for (let i = 0; i < 36; i++) {
-    const id = `P${String(i + 1).padStart(2, "0")}`; const path = `interviews/${id}.md`;
-    const quote = positive.has(i) ? quotes[i % quotes.length]! : i % 3 === 0 ? "The old preview made me worry, but the saved document was intact when I reopened it." : i % 3 === 1 ? "I lost unsaved typing after the crash; I had not saved that text." : "My saved edits remained intact; the problem was only a slow export.";
-    const background = Array.from({ length: 24 }, (_, n) => `Background ${n + 1}: ${id} described the ordinary review workflow, organizing notes, comparing drafts and sharing files. ${digest(`${i}:${n}`)}`).join("\n");
-    await writeFile(join(folder, path), `# Interview ${id}\n\n${background.slice(0, background.length / 2)}\n\nParticipant: ${quote}\n\n${background.slice(background.length / 2)}\n`);
-    if (positive.has(i)) expected.push({ id, path, quote });
-  }
-  return { prompt: "Review the interview notes and identify every participant who actually lost previously saved edits after reopening a document. Distinguish confirmed loss from an outdated preview, unsaved typing and export problems. Deliver findings.json as an array of {id,path,quote}, with an exact supporting quote for each included participant, and findings.md explaining the distinction and coverage. Keep all interview files unchanged.", answer: "Include confirmed loss of previously saved edits only, with exact supporting quotes. Use the requested deliverable formats.", expected };
-}
 
 async function verify() {
   const meta = JSON.parse(await readFile(join(base, "case.json"), "utf8")); const folder: string = meta.folder;
@@ -87,7 +60,8 @@ async function verify() {
   const counts: Record<string, number> = {}; for (const call of calls) counts[call.name] = (counts[call.name] ?? 0) + 1;
   const provider = await rows(host.tapLog);
   const progressRecords = entries.filter(entry => entry.type === "custom" && entry.customType === "work-fold-progress.v1");
-  const summary = { outcome: errors.length ? "failed" : "passed", model: meta.model, scenario: meta.scenario, fixtureRevision: meta.fixtureRevision ?? 1, promptSha256: digest(meta.prompt), sourceCommit: meta.sourceCommit, sourceDiffSha256: meta.sourceDiffSha256, durationSeconds: meta.durationSeconds, requestState: root?.state, parentTurns: root?.turns.length, compactions: entries.filter(entry => entry.type === "compaction").length, progressRecordsRetained: progressRecords.length, toolCalls: counts, toolErrors: calls.filter(call => call.failed).length, evidenceReads: calls.filter(call => call.name === "progress" && !call.failed && (call.arguments.input ?? call.arguments).action === "read").length, findingsSaved: progressRecords.filter(entry => entry.data?.kind === "finding").length, providerCalls: provider.length, providerCost: provider.reduce((sum, call) => sum + (call.usage?.cost ?? 0), 0), errors };
+  const trace = summarizeAutonomousTrace(entries, provider, folder);
+  const summary = { ...trace, settledDoneWithInvalidOutput: root?.state === "done" && errors.length > 0, outcome: errors.length ? "failed" : "passed", model: meta.model, scenario: meta.scenario, fixtureRevision: meta.fixtureRevision ?? 1, promptSha256: digest(meta.prompt), sourceCommit: meta.sourceCommit, sourceDiffSha256: meta.sourceDiffSha256, durationSeconds: meta.durationSeconds, requestState: root?.state, parentTurns: root?.turns.length, compactions: entries.filter(entry => entry.type === "compaction").length, progressRecordsRetained: progressRecords.length, toolCalls: counts, toolErrors: calls.filter(call => call.failed).length, evidenceReads: calls.filter(call => call.name === "progress" && !call.failed && (call.arguments.input ?? call.arguments).action === "read").length, findingsSaved: progressRecords.filter(entry => entry.data?.kind === "finding").length, providerCalls: provider.length, providerCost: provider.reduce((sum, call) => sum + (call.usage?.cost ?? 0), 0), errors };
   await writeFile(join(base, "summary.json"), JSON.stringify(summary, null, 2)); return summary;
 }
 
@@ -95,14 +69,18 @@ if (process.argv.includes("--verify")) { const summary = await verify(); console
 if (!process.env.OPENROUTER_API_KEY) throw new Error("Provide OPENROUTER_API_KEY explicitly for live evaluation.");
 await mkdir(base, { recursive: true }); if (existsSync(join(base, "case.json"))) throw new Error("Choose a fresh --out; never replay an evaluation.");
 const folder = await mkdtemp(join(tmpdir(), `work-fold-autonomous-${scenario}-`));
-const spec = await seed(folder);
+const spec = await seedAutonomousCase(scenario, folder);
 const sourceHashes: Record<string, string> = {};
 async function sources(path: string, prefix = "") { for (const item of await readdir(path, { withFileTypes: true })) { const name = join(prefix, item.name); if (item.isDirectory()) await sources(join(path, item.name), name); else sourceHashes[name] = digest(await readFile(join(folder, name), "utf8")); } }
 await sources(folder);
 if (scenario === "repair") { await exec("git", ["init", "-q"], { cwd: folder }); await exec("git", ["add", "ledger.mjs", "visible-test.mjs"], { cwd: folder }); await exec("git", ["-c", "user.name=Evaluation", "-c", "user.email=eval@example.invalid", "commit", "-qm", "Seed candidate task"], { cwd: folder }); }
-const meta = { scenario, model, folder, ...spec, sourceHashes, fixtureRevision: scenario === "research" ? 3 : 1, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
+if (process.argv.includes("--frozen-plan")) {
+  const plan = JSON.parse(await readFile(arg("--frozen-plan", ""), "utf8"));
+  assert.equal(sha256(stableJson({ ...spec, sourceHashes })), plan.cases[scenario].digest, "Fixture or prompt differs from the frozen plan");
+}
+const meta = { scenario, model, folder, initialSourceHashes: { ...sourceHashes }, context: process.argv.includes("--compact-at") ? "stressed" : "normal", hostArguments: autonomousHostArguments(process.argv.slice(2)), ...spec, sourceHashes, fixtureRevision: scenario === "research" ? 3 : 1, sourceCommit: (await exec("git", ["rev-parse", "HEAD"])).stdout.trim(), sourceDiffSha256: digest((await exec("git", ["diff", "HEAD"])).stdout), durationSeconds: 0 };
 await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2)); await writeFile(join(base, "prompt.txt"), spec.prompt);
-const host = spawn(process.execPath, ["--import", "tsx", "scripts/helper-eval/host.ts", "--out", join(base, "host"), "--model", model, "--thinking", "high", "--compact-at", arg("--compact-at", "40000"), ...(process.argv.includes("--keep-recent") ? ["--keep-recent", arg("--keep-recent", "2000")] : [])], { stdio: ["ignore", "pipe", "pipe"] });
+const host = spawn(process.execPath, ["--import", "tsx", "scripts/helper-eval/host.ts", "--out", join(base, "host"), "--model", model, "--thinking", "high", ...autonomousHostArguments(process.argv.slice(2))], { stdio: ["ignore", "pipe", "pipe"] });
 let log = ""; host.stdout.on("data", data => { log += data; }); host.stderr.on("data", data => { log += data; });
 const closed = new Promise<void>(done => host.once("close", () => done())); const startedAt = Date.now();
 const pause = () => new Promise(done => setTimeout(done, 250));
@@ -135,5 +113,10 @@ try {
   await writeFile(join(base, "drive.json"), output); await writeFile(join(base, "drive.log"), errors);
   meta.durationSeconds = Math.round((Date.now() - startedAt) / 1000); await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2));
   const summary = await verify(); console.log(JSON.stringify(summary)); if (summary.outcome !== "passed") process.exitCode = 1;
-} catch (error) { await writeFile(join(base, "failure.txt"), error instanceof Error ? error.stack ?? error.message : String(error)); throw error; }
+} catch (error) {
+  meta.durationSeconds = Math.round((Date.now() - startedAt) / 1000); await writeFile(join(base, "case.json"), JSON.stringify(meta, null, 2));
+  await writeFile(join(base, "failure.txt"), error instanceof Error ? error.stack ?? error.message : String(error));
+  try { await verify(); } catch { /* The batch retains infrastructure failures too. */ }
+  throw error;
+}
 finally { if (drive?.exitCode === null) drive.kill("SIGTERM"); host.kill("SIGTERM"); await closed; await writeFile(join(base, "host.log"), log); }

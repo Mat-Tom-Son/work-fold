@@ -52,7 +52,7 @@ const tapLog = join(out, "provider-calls.jsonl");
 await mkdir(agentDir, { recursive: true });
 await mkdir(stateBase, { recursive: true });
 await mkdir(binDir, { recursive: true });
-const catalogSource = join(homedir(), "Library", "Application Support", "work-fold", "model-catalogs", "openrouter.json");
+const catalogSource = argument("--catalog-source", join(homedir(), "Library", "Application Support", "work-fold", "model-catalogs", "openrouter.json"));
 const catalogPath = join(out, "openrouter-catalog.json");
 if (existsSync(catalogSource)) await copyFile(catalogSource, catalogPath);
 let compaction: { reserveTokens: number; keepRecentTokens?: number } | null = null;
