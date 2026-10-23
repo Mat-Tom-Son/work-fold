@@ -163,6 +163,13 @@ test("the browser tools name tabs plainly and follow the tab a Chat used", async
   await run("browser_close", { tab: "work01" });
   assert.deepEqual(calls.at(-1), { method: "close", input: { tab: "work01" } });
 
+  // A Chat's tools carry its identity, so the tabs it opens are its own to close.
+  const owned = new Map(createBrowserTools({ host, owner: "wf-1/chat-1" }).map((tool) => [tool.name, tool]));
+  await owned.get("browser_open")!.execute("call", { url: "docs.example" } as never, undefined as never, undefined as never, undefined as never);
+  assert.deepEqual(calls.at(-1), { method: "open", input: { url: "docs.example", owner: "wf-1/chat-1" } });
+  await owned.get("browser_close")!.execute("call", { tab: "work01" } as never, undefined as never, undefined as never, undefined as never);
+  assert.deepEqual(calls.at(-1), { method: "close", input: { tab: "work01", owner: "wf-1/chat-1" } });
+
   const empty = createBrowserTools({ host: { ...host, tabs: async () => [] } });
   await assert.rejects(
     empty.find((tool) => tool.name === "browser_read")!.execute("call", {} as never, undefined as never, undefined as never, undefined as never) as Promise<unknown>,
@@ -203,9 +210,9 @@ test("the tab strip offers a browser tab beside New Chat, and Workers get the to
   assert.match(tabBar, /aria-label="Open a browser tab"/);
   assert.match(tabBar, /surface-tab-new-browser[\s\S]*surface-tab-new-chat/, "the browser button sits beside New Chat");
   const piClient = await readFile("src/local/agent/pi-client.ts", "utf8");
-  assert.match(piClient, /this\.options\.browser \? createBrowserTools\(\{ host: this\.options\.browser \}\)/);
+  assert.match(piClient, /this\.options\.browser \? createBrowserTools\(\{ host: this\.options\.browser, \.\.\.\(this\.options\.browserOwner \? \{ owner: this\.options\.browserOwner \} : \{\}\) \}\)/);
   const server = await readFile("src/local/server.ts", "utf8");
-  assert.match(server, /\.\.\.\(state\.browser \? \{ browser: state\.browser \} : \{\}\)/, "every scope, the work-fold agent included, gets the browser");
+  assert.match(server, /\.\.\.\(state\.browser \? \{ browser: state\.browser, browserOwner: `\$\{workFolderId\}\/\$\{conversationId\}` \} : \{\}\)/, "every scope, the work-fold agent included, gets the browser, with its own Chat identity");
   const main = await readFile("desktop/src/main.ts", "utf8");
   assert.match(main, /browser: ensureBuiltInBrowser\(\)\.toolHost/);
   // Pages never receive the app's preload or desktop powers.

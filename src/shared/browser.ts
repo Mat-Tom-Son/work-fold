@@ -162,18 +162,19 @@ export interface BrowserActionResult {
  */
 export interface BrowserToolHost {
   tabs(): Promise<BrowserTabSummary[]>;
-  open(input: { url: string; show?: boolean; signal?: AbortSignal }): Promise<BrowserTabSummary>;
+  /** `owner` names the Chat opening the tab; only that Chat may close it. */
+  open(input: { url: string; show?: boolean; signal?: AbortSignal; owner?: string }): Promise<BrowserTabSummary>;
   navigate(input: { tab: string; to: string; signal?: AbortSignal }): Promise<BrowserTabSummary>;
   read(input: { tab: string; mode: "structure" | "text"; find?: string; offset?: number }): Promise<{ tab: BrowserTabSummary; text: string; total: number; nextOffset: number | null }>;
   screenshot(input: { tab: string; ref?: string; fullPage?: boolean }): Promise<{ tab: BrowserTabSummary; data: string; mimeType: string; width: number; height: number }>;
   click(input: { tab: string; ref?: string; x?: number; y?: number; double?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
   type(input: { tab: string; ref?: string; text: string; clear?: boolean; submit?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
   press(input: { tab: string; keys: string; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  scroll(input: { tab: string; ref?: string; direction?: "up" | "down" | "left" | "right"; amount?: number }): Promise<BrowserActionResult>;
+  scroll(input: { tab: string; ref?: string; direction?: "up" | "down" | "left" | "right"; amount?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
   evaluate(input: { tab: string; script: string; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; result: string }>;
   wait(input: { tab: string; text?: string; seconds: number; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; found: boolean | null }>;
   console(input: { tab: string }): Promise<{ tab: BrowserTabSummary; entries: string[] }>;
-  close(input: { tab: string }): Promise<void>;
+  close(input: { tab: string; owner?: string }): Promise<void>;
 }
 
 const pageIdPattern = /^[a-z0-9]{6,32}$/;

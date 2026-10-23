@@ -13090,7 +13090,7 @@ async function getClient(
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
     ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
     backgroundJobs: createBackgroundJobToolHost(state, workFolderId, conversationId),
-    ...(state.browser ? { browser: state.browser } : {}),
+    ...(state.browser ? { browser: state.browser, browserOwner: `${workFolderId}/${conversationId}` } : {}),
     ...(workFolderId === workFoldAgentScopeId ? {} : { collaboration: createCollaborationToolHost(state, workFolderId, conversationId) }),
     helperTool: workFolderId !== workFoldAgentScopeId,
     recoveryScope: taskId => {

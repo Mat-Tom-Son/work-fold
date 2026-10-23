@@ -16,17 +16,26 @@ const pages = {
   "/": `<!doctype html><title>Smoke</title>
 <h1>Hello smoke</h1>
 <label>Name <input id="name"></label>
+<label>City <input id="city"></label>
 <label>Size <select id="size"><option value="one">One</option><option value="two">Two</option></select></label>
 <button id="send" onclick="document.getElementById('out').textContent = 'sent:' + document.getElementById('name').value + ':' + document.getElementById('size').value + ':' + event.isTrusted">Send</button>
 <p id="out">waiting</p>
 <a id="other" href="/two" target="_blank">Other page</a>
 <a id="file" href="/file.txt">The file</a>
+<a id="slow-a" href="/slow.txt?a" download>Slow A</a> <a id="slow-b" href="/slow.txt?b" download>Slow B</a>
 <div style="height: 2400px"></div><p>Bottom of the page</p>
 <script>console.log("smoke console"); setTimeout(() => { const late = document.createElement("p"); late.textContent = "Arrived late"; document.body.append(late); }, 600);</script>`,
   "/two": "<!doctype html><title>Two</title><h1>Second page</h1>",
 };
 
 const server = createServer((request, response) => {
+  // Two downloads with one name that are still arriving at the same time.
+  if (request.url?.startsWith("/slow.txt")) {
+    response.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=\"same.txt\"" });
+    response.write(request.url.endsWith("a") ? "AAAA" : "BBBB");
+    setTimeout(() => response.end(), 600);
+    return;
+  }
   if (request.url === "/file.txt") {
     response.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=\"smoke file.txt\"" });
     response.end("downloaded bytes");
@@ -75,7 +84,7 @@ async function run() {
     assert.match(browser.session.getUserAgent(), /\(KHTML, like Gecko\) work-fold\/9\.9\.9 Chrome\/\d+\.\d+\.\d+\.\d+ Safari\/537\.36$/);
 
     // A Worker opens a page with no window at all: it loads, reads, and takes input.
-    const tab = await host.open({ url: `${base}/` });
+    const tab = await host.open({ url: `${base}/`, owner: "chat-a" });
     assert.equal(tab.title, "Smoke");
     assert.equal(tab.viewing, false);
     const announced = events.find((event) => event.channel === "work-fold:browser:open-tab");
@@ -99,6 +108,22 @@ async function run() {
     await host.type({ tab: tab.tab, ref: name, text: "Ada" });
     await host.type({ tab: tab.tab, ref: name, text: "Grace" });
     await host.type({ tab: tab.tab, ref: size, text: "Two" });
+    // Stop wins before any input: an aborted click never reaches the page.
+    const stopped = new AbortController();
+    stopped.abort();
+    await assert.rejects(host.click({ tab: tab.tab, ref: send, signal: stopped.signal }));
+    await assert.rejects(host.type({ tab: tab.tab, ref: name, text: "never", signal: stopped.signal }));
+    assert.equal((await host.evaluate({ tab: tab.tab, script: "document.getElementById('out').textContent + '|' + document.getElementById('name').value" })).result, "waiting|Grace");
+
+    // Two Chats typing into one page at once each reach their own field.
+    const city = ref(/textbox "City"[^\n]*\[ref=(e\d+)\]/);
+    await Promise.all([
+      host.type({ tab: tab.tab, ref: name, text: "ALPHA" }),
+      host.type({ tab: tab.tab, ref: city, text: "BETA" }),
+    ]);
+    assert.equal((await host.evaluate({ tab: tab.tab, script: "document.getElementById('name').value + '|' + document.getElementById('city').value" })).result, "ALPHA|BETA");
+    await host.type({ tab: tab.tab, ref: name, text: "Grace" });
+
     const clicked = await host.click({ tab: tab.tab, ref: send });
     assert.equal(clicked.navigated, false);
     const text = await host.read({ tab: tab.tab, mode: "text" });
@@ -150,6 +175,14 @@ async function run() {
     assert.equal(download.path, join(downloads, "smoke file.txt"));
     assert.equal(await readFile(download.path, "utf8"), "downloaded bytes");
     assert.throws(() => browser.showDownload("/etc/hosts"), /not one this browser downloaded/);
+
+    // Two downloads with the same name, arriving at once, keep both files.
+    await host.evaluate({ tab: tab.tab, script: "document.getElementById('slow-a').click(); document.getElementById('slow-b').click(); true" });
+    const same = () => events.filter((event) => event.channel === "work-fold:browser:download" && event.payload.filename === "same.txt");
+    await until(() => same().length === 2, "both downloads finish");
+    const samePaths = same().map((event) => event.payload.path).sort();
+    assert.deepEqual(samePaths, [join(downloads, "same (1).txt"), join(downloads, "same.txt")]);
+    assert.deepEqual((await Promise.all(samePaths.map((path) => readFile(path, "utf8")))).sort(), ["AAAA", "BBBB"]);
 
     // Navigation, back and forward, and a page that does not exist.
     const two = await host.navigate({ tab: tab.tab, to: `${base}/two` });
@@ -212,11 +245,13 @@ async function run() {
     browser.respondPermission("perm01", browser.states().find((state) => state.pageId === "perm01").permissionRequest.requestId, "block");
     assert.equal((await blocked).result, "denied");
     // Leaving the page drops a question nobody answered.
-    const unanswered = host.evaluate({ tab: "perm01", script: "navigator.permissions.query({ name: 'midi' }).then(() => navigator.requestMIDIAccess()).then(() => 'granted', () => 'denied')" });
+    // The script is still waiting when the page goes: the dropped question denies it, or the call ends with the page.
+    const unanswered = host.evaluate({ tab: "perm01", script: "navigator.permissions.query({ name: 'midi' }).then(() => navigator.requestMIDIAccess()).then(() => 'granted', () => 'denied')" })
+      .then((outcome) => outcome.result, () => "page left");
     await until(() => browser.states().find((state) => state.pageId === "perm01")?.permissionRequest, "a second kind of question arrives");
     await host.navigate({ tab: "perm01", to: `${base}/` });
     assert.equal(browser.states().find((state) => state.pageId === "perm01").permissionRequest, null);
-    void unanswered.catch(() => undefined);
+    assert.ok(["denied", "page left"].includes(await unanswered));
 
     // Every page a tab reaches is remembered for the address bar and a new tab.
     const suggested = browser.suggest("smoke");
@@ -232,7 +267,10 @@ async function run() {
     assert.equal(typed.pageId, "typed01");
     await until(async () => (await host.tabs()).find((item) => item.tab === "typed01")?.title === "Two", "a bare host and port loads over http");
 
-    await host.close({ tab: tab.tab });
+    // Only the Chat that opened a tab closes it.
+    await assert.rejects(host.close({ tab: tab.tab, owner: "chat-b" }), /Another Chat opened that tab/);
+    await assert.rejects(host.close({ tab: tab.tab }), /Another Chat opened that tab/);
+    await host.close({ tab: tab.tab, owner: "chat-a" });
     assert.ok(events.some((event) => event.channel === "work-fold:browser:close-tab" && event.payload.pageId === tab.tab));
     assert.equal((await host.tabs()).some((item) => item.tab === tab.tab), false);
 

@@ -51,8 +51,9 @@ they open appear in the same strip.
 - A sized pop-up such as "Sign in with…" opens as its own small window that
   keeps its link to the page that opened it, which sign-in flows rely on.
   Mail links open the mail app; other non-web addresses are refused.
-- Downloads go to the Downloads folder and never replace a file there; a
-  message offers **Show in Finder**.
+- Downloads go to the Downloads folder and never replace a file there, even
+  when two with the same name arrive at once; a message offers **Show in
+  Finder**.
 - A site that wants the camera, microphone, location, notifications, MIDI
   devices, the clipboard, window placement, or activity status asks first: a
   bar above the page says what it wants, with **Block** and **Allow**. A tab
@@ -110,7 +111,7 @@ has no browser and no browser tools.
 | `browser_click`, `browser_type`, `browser_press`, `browser_scroll` | Act in the page by element ref or by page coordinates. Typing into a field replaces its contents; typing into a list picks the matching option. |
 | `browser_evaluate` | Runs JavaScript in the page and returns the result. |
 | `browser_wait` | Waits for text to appear, or for loading to finish. |
-| `browser_close` | Closes a tab the Worker opened. The person's tabs stay open. |
+| `browser_close` | Closes a tab this Chat opened. The person's tabs, and tabs another Chat opened, stay open. |
 
 - A page's structure is the accessibility tree Chromium already keeps,
   written as indented lines. Every element a Worker can use carries a ref such
@@ -124,8 +125,12 @@ has no browser and no browser tools.
   mouse and keyboard input arrive as real presses. While a Worker uses a page
   in the background, focus emulation lets it render and take input as if it
   were in front; the debugger lets go after two quiet minutes.
+- Clicks, typing, keys, scrolling, and navigation on one page take turns, so
+  two Chats using the same page never type into each other's fields. A script
+  run does not take a turn; it sends no input and may wait on the page.
 - The tools follow [Receipts, not gates](receipts-not-gates.md): an action runs
-  when called. Stop interrupts a wait or a load, but an effect a page already
+  when called. Stop before an action means none of its input reaches the
+  page; Stop also interrupts a wait or a load, but an effect a page already
   received is not undone.
 
 ## Boundaries

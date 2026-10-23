@@ -103,6 +103,10 @@ interface BrowserPage {
   pageId: string;
   view: WebContentsView;
   openedBy: "person" | "agent";
+  /** The Chat that opened an agent tab; only it may close the tab. */
+  owner: string | null;
+  /** The end of this page's queue of Worker input operations. */
+  operations: Promise<void>;
   favicon: string | null;
   faviconUrl: string | null;
   error: BrowserPageState["error"];
@@ -141,6 +145,8 @@ export class BuiltInBrowser {
   readonly #pages = new Map<string, BrowserPage>();
   /** Files this browser downloaded during this run: the only paths it shows in the file manager. */
   readonly #downloads = new Set<string>();
+  /** Paths downloads are still writing to, so two downloads never share one. */
+  readonly #pendingDownloads = new Set<string>();
   readonly #sitePermissions: BrowserSitePermissionStore;
   readonly #history: BrowserHistoryStore;
   #synced: BrowserTabsSync = { tabs: [], viewingPageId: null };
@@ -289,7 +295,7 @@ export class BuiltInBrowser {
 
   // ── Pages ─────────────────────────────────────────────────────────────────
 
-  #createPage(pageId: string, url: string, openedBy: BrowserPage["openedBy"], adopt?: WebContentsViewConstructorOptions): BrowserPage {
+  #createPage(pageId: string, url: string, openedBy: BrowserPage["openedBy"], adopt?: WebContentsViewConstructorOptions, owner: string | null = null): BrowserPage {
     if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
     if (this.#pages.has(pageId)) throw new Error("That browser tab already exists.");
     const view = new WebContentsView(adopt ?? { webPreferences: this.#webPreferences() });
@@ -299,6 +305,8 @@ export class BuiltInBrowser {
       pageId,
       view,
       openedBy,
+      owner: openedBy === "agent" ? owner : null,
+      operations: Promise.resolve(),
       favicon: null,
       faviconUrl: null,
       error: null,
@@ -449,7 +457,7 @@ export class BuiltInBrowser {
     return {
       action: "allow",
       createWindow: (options) => {
-        const page = this.#createPage(newPageId(this.#pages), details.url, opener.openedBy, options as WebContentsViewConstructorOptions);
+        const page = this.#createPage(newPageId(this.#pages), details.url, opener.openedBy, options as WebContentsViewConstructorOptions, opener.owner);
         this.#announce(page, show, details.url);
         return page.view.webContents;
       },
@@ -468,8 +476,8 @@ export class BuiltInBrowser {
     contents.on("will-attach-webview", (event) => event.preventDefault());
   }
 
-  #openTab(url: string, show: boolean, openedBy: BrowserPage["openedBy"]): BrowserPage {
-    const page = this.#createPage(newPageId(this.#pages), url, openedBy);
+  #openTab(url: string, show: boolean, openedBy: BrowserPage["openedBy"], owner: string | null = null): BrowserPage {
+    const page = this.#createPage(newPageId(this.#pages), url, openedBy, undefined, owner);
     this.#announce(page, show, url);
     return page;
   }
@@ -492,9 +500,12 @@ export class BuiltInBrowser {
     if (page.debuggerIdle) clearTimeout(page.debuggerIdle);
     this.#pages.delete(page.pageId);
     if (page.fullscreen) this.#leaveFullScreen(page);
-    this.#hide(page);
-    const contents = page.view.webContents;
-    if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
+    // During quit Electron may already have torn the view down.
+    const contents = page.view.webContents as WebContents | undefined;
+    if (contents && !contents.isDestroyed()) {
+      this.#hide(page);
+      contents.close({ waitForBeforeUnload: false });
+    }
     if (options.announce !== false) this.#options.send(browserChannels.closeTab, { pageId: page.pageId });
   }
 
@@ -638,9 +649,11 @@ export class BuiltInBrowser {
     session.setDisplayMediaRequestHandler((_request, callback) => callback({}), { useSystemPicker: true });
     session.on("will-download", (_event, item) => {
       const directory = this.#options.downloadsPath();
-      const path = uniquePath(directory, safeFileName(item.getFilename()));
+      const path = uniquePath(directory, safeFileName(item.getFilename()), this.#pendingDownloads);
+      this.#pendingDownloads.add(path);
       item.setSavePath(path);
       item.once("done", (_doneEvent, state) => {
+        this.#pendingDownloads.delete(path);
         if (state === "completed") this.#downloads.add(path);
         const download: BrowserDownload = { filename: item.getFilename(), path, state };
         this.#options.send(browserChannels.download, download);
@@ -830,35 +843,38 @@ export class BuiltInBrowser {
   #createToolHost(): BrowserToolHost {
     return {
       tabs: async () => this.#tabSummaries(),
-      open: async ({ url, show, signal }) => {
+      open: async ({ url, show, signal, owner }) => {
         const address = browserAddressFor(url);
         if (!address || !isBrowserUrl(address)) throw new Error(`"${url}" is not a web address this browser can open.`);
-        const page = this.#openTab(address, show === true, "agent");
+        signal?.throwIfAborted();
+        const page = this.#openTab(address, show === true, "agent", owner ?? null);
         await delay(50);
         await this.#waitForLoad(page, signal);
         return this.#summary(page);
       },
       navigate: async ({ tab, to, signal }) => {
-        const page = await this.#agentPage(tab);
-        const contents = page.view.webContents;
-        const target = to.trim().toLowerCase();
-        if (target === "back") {
-          if (!contents.navigationHistory.canGoBack()) throw new Error("This tab has no earlier page.");
-          contents.navigationHistory.goBack();
-        } else if (target === "forward") {
-          if (!contents.navigationHistory.canGoForward()) throw new Error("This tab has no later page.");
-          contents.navigationHistory.goForward();
-        } else if (target === "reload") {
-          page.error = null;
-          contents.reload();
-        } else {
-          const address = browserAddressFor(to);
-          if (!address || !isBrowserUrl(address)) throw new Error(`"${to}" is not a web address this browser can open.`);
-          void this.#load(page, address);
-        }
-        await delay(50);
-        await this.#waitForLoad(page, signal);
-        return this.#summary(page);
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const contents = page.view.webContents;
+          const target = to.trim().toLowerCase();
+          if (target === "back") {
+            if (!contents.navigationHistory.canGoBack()) throw new Error("This tab has no earlier page.");
+            contents.navigationHistory.goBack();
+          } else if (target === "forward") {
+            if (!contents.navigationHistory.canGoForward()) throw new Error("This tab has no later page.");
+            contents.navigationHistory.goForward();
+          } else if (target === "reload") {
+            page.error = null;
+            contents.reload();
+          } else {
+            const address = browserAddressFor(to);
+            if (!address || !isBrowserUrl(address)) throw new Error(`"${to}" is not a web address this browser can open.`);
+            void this.#load(page, address);
+          }
+          await delay(50);
+          await this.#waitForLoad(page, signal);
+          return this.#summary(page);
+        });
       },
       read: async ({ tab, mode, find, offset }) => {
         const page = await this.#agentPage(tab);
@@ -910,77 +926,94 @@ export class BuiltInBrowser {
         return { tab: this.#summary(page), data: image.toJPEG(82).toString("base64"), mimeType: "image/jpeg", width: size.width, height: size.height };
       },
       click: async ({ tab, ref, x, y, double, signal }) => {
-        const page = await this.#agentPage(tab);
-        const cdp = await this.#debugger(page);
-        const point = ref ? await this.#elementCenter(page, ref) : pointFrom(x, y);
-        return await this.#observeAction(page, signal, async () => {
-          await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
-          for (let count = 1; count <= (double ? 2 : 1); count += 1) {
-            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: count });
-            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: count });
-          }
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          const point = ref ? await this.#elementCenter(page, ref) : pointFrom(x, y);
+          return await this.#observeAction(page, signal, async () => {
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+            for (let count = 1; count <= (double ? 2 : 1); count += 1) {
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: count });
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: count });
+            }
+          });
         });
       },
       type: async ({ tab, ref, text, clear, submit, signal }) => {
-        const page = await this.#agentPage(tab);
-        const cdp = await this.#debugger(page);
-        return await this.#observeAction(page, signal, async () => {
-          if (ref) {
-            const backendNodeId = refNodeId(ref);
-            const described = await cdp.sendCommand("DOM.describeNode", { backendNodeId }).catch(() => { throw staleRef(ref); }) as { node?: { nodeName?: string } };
-            if (described.node?.nodeName === "SELECT") {
-              const object = await this.#resolve(cdp, ref);
-              const chosen = await cdp.sendCommand("Runtime.callFunctionOn", { objectId: object, functionDeclaration: chooseOptionFunction, arguments: [{ value: text }], returnByValue: true }) as { result?: { value?: unknown } };
-              if (typeof chosen.result?.value !== "string") throw new Error(`No option in that list matches "${text}". Read the page to see its options.`);
-              return;
+        const page = await this.#agentPage(tab, signal);
+        // Focus, selection, and insertion belong together: another Chat's typing waits its turn.
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          return await this.#observeAction(page, signal, async () => {
+            if (ref) {
+              const backendNodeId = refNodeId(ref);
+              const described = await cdp.sendCommand("DOM.describeNode", { backendNodeId }).catch(() => { throw staleRef(ref); }) as { node?: { nodeName?: string } };
+              if (described.node?.nodeName === "SELECT") {
+                const object = await this.#resolve(cdp, ref);
+                const chosen = await cdp.sendCommand("Runtime.callFunctionOn", { objectId: object, functionDeclaration: chooseOptionFunction, arguments: [{ value: text }], returnByValue: true }) as { result?: { value?: unknown } };
+                if (typeof chosen.result?.value !== "string") throw new Error(`No option in that list matches "${text}". Read the page to see its options.`);
+                return;
+              }
+              await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
+              signal?.throwIfAborted();
+              await cdp.sendCommand("DOM.focus", { backendNodeId }).catch(async () => {
+                const point = await this.#elementCenter(page, ref);
+                signal?.throwIfAborted();
+                await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+                await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+              });
             }
-            await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
-            await cdp.sendCommand("DOM.focus", { backendNodeId }).catch(async () => {
-              const point = await this.#elementCenter(page, ref);
-              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
-              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
-            });
-          }
-          if (clear ?? Boolean(ref)) {
-            await cdp.sendCommand("Runtime.evaluate", { expression: selectFocusedContentsExpression });
-            if (!text) await this.#press(cdp, parseBrowserKeys("Backspace"));
-          }
-          if (text) await cdp.sendCommand("Input.insertText", { text });
-          if (submit) await this.#press(cdp, parseBrowserKeys("Enter"));
+            if (clear ?? Boolean(ref)) {
+              signal?.throwIfAborted();
+              await cdp.sendCommand("Runtime.evaluate", { expression: selectFocusedContentsExpression });
+              if (!text) await this.#press(cdp, parseBrowserKeys("Backspace"), signal);
+            }
+            signal?.throwIfAborted();
+            if (text) await cdp.sendCommand("Input.insertText", { text });
+            if (submit) await this.#press(cdp, parseBrowserKeys("Enter"), signal);
+          });
         });
       },
       press: async ({ tab, keys, signal }) => {
-        const page = await this.#agentPage(tab);
         const presses = parseBrowserKeys(keys);
-        const cdp = await this.#debugger(page);
-        return await this.#observeAction(page, signal, () => this.#press(cdp, presses));
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          return await this.#observeAction(page, signal, () => this.#press(cdp, presses, signal));
+        });
       },
-      scroll: async ({ tab, ref, direction, amount }) => {
-        const page = await this.#agentPage(tab);
-        const cdp = await this.#debugger(page);
-        if (ref) {
-          await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); });
-        } else {
-          const viewport = await this.#viewport(page);
-          const screens = typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? amount : 1;
-          const along = direction === "left" || direction === "right" ? viewport.width : viewport.height;
-          const distance = Math.round(along * 0.8 * screens) * (direction === "up" || direction === "left" ? -1 : 1);
-          const horizontal = direction === "left" || direction === "right";
-          await cdp.sendCommand("Input.dispatchMouseEvent", {
-            type: "mouseWheel",
-            x: Math.round(viewport.width / 2),
-            y: Math.round(viewport.height / 2),
-            deltaX: horizontal ? distance : 0,
-            deltaY: horizontal ? 0 : distance,
-          });
-          await delay(250);
-        }
-        this.#touch(page);
-        return { tab: this.#summary(page), navigated: false };
+      scroll: async ({ tab, ref, direction, amount, signal }) => {
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          if (ref) {
+            await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); });
+          } else {
+            const viewport = await this.#viewport(page);
+            const screens = typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? amount : 1;
+            const along = direction === "left" || direction === "right" ? viewport.width : viewport.height;
+            const distance = Math.round(along * 0.8 * screens) * (direction === "up" || direction === "left" ? -1 : 1);
+            const horizontal = direction === "left" || direction === "right";
+            signal?.throwIfAborted();
+            await cdp.sendCommand("Input.dispatchMouseEvent", {
+              type: "mouseWheel",
+              x: Math.round(viewport.width / 2),
+              y: Math.round(viewport.height / 2),
+              deltaX: horizontal ? distance : 0,
+              deltaY: horizontal ? 0 : distance,
+            });
+            await delay(250);
+          }
+          this.#touch(page);
+          return { tab: this.#summary(page), navigated: false };
+        });
       },
+      // A script sends no input, and it may wait on the page for as long as it
+      // likes, so it does not hold the page's turn the way typing does.
       evaluate: async ({ tab, script, signal }) => {
-        const page = await this.#agentPage(tab);
+        const page = await this.#agentPage(tab, signal);
         const cdp = await this.#debugger(page);
+        signal?.throwIfAborted();
         const evaluation = cdp.sendCommand("Runtime.evaluate", { expression: script, awaitPromise: true, returnByValue: true, userGesture: true }) as Promise<{
           result?: { type?: string; value?: unknown; description?: string };
           exceptionDetails?: { text?: string; exception?: { description?: string } };
@@ -1014,9 +1047,10 @@ export class BuiltInBrowser {
         const page = await this.#agentPage(tab);
         return { tab: this.#summary(page), entries: [...page.console] };
       },
-      close: async ({ tab }) => {
+      close: async ({ tab, owner }) => {
         const page = await this.#agentPage(tab);
         if (page.openedBy !== "agent") throw new Error("That tab is the person's. Close only tabs you opened.");
+        if (!owner || page.owner !== owner) throw new Error("Another Chat opened that tab. Close only tabs this Chat opened.");
         this.#synced = { ...this.#synced, tabs: this.#synced.tabs.filter((item) => item.pageId !== page.pageId) };
         this.#destroy(page);
       },
@@ -1110,10 +1144,31 @@ export class BuiltInBrowser {
     this.#touch(page);
   }
 
+  /**
+   * One Worker operation at a time on a page: two Chats typing at once would
+   * otherwise move focus under each other. An operation waits for the one
+   * before it to finish; Stop while waiting gives up the turn without acting.
+   */
+  async #exclusive<T>(page: BrowserPage, signal: AbortSignal | undefined, operation: () => Promise<T>): Promise<T> {
+    const previous = page.operations;
+    let finish!: () => void;
+    const mine = new Promise<void>((resolve) => { finish = resolve; });
+    page.operations = previous.then(() => mine);
+    try {
+      await abortable(previous, signal);
+      signal?.throwIfAborted();
+      return await operation();
+    } finally {
+      finish();
+    }
+  }
+
   /** Runs an input action and reports whether it led to a new page. */
   async #observeAction(page: BrowserPage, signal: AbortSignal | undefined, action: () => Promise<void>): Promise<BrowserActionResult> {
     const contents = page.view.webContents;
     const before = { url: contents.getURL(), index: contents.navigationHistory.getActiveIndex() };
+    // Stop before any input reaches the page; an action already sent is not taken back.
+    signal?.throwIfAborted();
     await action();
     await delay(300);
     await this.#waitForLoad(page, signal, actionSettleMs);
@@ -1122,8 +1177,9 @@ export class BuiltInBrowser {
     return { tab: this.#summary(page), navigated };
   }
 
-  async #press(cdp: Debugger, presses: BrowserKeyPress[]): Promise<void> {
+  async #press(cdp: Debugger, presses: BrowserKeyPress[], signal?: AbortSignal): Promise<void> {
     for (const press of presses) {
+      signal?.throwIfAborted();
       const base = { key: press.key, code: press.code, windowsVirtualKeyCode: press.keyCode, nativeVirtualKeyCode: press.keyCode, modifiers: press.modifiers };
       await cdp.sendCommand("Input.dispatchKeyEvent", {
         ...base,
@@ -1262,11 +1318,12 @@ function safeFileName(name: string): string {
   return cleaned.slice(0, 200) || "download";
 }
 
-function uniquePath(directory: string, name: string): string {
+/** A path in the folder no file and no unfinished download uses: "name (1).ext" after "name.ext". */
+function uniquePath(directory: string, name: string, pending: ReadonlySet<string>): string {
   const extension = extname(name);
   const stem = extension ? name.slice(0, -extension.length) : name;
   let candidate = join(directory, name);
-  for (let index = 1; existsSync(candidate); index += 1) candidate = join(directory, `${stem} (${index})${extension}`);
+  for (let index = 1; existsSync(candidate) || pending.has(candidate); index += 1) candidate = join(directory, `${stem} (${index})${extension}`);
   return candidate;
 }
 

@@ -207,6 +207,8 @@ export interface PiConversationClientOptions {
   backgroundJobs?: BackgroundJobToolHost;
   /** The desktop's built-in browser behind the browser_* tools (docs/built-in-browser.md); absent without Electron. */
   browser?: BrowserToolHost;
+  /** This Chat's identity in the browser: it may close only the tabs it opened. */
+  browserOwner?: string;
   /** Where the `checklist` tool keeps its request's checklist (2026-10-18). */
   checklist?: ChecklistToolHost;
   collaboration?: CollaborationToolHost;
@@ -889,7 +891,7 @@ export class PiConversationClient extends EventEmitter {
           }),
         }) : []),
         // Every session in the desktop app can use the built-in browser the person sees.
-        ...(this.options.browser ? createBrowserTools({ host: this.options.browser }) : []),
+        ...(this.options.browser ? createBrowserTools({ host: this.options.browser, ...(this.options.browserOwner ? { owner: this.options.browserOwner } : {}) }) : []),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,

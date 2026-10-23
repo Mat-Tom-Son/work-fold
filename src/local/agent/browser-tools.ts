@@ -12,6 +12,8 @@ import type { BrowserActionResult, BrowserTabSummary, BrowserToolHost } from "..
 
 export interface BrowserToolsInput {
   host: BrowserToolHost;
+  /** This Chat's identity: tabs it opens are its own, and it may close only those. */
+  owner?: string;
 }
 
 export const browserToolNames = [
@@ -78,7 +80,7 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 }
 
 export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any>[] {
-  const { host } = input;
+  const { host, owner } = input;
   /** The tab this Chat last opened or used. */
   let lastTab: string | null = null;
 
@@ -133,7 +135,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const value = params as { url?: unknown; show?: unknown };
       const url = optionalString(value.url, "url");
       if (!url?.trim()) throw new Error("browser_open needs an address.");
-      const tab = await host.open({ url, ...(value.show === true ? { show: true } : {}), ...(signal ? { signal } : {}) });
+      const tab = await host.open({ url, ...(value.show === true ? { show: true } : {}), ...(signal ? { signal } : {}), ...(owner ? { owner } : {}) });
       used(tab.tab);
       return text(`Opened a tab.\n${describeBrowserTab(tab)}`, { tab: tab.tab, url: tab.url });
     },
@@ -333,14 +335,14 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       },
       additionalProperties: false,
     } as any,
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal) {
       const value = params as { tab?: unknown; ref?: unknown; direction?: unknown; amount?: unknown };
       const tabId = await resolveTab(value.tab);
       const ref = optionalString(value.ref, "ref");
       const direction = value.direction === "up" || value.direction === "left" || value.direction === "right" ? value.direction : "down";
       const amount = optionalNumber(value.amount, "amount");
       used(tabId);
-      const result = await host.scroll({ tab: tabId, ...(ref ? { ref } : { direction }), ...(amount !== undefined ? { amount } : {}) });
+      const result = await host.scroll({ tab: tabId, ...(ref ? { ref } : { direction }), ...(amount !== undefined ? { amount } : {}), ...(signal ? { signal } : {}) });
       return text(`${ref ? `Scrolled to ${ref}.` : `Scrolled ${direction}.`}\n${describeBrowserTab(result.tab)}`, { tab: tabId });
     },
   };
@@ -401,7 +403,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
   const close: ToolDefinition<any> = {
     name: "browser_close",
     label: "Close browser tab",
-    description: "Close a browser tab you opened. The person's own tabs stay open.",
+    description: "Close a browser tab this Chat opened. The person's tabs, and tabs another Chat opened, stay open.",
     promptSnippet: "Close a browser tab you opened",
     parameters: {
       type: "object",
@@ -413,7 +415,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const value = params as { tab?: unknown };
       const tabId = optionalString(value.tab, "tab");
       if (!tabId) throw new Error("browser_close needs a tab id.");
-      await host.close({ tab: tabId });
+      await host.close({ tab: tabId, ...(owner ? { owner } : {}) });
       if (lastTab === tabId) lastTab = null;
       return text(`Closed tab ${tabId}.`, { tab: tabId });
     },
