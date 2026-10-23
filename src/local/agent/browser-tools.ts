@@ -81,6 +81,8 @@ function optionalNumber(value: unknown, label: string): number | undefined {
 
 export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any>[] {
   const { host, owner } = input;
+  /** This Chat's identity on every call, so the person sees whose Worker is using a page. */
+  const by = owner ? { owner } : {};
   /** The tab this Chat last opened or used. */
   let lastTab: string | null = null;
 
@@ -135,7 +137,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const value = params as { url?: unknown; show?: unknown };
       const url = optionalString(value.url, "url");
       if (!url?.trim()) throw new Error("browser_open needs an address.");
-      const tab = await host.open({ url, ...(value.show === true ? { show: true } : {}), ...(signal ? { signal } : {}), ...(owner ? { owner } : {}) });
+      const tab = await host.open({ url, ...(value.show === true ? { show: true } : {}), ...(signal ? { signal } : {}), ...by });
       used(tab.tab);
       return text(`Opened a tab.\n${describeBrowserTab(tab)}`, { tab: tab.tab, url: tab.url });
     },
@@ -159,7 +161,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const value = params as { tab?: unknown; to?: unknown };
       const to = optionalString(value.to, "to");
       if (!to?.trim()) throw new Error("browser_navigate needs an address, or back, forward, or reload.");
-      const tab = await host.navigate({ tab: await resolveTab(value.tab), to, ...(signal ? { signal } : {}) });
+      const tab = await host.navigate({ tab: await resolveTab(value.tab), to, ...(signal ? { signal } : {}), ...by });
       used(tab.tab);
       return text(describeBrowserTab(tab), { tab: tab.tab, url: tab.url });
     },
@@ -186,14 +188,14 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const mode = value.mode === "text" || value.mode === "console" ? value.mode : "structure";
       used(tabId);
       if (mode === "console") {
-        const result = await host.console({ tab: tabId });
+        const result = await host.console({ tab: tabId, ...by });
         const find = optionalString(value.find, "find")?.toLowerCase();
         const entries = find ? result.entries.filter((entry) => entry.toLowerCase().includes(find)) : result.entries;
         return text([describeBrowserTab(result.tab), entries.length ? entries.join("\n") : "No console messages or failed requests."].join("\n"), { tab: tabId, entries: entries.length });
       }
       const offset = optionalNumber(value.offset, "offset");
       const find = optionalString(value.find, "find");
-      const result = await host.read({ tab: tabId, mode, ...(find ? { find } : {}), ...(offset !== undefined ? { offset: Math.max(0, Math.floor(offset)) } : {}) });
+      const result = await host.read({ tab: tabId, mode, ...(find ? { find } : {}), ...(offset !== undefined ? { offset: Math.max(0, Math.floor(offset)) } : {}), ...by });
       const parts = [describeBrowserTab(result.tab)];
       if (!result.text) parts.push(find ? `Nothing on the page mentions "${find}".` : "The page has no readable content yet.");
       else parts.push("", result.text);
@@ -221,7 +223,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const tabId = await resolveTab(value.tab);
       const ref = optionalString(value.ref, "ref");
       used(tabId);
-      const shot = await host.screenshot({ tab: tabId, ...(ref ? { ref } : {}), ...(value.fullPage === true ? { fullPage: true } : {}) });
+      const shot = await host.screenshot({ tab: tabId, ...(ref ? { ref } : {}), ...(value.fullPage === true ? { fullPage: true } : {}), ...by });
       return {
         content: [
           { type: "text" as const, text: `${describeBrowserTab(shot.tab)}\nPicture: ${shot.width}×${shot.height} page pixels.` },
@@ -255,7 +257,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const x = optionalNumber(value.x, "x");
       const y = optionalNumber(value.y, "y");
       used(tabId);
-      const result = await host.click({ tab: tabId, ...(ref ? { ref } : {}), ...(x !== undefined ? { x } : {}), ...(y !== undefined ? { y } : {}), ...(value.double === true ? { double: true } : {}), ...(signal ? { signal } : {}) });
+      const result = await host.click({ tab: tabId, ...(ref ? { ref } : {}), ...(x !== undefined ? { x } : {}), ...(y !== undefined ? { y } : {}), ...(value.double === true ? { double: true } : {}), ...(signal ? { signal } : {}), ...by });
       return text(describeAction(result, ref ? `Clicked ${ref}.` : `Clicked at ${x}, ${y}.`), { tab: tabId, navigated: result.navigated });
     },
   };
@@ -290,6 +292,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
         ...(typeof value.clear === "boolean" ? { clear: value.clear } : {}),
         ...(value.submit === true ? { submit: true } : {}),
         ...(signal ? { signal } : {}),
+        ...by,
       });
       return text(describeAction(result, `Typed ${value.text.length} characters${ref ? ` into ${ref}` : ""}${value.submit === true ? " and pressed Enter" : ""}.`), { tab: tabId, navigated: result.navigated });
     },
@@ -315,7 +318,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       if (!keys?.trim()) throw new Error("browser_press needs keys.");
       const tabId = await resolveTab(value.tab);
       used(tabId);
-      const result = await host.press({ tab: tabId, keys, ...(signal ? { signal } : {}) });
+      const result = await host.press({ tab: tabId, keys, ...(signal ? { signal } : {}), ...by });
       return text(describeAction(result, `Pressed ${keys.trim()}.`), { tab: tabId, navigated: result.navigated });
     },
   };
@@ -342,7 +345,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const direction = value.direction === "up" || value.direction === "left" || value.direction === "right" ? value.direction : "down";
       const amount = optionalNumber(value.amount, "amount");
       used(tabId);
-      const result = await host.scroll({ tab: tabId, ...(ref ? { ref } : { direction }), ...(amount !== undefined ? { amount } : {}), ...(signal ? { signal } : {}) });
+      const result = await host.scroll({ tab: tabId, ...(ref ? { ref } : { direction }), ...(amount !== undefined ? { amount } : {}), ...(signal ? { signal } : {}), ...by });
       return text(`${ref ? `Scrolled to ${ref}.` : `Scrolled ${direction}.`}\n${describeBrowserTab(result.tab)}`, { tab: tabId });
     },
   };
@@ -367,7 +370,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       if (!script?.trim()) throw new Error("browser_evaluate needs a script.");
       const tabId = await resolveTab(value.tab);
       used(tabId);
-      const result = await host.evaluate({ tab: tabId, script, ...(signal ? { signal } : {}) });
+      const result = await host.evaluate({ tab: tabId, script, ...(signal ? { signal } : {}), ...by });
       return text(`${describeBrowserTab(result.tab)}\nResult:\n${result.result}`, { tab: tabId });
     },
   };
@@ -392,7 +395,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const wanted = optionalString(value.text, "text");
       const seconds = optionalNumber(value.seconds, "seconds") ?? 10;
       used(tabId);
-      const result = await host.wait({ tab: tabId, seconds: Math.max(0, seconds), ...(wanted ? { text: wanted } : {}), ...(signal ? { signal } : {}) });
+      const result = await host.wait({ tab: tabId, seconds: Math.max(0, seconds), ...(wanted ? { text: wanted } : {}), ...(signal ? { signal } : {}), ...by });
       const outcome = result.found === true
         ? `"${wanted}" is on the page.`
         : result.found === false ? `"${wanted}" did not appear within ${seconds} s.` : result.tab.loading ? `Still loading after ${seconds} s.` : "The page has finished loading.";
@@ -415,7 +418,7 @@ export function createBrowserTools(input: BrowserToolsInput): ToolDefinition<any
       const value = params as { tab?: unknown };
       const tabId = optionalString(value.tab, "tab");
       if (!tabId) throw new Error("browser_close needs a tab id.");
-      await host.close({ tab: tabId, ...(owner ? { owner } : {}) });
+      await host.close({ tab: tabId, ...by });
       if (lastTab === tabId) lastTab = null;
       return text(`Closed tab ${tabId}.`, { tab: tabId });
     },

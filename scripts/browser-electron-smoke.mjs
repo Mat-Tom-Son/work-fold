@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow } from "electron";
 
+import { BrowserStatusBubble } from "../dist/desktop/desktop/src/browser-status-bubble.js";
 import { BuiltInBrowser } from "../dist/desktop/desktop/src/built-in-browser.js";
 
 const pages = {
@@ -240,6 +241,16 @@ async function run() {
     assert.equal(window.contentView.children.length, 0, "an older layout never wins");
     browser.layout({ ...placement, sequence: 3, active: true });
     assert.equal(window.contentView.children.length, 1);
+    // The address of a hovered link shows at the page's bottom-left, above the page.
+    const bubble = new BrowserStatusBubble();
+    bubble.show(window, placement.bounds, "example.com/a <b>link</b>");
+    await until(() => window.contentView.children.length === 2, "the link bubble joins the window");
+    assert.deepEqual(window.contentView.children[1].getBounds(), { x: 100, y: 556, width: 185, height: 24 });
+    bubble.show(window, placement.bounds, "example.com/a <b>link</b>", { x: 120, y: 570 });
+    await until(() => window.contentView.children[1]?.getBounds().x === 615, "a pointer in the corner moves the bubble right");
+    bubble.hide();
+    assert.equal(window.contentView.children.length, 1, "the bubble leaves with the pointer");
+    bubble.close();
     browser.detachWindow(window);
     assert.equal(window.contentView.children.length, 0, "a closing window gives its pages back");
     assert.equal((await host.read({ tab: restoredId, mode: "text" })).text.includes("Second page"), true, "the page outlives its window");
@@ -285,6 +296,45 @@ async function run() {
     await browser.clearHistory();
     assert.deepEqual(browser.recentHistory(), []);
     assert.deepEqual(JSON.parse(await readFile(join(downloads, "history.json"), "utf8")), { version: 1, entries: [] });
+
+    // A page that opens a pop-up on its own is stopped; the person can open it or allow the site.
+    const popupTab = await host.open({ url: `${base}/two`, owner: "chat-a" });
+    const popupState = () => browser.states().find((state) => state.pageId === popupTab.tab);
+    const tabCount = async () => (await host.tabs()).length;
+    const beforePopup = await tabCount();
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: `String(window.open("${base}/") === null)` })).result, "true");
+    await until(() => popupState()?.blockedPopup, "the blocked pop-up reaches the tab");
+    assert.equal(popupState().blockedPopup.url, `${base}/`);
+    assert.equal(await tabCount(), beforePopup, "nothing opened");
+    browser.command(popupTab.tab, { type: "open-blocked-popup" });
+    assert.equal(popupState().blockedPopup, null);
+    await until(async () => (await tabCount()) === beforePopup + 1, "Open it opens the pop-up as a tab");
+    await host.evaluate({ tab: popupTab.tab, script: `window.open("${base}/"); true` });
+    await until(() => popupState()?.blockedPopup, "a second pop-up is blocked too");
+    browser.command(popupTab.tab, { type: "allow-popups" });
+    await until(async () => (await tabCount()) === beforePopup + 2, "Always allow opens it");
+    await until(() => popupState().sitePermissions.some((item) => item.kind === "popups" && item.decision === "allow"), "the site keeps the allowance");
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: `String(window.open("${base}/") !== null)` })).result, "true", "an allowed site opens pop-ups");
+    await until(async () => (await tabCount()) === beforePopup + 3, "the allowed pop-up opens");
+    browser.command(popupTab.tab, { type: "forget-permission", kind: "popups" });
+
+    // Mute and zoom show on the tab.
+    browser.command(popupTab.tab, { type: "mute", muted: true });
+    assert.equal(popupState().muted, true);
+    browser.command(popupTab.tab, { type: "zoom-in" });
+    assert.equal(popupState().zoomPercent, 110);
+    browser.command(popupTab.tab, { type: "zoom-reset" });
+    assert.equal(popupState().zoomPercent, 100);
+
+    // A Worker's step marks the page with its Chat while it runs, and the mark fades after.
+    await until(() => !popupState().worker, "the opening step's mark fades", 6_000);
+    const waiting = host.wait({ tab: popupTab.tab, text: "never on this page", seconds: 1, owner: "chat-b" });
+    await until(() => popupState().worker?.owner === "chat-b", "the page shows which Chat is using it");
+    assert.equal((await waiting).found, false);
+    assert.deepEqual(popupState().worker, { owner: "chat-b" }, "the mark lingers briefly");
+    await until(() => !popupState().worker, "the mark fades", 6_000);
+    await host.read({ tab: popupTab.tab, mode: "text" });
+    assert.equal(popupState().worker, null, "a step with no Chat leaves no mark");
 
     // A blank tab gets its page from the first address typed.
     const typed = browser.navigate("typed01", `127.0.0.1:${server.address().port}/two`);

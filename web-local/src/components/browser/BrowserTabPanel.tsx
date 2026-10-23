@@ -6,16 +6,20 @@ import {
   ChevronUp16Regular,
   Dismiss16Regular,
   Dismiss20Regular,
+  Info16Regular,
+  LockClosed16Regular,
   Open20Regular,
-  Options20Regular,
   Search16Regular,
   ShieldQuestion20Regular,
+  Stop16Regular,
   Warning16Regular,
+  WindowNew16Regular,
 } from "@fluentui/react-icons";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import {
   browserAddressFor,
+  browserConnection,
   browserDisplayAddress,
   browserPermissionNames,
   browserPermissionPhrase,
@@ -30,6 +34,14 @@ import { nativeViewBounds, nativeViewOccluded } from "../panes/RestrictedAppView
 
 type BrowserBridge = NonNullable<NonNullable<Window["workFoldDesktop"]>["browser"]>;
 type HistoryEntry = Awaited<ReturnType<BrowserBridge["recent"]>>[number];
+
+/** Who is using the page: a Worker's Chat (with Stop) or the work-fold agent. */
+export interface BrowserTabWorker {
+  label: string;
+  title: string;
+  onOpen?: () => void;
+  onStop?: () => void;
+}
 
 /** One row under the address bar: what Enter does with the typed text, then pages from history. */
 interface AddressSuggestion {
@@ -49,12 +61,15 @@ export function BrowserTabPanel({
   tab,
   page,
   active,
+  worker = null,
   onError,
 }: {
   tab: BrowserSurfaceTab;
   /** The page's latest state from the desktop; absent until the page exists. */
   page: BrowserPageState | undefined;
   active: boolean;
+  /** The Worker using the page right now, if any. */
+  worker?: BrowserTabWorker | null;
   onError: (message: string) => void;
 }) {
   const desktop = window.workFoldDesktop?.browser;
@@ -124,7 +139,7 @@ export function BrowserTabPanel({
     const element = viewportRef.current;
     if (!desktop || !element || !hasPage) return;
     desktop.layout(browserViewRequest(element, sequenceRef.current++, latestRef.current));
-  }, [active, blocked, desktop, findOpen, hasPage, page?.permissionRequest?.requestId, page?.notice?.text]);
+  }, [active, blocked, desktop, findOpen, hasPage, page?.permissionRequest?.requestId, page?.notice?.text, page?.blockedPopup?.url]);
 
   // The site settings menu closes on a click elsewhere or Escape, like the app's other menus.
   useEffect(() => {
@@ -143,7 +158,7 @@ export function BrowserTabPanel({
       document.removeEventListener("keydown", keyDown, true);
     };
   }, [siteSettingsOpen]);
-  useEffect(() => { if (!page?.sitePermissions.length) setSiteSettingsOpen(false); }, [page?.sitePermissions.length]);
+  useEffect(() => { setSiteSettingsOpen(false); }, [url]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -292,6 +307,12 @@ export function BrowserTabPanel({
   const address = draft ?? browserDisplayAddress(url);
   const external = /^https?:/i.test(url);
   const request = page?.permissionRequest ?? null;
+  const connection = hasPage ? browserConnection(url) : "none";
+  const connectionText = connection === "secure"
+    ? "Connection is secure"
+    : connection === "insecure"
+      ? "Connection is not secure. Don't enter passwords or payment details on this site."
+      : /^file:/i.test(url) ? "This is a file on this computer" : "This page is served by this computer";
   const siteHost = (origin: string) => {
     try {
       return new URL(origin).host;
@@ -311,67 +332,76 @@ export function BrowserTabPanel({
         <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={() => command(loading ? "stop" : "reload")} aria-label={loading ? "Stop loading" : "Reload"} title={loading ? "Stop loading" : "Reload"}>
           {loading ? <Dismiss20Regular /> : <ArrowClockwise20Regular />}
         </button>
-        {page?.sitePermissions.length ? (
-          <div className="browser-tab-site-settings" ref={siteSettingsRef}>
-            <button
-              className="browser-tab-button"
-              type="button"
-              onClick={() => setSiteSettingsOpen((open) => !open)}
-              aria-label="Site settings"
-              aria-haspopup="menu"
-              aria-expanded={siteSettingsOpen}
-              title="Site settings"
-            >
-              <Options20Regular />
-            </button>
-            {siteSettingsOpen ? (
-              <div className="browser-tab-site-menu" role="menu" aria-label={`Settings for ${siteHost(url)}`} data-native-view-occluder="true">
-                <span className="browser-tab-site-menu-heading">{siteHost(url)}</span>
-                {page.sitePermissions.map((item) => (
-                  <div className="browser-tab-site-menu-row" key={item.kind}>
-                    <span>{browserPermissionNames[item.kind]}</span>
-                    <span className="browser-tab-site-menu-decision">{item.decision === "allow" ? "Allowed" : "Blocked"}</span>
-                    <button
-                      className="ui-control compact no-margin"
-                      type="button"
-                      role="menuitem"
-                      onClick={() => { void desktop.command(tab.pageId, { type: "forget-permission", kind: item.kind }); }}
-                      title="The site asks again the next time it needs this"
-                    >
-                      Ask again
-                    </button>
+        <div className="browser-tab-address-field">
+          <div className={loading ? "browser-tab-address-box loading" : "browser-tab-address-box"}>
+            {connection !== "none" ? (
+              <div className="browser-tab-site-settings" ref={siteSettingsRef}>
+                <button
+                  className={connection === "insecure" ? "browser-tab-site-button insecure" : "browser-tab-site-button"}
+                  type="button"
+                  onClick={() => setSiteSettingsOpen((open) => !open)}
+                  aria-label={`Site information: ${connectionText}`}
+                  aria-haspopup="menu"
+                  aria-expanded={siteSettingsOpen}
+                  title="Site information"
+                >
+                  {connection === "secure" ? <LockClosed16Regular /> : connection === "insecure" ? <Warning16Regular /> : <Info16Regular />}
+                  {connection === "insecure" ? <span className="browser-tab-site-label">Not secure</span> : null}
+                </button>
+                {siteSettingsOpen ? (
+                  <div className="browser-tab-site-menu" role="menu" aria-label={`Settings for ${siteHost(url)}`} data-native-view-occluder="true">
+                    <span className="browser-tab-site-menu-heading">{siteHost(url) || url}</span>
+                    <span className={connection === "insecure" ? "browser-tab-site-menu-connection insecure" : "browser-tab-site-menu-connection"}>{connectionText}</span>
+                    {page?.sitePermissions.map((item) => (
+                      <div className="browser-tab-site-menu-row" key={item.kind}>
+                        <span>{browserPermissionNames[item.kind]}</span>
+                        <span className="browser-tab-site-menu-decision">{item.decision === "allow" ? "Allowed" : "Blocked"}</span>
+                        <button
+                          className="ui-control compact no-margin"
+                          type="button"
+                          role="menuitem"
+                          onClick={() => { void desktop.command(tab.pageId, { type: "forget-permission", kind: item.kind }); }}
+                          title="The site asks again the next time it needs this"
+                        >
+                          Ask again
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : null}
               </div>
             ) : null}
+            <label className="browser-tab-address">
+              <span className="sr-only">Address</span>
+              <input
+                ref={addressRef}
+                type="text"
+                inputMode="url"
+                spellCheck={false}
+                autoComplete="off"
+                autoCapitalize="off"
+                placeholder="Search or type a web address"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={suggestions.length > 0}
+                aria-controls={`browser-suggestions-${tab.pageId}`}
+                {...(suggestions[selectedSuggestion] ? { "aria-activedescendant": `browser-suggestion-${tab.pageId}-${selectedSuggestion}` } : {})}
+                value={address}
+                onChange={(event) => typed(event.target.value)}
+                onFocus={(event) => event.currentTarget.select()}
+                onBlur={() => {
+                  setDraft(null);
+                  closeSuggestions();
+                }}
+                onKeyDown={addressKeyDown}
+              />
+            </label>
+            {page && page.zoomPercent !== 100 ? (
+              <button className="browser-tab-zoom" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "zoom-reset" }); }} title="Reset zoom" aria-label={`Zoom ${page.zoomPercent}%. Reset zoom`}>
+                {page.zoomPercent}%
+              </button>
+            ) : null}
           </div>
-        ) : null}
-        <div className="browser-tab-address-field">
-          <label className={loading ? "browser-tab-address loading" : "browser-tab-address"}>
-            <span className="sr-only">Address</span>
-            <input
-              ref={addressRef}
-              type="text"
-              inputMode="url"
-              spellCheck={false}
-              autoComplete="off"
-              autoCapitalize="off"
-              placeholder="Search or type a web address"
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={suggestions.length > 0}
-              aria-controls={`browser-suggestions-${tab.pageId}`}
-              {...(suggestions[selectedSuggestion] ? { "aria-activedescendant": `browser-suggestion-${tab.pageId}-${selectedSuggestion}` } : {})}
-              value={address}
-              onChange={(event) => typed(event.target.value)}
-              onFocus={(event) => event.currentTarget.select()}
-              onBlur={() => {
-                setDraft(null);
-                closeSuggestions();
-              }}
-              onKeyDown={addressKeyDown}
-            />
-          </label>
           {suggestions.length ? (
             <ul className="browser-tab-suggestions" id={`browser-suggestions-${tab.pageId}`} role="listbox" aria-label="Suggestions" data-native-view-occluder="true">
               {suggestions.map((suggestion, index) => (
@@ -394,6 +424,19 @@ export function BrowserTabPanel({
             </ul>
           ) : null}
         </div>
+        {worker ? (
+          <div className="browser-tab-worker" role="status" title={worker.title}>
+            <button className="browser-tab-worker-label" type="button" onClick={worker.onOpen} disabled={!worker.onOpen} aria-label={`${worker.title}. Open it`}>
+              <span className="surface-tab-chat-status running" aria-hidden="true" />
+              <span className="browser-tab-worker-text">{worker.label}</span>
+            </button>
+            {worker.onStop ? (
+              <button className="browser-tab-button" type="button" onClick={worker.onStop} aria-label="Stop the Worker" title="Stop the Worker">
+                <Stop16Regular />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={openFind} aria-label="Find in page" title="Find in page">
           <Search16Regular />
         </button>
@@ -417,6 +460,17 @@ export function BrowserTabPanel({
             <button className="ui-control compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "open-privacy-settings", kind: page.notice!.kind }); }}>Open System Settings</button>
           ) : null}
           <button className="browser-tab-button" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "dismiss-notice" }); }} aria-label="Dismiss" title="Dismiss">
+            <Dismiss16Regular />
+          </button>
+        </div>
+      ) : null}
+      {page?.blockedPopup ? (
+        <div className="browser-tab-bar browser-tab-popup" role="status">
+          <WindowNew16Regular aria-hidden="true" />
+          <span className="browser-tab-bar-text">Pop-up blocked: <span className="browser-tab-popup-url">{page.blockedPopup.url}</span></span>
+          <button className="ui-control compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "allow-popups" }); }}>Always allow on this site</button>
+          <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "open-blocked-popup" }); }}>Open it</button>
+          <button className="browser-tab-button" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "dismiss-blocked-popup" }); }} aria-label="Dismiss" title="Dismiss">
             <Dismiss16Regular />
           </button>
         </div>

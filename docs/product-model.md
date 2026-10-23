@@ -739,8 +739,15 @@ On 2026-10-10 the code, CLI, and stored records took the same words
   are not one of the five included tools.
 - A site that wants the camera, microphone, location, notifications, or
   similar access asks first in a bar above the page, and the answer is
-  remembered for that site until the person chooses **Ask again** in Site
-  settings. Only the person answers; a Worker is told it is waiting.
+  remembered for that site until the person chooses **Ask again** in the
+  site's information. Only the person answers; a Worker is told it is waiting.
+- Everyday browser basics: Cmd/Ctrl+Shift+T reopens a closed tab, a browser
+  tab has a right-click menu, the page's menu offers spelling suggestions,
+  Print, and Save as PDF, the address bar shows the connection (with **Not
+  secure** for plain http) and any zoom, a hovered link shows its address, a
+  pop-up a site opens without a press is blocked with **Open it** and
+  **Always allow on this site**, and a tab a Worker is using shows which Chat,
+  with Stop.
 - The address bar suggests pages from the browser's history as you type, a
   new tab lists recent pages with **Clear browsing history**, and a link in a
   Chat to a server on this computer, such as a Worker's dev server, opens as a

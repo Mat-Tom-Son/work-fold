@@ -13,6 +13,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import {
   BrowserWindow,
@@ -21,6 +22,7 @@ import {
   clipboard,
   dialog,
   nativeImage,
+  screen,
   shell,
   systemPreferences,
   session as electronSession,
@@ -38,6 +40,7 @@ import {
 } from "electron";
 
 import { BrowserHistoryStore, type BrowserHistoryEntry } from "./browser-history.js";
+import { BrowserStatusBubble } from "./browser-status-bubble.js";
 import { BrowserSitePermissionStore } from "./browser-site-permissions.js";
 import { parseBrowserKeys, type BrowserKeyPress } from "../../src/shared/browser-keys.js";
 import { backendNodeIdForRef, findInSnapshot, formatAccessibilitySnapshot, type AccessibilityNode } from "../../src/shared/browser-snapshot.js";
@@ -46,6 +49,7 @@ import {
   browserPartition,
   browserPermissionPhrase,
   browserUserAgent,
+  bubbleText,
   permissionKinds,
   siteOrigin,
   browserSearchUrl,
@@ -61,6 +65,7 @@ import {
   type BrowserOpenTabCommand,
   type BrowserPageState,
   type BrowserShortcut,
+  type BrowserTabMenuCommand,
   type BrowserTabSummary,
   type BrowserTabsSync,
   type BrowserToolHost,
@@ -77,7 +82,8 @@ export const browserChannels = {
 } as const;
 
 export type BrowserCommand =
-  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" }
+  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" | "print" | "save-pdf" | "open-blocked-popup" | "allow-popups" | "dismiss-blocked-popup" }
+  | { type: "mute"; muted: boolean }
   | { type: "find"; text: string; forward: boolean; newSearch: boolean }
   | { type: "forget-permission" | "open-privacy-settings"; kind: BrowserSitePermission };
 
@@ -124,6 +130,13 @@ interface BrowserPage {
   permissions: Array<{ request: BrowserPermissionRequest; resolve: (decision: BrowserSiteDecision | null) => void }>;
   /** Why something the person allowed still cannot work, such as macOS keeping the camera off. */
   notice: { kind: BrowserSitePermission; text: string } | null;
+  /** When a person, or a Worker's click or key, last pressed something in the page: what lets it open a tab or pop-up. */
+  lastInputAt: number;
+  blockedPopup: { url: string } | null;
+  /** The Chat whose Worker is using the page, kept a moment after its last step so the marker does not flicker. */
+  worker: { owner: string } | null;
+  workerSteps: number;
+  workerLinger: ReturnType<typeof setTimeout> | null;
 }
 
 /** A page a Worker opened but no window has shown yet still lays out at this size. */
@@ -135,6 +148,11 @@ const readChunkLength = 50_000;
 const consoleLimit = 300;
 const fullPageMaxHeight = 8_000;
 const isolatedWorldId = 1_001;
+/** A page may open a tab or pop-up this long after a press, as Chrome allows after a click. */
+const popupGestureMs = 5_000;
+/** How long the Worker marker stays after a Worker's last step on a page. */
+const workerLingerMs = 3_000;
+const gestureInputTypes = new Set(["mouseDown", "keyDown", "rawKeyDown", "touchStart", "gestureTap"]);
 /** Granted without asking, as Chrome does: full screen, writing what the page copies, pointer and keyboard lock, saving to a file the person picked, and protected media. */
 const silentPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock", "keyboardLock", "fileSystem", "mediaKeySystem", "speaker-selection", "storage-access", "top-level-storage-access", "display-capture"]);
 
@@ -149,6 +167,7 @@ export class BuiltInBrowser {
   readonly #pendingDownloads = new Set<string>();
   readonly #sitePermissions: BrowserSitePermissionStore;
   readonly #history: BrowserHistoryStore;
+  readonly #bubble = new BrowserStatusBubble();
   #synced: BrowserTabsSync = { tabs: [], viewingPageId: null };
 
   constructor(options: BuiltInBrowserOptions) {
@@ -210,9 +229,30 @@ export class BuiltInBrowser {
       case "find": if (command.text) contents.findInPage(command.text, { forward: command.forward, findNext: command.newSearch }); break;
       case "stop-find": contents.stopFindInPage("clearSelection"); break;
       case "inspect": contents.openDevTools({ mode: "detach" }); break;
-      case "zoom-in": contents.setZoomLevel(Math.min(contents.getZoomLevel() + 0.5, 5)); break;
-      case "zoom-out": contents.setZoomLevel(Math.max(contents.getZoomLevel() - 0.5, -5)); break;
-      case "zoom-reset": contents.setZoomLevel(0); break;
+      // Zoom belongs to a site, so every tab showing it changes together.
+      case "zoom-in": contents.setZoomLevel(Math.min(contents.getZoomLevel() + 0.5, 5)); this.#emitAll(); break;
+      case "zoom-out": contents.setZoomLevel(Math.max(contents.getZoomLevel() - 0.5, -5)); this.#emitAll(); break;
+      case "zoom-reset": contents.setZoomLevel(0); this.#emitAll(); break;
+      case "mute":
+        contents.setAudioMuted(command.muted);
+        this.#emit(page);
+        break;
+      case "print": this.#print(page); break;
+      case "save-pdf": void this.#savePdf(page); break;
+      case "open-blocked-popup":
+      case "allow-popups": {
+        const blocked = page.blockedPopup;
+        page.blockedPopup = null;
+        const origin = siteOrigin(contents.getURL());
+        if (command.type === "allow-popups" && origin) void this.#sitePermissions.set(origin, ["popups"], "allow").then(() => this.#emitSite(origin));
+        if (blocked) this.#openTab(blocked.url, true, page.openedBy, page.owner);
+        this.#emit(page);
+        break;
+      }
+      case "dismiss-blocked-popup":
+        page.blockedPopup = null;
+        this.#emit(page);
+        break;
       case "dismiss-notice":
         page.notice = null;
         this.#emit(page);
@@ -224,6 +264,47 @@ export class BuiltInBrowser {
       }
       case "open-privacy-settings": void this.#openPrivacySettings(command.kind); break;
     }
+  }
+
+  /**
+   * A browser tab's right-click menu. The page's own actions run here; the
+   * tab strip's (duplicate, close, reopen) are handed back to the renderer.
+   */
+  popupTabMenu(pageId: string, url: string, point: { x: number; y: number }, options: { canReopen: boolean; hasOthers: boolean }): Promise<BrowserTabMenuCommand | null> {
+    const window = this.#options.window();
+    if (!window) return Promise.resolve(null);
+    const page = this.#pages.get(pageId);
+    const contents = page && !page.view.webContents.isDestroyed() ? page.view.webContents : null;
+    const address = contents?.getURL() || url;
+    const web = /^https?:/i.test(address);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (command: BrowserTabMenuCommand | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(command);
+      };
+      const template: MenuItemConstructorOptions[] = [
+        { label: "Reload", enabled: Boolean(page), click: () => this.command(pageId, { type: "reload" }) },
+        { label: "Duplicate", enabled: Boolean(address), click: () => finish("duplicate") },
+        { type: "separator" },
+        { label: "Copy Address", enabled: Boolean(address), click: () => clipboard.writeText(address) },
+        { label: "Open in Your Web Browser", enabled: web, click: () => { void this.#options.openExternal(address).catch(() => undefined); } },
+        { type: "separator" },
+        contents?.isAudioMuted()
+          ? { label: "Unmute Tab", click: () => this.command(pageId, { type: "mute", muted: false }) }
+          : { label: "Mute Tab", enabled: Boolean(page), click: () => this.command(pageId, { type: "mute", muted: true }) },
+        { label: "Print…", enabled: Boolean(page), click: () => this.command(pageId, { type: "print" }) },
+        { label: "Save as PDF…", enabled: Boolean(page), click: () => this.command(pageId, { type: "save-pdf" }) },
+        { type: "separator" },
+        { label: "Close Tab", click: () => finish("close") },
+        { label: "Close Other Browser Tabs", enabled: options.hasOthers, click: () => finish("close-others") },
+        { label: "Reopen Closed Tab", enabled: options.canReopen, click: () => finish("reopen-closed") },
+      ];
+      // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
+      const zoom = window.webContents.getZoomFactor() || 1;
+      Menu.buildFromTemplate(template).popup({ window, x: Math.round(point.x * zoom), y: Math.round(point.y * zoom), callback: () => setTimeout(() => finish(null), 0) });
+    });
   }
 
   /** The person answered a site's question in the tab. */
@@ -290,6 +371,7 @@ export class BuiltInBrowser {
 
   dispose(): void {
     for (const page of [...this.#pages.values()]) this.#destroy(page, { announce: false });
+    this.#bubble.close();
     void this.#history.flush();
   }
 
@@ -321,6 +403,11 @@ export class BuiltInBrowser {
       closed: false,
       permissions: [],
       notice: null,
+      lastInputAt: 0,
+      blockedPopup: null,
+      worker: null,
+      workerSteps: 0,
+      workerLinger: null,
     };
     this.#pages.set(pageId, page);
     this.#wire(page);
@@ -375,8 +462,16 @@ export class BuiltInBrowser {
     contents.on("did-start-navigation", (event) => {
       if (!event.isMainFrame || event.isSameDocument) return;
       page.notice = null;
+      page.blockedPopup = null;
       this.#dropPermissions(page);
     });
+    // Real presses only: these come from the window, never from page script.
+    contents.on("input-event", (_event, input) => {
+      if (gestureInputTypes.has(input.type)) page.lastInputAt = Date.now();
+    });
+    contents.on("update-target-url", (_event, url) => this.#hover(page, url));
+    // Pinch and Control-scroll ask to zoom; the browser decides how much.
+    contents.on("zoom-changed", (_event, direction) => this.command(page.pageId, { type: direction === "in" ? "zoom-in" : "zoom-out" }));
     contents.on("page-title-updated", (_event, title) => {
       this.#history.retitle(contents.getURL(), title);
       emit();
@@ -442,6 +537,16 @@ export class BuiltInBrowser {
       void this.#openOutside(details.url);
       return { action: "deny" };
     }
+    // A site opens a tab or pop-up only right after a press, unless the person allowed it pop-ups.
+    const origin = siteOrigin(opener.view.webContents.getURL());
+    const pressed = Date.now() - opener.lastInputAt <= popupGestureMs;
+    if (!pressed && !(origin && this.#sitePermissions.get(origin, "popups") === "allow")) {
+      if (details.url && isBrowserUrl(details.url)) {
+        opener.blockedPopup = { url: details.url };
+        this.#emit(opener);
+      }
+      return { action: "deny" };
+    }
     // A sized pop-up, such as "Sign in with…", keeps its own small window and
     // its link back to the page that opened it, which sign-in flows rely on.
     if (details.disposition === "new-window") {
@@ -498,6 +603,7 @@ export class BuiltInBrowser {
     page.closed = true;
     this.#dropPermissions(page);
     if (page.debuggerIdle) clearTimeout(page.debuggerIdle);
+    if (page.workerLinger) clearTimeout(page.workerLinger);
     this.#pages.delete(page.pageId);
     if (page.fullscreen) this.#leaveFullScreen(page);
     // During quit Electron may already have torn the view down.
@@ -547,6 +653,7 @@ export class BuiltInBrowser {
   }
 
   #hide(page: BrowserPage): void {
+    if (page.attachedTo) this.#bubble.hide();
     page.view.setVisible(false);
     if (page.attachedTo && !page.attachedTo.isDestroyed()) page.attachedTo.contentView.removeChildView(page.view);
     page.attachedTo = null;
@@ -574,7 +681,7 @@ export class BuiltInBrowser {
   #state(page: BrowserPage): BrowserPageState {
     const contents = page.view.webContents;
     if (contents.isDestroyed()) {
-      return { pageId: page.pageId, url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, crashed: true, audible: false, sitePermissions: [], permissionRequest: null, notice: null };
+      return { pageId: page.pageId, url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, crashed: true, audible: false, sitePermissions: [], permissionRequest: null, notice: null, muted: false, zoomPercent: 100, blockedPopup: null, worker: null };
     }
     const origin = siteOrigin(contents.getURL());
     return {
@@ -591,7 +698,15 @@ export class BuiltInBrowser {
       sitePermissions: origin ? this.#sitePermissions.forSite(origin) : [],
       permissionRequest: page.permissions[0]?.request ?? null,
       notice: page.notice,
+      muted: contents.isAudioMuted(),
+      zoomPercent: Math.round(contents.getZoomFactor() * 100),
+      blockedPopup: page.blockedPopup,
+      worker: page.worker ? { owner: page.worker.owner } : null,
     };
+  }
+
+  #emitAll(): void {
+    for (const page of this.#pages.values()) this.#emit(page);
   }
 
   /** Every page showing this site gets its new settings. */
@@ -743,6 +858,70 @@ export class BuiltInBrowser {
     if (pane) await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`).catch(() => undefined);
   }
 
+  // ── Print, PDF, and the link under the pointer ────────────────────────────
+
+  #print(page: BrowserPage): void {
+    const contents = page.view.webContents;
+    if (!contents.isDestroyed()) contents.print({}, () => undefined);
+  }
+
+  /** Saves the page as a PDF where the person chooses, offering Downloads; it then shows like a download. */
+  async #savePdf(page: BrowserPage): Promise<void> {
+    const contents = page.view.webContents;
+    if (contents.isDestroyed()) return;
+    const window = page.attachedTo ?? this.#options.window();
+    const name = `${safeFileName(contents.getTitle() || displayHost(contents.getURL()) || "page")}.pdf`;
+    const options = { defaultPath: uniquePath(this.#options.downloadsPath(), name, this.#pendingDownloads), filters: [{ name: "PDF", extensions: ["pdf"] }] };
+    const choice = window && !window.isDestroyed() ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
+    if (choice.canceled || !choice.filePath || contents.isDestroyed()) return;
+    try {
+      await writeFile(choice.filePath, await contents.printToPDF({ printBackground: true }));
+      this.#downloads.add(choice.filePath);
+      this.#options.send(browserChannels.download, { filename: choice.filePath.split(/[\\/]/).pop() ?? name, path: choice.filePath, state: "completed" } satisfies BrowserDownload);
+    } catch {
+      this.#options.send(browserChannels.download, { filename: name, path: choice.filePath, state: "interrupted" } satisfies BrowserDownload);
+    }
+  }
+
+  /** The address of the link under the pointer, over the page in front. */
+  #hover(page: BrowserPage, url: string): void {
+    const window = page.attachedTo;
+    if (!url || !window || window.isDestroyed() || page.closed) {
+      this.#bubble.hide();
+      return;
+    }
+    const content = window.getContentBounds();
+    const cursor = screen.getCursorScreenPoint();
+    this.#bubble.show(window, page.view.getBounds(), bubbleText(url), { x: cursor.x - content.x, y: cursor.y - content.y });
+  }
+
+  // ── The Worker marker ─────────────────────────────────────────────────────
+
+  /** Marks the page as used by a Worker while a step runs, so the person sees it and can stop that Chat. */
+  async #using<T>(page: BrowserPage, owner: string | undefined, step: () => Promise<T>): Promise<T> {
+    if (!owner) return await step();
+    if (page.workerLinger) clearTimeout(page.workerLinger);
+    page.workerLinger = null;
+    page.workerSteps += 1;
+    if (page.worker?.owner !== owner) {
+      page.worker = { owner };
+      this.#emit(page);
+    }
+    try {
+      return await step();
+    } finally {
+      page.workerSteps -= 1;
+      if (!page.workerSteps) {
+        page.workerLinger = setTimeout(() => {
+          page.workerLinger = null;
+          page.worker = null;
+          this.#emit(page);
+        }, workerLingerMs);
+        page.workerLinger.unref?.();
+      }
+    }
+  }
+
   #pageForContentsId(id: number): BrowserPage | null {
     for (const page of this.#pages.values()) if (!page.view.webContents.isDestroyed() && page.view.webContents.id === id) return page;
     return null;
@@ -766,6 +945,15 @@ export class BuiltInBrowser {
         ...(isBrowserUrl(params.srcURL) ? [{ label: "Open Image in New Tab", click: () => { this.#openTab(params.srcURL, false, "person"); } }] : []),
         { label: "Copy Image", click: () => contents.copyImageAt(params.x, params.y) },
         { label: "Copy Image Address", click: () => clipboard.writeText(params.srcURL) },
+        { type: "separator" },
+      );
+    }
+    if (params.misspelledWord) {
+      const word = params.misspelledWord;
+      template.push(
+        ...params.dictionarySuggestions.slice(0, 5).map((suggestion) => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })),
+        ...(params.dictionarySuggestions.length ? [] : [{ label: "No Guesses Found", enabled: false }]),
+        { label: "Add to Dictionary", click: () => { this.session.addWordToSpellCheckerDictionary(word); } },
         { type: "separator" },
       );
     }
@@ -795,6 +983,9 @@ export class BuiltInBrowser {
         { label: "Forward", enabled: contents.navigationHistory.canGoForward(), click: () => contents.navigationHistory.goForward() },
         { label: "Reload", click: () => contents.reload() },
         { type: "separator" },
+        { label: "Print…", click: () => this.#print(page) },
+        { label: "Save as PDF…", click: () => { void this.#savePdf(page); } },
+        { type: "separator" },
       );
     }
     template.push({ label: "Inspect", click: () => contents.inspectElement(params.x, params.y) });
@@ -817,7 +1008,10 @@ export class BuiltInBrowser {
       if (key === "=" || key === "+") { this.command(page.pageId, { type: "zoom-in" }); return true; }
       if (key === "-") { this.command(page.pageId, { type: "zoom-out" }); return true; }
       if (key === "0") { this.command(page.pageId, { type: "zoom-reset" }); return true; }
+      if (key === "p" && !input.shift) { this.#print(page); return true; }
       if ((key === "l" || key === "f" || key === "t") && !input.shift) return this.#forwardKey(page, input);
+      // Cmd/Ctrl+Shift+T reopens the last closed browser tab, which the tab strip remembers.
+      if (key === "t" && input.shift) return this.#forwardKey(page, input);
       if (/^[1-9]$/.test(key) && !input.shift) return this.#forwardKey(page, input);
     }
     if (input.control && !input.meta && !input.alt && key === "tab") return this.#forwardKey(page, input);
@@ -841,16 +1035,18 @@ export class BuiltInBrowser {
   // ── Worker operations ─────────────────────────────────────────────────────
 
   #createToolHost(): BrowserToolHost {
-    return {
+    const operations: BrowserToolHost = {
       tabs: async () => this.#tabSummaries(),
       open: async ({ url, show, signal, owner }) => {
         const address = browserAddressFor(url);
         if (!address || !isBrowserUrl(address)) throw new Error(`"${url}" is not a web address this browser can open.`);
         signal?.throwIfAborted();
         const page = this.#openTab(address, show === true, "agent", owner ?? null);
-        await delay(50);
-        await this.#waitForLoad(page, signal);
-        return this.#summary(page);
+        return await this.#using(page, owner, async () => {
+          await delay(50);
+          await this.#waitForLoad(page, signal);
+          return this.#summary(page);
+        });
       },
       navigate: async ({ tab, to, signal }) => {
         const page = await this.#agentPage(tab, signal);
@@ -1058,6 +1254,24 @@ export class BuiltInBrowser {
         this.#destroy(page);
       },
     };
+    // Every step a Chat's Worker takes in a page marks the page as in use by that Chat.
+    const marked = <Input extends { tab: string; owner?: string; signal?: AbortSignal }, Result>(operation: (input: Input) => Promise<Result>) => async (input: Input): Promise<Result> => {
+      if (!input.owner) return await operation(input);
+      const page = await this.#agentPage(input.tab, input.signal);
+      return await this.#using(page, input.owner, () => operation(input));
+    };
+    return {
+      ...operations,
+      navigate: marked(operations.navigate),
+      read: marked(operations.read),
+      screenshot: marked(operations.screenshot),
+      click: marked(operations.click),
+      type: marked(operations.type),
+      press: marked(operations.press),
+      scroll: marked(operations.scroll),
+      evaluate: marked(operations.evaluate),
+      wait: marked(operations.wait),
+    };
   }
 
   #tabSummaries(): BrowserTabSummary[] {
@@ -1172,6 +1386,8 @@ export class BuiltInBrowser {
     const before = { url: contents.getURL(), index: contents.navigationHistory.getActiveIndex() };
     // Stop before any input reaches the page; an action already sent is not taken back.
     signal?.throwIfAborted();
+    // A Worker's click or key counts as a press, so a link it opens in a new tab is not blocked.
+    page.lastInputAt = Date.now();
     await action();
     await delay(300);
     await this.#waitForLoad(page, signal, actionSettleMs);
@@ -1283,7 +1499,11 @@ export function parseBrowserCommand(value: unknown): BrowserCommand {
     if (!kind) throw new Error("The site permission is invalid.");
     return { type: record.type, kind };
   }
-  const simple = ["back", "forward", "reload", "stop", "focus", "stop-find", "inspect", "zoom-in", "zoom-out", "zoom-reset", "dismiss-notice"] as const;
+  if (record.type === "mute") {
+    if (typeof record.muted !== "boolean") throw new Error("The browser command is invalid.");
+    return { type: "mute", muted: record.muted };
+  }
+  const simple = ["back", "forward", "reload", "stop", "focus", "stop-find", "inspect", "zoom-in", "zoom-out", "zoom-reset", "dismiss-notice", "print", "save-pdf", "open-blocked-popup", "allow-popups", "dismiss-blocked-popup"] as const;
   const type = simple.find((item) => item === record.type);
   if (!type) throw new Error("The browser command is invalid.");
   return { type };

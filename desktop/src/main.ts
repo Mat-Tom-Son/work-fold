@@ -1530,6 +1530,14 @@ function registerIpc(): void {
     assertTrustedMainRenderer(event);
     return ensureBuiltInBrowser().states();
   });
+  ipcMain.handle("work-fold:browser:popup-tab-menu", (event, pageId: unknown, url: unknown, point: unknown, options: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId) || typeof url !== "string" || url.length > 32_768) throw new Error("The browser tab is invalid.");
+    const at = point as { x?: unknown; y?: unknown } | null;
+    const flags = options as { canReopen?: unknown; hasOthers?: unknown } | null;
+    if (!at || typeof at.x !== "number" || typeof at.y !== "number" || !Number.isFinite(at.x) || !Number.isFinite(at.y)) throw new Error("The menu position is invalid.");
+    return ensureBuiltInBrowser().popupTabMenu(pageId, url, { x: at.x, y: at.y }, { canReopen: flags?.canReopen === true, hasOthers: flags?.hasOthers === true });
+  });
   ipcMain.handle("work-fold:browser:suggest", (event, text: unknown) => {
     assertTrustedMainRenderer(event);
     if (typeof text !== "string" || text.length > 2_048) throw new Error("The address is invalid.");

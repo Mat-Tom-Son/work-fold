@@ -99,7 +99,8 @@ interface WorkFoldBrowserHistoryEntry {
 }
 
 type WorkFoldBrowserCommand =
-  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" }
+  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" | "print" | "save-pdf" | "open-blocked-popup" | "allow-popups" | "dismiss-blocked-popup" }
+  | { type: "mute"; muted: boolean }
   | { type: "find"; text: string; forward: boolean; newSearch: boolean }
   | { type: "forget-permission" | "open-privacy-settings"; kind: import("../../src/shared/browser").BrowserSitePermission };
 
@@ -227,6 +228,8 @@ declare global {
         states: () => Promise<import("../../src/shared/browser").BrowserPageState[]>;
         /** Shows a file the browser downloaded in Finder or Explorer. */
         showDownload: (path: string) => Promise<void>;
+        /** A browser tab's right-click menu; resolves with what the tab strip should do, if anything. */
+        popupTabMenu: (pageId: string, url: string, point: { x: number; y: number }, options: { canReopen: boolean; hasOthers: boolean }) => Promise<import("../../src/shared/browser").BrowserTabMenuCommand | null>;
         /** Pages from history matching what someone typed in the address bar. */
         suggest: (text: string) => Promise<WorkFoldBrowserHistoryEntry[]>;
         /** The most recently visited pages, for a new tab. */
