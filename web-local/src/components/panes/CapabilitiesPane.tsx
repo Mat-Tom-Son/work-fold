@@ -413,32 +413,39 @@ export function CapabilitiesPane({
     }
   }
 
+  // Removal is reversible, so it asks nothing first: like Chat deletion, it acts and offers Undo.
   async function removeSkill(item: InstalledCapability) {
     const operation = operationGateRef.current.capture();
-    const confirmed = await requestConfirm({
-      title: `Remove ${item.name}?`,
-      body: item.scope === "project"
-        ? `The Skill folder is deleted from this work-folder's .pi/skills. The Worker in ${workFolder.name} stops using it with the next turn.`
-        : "The Skill folder is deleted from your Pi skills. The work-fold agent and every Worker stop using it with the next turn.",
-      confirmLabel: "Remove Skill",
-      tone: "danger",
-    });
-    if (!confirmed || !operationGateRef.current.isCurrent(operation)) return;
     setBusy(true);
     try {
+      let recentlyDeleted: { entryId: string; restoreBy: string } | null = null;
       if (fixtureMode) {
         setCatalog((current) => current ? { ...current, skills: current.skills.filter((skill) => skill.path !== item.path) } : current);
       } else {
-        await api("/api/agent/skills/remove", {
+        recentlyDeleted = (await api<{ recentlyDeleted: { entryId: string; restoreBy: string } }>("/api/agent/skills/remove", {
           method: "POST",
           body: { workFolderId: operation.workFolderId, path: item.path, scope: item.scope },
-        });
+        })).recentlyDeleted;
         if (!operationGateRef.current.isCurrent(operation)) return;
         await loadCatalog(operation);
       }
       if (!operationGateRef.current.isCurrent(operation)) return;
       setSelectedCapability(null);
-      showToast({ text: `${item.name} removed.`, tone: "success" });
+      showToast({
+        text: `Moved "${item.name}" to Recently Deleted`,
+        tone: "success",
+        durationMs: 6500,
+        ...(recentlyDeleted ? {
+          actionLabel: "Undo",
+          onAction: () => {
+            // Restoring puts the Skill back in the same scope and reloads
+            // capabilities like an install; a same-named Skill added since is a refusal.
+            void api(`/api/settings/recently-deleted/${recentlyDeleted.entryId}/restore`, { method: "POST", body: {} })
+              .then(() => loadCatalog(operation))
+              .catch((caught) => { if (operationGateRef.current.isCurrent(operation)) onError(errorText(caught)); });
+          },
+        } : {}),
+      });
     } catch (caught) {
       if (operationGateRef.current.isCurrent(operation)) onError(errorText(caught));
     } finally {

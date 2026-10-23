@@ -146,12 +146,18 @@ function visibleInDetails(element: HTMLElement): boolean {
   return true;
 }
 
+/**
+ * Makes everything outside the dialog inert and hidden, except a region marked
+ * `data-above-modals`: the toast stack is drawn above every modal, so an Undo
+ * raised from inside a dialog must stay clickable and announced rather than
+ * letting the click fall through to the backdrop.
+ */
 function isolateDialogBackground(dialog: HTMLElement): () => void {
   const targets: HTMLElement[] = [];
   let branch: HTMLElement | null = dialog;
   while (branch?.parentElement) {
     for (const sibling of Array.from(branch.parentElement.children)) {
-      if (!(sibling instanceof HTMLElement) || sibling === branch) continue;
+      if (!(sibling instanceof HTMLElement) || sibling === branch || sibling.hasAttribute("data-above-modals")) continue;
       acquireBackgroundIsolation(sibling);
       targets.push(sibling);
     }

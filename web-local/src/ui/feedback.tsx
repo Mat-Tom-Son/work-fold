@@ -171,7 +171,7 @@ export function ToastHost() {
   }, []);
 
   return (
-    <div className="toast-stack" aria-live="polite" aria-atomic="false">
+    <div className="toast-stack" data-above-modals="" aria-live="polite" aria-atomic="false">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={() => dismissToast(toast.id)} />
       ))}

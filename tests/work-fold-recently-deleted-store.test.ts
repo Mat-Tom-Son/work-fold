@@ -123,6 +123,59 @@ test("identity-preserving restores refuse a destination occupied while queued an
   assert.equal(await readFile(kept.payloadPath, "utf8"), "second transcript\n");
 });
 
+test("a removed Skill is kept as a whole folder with its scope, survives reopen, and goes back as an identity", async (t) => {
+  const root = await sandbox(t);
+  const store = await openStore(root);
+  const skillDir = join(root, "skills", "pack", "writer");
+  await mkdir(join(skillDir, "scripts"), { recursive: true });
+  await writeFile(join(skillDir, "SKILL.md"), "---\nname: writer\n---\n");
+  await writeFile(join(skillDir, "scripts", "run.sh"), "#!/bin/sh\n");
+
+  await rejectsRecentlyDeletedError(store.moveTreeToRecentlyDeleted({
+    kind: "skill", reason: "skills.remove", sourcePath: skillDir, workFolderId: "work-fold-agent",
+    originalPath: "pack/writer", receiptId: null,
+  }), "INPUT_INVALID", /names the scope/);
+  await rejectsRecentlyDeletedError(store.moveTreeToRecentlyDeleted({
+    kind: "folder", reason: "skills.remove", sourcePath: skillDir, workFolderId: "work-fold-agent",
+    originalPath: "pack/writer", receiptId: null, skill: { scope: "everywhere", skillName: "writer" },
+  }), "INPUT_INVALID", /names the scope/);
+  assert.equal(existsSync(join(skillDir, "SKILL.md")), true, "a refused move leaves the Skill in place");
+
+  const entry = await store.moveTreeToRecentlyDeleted({
+    kind: "skill", reason: "skills.remove", sourcePath: skillDir, workFolderId: "work-fold-agent", workFolderName: "Everywhere",
+    displayName: "writer", originalPath: "pack/writer", receiptId: "settings:test", skill: { scope: "everywhere", skillName: "writer" },
+  });
+  assert.equal(existsSync(skillDir), false);
+  assert.deepEqual(entry.payload, { kind: "skill", scope: "everywhere", name: "writer", skillName: "writer" });
+  assert.equal(entry.payloadPath, join(entry.entryPath, "payload", "writer"));
+  assert.equal(entry.sizeBytes, "---\nname: writer\n---\n".length + "#!/bin/sh\n".length);
+  assert.equal((await readManifest(entry.entryPath)).kind, "skill");
+
+  const reopened = await openStore(root);
+  const listed = await reopened.get(entry.id);
+  assert.deepEqual(listed?.payload, entry.payload);
+
+  // Something already at the path is never collision-renamed into a second Skill.
+  await mkdir(skillDir, { recursive: true });
+  await rejectsRecentlyDeletedError(reopened.restoreTree(entry.id, { absolutePath: skillDir, onConflict: "error" }), "MOVE_FAILED", /already exists/);
+  await rm(skillDir, { recursive: true });
+  await rm(dirname(skillDir), { recursive: true });
+  const restored = await reopened.restoreTree(entry.id, { absolutePath: skillDir, onConflict: "error" });
+  assert.deepEqual(restored, { restoredPath: skillDir, renamed: false });
+  assert.equal(await readFile(join(skillDir, "scripts", "run.sh"), "utf8"), "#!/bin/sh\n");
+  assert.equal(await reopened.get(entry.id), null);
+
+  // A damaged Skill payload is reported, never guessed at.
+  const damaged = await reopened.moveTreeToRecentlyDeleted({
+    kind: "skill", reason: "skills.remove", sourcePath: skillDir, workFolderId: "work-folder-test",
+    originalPath: "pack/writer", receiptId: null, skill: { scope: "work-folder", skillName: "writer" },
+  });
+  await writeManifest(damaged.entryPath, { ...(await readManifest(damaged.entryPath)), payload: { kind: "skill", scope: "nowhere", name: "writer", skillName: "writer" } });
+  const listing = await reopened.list();
+  assert.deepEqual(listing.entries, []);
+  assert.match(listing.damaged[0]?.error ?? "", /invalid Skill payload/);
+});
+
 test("open creates the layout with default retention, keeps it across reopen, and bounds retention changes", async (t) => {
   const root = await sandbox(t);
   const store = await openStore(root);

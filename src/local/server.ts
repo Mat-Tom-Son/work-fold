@@ -91,7 +91,9 @@ import {
   importPiSkillBundle,
   importPiSkillBundleVerified,
   piSkillBundleContentDigest,
+  PiSkillRestoreConflictError,
   removePiSkill,
+  restorePiSkill,
   type PiSkillBundleImportResult,
 } from "./agent/skill-import.js";
 import { normalizeWorkerInstructions } from "./agent/model-preferences.js";
@@ -3208,12 +3210,11 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!body.workFolderId || !body.path?.trim()) throw badRequest("A work-folder and Skill path are required.");
     const workFolder = await getWorkFolder(body.workFolderId);
     const scope = capabilityScope(body.scope);
-    const removed = await runCapabilityMutation(state, workFolder, scope, async () =>
-      await removePiSkill(workFolder.workFolderRoot, {
-        skillPath: body.path!,
-        scope: scope === "project" ? "project" : "user",
-      }, state.runtimeProvider));
-    sendJson(res, { removed: true, path: removed.removedPath });
+    const removed = await runDesktopSettingsAct(state, "skills.remove", async (requestId) => {
+      const value = await removeImportedSkill(state, workFolder, scope, body.path!, { receiptId: requestId });
+      return { value, detail: `${scope === "project" ? `work-folder ${workFolder.id}` : "everywhere"}; skill ${value.skillName}; trash ${value.recentlyDeleted.entryId}` };
+    });
+    sendJson(res, { removed: true, path: removed.value.removedPath, recentlyDeleted: removed.value.recentlyDeleted });
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/skills/import") {
@@ -4571,6 +4572,8 @@ export interface WorkFoldRecentlyDeletedEntryView {
   reason: WorkFoldRecentlyDeletedReason;
   workFolderId: string;
   workFolderName?: string;
+  /** skill only: the scope it goes back into. */
+  scope?: "everywhere" | "work-folder";
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -4598,6 +4601,8 @@ export type WorkFoldRecentlyDeletedRestoreResult =
    */
   | { kind: "file" | "folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
   | { kind: "work-folder"; entryId: string; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
+  /** `workFolder` names the work-folder for that scope only; `path` is the restored Skill folder. */
+  | { kind: "skill"; entryId: string; scope: "everywhere" | "work-folder"; workFolder?: WorkFoldActWorkFolderRef; name: string; path: string }
   | { kind: "app-storage"; entryId: string; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
   | { kind: "app-release"; entryId: string; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
   | {
@@ -4635,9 +4640,12 @@ async function recentlyDeletedEntryView(
     reason: entry.reason,
     workFolderId: entry.workFolderId,
     ...(entry.workFolderName === undefined ? {} : { workFolderName: entry.workFolderName }),
+    ...(entry.payload.kind === "skill" ? { scope: entry.payload.scope } : {}),
     originalPath: entry.originalPath,
     name: entry.displayName ?? (entry.payload.kind === "tree"
       ? entry.payload.name
+      : entry.payload.kind === "skill"
+        ? entry.payload.skillName
       : entry.payload.kind === "app-release"
         ? `Release ${entry.payload.displayVersion}`
         : entry.payload.kind === "app-studio" ? "App Studio history" : entry.payload.appId),
@@ -4660,6 +4668,15 @@ async function recentlyDeletedEntryView(
       : { ...base, restorable: "blocked", note: "The work-folder this came from is no longer registered." };
   }
   if (entry.kind === "work-folder") return base;
+  if (entry.kind === "skill") {
+    // A work-folder Skill goes back only into its own work-folder's .pi/skills.
+    if (entry.payload.kind !== "skill") return { ...base, restorable: "blocked" };
+    if (entry.payload.scope === "everywhere") return base;
+    const present = registered ? registered.has(entry.workFolderId) : Boolean(await getWorkFolder(entry.workFolderId).catch(() => null));
+    return present
+      ? base
+      : { ...base, restorable: "blocked", note: "The work-folder this Skill came from is no longer registered." };
+  }
   if (entry.kind === "app-release") {
     // A Release goes back only into the App Project it came from, and only
     // while its version has not been prepared again in the meantime.
@@ -4729,9 +4746,10 @@ async function restoreRecentlyDeletedEntry(
   if (context.toPath !== undefined) {
     throw new WorkFoldCliError(
       "usage",
-      "'--to' saves a copy of app data; files, folders, work-folders, Releases, and App Studio history go back where they came from.",
+      "'--to' saves a copy of app data; files, folders, work-folders, Skills, Releases, and App Studio history go back where they came from.",
     );
   }
+  if (entry.kind === "skill") return restoreRecentlyDeletedSkill(state, entry);
   if (entry.kind === "app-release") return restoreRecentlyDeletedAppRelease(state, entry);
   if (entry.kind === "app-studio") return restoreRecentlyDeletedAppStudio(state, entry);
   if (entry.kind === "work-folder") return restoreRecentlyDeletedWorkFolder(state, entry);
@@ -4854,6 +4872,109 @@ async function restoreWorkFoldAgentConversationRecentlyDeletedEntry(
     renamed: restored.renamed,
     // Management Chats are machine-local and never belong to work-folder History.
     safetyCheckpointId: null,
+  };
+}
+
+/**
+ * Removes one imported Skill into Recently deleted (docs/receipts-not-gates.md,
+ * F20). `.pi/` and Pi's own folder are outside History, so the whole Skill
+ * folder moves there with its scope and its path inside that scope's skills
+ * folder, under the same capability fence and client reload as an install.
+ * An Everywhere Skill belongs to no work-folder; its entry is kept under the
+ * work-fold agent's scope id, like that agent's Chats.
+ */
+async function removeImportedSkill(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  scope: CapabilityScope,
+  skillPath: string,
+  context: { receiptId: string | null },
+): Promise<{ removedPath: string; skillName: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
+  const removed = await runCapabilityMutation(state, workFolder, scope, async () =>
+    await removePiSkill(workFolder.workFolderRoot, {
+      skillPath,
+      scope: scope === "project" ? "project" : "user",
+      keep: async (skill) => {
+        try {
+          return await state.recentlyDeleted.moveTreeToRecentlyDeleted({
+            kind: "skill",
+            reason: "skills.remove",
+            sourcePath: skill.skillDir,
+            ...(skill.scope === "project"
+              ? { workFolderId: workFolder.id, workFolderName: workFolder.name }
+              : { workFolderId: workFoldAgentScopeId, workFolderName: "Everywhere" }),
+            displayName: skill.skillName,
+            originalPath: skill.relativePath,
+            receiptId: context.receiptId,
+            skill: { scope: skill.scope === "project" ? "work-folder" : "everywhere", skillName: skill.skillName },
+          });
+        } catch (error) {
+          // An error naming an entry means a complete copy already landed there.
+          const landed = error instanceof WorkFoldRecentlyDeletedError && error.entryId !== undefined;
+          throw new WorkFoldCliError(
+            "failure",
+            `work-fold could not move this Skill to Recently deleted: ${errorMessage(error)}${landed ? "" : " Nothing was removed."}`,
+            { cause: error },
+          );
+        }
+      },
+    }, state.runtimeProvider));
+  return {
+    removedPath: removed.removedPath,
+    skillName: removed.skillName,
+    recentlyDeleted: { entryId: removed.kept.id, restoreBy: removed.kept.restoreBy },
+  };
+}
+
+/**
+ * A removed Skill goes back into the same scope's skills folder at the same
+ * path, under the same capability fence and client reload as an install, so
+ * the next turn loads it. It never lands beside a Skill Pi already loads under
+ * the same name, or over an existing folder: the item stays in Recently
+ * deleted until that one is removed.
+ */
+async function restoreRecentlyDeletedSkill(
+  state: LocalApiState,
+  entry: WorkFoldRecentlyDeletedEntry,
+): Promise<WorkFoldRecentlyDeletedRestoreResult> {
+  const payload = entry.payload;
+  if (payload.kind !== "skill") throw new WorkFoldCliError("failure", "This Skill recovery item is damaged.");
+  let target: { id: string; workFolderRoot: string };
+  let workFolder: WorkFolderSummary | null = null;
+  if (payload.scope === "work-folder") {
+    workFolder = await getWorkFolder(entry.workFolderId).catch(() => null);
+    if (!workFolder) {
+      throw new WorkFoldCliError(
+        "conflict",
+        "The work-folder this Skill came from is no longer registered, so there is nowhere to put it back. Register that work-folder again first.",
+      );
+    }
+    target = workFolder;
+  } else {
+    // The same resolution context `tools remove --scope everywhere` uses.
+    target = { id: workFoldAgentScopeId, workFolderRoot: workFoldAgentRoot() };
+  }
+  const restored = await runActOperation(() => runCapabilityMutation(state, target, payload.scope === "work-folder" ? "project" : "global", async () => {
+    try {
+      return await restorePiSkill(target.workFolderRoot, {
+        scope: payload.scope === "work-folder" ? "project" : "user",
+        relativePath: entry.originalPath,
+        skillName: payload.skillName,
+        putBack: (destination) => state.recentlyDeleted.restoreTree(entry.id, { absolutePath: destination, onConflict: "error" }),
+      }, state.runtimeProvider);
+    } catch (error) {
+      if (error instanceof PiSkillRestoreConflictError) throw new WorkFoldCliError("conflict", error.message, { cause: error });
+      if (error instanceof WorkFoldRecentlyDeletedError) throw recentlyDeletedCliError(error);
+      throw error;
+    }
+  }));
+  return {
+    kind: "skill",
+    entryId: entry.id,
+    scope: payload.scope,
+    ...(workFolder ? { workFolder: toActWorkFolderRef(workFolder) } : {}),
+    name: payload.skillName,
+    path: restored.restored.restoredPath,
   };
 }
 
@@ -8654,7 +8775,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         receiptId: input.requestId ?? null,
         ...(input.toPath === undefined ? {} : { toPath: input.toPath }),
       }));
-      const workFolder = "workFolder" in restored ? await getWorkFolder(restored.workFolder.id).catch(() => null) : null;
+      const workFolder = "workFolder" in restored && restored.workFolder ? await getWorkFolder(restored.workFolder.id).catch(() => null) : null;
       await recordFacadeAction(state, input.parentTaskId, {
         command: "recently-deleted.restore",
         ...(workFolder ? { workFolder } : {}),
@@ -8665,6 +8786,14 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         ? { kind: restored.kind, path: restored.path }
         : restored.kind === "work-folder"
           ? { kind: restored.kind, workFolder: restored.workFolder, workFolderRoot: restored.workFolderRoot, renamed: restored.renamed }
+          : restored.kind === "skill"
+            ? {
+              kind: restored.kind,
+              scope: restored.scope,
+              ...(restored.workFolder ? { workFolder: restored.workFolder } : {}),
+              name: restored.name,
+              path: restored.path,
+            }
           : restored.kind === "app-storage"
             ? { kind: restored.kind, workFolder: restored.workFolder, appId: restored.appId, usage: restored.usage }
             : restored.kind === "app-release"
