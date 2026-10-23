@@ -137,7 +137,7 @@ test("an action toast raised from inside an open dialog stays reachable", async 
     createElement(Screen, { open: true, onClose: () => { closes += 1; } }),
     createElement(ToastHost)));
   await dom.act(() => {
-    showToast({ text: "Moved notes to Recently Deleted", tone: "success", actionLabel: "Undo", onAction: () => { undone += 1; } });
+    showToast({ text: "Moved \"notes\" to Recently Deleted", tone: "success", actionLabel: "Undo", onAction: () => { undone += 1; } });
   });
   const stack = document.querySelector<HTMLElement>(".toast-stack");
   assert.equal(document.getElementById("background")?.inert, true, "the rest of the background still stops taking input");

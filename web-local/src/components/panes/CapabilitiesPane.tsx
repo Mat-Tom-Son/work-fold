@@ -413,17 +413,9 @@ export function CapabilitiesPane({
     }
   }
 
+  // Removal is reversible, so it asks nothing first: like Chat deletion, it acts and offers Undo.
   async function removeSkill(item: InstalledCapability) {
     const operation = operationGateRef.current.capture();
-    const confirmed = await requestConfirm({
-      title: `Remove ${item.name}?`,
-      body: item.scope === "project"
-        ? `The Skill folder moves from this work-folder's .pi/skills to Recently Deleted. The Worker in ${workFolder.name} stops using it with the next turn.`
-        : "The Skill folder moves from your Pi skills to Recently Deleted. The work-fold agent and every Worker stop using it with the next turn.",
-      confirmLabel: "Remove Skill",
-      tone: "danger",
-    });
-    if (!confirmed || !operationGateRef.current.isCurrent(operation)) return;
     setBusy(true);
     try {
       let recentlyDeleted: { entryId: string; restoreBy: string } | null = null;
@@ -440,7 +432,7 @@ export function CapabilitiesPane({
       if (!operationGateRef.current.isCurrent(operation)) return;
       setSelectedCapability(null);
       showToast({
-        text: `Moved ${item.name} to Recently Deleted`,
+        text: `Moved "${item.name}" to Recently Deleted`,
         tone: "success",
         durationMs: 6500,
         ...(recentlyDeleted ? {
