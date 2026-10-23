@@ -125,6 +125,16 @@ when it exits. `job_output` lists it and `job_stop` ends it. It still holds a
 kernel reservation against deletion/restore/registration removal, and quit
 stops it. End services explicitly when the task no longer needs them.
 
+## The built-in browser
+
+Every Worker and the work-fold agent in the desktop app carry the `browser_*`
+tools over work-fold's [built-in browser](built-in-browser.md): list the open
+tabs, open or load an address, read a page's structure, text, or console, take
+screenshots, click, type, press keys, scroll, run a script, wait, and close the
+tabs they opened. The tabs are the person's too, so a Worker can use the page
+the person has in front, and a tab it opens appears in their tab strip. A page
+a background job serves on this computer (`localhost:3000`) opens like any other.
+
 ## Managed working copies
 
 `worktree` creates, lists, archives or restores an isolated Git working copy.

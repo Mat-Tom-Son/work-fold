@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/react-icons";
 
 import { safeExternalHref } from "../../lib/api";
+import { browserTabsAvailable, localServerHref, requestBrowserTab } from "../../lib/browser-links";
 import { copyToClipboard } from "../../lib/clipboard";
 import { requestConnectAi } from "../../lib/connect-ai";
 import { formatDateTime } from "../../lib/format";
@@ -306,6 +307,11 @@ export function MarkdownMessage({
             const resolvedPath = workFolderPath ? workFolderLinks?.get(workFolderPath) ?? null : null;
             if (resolvedPath && onOpenWorkFolderFile) {
               return <button className="work-folder-file-link" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{children}</button>;
+            }
+            // A server on this computer, such as a Worker's dev server, opens as a browser tab.
+            const localServer = localServerHref(href);
+            if (localServer && browserTabsAvailable()) {
+              return <button className="message-external-link message-browser-link" type="button" onClick={() => requestBrowserTab(localServer)} title={`Open ${localServer} in a browser tab`}>{children}</button>;
             }
             const safeHref = safeExternalHref(href);
             return safeHref ? <a className="message-external-link" href={safeHref} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;

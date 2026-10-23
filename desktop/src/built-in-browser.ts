@@ -1,0 +1,1325 @@
+/**
+ * The built-in browser's desktop host (docs/built-in-browser.md). It owns one
+ * Chromium page per browser tab, all sharing one persistent profile, and
+ * shows a page over its tab's placeholder in the main window the same way
+ * app views are shown. Pages outlive their placeholder: a tab in the
+ * background, a window that closes and reopens, and a page only a Worker
+ * is using all keep running.
+ *
+ * Workers drive pages through the Chrome DevTools Protocol on Electron's own
+ * debugger, so the browser needs no extension and no setup. Attaching the
+ * debugger with focus emulation also makes a background page render and
+ * take input as if it were in front; it detaches after a quiet period.
+ */
+import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { extname, join } from "node:path";
+import {
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  clipboard,
+  dialog,
+  nativeImage,
+  shell,
+  systemPreferences,
+  session as electronSession,
+  type BrowserWindowConstructorOptions,
+  type ContextMenuParams,
+  type Debugger,
+  type HandlerDetails,
+  type MenuItemConstructorOptions,
+  type NativeImage,
+  type Rectangle,
+  type Session,
+  type WebContents,
+  type WebContentsViewConstructorOptions,
+  type WindowOpenHandlerResponse,
+} from "electron";
+
+import { BrowserHistoryStore, type BrowserHistoryEntry } from "./browser-history.js";
+import { BrowserSitePermissionStore } from "./browser-site-permissions.js";
+import { parseBrowserKeys, type BrowserKeyPress } from "../../src/shared/browser-keys.js";
+import { backendNodeIdForRef, findInSnapshot, formatAccessibilitySnapshot, type AccessibilityNode } from "../../src/shared/browser-snapshot.js";
+import {
+  browserAddressFor,
+  browserPartition,
+  browserPermissionPhrase,
+  browserUserAgent,
+  permissionKinds,
+  siteOrigin,
+  browserSearchUrl,
+  browserSitePermissions,
+  isBrowserPageId,
+  isBrowserUrl,
+  type BrowserPermissionRequest,
+  type BrowserSiteDecision,
+  type BrowserSitePermission,
+  type BrowserActionResult,
+  type BrowserDownload,
+  type BrowserFindResult,
+  type BrowserOpenTabCommand,
+  type BrowserPageState,
+  type BrowserShortcut,
+  type BrowserTabSummary,
+  type BrowserTabsSync,
+  type BrowserToolHost,
+  type BrowserViewRequest,
+} from "../../src/shared/browser.js";
+
+export const browserChannels = {
+  state: "work-fold:browser:state",
+  openTab: "work-fold:browser:open-tab",
+  closeTab: "work-fold:browser:close-tab",
+  shortcut: "work-fold:browser:shortcut",
+  findResult: "work-fold:browser:find-result",
+  download: "work-fold:browser:download",
+} as const;
+
+export type BrowserCommand =
+  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" }
+  | { type: "find"; text: string; forward: boolean; newSearch: boolean }
+  | { type: "forget-permission" | "open-privacy-settings"; kind: BrowserSitePermission };
+
+export interface BuiltInBrowserOptions {
+  /** The window browser tabs show in; null while there is none. */
+  window: () => BrowserWindow | null;
+  /** Delivers an event to the main window's renderer, when there is one. */
+  send: (channel: (typeof browserChannels)[keyof typeof browserChannels], payload: unknown) => void;
+  openExternal: (url: string) => Promise<void>;
+  downloadsPath: () => string;
+  /** The file that keeps what the person allowed or blocked for each site. */
+  sitePermissionsPath: string;
+  /** The file that keeps the pages browser tabs visited. */
+  historyPath: string;
+  /** The app's own product token for the user agent, such as `work-fold/0.13.0`. */
+  userAgentProduct: string;
+  /** Runs after a page joins the window, so host overlays stay above it. */
+  onViewAttached?: () => void;
+  partition?: string;
+}
+
+interface BrowserPage {
+  pageId: string;
+  view: WebContentsView;
+  openedBy: "person" | "agent";
+  favicon: string | null;
+  faviconUrl: string | null;
+  error: BrowserPageState["error"];
+  crashed: boolean;
+  layout: { sequence: number; bounds: Rectangle; active: boolean; occluded: boolean } | null;
+  attachedTo: BrowserWindow | null;
+  console: string[];
+  debuggerReady: Promise<Debugger> | null;
+  debuggerIdle: ReturnType<typeof setTimeout> | null;
+  fullscreen: { restoreWindowFullScreen: boolean } | null;
+  /** When the renderer was last asked to show this page as a tab. */
+  announcedAt: number;
+  closed: boolean;
+  /** The site's questions for the person, oldest first; the first one shows. */
+  permissions: Array<{ request: BrowserPermissionRequest; resolve: (decision: BrowserSiteDecision | null) => void }>;
+  /** Why something the person allowed still cannot work, such as macOS keeping the camera off. */
+  notice: { kind: BrowserSitePermission; text: string } | null;
+}
+
+/** A page a Worker opened but no window has shown yet still lays out at this size. */
+const defaultPageSize = { width: 1280, height: 800 };
+const agentIdleDetachMs = 120_000;
+const navigationTimeoutMs = 30_000;
+const actionSettleMs = 10_000;
+const readChunkLength = 50_000;
+const consoleLimit = 300;
+const fullPageMaxHeight = 8_000;
+const isolatedWorldId = 1_001;
+/** Granted without asking, as Chrome does: full screen, writing what the page copies, pointer and keyboard lock, saving to a file the person picked, and protected media. */
+const silentPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock", "keyboardLock", "fileSystem", "mediaKeySystem", "speaker-selection", "storage-access", "top-level-storage-access", "display-capture"]);
+
+export class BuiltInBrowser {
+  readonly session: Session;
+  readonly toolHost: BrowserToolHost;
+  readonly #options: BuiltInBrowserOptions;
+  readonly #pages = new Map<string, BrowserPage>();
+  /** Files this browser downloaded during this run: the only paths it shows in the file manager. */
+  readonly #downloads = new Set<string>();
+  readonly #sitePermissions: BrowserSitePermissionStore;
+  readonly #history: BrowserHistoryStore;
+  #synced: BrowserTabsSync = { tabs: [], viewingPageId: null };
+
+  constructor(options: BuiltInBrowserOptions) {
+    this.#options = options;
+    this.#sitePermissions = new BrowserSitePermissionStore(options.sitePermissionsPath);
+    this.#history = new BrowserHistoryStore(options.historyPath);
+    this.session = electronSession.fromPartition(options.partition ?? browserPartition);
+    this.#configureSession();
+    this.toolHost = this.#createToolHost();
+  }
+
+  // ── Renderer-facing operations ────────────────────────────────────────────
+
+  /** Shows a tab's page over its placeholder, creating it from its address when needed. */
+  mount(request: BrowserViewRequest): BrowserPageState | null {
+    const page = this.#pages.get(request.pageId) ?? (request.url ? this.#createPage(request.pageId, request.url, "person") : null);
+    if (!page) return null;
+    this.#applyRequest(page, request);
+    return this.#state(page);
+  }
+
+  layout(request: BrowserViewRequest): void {
+    const page = this.#pages.get(request.pageId);
+    if (page) this.#applyRequest(page, request);
+  }
+
+  /** The placeholder went away (its tab closed or the window reloaded); the page keeps running. */
+  detach(pageId: string): void {
+    const page = this.#pages.get(pageId);
+    if (!page) return;
+    page.layout = null;
+    this.#hide(page);
+  }
+
+  navigate(pageId: string, input: string): BrowserPageState {
+    const url = browserAddressFor(input);
+    if (!url) throw new Error("Type an address or something to search for.");
+    const existing = this.#pages.get(pageId);
+    if (!existing) return this.#state(this.#createPage(pageId, url, "person"));
+    this.#load(existing, url);
+    return this.#state(existing);
+  }
+
+  command(pageId: string, command: BrowserCommand): void {
+    const page = this.#pages.get(pageId);
+    if (!page) return;
+    const contents = page.view.webContents;
+    switch (command.type) {
+      case "back": if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); break;
+      case "forward": if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); break;
+      case "reload":
+        page.error = null;
+        page.crashed = false;
+        contents.reload();
+        break;
+      case "stop": contents.stop(); break;
+      case "focus": contents.focus(); break;
+      // Electron's findNext means "start a new search", not "go to the next match".
+      case "find": if (command.text) contents.findInPage(command.text, { forward: command.forward, findNext: command.newSearch }); break;
+      case "stop-find": contents.stopFindInPage("clearSelection"); break;
+      case "inspect": contents.openDevTools({ mode: "detach" }); break;
+      case "zoom-in": contents.setZoomLevel(Math.min(contents.getZoomLevel() + 0.5, 5)); break;
+      case "zoom-out": contents.setZoomLevel(Math.max(contents.getZoomLevel() - 0.5, -5)); break;
+      case "zoom-reset": contents.setZoomLevel(0); break;
+      case "dismiss-notice":
+        page.notice = null;
+        this.#emit(page);
+        break;
+      case "forget-permission": {
+        const origin = siteOrigin(contents.getURL());
+        if (origin) void this.#sitePermissions.forget(origin, command.kind).then(() => this.#emitSite(origin));
+        break;
+      }
+      case "open-privacy-settings": void this.#openPrivacySettings(command.kind); break;
+    }
+  }
+
+  /** The person answered a site's question in the tab. */
+  respondPermission(pageId: string, requestId: string, decision: BrowserSiteDecision): void {
+    const page = this.#pages.get(pageId);
+    const index = page?.permissions.findIndex((entry) => entry.request.requestId === requestId) ?? -1;
+    if (!page || index < 0) return;
+    const [entry] = page.permissions.splice(index, 1);
+    entry!.resolve(decision);
+    this.#emit(page);
+  }
+
+  /** The person closed the tab. */
+  close(pageId: string): void {
+    const page = this.#pages.get(pageId);
+    this.#synced = { ...this.#synced, tabs: this.#synced.tabs.filter((tab) => tab.pageId !== pageId) };
+    if (page) this.#destroy(page);
+  }
+
+  /** The renderer's open browser tabs. Pages a Worker opened that it has not shown are offered again. */
+  sync(value: BrowserTabsSync): void {
+    this.#synced = value;
+    const known = new Set(value.tabs.map((tab) => tab.pageId));
+    const now = Date.now();
+    for (const page of this.#pages.values()) {
+      if (known.has(page.pageId) || page.closed || now - page.announcedAt < 3_000) continue;
+      this.#announce(page, false);
+    }
+  }
+
+  /** Shows a file this browser downloaded in Finder or Explorer. */
+  showDownload(path: string): void {
+    if (!this.#downloads.has(path)) throw new Error("That file is not one this browser downloaded.");
+    shell.showItemInFolder(path);
+  }
+
+  /** Pages from history that match what someone is typing in the address bar. */
+  suggest(text: string): BrowserHistoryEntry[] {
+    return this.#history.suggest(text);
+  }
+
+  /** The most recently visited pages, for a new tab. */
+  recentHistory(): BrowserHistoryEntry[] {
+    return this.#history.recent();
+  }
+
+  clearHistory(): Promise<void> {
+    return this.#history.clear();
+  }
+
+  states(): BrowserPageState[] {
+    return [...this.#pages.values()].filter((page) => !page.closed).map((page) => this.#state(page));
+  }
+
+  /** Takes every page off a window that is closing; they come back when a window shows them again. */
+  detachWindow(window: BrowserWindow): void {
+    for (const page of this.#pages.values()) {
+      if (page.attachedTo !== window) continue;
+      if (!window.isDestroyed()) window.contentView.removeChildView(page.view);
+      page.attachedTo = null;
+      page.layout = null;
+    }
+  }
+
+  dispose(): void {
+    for (const page of [...this.#pages.values()]) this.#destroy(page, { announce: false });
+    void this.#history.flush();
+  }
+
+  // ── Pages ─────────────────────────────────────────────────────────────────
+
+  #createPage(pageId: string, url: string, openedBy: BrowserPage["openedBy"], adopt?: WebContentsViewConstructorOptions): BrowserPage {
+    if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
+    if (this.#pages.has(pageId)) throw new Error("That browser tab already exists.");
+    const view = new WebContentsView(adopt ?? { webPreferences: this.#webPreferences() });
+    view.setBackgroundColor("#ffffff");
+    view.setBounds({ x: 0, y: 0, ...defaultPageSize });
+    const page: BrowserPage = {
+      pageId,
+      view,
+      openedBy,
+      favicon: null,
+      faviconUrl: null,
+      error: null,
+      crashed: false,
+      layout: null,
+      attachedTo: null,
+      console: [],
+      debuggerReady: null,
+      debuggerIdle: null,
+      fullscreen: null,
+      announcedAt: 0,
+      closed: false,
+      permissions: [],
+      notice: null,
+    };
+    this.#pages.set(pageId, page);
+    this.#wire(page);
+    if (!adopt) this.#load(page, url);
+    return page;
+  }
+
+  #webPreferences(): Electron.WebPreferences {
+    return {
+      session: this.session,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      webviewTag: false,
+      // Chromium's PDF viewer is plugin-backed.
+      plugins: true,
+      spellcheck: true,
+      safeDialogs: true,
+      devTools: true,
+    };
+  }
+
+  #load(page: BrowserPage, url: string): Promise<void> {
+    page.error = null;
+    page.crashed = false;
+    if (!isBrowserUrl(url)) {
+      void this.#openOutside(url);
+      return Promise.resolve();
+    }
+    return page.view.webContents.loadURL(url).catch(() => undefined);
+  }
+
+  #wire(page: BrowserPage): void {
+    const contents = page.view.webContents;
+    const emit = () => this.#emit(page);
+    contents.on("did-start-loading", emit);
+    contents.on("did-stop-loading", emit);
+    contents.on("did-navigate", (_event, url) => {
+      page.error = null;
+      page.crashed = false;
+      this.#history.record(url, contents.getTitle());
+      emit();
+    });
+    contents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
+      if (!isMainFrame) return;
+      this.#history.record(url, contents.getTitle());
+      emit();
+    });
+    // A question belongs to the page that asked it; leaving the page drops it.
+    contents.on("did-start-navigation", (event) => {
+      if (!event.isMainFrame || event.isSameDocument) return;
+      page.notice = null;
+      this.#dropPermissions(page);
+    });
+    contents.on("page-title-updated", (_event, title) => {
+      this.#history.retitle(contents.getURL(), title);
+      emit();
+    });
+    contents.on("audio-state-changed", emit);
+    contents.on("page-favicon-updated", (_event, favicons) => { void this.#updateFavicon(page, favicons[0] ?? null); });
+    contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+      // -3 is an aborted load, which another navigation replaced.
+      if (!isMainFrame || code === -3) return;
+      page.error = { code, description, url };
+      emit();
+    });
+    contents.on("render-process-gone", () => {
+      page.crashed = true;
+      page.debuggerReady = null;
+      emit();
+    });
+    contents.on("console-message", (event) => {
+      const where = event.sourceId ? ` (${event.sourceId}:${event.lineNumber})` : "";
+      pushBounded(page.console, `[${event.level}] ${event.message}${where}`);
+    });
+    contents.on("found-in-page", (_event, result) => {
+      const found: BrowserFindResult = { pageId: page.pageId, matches: result.matches, activeMatch: result.activeMatchOrdinal, final: result.finalUpdate };
+      this.#options.send(browserChannels.findResult, found);
+    });
+    contents.on("enter-html-full-screen", () => this.#enterFullScreen(page));
+    contents.on("leave-html-full-screen", () => this.#leaveFullScreen(page));
+    contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("will-navigate", (event) => this.#guardNavigation(event, event.url));
+    contents.on("will-redirect", (event) => this.#guardNavigation(event, event.url));
+    contents.on("context-menu", (_event, params) => this.#contextMenu(page, params));
+    contents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown") return;
+      if (this.#handleKey(page, input)) event.preventDefault();
+    });
+    contents.setWindowOpenHandler((details) => this.#windowOpen(page, details));
+    contents.on("did-create-window", (window) => this.#configurePopup(window));
+    contents.on("destroyed", () => {
+      this.#dropPermissions(page);
+      if (this.#pages.get(page.pageId) !== page) return;
+      this.#pages.delete(page.pageId);
+      if (!page.closed) {
+        page.closed = true;
+        this.#options.send(browserChannels.closeTab, { pageId: page.pageId });
+      }
+    });
+  }
+
+  #guardNavigation(event: Electron.Event, url: string): void {
+    if (isBrowserUrl(url)) return;
+    event.preventDefault();
+    void this.#openOutside(url);
+  }
+
+  /** Mail links go to the mail app; other non-web addresses are refused. */
+  async #openOutside(url: string): Promise<void> {
+    if (!/^mailto:/i.test(url)) return;
+    await this.#options.openExternal(url).catch(() => undefined);
+  }
+
+  #windowOpen(opener: BrowserPage, details: HandlerDetails): WindowOpenHandlerResponse {
+    if (!isBrowserUrl(details.url) && details.url !== "") {
+      void this.#openOutside(details.url);
+      return { action: "deny" };
+    }
+    // A sized pop-up, such as "Sign in with…", keeps its own small window and
+    // its link back to the page that opened it, which sign-in flows rely on.
+    if (details.disposition === "new-window") {
+      const parent = this.#options.window();
+      const overrideBrowserWindowOptions: BrowserWindowConstructorOptions = {
+        ...(parent && !parent.isDestroyed() ? { parent } : {}),
+        autoHideMenuBar: true,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false },
+      };
+      return { action: "allow", overrideBrowserWindowOptions };
+    }
+    const show = details.disposition !== "background-tab";
+    return {
+      action: "allow",
+      createWindow: (options) => {
+        const page = this.#createPage(newPageId(this.#pages), details.url, opener.openedBy, options as WebContentsViewConstructorOptions);
+        this.#announce(page, show, details.url);
+        return page.view.webContents;
+      },
+    };
+  }
+
+  /** Pop-up windows a page opened: links in them become tabs, and they keep the same address rules. */
+  #configurePopup(window: BrowserWindow): void {
+    const contents = window.webContents;
+    contents.setWindowOpenHandler((details) => {
+      if (isBrowserUrl(details.url)) this.#openTab(details.url, true, "person");
+      else void this.#openOutside(details.url);
+      return { action: "deny" };
+    });
+    contents.on("will-navigate", (event) => this.#guardNavigation(event, event.url));
+    contents.on("will-attach-webview", (event) => event.preventDefault());
+  }
+
+  #openTab(url: string, show: boolean, openedBy: BrowserPage["openedBy"]): BrowserPage {
+    const page = this.#createPage(newPageId(this.#pages), url, openedBy);
+    this.#announce(page, show, url);
+    return page;
+  }
+
+  #announce(page: BrowserPage, show: boolean, url = page.view.webContents.getURL()): void {
+    page.announcedAt = Date.now();
+    const command: BrowserOpenTabCommand = {
+      pageId: page.pageId,
+      url: url || page.view.webContents.getURL(),
+      title: page.view.webContents.getTitle() || displayHost(url) || "New Tab",
+      show,
+    };
+    this.#options.send(browserChannels.openTab, command);
+  }
+
+  #destroy(page: BrowserPage, options: { announce?: boolean } = {}): void {
+    if (page.closed) return;
+    page.closed = true;
+    this.#dropPermissions(page);
+    if (page.debuggerIdle) clearTimeout(page.debuggerIdle);
+    this.#pages.delete(page.pageId);
+    if (page.fullscreen) this.#leaveFullScreen(page);
+    this.#hide(page);
+    const contents = page.view.webContents;
+    if (!contents.isDestroyed()) contents.close({ waitForBeforeUnload: false });
+    if (options.announce !== false) this.#options.send(browserChannels.closeTab, { pageId: page.pageId });
+  }
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+
+  #applyRequest(page: BrowserPage, request: BrowserViewRequest): void {
+    if (page.layout && request.sequence < page.layout.sequence) return;
+    page.layout = { sequence: request.sequence, bounds: request.bounds, active: request.active, occluded: request.occluded };
+    this.#applyLayout(page);
+  }
+
+  #applyLayout(page: BrowserPage): void {
+    const window = this.#options.window();
+    if (page.attachedTo && page.attachedTo !== window) {
+      if (!page.attachedTo.isDestroyed()) page.attachedTo.contentView.removeChildView(page.view);
+      page.attachedTo = null;
+    }
+    const layout = page.layout;
+    if (!window || window.isDestroyed() || !layout || page.view.webContents.isDestroyed()) {
+      this.#hide(page);
+      return;
+    }
+    const content = window.getContentBounds();
+    const bounds = page.fullscreen
+      ? { x: 0, y: 0, width: content.width, height: content.height }
+      : clippedViewBounds(layout.bounds, content, window.webContents.getZoomFactor());
+    const visible = (page.fullscreen !== null || (layout.active && !layout.occluded))
+      && bounds.width > 0 && bounds.height > 0 && window.isVisible() && !window.isMinimized();
+    if (!visible) {
+      // The page keeps its last size, so a Worker using it in the background sees the same layout.
+      this.#hide(page);
+      return;
+    }
+    window.contentView.addChildView(page.view);
+    page.attachedTo = window;
+    page.view.setBounds(bounds);
+    page.view.setVisible(true);
+    this.#options.onViewAttached?.();
+  }
+
+  #hide(page: BrowserPage): void {
+    page.view.setVisible(false);
+    if (page.attachedTo && !page.attachedTo.isDestroyed()) page.attachedTo.contentView.removeChildView(page.view);
+    page.attachedTo = null;
+  }
+
+  #enterFullScreen(page: BrowserPage): void {
+    const window = this.#options.window();
+    if (!window || window.isDestroyed()) return;
+    page.fullscreen = { restoreWindowFullScreen: !window.isFullScreen() };
+    if (!window.isFullScreen()) window.setFullScreen(true);
+    this.#applyLayout(page);
+    window.once("resize", () => { if (page.fullscreen) this.#applyLayout(page); });
+  }
+
+  #leaveFullScreen(page: BrowserPage): void {
+    const restore = page.fullscreen?.restoreWindowFullScreen;
+    page.fullscreen = null;
+    const window = this.#options.window();
+    if (restore && window && !window.isDestroyed() && window.isFullScreen()) window.setFullScreen(false);
+    if (!page.closed) this.#applyLayout(page);
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+
+  #state(page: BrowserPage): BrowserPageState {
+    const contents = page.view.webContents;
+    if (contents.isDestroyed()) {
+      return { pageId: page.pageId, url: "", title: "", favicon: null, loading: false, canGoBack: false, canGoForward: false, error: null, crashed: true, audible: false, sitePermissions: [], permissionRequest: null, notice: null };
+    }
+    const origin = siteOrigin(contents.getURL());
+    return {
+      pageId: page.pageId,
+      url: contents.getURL(),
+      title: contents.getTitle(),
+      favicon: page.favicon,
+      loading: contents.isLoading(),
+      canGoBack: contents.navigationHistory.canGoBack(),
+      canGoForward: contents.navigationHistory.canGoForward(),
+      error: page.error,
+      crashed: page.crashed,
+      audible: contents.isCurrentlyAudible(),
+      sitePermissions: origin ? this.#sitePermissions.forSite(origin) : [],
+      permissionRequest: page.permissions[0]?.request ?? null,
+      notice: page.notice,
+    };
+  }
+
+  /** Every page showing this site gets its new settings. */
+  #emitSite(origin: string): void {
+    for (const page of this.#pages.values()) {
+      if (!page.view.webContents.isDestroyed() && siteOrigin(page.view.webContents.getURL()) === origin) this.#emit(page);
+    }
+  }
+
+  #emit(page: BrowserPage): void {
+    if (page.closed) return;
+    this.#options.send(browserChannels.state, this.#state(page));
+  }
+
+  async #updateFavicon(page: BrowserPage, url: string | null): Promise<void> {
+    if (url === page.faviconUrl) return;
+    page.faviconUrl = url;
+    let favicon: string | null = null;
+    if (url && /^(https?|data):/i.test(url)) {
+      try {
+        favicon = url.startsWith("data:") ? (url.length <= 200_000 && /^data:image\//i.test(url) ? url : null) : await this.#fetchImage(url);
+      } catch {
+        favicon = null;
+      }
+    }
+    if (page.faviconUrl !== url) return;
+    page.favicon = favicon;
+    this.#emit(page);
+  }
+
+  async #fetchImage(url: string): Promise<string | null> {
+    const response = await this.session.fetch(url, { signal: AbortSignal.timeout(8_000) });
+    const type = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ?? "";
+    if (!response.ok || !type.startsWith("image/")) return null;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 150_000) return null;
+    return `data:${type};base64,${bytes.toString("base64")}`;
+  }
+
+  // ── Session ───────────────────────────────────────────────────────────────
+
+  #configureSession(): void {
+    const session = this.session;
+    session.setUserAgent(browserUserAgent(this.#options.userAgentProduct));
+    session.setPermissionRequestHandler((contents, permission, callback, details) => {
+      void this.#requestPermission(contents, permission, details).then(callback, () => callback(false));
+    });
+    session.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) => {
+      if (silentPermissions.has(permission)) return true;
+      const kinds = permissionKinds(permission, details.mediaType === "video" || details.mediaType === "audio" ? [details.mediaType] : []);
+      const origin = siteOrigin(requestingOrigin || details.requestingUrl || "");
+      return Boolean(origin && kinds.length && kinds.every((kind) => this.#sitePermissions.get(origin, kind) === "allow"));
+    });
+    // Screen sharing goes through the macOS picker (macOS 15 and later), where the person chooses what to share.
+    session.setDisplayMediaRequestHandler((_request, callback) => callback({}), { useSystemPicker: true });
+    session.on("will-download", (_event, item) => {
+      const directory = this.#options.downloadsPath();
+      const path = uniquePath(directory, safeFileName(item.getFilename()));
+      item.setSavePath(path);
+      item.once("done", (_doneEvent, state) => {
+        if (state === "completed") this.#downloads.add(path);
+        const download: BrowserDownload = { filename: item.getFilename(), path, state };
+        this.#options.send(browserChannels.download, download);
+      });
+    });
+    session.webRequest.onCompleted((details) => {
+      if (details.statusCode < 400 || details.webContentsId === undefined) return;
+      const page = this.#pageForContentsId(details.webContentsId);
+      if (page) pushBounded(page.console, `[network] ${details.statusCode} ${details.method} ${details.url}`);
+    });
+    session.webRequest.onErrorOccurred((details) => {
+      if (details.webContentsId === undefined || details.error === "net::ERR_ABORTED") return;
+      const page = this.#pageForContentsId(details.webContentsId);
+      if (page) pushBounded(page.console, `[network] ${details.error} ${details.method} ${details.url}`);
+    });
+  }
+
+  // ── Site permissions ──────────────────────────────────────────────────────
+
+  async #requestPermission(contents: WebContents, permission: string, details: Electron.PermissionRequest | Electron.MediaAccessPermissionRequest): Promise<boolean> {
+    if (silentPermissions.has(permission)) return true;
+    const mediaTypes = "mediaTypes" in details && Array.isArray(details.mediaTypes) ? details.mediaTypes : [];
+    const kinds = permissionKinds(permission, mediaTypes);
+    const origin = siteOrigin(("securityOrigin" in details && details.securityOrigin) || details.requestingUrl || "");
+    if (!kinds.length || !origin) return false;
+    const saved = kinds.map((kind) => this.#sitePermissions.get(origin, kind));
+    if (saved.includes("block")) return false;
+    const page = this.#pageForContentsId(contents.id);
+    if (saved.every((decision) => decision === "allow")) return await this.#systemAllows(kinds, page);
+    const decision = page ? await this.#askOnPage(page, origin, kinds) : await this.#askInDialog(contents, origin, kinds);
+    if (!decision) return false;
+    await this.#sitePermissions.set(origin, kinds, decision).catch(() => undefined);
+    this.#emitSite(origin);
+    return decision === "allow" && await this.#systemAllows(kinds, page);
+  }
+
+  /** The question shows above the page in its tab; the person may be looking at another tab. */
+  #askOnPage(page: BrowserPage, origin: string, kinds: BrowserSitePermission[]): Promise<BrowserSiteDecision | null> {
+    return new Promise((resolve) => {
+      const request: BrowserPermissionRequest = { requestId: randomBytes(8).toString("hex"), origin, kinds };
+      page.permissions.push({ request, resolve });
+      this.#emit(page);
+    });
+  }
+
+  /** A pop-up window has no tab to ask in, so it asks with a dialog over that window. */
+  async #askInDialog(contents: WebContents, origin: string, kinds: BrowserSitePermission[]): Promise<BrowserSiteDecision | null> {
+    const window = BrowserWindow.fromWebContents(contents);
+    const options = {
+      type: "question" as const,
+      buttons: ["Allow", "Block"],
+      defaultId: 0,
+      cancelId: 1,
+      message: `${displayHost(origin) || origin} wants to ${browserPermissionPhrase(kinds)}.`,
+    };
+    const result = window && !window.isDestroyed() ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+    return result.response === 0 ? "allow" : "block";
+  }
+
+  #dropPermissions(page: BrowserPage): void {
+    if (!page.permissions.length) return;
+    for (const entry of page.permissions.splice(0)) entry.resolve(null);
+    this.#emit(page);
+  }
+
+  /** macOS keeps its own camera and microphone switches; ask once, and say so when they are off. */
+  async #systemAllows(kinds: BrowserSitePermission[], page: BrowserPage | null): Promise<boolean> {
+    if (process.platform !== "darwin") return true;
+    for (const kind of kinds) {
+      if (kind !== "camera" && kind !== "microphone") continue;
+      const status = systemPreferences.getMediaAccessStatus(kind);
+      if (status === "granted") continue;
+      if (status === "not-determined" && await systemPreferences.askForMediaAccess(kind)) continue;
+      if (page) {
+        const device = kind === "camera" ? "camera" : "microphone";
+        page.notice = { kind, text: `macOS has the ${device} turned off for work-fold. Turn it on in System Settings, then reload the page.` };
+        this.#emit(page);
+      }
+      return false;
+    }
+    return true;
+  }
+
+  async #openPrivacySettings(kind: BrowserSitePermission): Promise<void> {
+    if (process.platform !== "darwin") return;
+    const pane = kind === "camera" ? "Privacy_Camera" : kind === "microphone" ? "Privacy_Microphone" : kind === "location" ? "Privacy_LocationServices" : null;
+    if (pane) await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${pane}`).catch(() => undefined);
+  }
+
+  #pageForContentsId(id: number): BrowserPage | null {
+    for (const page of this.#pages.values()) if (!page.view.webContents.isDestroyed() && page.view.webContents.id === id) return page;
+    return null;
+  }
+
+  // ── Context menu and keys ─────────────────────────────────────────────────
+
+  #contextMenu(page: BrowserPage, params: ContextMenuParams): void {
+    const contents = page.view.webContents;
+    const template: MenuItemConstructorOptions[] = [];
+    if (params.linkURL && isBrowserUrl(params.linkURL)) {
+      template.push(
+        { label: "Open Link in New Tab", click: () => { this.#openTab(params.linkURL, false, "person"); } },
+        { label: "Open Link in Default Browser", click: () => { void this.#options.openExternal(params.linkURL).catch(() => undefined); } },
+        { label: "Copy Link Address", click: () => clipboard.writeText(params.linkURL) },
+        { type: "separator" },
+      );
+    }
+    if (params.mediaType === "image" && params.srcURL) {
+      template.push(
+        ...(isBrowserUrl(params.srcURL) ? [{ label: "Open Image in New Tab", click: () => { this.#openTab(params.srcURL, false, "person"); } }] : []),
+        { label: "Copy Image", click: () => contents.copyImageAt(params.x, params.y) },
+        { label: "Copy Image Address", click: () => clipboard.writeText(params.srcURL) },
+        { type: "separator" },
+      );
+    }
+    if (params.isEditable) {
+      template.push(
+        { label: "Undo", enabled: params.editFlags.canUndo, click: () => contents.undo() },
+        { label: "Redo", enabled: params.editFlags.canRedo, click: () => contents.redo() },
+        { type: "separator" },
+        { label: "Cut", enabled: params.editFlags.canCut, click: () => contents.cut() },
+        { label: "Copy", enabled: params.editFlags.canCopy, click: () => contents.copy() },
+        { label: "Paste", enabled: params.editFlags.canPaste, click: () => contents.paste() },
+        { label: "Select All", enabled: params.editFlags.canSelectAll, click: () => contents.selectAll() },
+        { type: "separator" },
+      );
+    } else if (params.selectionText.trim()) {
+      const selection = params.selectionText.trim();
+      const shown = selection.length > 30 ? `${selection.slice(0, 29)}…` : selection;
+      template.push(
+        { label: "Copy", click: () => contents.copy() },
+        { label: `Search Google for “${shown}”`, click: () => { this.#openTab(`${browserSearchUrl}${encodeURIComponent(selection)}`, true, "person"); } },
+        { type: "separator" },
+      );
+    }
+    if (!params.linkURL && !params.isEditable && !params.selectionText.trim()) {
+      template.push(
+        { label: "Back", enabled: contents.navigationHistory.canGoBack(), click: () => contents.navigationHistory.goBack() },
+        { label: "Forward", enabled: contents.navigationHistory.canGoForward(), click: () => contents.navigationHistory.goForward() },
+        { label: "Reload", click: () => contents.reload() },
+        { type: "separator" },
+      );
+    }
+    template.push({ label: "Inspect", click: () => contents.inspectElement(params.x, params.y) });
+    const window = page.attachedTo ?? this.#options.window();
+    Menu.buildFromTemplate(template).popup(window && !window.isDestroyed() ? { window } : {});
+  }
+
+  /** Browser keys while the page has focus. True when the key is handled here and must not reach the page. */
+  #handleKey(page: BrowserPage, input: Electron.Input): boolean {
+    const command = process.platform === "darwin" ? input.meta : input.control;
+    const key = input.key.toLowerCase();
+    const contents = page.view.webContents;
+    if (command && !input.alt) {
+      if (key === "r") {
+        if (input.shift) contents.reloadIgnoringCache(); else contents.reload();
+        return true;
+      }
+      if (key === "[" && !input.shift) { if (contents.navigationHistory.canGoBack()) contents.navigationHistory.goBack(); return true; }
+      if (key === "]" && !input.shift) { if (contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward(); return true; }
+      if (key === "=" || key === "+") { this.command(page.pageId, { type: "zoom-in" }); return true; }
+      if (key === "-") { this.command(page.pageId, { type: "zoom-out" }); return true; }
+      if (key === "0") { this.command(page.pageId, { type: "zoom-reset" }); return true; }
+      if ((key === "l" || key === "f" || key === "t") && !input.shift) return this.#forwardKey(page, input);
+      if (/^[1-9]$/.test(key) && !input.shift) return this.#forwardKey(page, input);
+    }
+    if (input.control && !input.meta && !input.alt && key === "tab") return this.#forwardKey(page, input);
+    return false;
+  }
+
+  #forwardKey(page: BrowserPage, input: Electron.Input): true {
+    const shortcut: BrowserShortcut = {
+      pageId: page.pageId,
+      key: input.key,
+      code: input.code,
+      metaKey: input.meta,
+      ctrlKey: input.control,
+      shiftKey: input.shift,
+      altKey: input.alt,
+    };
+    this.#options.send(browserChannels.shortcut, shortcut);
+    return true;
+  }
+
+  // ── Worker operations ─────────────────────────────────────────────────────
+
+  #createToolHost(): BrowserToolHost {
+    return {
+      tabs: async () => this.#tabSummaries(),
+      open: async ({ url, show, signal }) => {
+        const address = browserAddressFor(url);
+        if (!address || !isBrowserUrl(address)) throw new Error(`"${url}" is not a web address this browser can open.`);
+        const page = this.#openTab(address, show === true, "agent");
+        await delay(50);
+        await this.#waitForLoad(page, signal);
+        return this.#summary(page);
+      },
+      navigate: async ({ tab, to, signal }) => {
+        const page = await this.#agentPage(tab);
+        const contents = page.view.webContents;
+        const target = to.trim().toLowerCase();
+        if (target === "back") {
+          if (!contents.navigationHistory.canGoBack()) throw new Error("This tab has no earlier page.");
+          contents.navigationHistory.goBack();
+        } else if (target === "forward") {
+          if (!contents.navigationHistory.canGoForward()) throw new Error("This tab has no later page.");
+          contents.navigationHistory.goForward();
+        } else if (target === "reload") {
+          page.error = null;
+          contents.reload();
+        } else {
+          const address = browserAddressFor(to);
+          if (!address || !isBrowserUrl(address)) throw new Error(`"${to}" is not a web address this browser can open.`);
+          void this.#load(page, address);
+        }
+        await delay(50);
+        await this.#waitForLoad(page, signal);
+        return this.#summary(page);
+      },
+      read: async ({ tab, mode, find, offset }) => {
+        const page = await this.#agentPage(tab);
+        let text: string;
+        if (mode === "text") {
+          const result = await page.view.webContents.executeJavaScriptInIsolatedWorld(isolatedWorldId, [{ code: "document.body ? document.body.innerText : ''" }]);
+          text = typeof result === "string" ? result.replace(/\n{3,}/g, "\n\n").trim() : "";
+          if (find?.trim()) text = text.split("\n").filter((line) => line.toLowerCase().includes(find.trim().toLowerCase())).join("\n");
+        } else {
+          const cdp = await this.#debugger(page);
+          const tree = await cdp.sendCommand("Accessibility.getFullAXTree") as { nodes: AccessibilityNode[] };
+          text = formatAccessibilitySnapshot(tree.nodes);
+          if (find?.trim()) text = findInSnapshot(text, find);
+        }
+        const start = Math.max(0, Math.min(offset ?? 0, text.length));
+        const end = Math.min(text.length, start + readChunkLength);
+        return { tab: this.#summary(page), text: text.slice(start, end), total: text.length, nextOffset: end < text.length ? end : null };
+      },
+      screenshot: async ({ tab, ref, fullPage }) => {
+        const page = await this.#agentPage(tab);
+        const contents = page.view.webContents;
+        const cdp = await this.#debugger(page);
+        const viewport = await this.#viewport(page);
+        let image: NativeImage;
+        if (fullPage) {
+          const metrics = await cdp.sendCommand("Page.getLayoutMetrics") as { cssContentSize?: { width: number; height: number } };
+          const width = Math.max(1, Math.ceil(metrics.cssContentSize?.width ?? viewport.width));
+          const height = Math.max(1, Math.min(fullPageMaxHeight, Math.ceil(metrics.cssContentSize?.height ?? viewport.height)));
+          const shot = await cdp.sendCommand("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }) as { data: string };
+          image = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
+          image = image.resize({ width });
+        } else if (ref) {
+          const box = await this.#elementBox(page, ref);
+          const rect = {
+            x: Math.max(0, Math.floor(box.x)),
+            y: Math.max(0, Math.floor(box.y)),
+            width: Math.max(1, Math.min(Math.ceil(box.width), viewport.width)),
+            height: Math.max(1, Math.min(Math.ceil(box.height), viewport.height)),
+          };
+          image = await contents.capturePage(rect, { stayHidden: true });
+          image = image.resize({ width: rect.width });
+        } else {
+          image = await contents.capturePage(undefined, { stayHidden: true });
+          image = image.resize({ width: viewport.width });
+        }
+        this.#touch(page);
+        const size = image.getSize();
+        if (image.isEmpty() || !size.width || !size.height) throw new Error("The page could not be captured. Try again after it finishes loading.");
+        return { tab: this.#summary(page), data: image.toJPEG(82).toString("base64"), mimeType: "image/jpeg", width: size.width, height: size.height };
+      },
+      click: async ({ tab, ref, x, y, double, signal }) => {
+        const page = await this.#agentPage(tab);
+        const cdp = await this.#debugger(page);
+        const point = ref ? await this.#elementCenter(page, ref) : pointFrom(x, y);
+        return await this.#observeAction(page, signal, async () => {
+          await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+          for (let count = 1; count <= (double ? 2 : 1); count += 1) {
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: count });
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: count });
+          }
+        });
+      },
+      type: async ({ tab, ref, text, clear, submit, signal }) => {
+        const page = await this.#agentPage(tab);
+        const cdp = await this.#debugger(page);
+        return await this.#observeAction(page, signal, async () => {
+          if (ref) {
+            const backendNodeId = refNodeId(ref);
+            const described = await cdp.sendCommand("DOM.describeNode", { backendNodeId }).catch(() => { throw staleRef(ref); }) as { node?: { nodeName?: string } };
+            if (described.node?.nodeName === "SELECT") {
+              const object = await this.#resolve(cdp, ref);
+              const chosen = await cdp.sendCommand("Runtime.callFunctionOn", { objectId: object, functionDeclaration: chooseOptionFunction, arguments: [{ value: text }], returnByValue: true }) as { result?: { value?: unknown } };
+              if (typeof chosen.result?.value !== "string") throw new Error(`No option in that list matches "${text}". Read the page to see its options.`);
+              return;
+            }
+            await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => undefined);
+            await cdp.sendCommand("DOM.focus", { backendNodeId }).catch(async () => {
+              const point = await this.#elementCenter(page, ref);
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+            });
+          }
+          if (clear ?? Boolean(ref)) {
+            await cdp.sendCommand("Runtime.evaluate", { expression: selectFocusedContentsExpression });
+            if (!text) await this.#press(cdp, parseBrowserKeys("Backspace"));
+          }
+          if (text) await cdp.sendCommand("Input.insertText", { text });
+          if (submit) await this.#press(cdp, parseBrowserKeys("Enter"));
+        });
+      },
+      press: async ({ tab, keys, signal }) => {
+        const page = await this.#agentPage(tab);
+        const presses = parseBrowserKeys(keys);
+        const cdp = await this.#debugger(page);
+        return await this.#observeAction(page, signal, () => this.#press(cdp, presses));
+      },
+      scroll: async ({ tab, ref, direction, amount }) => {
+        const page = await this.#agentPage(tab);
+        const cdp = await this.#debugger(page);
+        if (ref) {
+          await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); });
+        } else {
+          const viewport = await this.#viewport(page);
+          const screens = typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? amount : 1;
+          const along = direction === "left" || direction === "right" ? viewport.width : viewport.height;
+          const distance = Math.round(along * 0.8 * screens) * (direction === "up" || direction === "left" ? -1 : 1);
+          const horizontal = direction === "left" || direction === "right";
+          await cdp.sendCommand("Input.dispatchMouseEvent", {
+            type: "mouseWheel",
+            x: Math.round(viewport.width / 2),
+            y: Math.round(viewport.height / 2),
+            deltaX: horizontal ? distance : 0,
+            deltaY: horizontal ? 0 : distance,
+          });
+          await delay(250);
+        }
+        this.#touch(page);
+        return { tab: this.#summary(page), navigated: false };
+      },
+      evaluate: async ({ tab, script, signal }) => {
+        const page = await this.#agentPage(tab);
+        const cdp = await this.#debugger(page);
+        const evaluation = cdp.sendCommand("Runtime.evaluate", { expression: script, awaitPromise: true, returnByValue: true, userGesture: true }) as Promise<{
+          result?: { type?: string; value?: unknown; description?: string };
+          exceptionDetails?: { text?: string; exception?: { description?: string } };
+        }>;
+        const outcome = await abortable(evaluation, signal);
+        this.#touch(page);
+        if (outcome.exceptionDetails) throw new Error(`The script failed: ${outcome.exceptionDetails.exception?.description ?? outcome.exceptionDetails.text ?? "unknown error"}`);
+        const value = outcome.result?.value;
+        const result = value === undefined ? (outcome.result?.description ?? outcome.result?.type ?? "undefined") : typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
+        return { tab: this.#summary(page), result };
+      },
+      wait: async ({ tab, text, seconds, signal }) => {
+        const page = await this.#agentPage(tab);
+        const contents = page.view.webContents;
+        const deadline = Date.now() + Math.max(0, seconds) * 1_000;
+        const needle = text?.trim().toLowerCase() ?? "";
+        await this.#debugger(page);
+        for (;;) {
+          signal?.throwIfAborted();
+          if (needle) {
+            const body = await contents.executeJavaScriptInIsolatedWorld(isolatedWorldId, [{ code: "document.body ? document.body.innerText : ''" }]).catch(() => "");
+            if (typeof body === "string" && body.toLowerCase().includes(needle)) return { tab: this.#summary(page), found: true };
+          } else if (!contents.isLoading()) {
+            return { tab: this.#summary(page), found: null };
+          }
+          if (Date.now() >= deadline) return { tab: this.#summary(page), found: needle ? false : null };
+          await delay(250);
+        }
+      },
+      console: async ({ tab }) => {
+        const page = await this.#agentPage(tab);
+        return { tab: this.#summary(page), entries: [...page.console] };
+      },
+      close: async ({ tab }) => {
+        const page = await this.#agentPage(tab);
+        if (page.openedBy !== "agent") throw new Error("That tab is the person's. Close only tabs you opened.");
+        this.#synced = { ...this.#synced, tabs: this.#synced.tabs.filter((item) => item.pageId !== page.pageId) };
+        this.#destroy(page);
+      },
+    };
+  }
+
+  #tabSummaries(): BrowserTabSummary[] {
+    const result: BrowserTabSummary[] = [];
+    const seen = new Set<string>();
+    for (const tab of this.#synced.tabs) {
+      seen.add(tab.pageId);
+      const page = this.#pages.get(tab.pageId);
+      result.push(page ? this.#summary(page) : { tab: tab.pageId, url: tab.url, title: tab.title, loading: false, viewing: tab.pageId === this.#synced.viewingPageId });
+    }
+    for (const page of this.#pages.values()) if (!seen.has(page.pageId) && !page.closed) result.push(this.#summary(page));
+    return result;
+  }
+
+  #summary(page: BrowserPage): BrowserTabSummary {
+    const contents = page.view.webContents;
+    const destroyed = contents.isDestroyed();
+    return {
+      tab: page.pageId,
+      url: destroyed ? "" : contents.getURL(),
+      title: destroyed ? "" : contents.getTitle(),
+      loading: destroyed ? false : contents.isLoading(),
+      viewing: page.pageId === this.#synced.viewingPageId,
+      ...(page.error ? { error: `${page.error.description || "The page did not load"} (${page.error.url})` } : {}),
+      ...(page.crashed ? { error: "The page stopped unexpectedly. Reload it to try again." } : {}),
+      ...(page.permissions[0] ? { asking: `The page is waiting for the person to let it ${browserPermissionPhrase(page.permissions[0].request.kinds)}.` } : {}),
+    };
+  }
+
+  /** A tab a Worker named: a live page, or a restored tab that loads now. */
+  async #agentPage(tab: string, signal?: AbortSignal): Promise<BrowserPage> {
+    const pageId = tab.trim();
+    const live = this.#pages.get(pageId);
+    if (live && !live.closed && !live.view.webContents.isDestroyed()) return live;
+    const restored = this.#synced.tabs.find((item) => item.pageId === pageId);
+    if (restored && restored.url && isBrowserUrl(restored.url)) {
+      const page = this.#createPage(pageId, restored.url, "person");
+      await delay(50);
+      await this.#waitForLoad(page, signal);
+      return page;
+    }
+    throw new Error(`There is no browser tab "${tab}". Use browser_tabs to see the open tabs, or browser_open to open one.`);
+  }
+
+  async #debugger(page: BrowserPage): Promise<Debugger> {
+    this.#touch(page);
+    const contents = page.view.webContents;
+    if (page.debuggerReady && contents.debugger.isAttached()) return await page.debuggerReady;
+    page.debuggerReady = (async () => {
+      const cdp = contents.debugger;
+      if (!cdp.isAttached()) cdp.attach("1.3");
+      cdp.once("detach", () => { page.debuggerReady = null; });
+      // A background page then renders and takes input as if it were in front.
+      await cdp.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await cdp.sendCommand("DOM.enable");
+      return cdp;
+    })();
+    try {
+      return await page.debuggerReady;
+    } catch (error) {
+      page.debuggerReady = null;
+      throw new Error(`The page could not be controlled: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Keeps a page awake while a Worker uses it, and lets it rest after a quiet spell. */
+  #touch(page: BrowserPage): void {
+    if (page.debuggerIdle) clearTimeout(page.debuggerIdle);
+    page.debuggerIdle = setTimeout(() => {
+      page.debuggerIdle = null;
+      const contents = page.view.webContents;
+      if (!contents.isDestroyed() && contents.debugger.isAttached()) {
+        try { contents.debugger.detach(); } catch { /* already detached */ }
+      }
+      page.debuggerReady = null;
+    }, agentIdleDetachMs);
+    page.debuggerIdle.unref?.();
+  }
+
+  async #waitForLoad(page: BrowserPage, signal: AbortSignal | undefined, timeoutMs = navigationTimeoutMs): Promise<void> {
+    const contents = page.view.webContents;
+    const deadline = Date.now() + timeoutMs;
+    while (!contents.isDestroyed() && contents.isLoading() && Date.now() < deadline) {
+      signal?.throwIfAborted();
+      await delay(100);
+    }
+    this.#touch(page);
+  }
+
+  /** Runs an input action and reports whether it led to a new page. */
+  async #observeAction(page: BrowserPage, signal: AbortSignal | undefined, action: () => Promise<void>): Promise<BrowserActionResult> {
+    const contents = page.view.webContents;
+    const before = { url: contents.getURL(), index: contents.navigationHistory.getActiveIndex() };
+    await action();
+    await delay(300);
+    await this.#waitForLoad(page, signal, actionSettleMs);
+    const navigated = !contents.isDestroyed()
+      && (contents.getURL() !== before.url || contents.navigationHistory.getActiveIndex() !== before.index);
+    return { tab: this.#summary(page), navigated };
+  }
+
+  async #press(cdp: Debugger, presses: BrowserKeyPress[]): Promise<void> {
+    for (const press of presses) {
+      const base = { key: press.key, code: press.code, windowsVirtualKeyCode: press.keyCode, nativeVirtualKeyCode: press.keyCode, modifiers: press.modifiers };
+      await cdp.sendCommand("Input.dispatchKeyEvent", {
+        ...base,
+        type: press.text ? "keyDown" : "rawKeyDown",
+        ...(press.text ? { text: press.text, unmodifiedText: press.text } : {}),
+        ...(press.commands ? { commands: press.commands } : {}),
+      });
+      await cdp.sendCommand("Input.dispatchKeyEvent", { ...base, type: "keyUp" });
+    }
+  }
+
+  async #viewport(page: BrowserPage): Promise<{ width: number; height: number }> {
+    const size = await page.view.webContents.executeJavaScriptInIsolatedWorld(isolatedWorldId, [{ code: "[innerWidth, innerHeight]" }]).catch(() => null);
+    if (Array.isArray(size) && typeof size[0] === "number" && typeof size[1] === "number" && size[0] > 0 && size[1] > 0) return { width: size[0], height: size[1] };
+    const bounds = page.view.getBounds();
+    return { width: bounds.width || defaultPageSize.width, height: bounds.height || defaultPageSize.height };
+  }
+
+  async #resolve(cdp: Debugger, ref: string): Promise<string> {
+    const resolved = await cdp.sendCommand("DOM.resolveNode", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); }) as { object?: { objectId?: string } };
+    if (!resolved.object?.objectId) throw staleRef(ref);
+    return resolved.object.objectId;
+  }
+
+  async #elementCenter(page: BrowserPage, ref: string): Promise<{ x: number; y: number }> {
+    const box = await this.#elementBox(page, ref);
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+
+  /** The element's box in the viewport, after scrolling it into view. */
+  async #elementBox(page: BrowserPage, ref: string): Promise<{ x: number; y: number; width: number; height: number }> {
+    const cdp = await this.#debugger(page);
+    const backendNodeId = refNodeId(ref);
+    await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => { throw staleRef(ref); });
+    const quads = await cdp.sendCommand("DOM.getContentQuads", { backendNodeId }).catch(() => { throw staleRef(ref); }) as { quads?: number[][] };
+    for (const quad of quads.quads ?? []) {
+      if (quad.length < 8) continue;
+      const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+      const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      const width = Math.max(...xs) - x;
+      const height = Math.max(...ys) - y;
+      if (width >= 1 && height >= 1) return { x, y, width, height };
+    }
+    throw new Error(`The element ${ref} is not visible on the page, so it cannot be clicked. Read the page again, or scroll to it.`);
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/** A short, unused page id. */
+export function newPageId(pages: ReadonlyMap<string, unknown>): string {
+  for (;;) {
+    const id = randomBytes(6).toString("base64url").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8);
+    if (id.length >= 6 && !pages.has(id)) return id;
+  }
+}
+
+export function parseBrowserViewRequest(value: unknown): BrowserViewRequest {
+  const record = objectRecord(value, "The browser view request is invalid.");
+  const bounds = objectRecord(record.bounds, "The browser view bounds are invalid.");
+  const numbers = [bounds.x, bounds.y, bounds.width, bounds.height];
+  if (!numbers.every((item) => typeof item === "number" && Number.isFinite(item) && Math.abs(item) < 100_000)) throw new Error("The browser view bounds are invalid.");
+  if (!isBrowserPageId(record.pageId)) throw new Error("The browser tab id is invalid.");
+  if (typeof record.url !== "string" || record.url.length > 32_768) throw new Error("The browser address is invalid.");
+  if (typeof record.sequence !== "number" || !Number.isSafeInteger(record.sequence) || record.sequence < 0) throw new Error("The browser view sequence is invalid.");
+  return {
+    pageId: record.pageId,
+    url: record.url && isBrowserUrl(record.url) ? record.url : "",
+    sequence: record.sequence,
+    bounds: { x: bounds.x as number, y: bounds.y as number, width: Math.max(0, bounds.width as number), height: Math.max(0, bounds.height as number) },
+    active: record.active === true,
+    occluded: record.occluded === true,
+  };
+}
+
+export function parseBrowserTabsSync(value: unknown): BrowserTabsSync {
+  const record = objectRecord(value, "The browser tab list is invalid.");
+  if (!Array.isArray(record.tabs) || record.tabs.length > 1_000) throw new Error("The browser tab list is invalid.");
+  const tabs = record.tabs.map((item) => {
+    const tab = objectRecord(item, "The browser tab list is invalid.");
+    if (!isBrowserPageId(tab.pageId) || typeof tab.url !== "string" || typeof tab.title !== "string") throw new Error("The browser tab list is invalid.");
+    return { pageId: tab.pageId, url: tab.url.slice(0, 32_768), title: tab.title.slice(0, 1_000) };
+  });
+  const viewingPageId = isBrowserPageId(record.viewingPageId) ? record.viewingPageId : null;
+  return { tabs, viewingPageId };
+}
+
+export function parseBrowserCommand(value: unknown): BrowserCommand {
+  const record = objectRecord(value, "The browser command is invalid.");
+  if (record.type === "find") {
+    if (typeof record.text !== "string" || record.text.length > 1_000) throw new Error("The text to find is invalid.");
+    return { type: "find", text: record.text, forward: record.forward !== false, newSearch: record.newSearch === true };
+  }
+  if (record.type === "forget-permission" || record.type === "open-privacy-settings") {
+    const kind = browserSitePermissions.find((item) => item === record.kind);
+    if (!kind) throw new Error("The site permission is invalid.");
+    return { type: record.type, kind };
+  }
+  const simple = ["back", "forward", "reload", "stop", "focus", "stop-find", "inspect", "zoom-in", "zoom-out", "zoom-reset", "dismiss-notice"] as const;
+  const type = simple.find((item) => item === record.type);
+  if (!type) throw new Error("The browser command is invalid.");
+  return { type };
+}
+
+function objectRecord(value: unknown, message: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
+  return value as Record<string, unknown>;
+}
+
+function clippedViewBounds(bounds: Rectangle, contentBounds: Rectangle, zoomFactor: number): Rectangle {
+  const scale = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+  const x = Math.max(0, Math.round(bounds.x * scale));
+  const y = Math.max(0, Math.round(bounds.y * scale));
+  const right = Math.min(contentBounds.width, Math.round((bounds.x + bounds.width) * scale));
+  const bottom = Math.min(contentBounds.height, Math.round((bounds.y + bounds.height) * scale));
+  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+}
+
+function displayHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
+function pushBounded(list: string[], entry: string): void {
+  list.push(entry.length > 2_000 ? `${entry.slice(0, 1_999)}…` : entry);
+  if (list.length > consoleLimit) list.splice(0, list.length - consoleLimit);
+}
+
+function safeFileName(name: string): string {
+  const cleaned = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "").trim();
+  return cleaned.slice(0, 200) || "download";
+}
+
+function uniquePath(directory: string, name: string): string {
+  const extension = extname(name);
+  const stem = extension ? name.slice(0, -extension.length) : name;
+  let candidate = join(directory, name);
+  for (let index = 1; existsSync(candidate); index += 1) candidate = join(directory, `${stem} (${index})${extension}`);
+  return candidate;
+}
+
+function refNodeId(ref: string): number {
+  const id = backendNodeIdForRef(ref);
+  if (id === null) throw new Error(`"${ref}" is not an element ref. Refs look like e123 and come from browser_read.`);
+  return id;
+}
+
+function staleRef(ref: string): Error {
+  return new Error(`The element ${ref} is no longer on the page. Read the page again for current refs.`);
+}
+
+function pointFrom(x: number | undefined, y: number | undefined): { x: number; y: number } {
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    throw new Error("Give an element ref from browser_read, or both x and y in page pixels from a screenshot.");
+  }
+  return { x, y };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return await promise;
+  signal.throwIfAborted();
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason instanceof Error ? signal.reason : new Error("Stopped."));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** Chooses the option whose value or visible label matches, the way a person picks from a list. */
+const chooseOptionFunction = `function (wanted) {
+  const target = String(wanted).trim().toLowerCase();
+  const options = Array.from(this.options);
+  const option = options.find((item) => item.value.toLowerCase() === target)
+    || options.find((item) => item.label.trim().toLowerCase() === target)
+    || options.find((item) => item.label.trim().toLowerCase().includes(target));
+  if (!option) return null;
+  this.value = option.value;
+  this.dispatchEvent(new Event("input", { bubbles: true }));
+  this.dispatchEvent(new Event("change", { bubbles: true }));
+  return option.label;
+}`;
+
+/** Selects what is in the focused field, so typing replaces it. */
+const selectFocusedContentsExpression = `(() => {
+  const element = document.activeElement;
+  if (!element) return false;
+  if (typeof element.select === "function") { element.select(); return true; }
+  if (element.isContentEditable) { const range = document.createRange(); range.selectNodeContents(element); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); return true; }
+  return false;
+})()`;

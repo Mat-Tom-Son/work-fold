@@ -138,6 +138,7 @@ async function verifyPreload(filename, workFoldAgentOnly) {
         hasAutomationProposals: typeof value?.automations?.proposals === "function",
         hasAutomationEnableProposal: typeof value?.automations?.enableProposal === "function",
         hasShell: Boolean(value?.shell),
+        hasBrowser: typeof value?.browser?.mount === "function",
       };
     })()`);
 
@@ -158,6 +159,8 @@ async function verifyPreload(filename, workFoldAgentOnly) {
       hasAutomationProposals: !workFoldAgentOnly,
       hasAutomationEnableProposal: !workFoldAgentOnly,
       hasShell: !workFoldAgentOnly,
+      // The built-in browser's tabs belong to the main window only.
+      hasBrowser: !workFoldAgentOnly,
     });
     await verifyClipboardBridge(window, "workFoldDesktop");
     if (!workFoldAgentOnly) {

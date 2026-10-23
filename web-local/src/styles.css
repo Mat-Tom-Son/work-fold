@@ -21421,3 +21421,423 @@ to {
   background: var(--ui-surface-hover);
   color: var(--ui-text);
 }
+
+/* Built-in browser (docs/built-in-browser.md, 2026-10-23). Browser tabs belong
+   to no work-folder, so they wear the app's own accent and the page's icon. */
+
+.surface-tab-new-browser {
+  margin-right: 2px;
+}
+
+.surface-tab.surface-tab-browser {
+  --surface-tab-accent: var(--ui-accent);
+  --surface-tab-accent-soft: var(--ui-accent-soft);
+}
+
+/* No work-folder's colors: these name the browser, not a work-folder. */
+.surface-tab-group-browser,
+.surface-tab-open-item-browser {
+  --work-folder-accent-text-ui: var(--ui-text-muted);
+  --work-folder-accent-glyph: var(--ui-text-muted);
+  --work-folder-custom-color: var(--ui-text-muted);
+}
+
+.surface-tab-browser .surface-tab-icon,
+.surface-tab-open-item-browser .work-folder-identity-icon {
+  color: var(--ui-text-muted);
+}
+
+.surface-tab-favicon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.surface-tab-browser-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--ui-text-muted) 28%, transparent);
+  border-top-color: var(--ui-text-muted);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* A site in this tab is waiting for the person to allow or block something. */
+.surface-tab-browser-asking {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-right: 1px;
+  border-radius: 999px;
+  background: var(--ui-attention);
+}
+
+.surface-tab-audio-marker {
+  margin-right: 1px;
+  font-size: 14px;
+  color: var(--ui-text-muted);
+}
+
+.work-folder-surface-body-browser {
+  display: flex;
+}
+
+.browser-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+}
+
+.browser-tab-toolbar,
+.browser-tab-find {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.browser-tab-button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.browser-tab-button:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.browser-tab-button:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.browser-tab-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.browser-tab-address-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 6px;
+}
+
+.browser-tab-address {
+  display: block;
+  min-width: 0;
+}
+
+.browser-tab-address input,
+.browser-tab-find input {
+  width: 100%;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 15px;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.browser-tab-address input:focus,
+.browser-tab-find input:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 3px var(--ui-accent-soft);
+}
+
+.browser-tab-address input::placeholder,
+.browser-tab-find input::placeholder {
+  color: var(--ui-text-subtle);
+}
+
+.browser-tab-find {
+  gap: 4px;
+}
+
+.browser-tab-find input {
+  flex: 0 1 260px;
+  min-width: 120px;
+  margin-right: 4px;
+}
+
+.browser-tab-find-count {
+  flex: 0 0 auto;
+  min-width: 72px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.browser-tab-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ui-surface);
+}
+
+.browser-tab-state,
+.browser-tab-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--ui-text-muted);
+  text-align: center;
+}
+
+.browser-tab-state {
+  position: absolute;
+  inset: 0;
+}
+
+.browser-tab-unavailable {
+  flex: 1 1 auto;
+}
+
+.browser-tab-state strong,
+.browser-tab-unavailable strong {
+  color: var(--ui-text);
+  font-size: 15px;
+}
+
+.browser-tab-state span {
+  max-width: 420px;
+  line-height: 1.45;
+}
+
+.browser-tab-state code {
+  max-width: min(560px, 100%);
+  overflow-wrap: anywhere;
+  color: var(--ui-text-subtle);
+  font-size: 12px;
+}
+
+.browser-tab-bar {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font-size: 13px;
+}
+
+.browser-tab-bar > svg {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-size: 18px;
+}
+
+.browser-tab-permission {
+  background: var(--ui-accent-soft);
+}
+
+.browser-tab-notice {
+  background: var(--ui-attention-soft);
+}
+
+.browser-tab-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.browser-tab-site-settings {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.browser-tab-site-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.browser-tab-site-menu-heading {
+  padding: 4px 6px 8px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.browser-tab-site-menu-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.browser-tab-site-menu-decision {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+/* A link to a server on this computer opens as a browser tab; it looks like any other link. */
+.message-body .message-browser-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: var(--work-folder-accent-text-body, var(--work-folder-custom-color));
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.browser-tab-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.browser-tab-suggestions li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.browser-tab-suggestions li > svg,
+.browser-tab-suggestions li > .fluent-ui-icon {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+}
+
+.browser-tab-suggestions li.selected {
+  background: var(--ui-surface-hover);
+}
+
+.browser-tab-suggestion-label {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-suggestion-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-new {
+  justify-content: flex-start;
+  padding-top: 48px;
+}
+
+.browser-tab-recent {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.browser-tab-recent-heading {
+  padding: 0 10px 6px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.browser-tab-recent-item {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-tab-recent-item:hover,
+.browser-tab-recent-item:focus-visible {
+  background: var(--ui-surface-hover);
+}
+
+.browser-tab-recent-item strong,
+.browser-tab-recent-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-recent-item strong {
+  font-size: 13px;
+}
+
+.browser-tab-recent-item span {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+.browser-tab-clear-history {
+  justify-self: start;
+  margin-top: 10px;
+}

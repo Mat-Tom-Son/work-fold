@@ -141,7 +141,10 @@ Connections retain the complete credential in encrypted machine-local storage;
 only non-secret connection status and model metadata reach Settings.
 
 Each open tab belongs to one work-folder. Selecting a tab takes the user back to
-that work-folder; selecting a work-folder restores its most recent tab. With four or more
+that work-folder; selecting a work-folder restores its most recent tab. Browser
+tabs are the exception (2026-10-23): they belong to no work-folder, every
+work-folder's tab strip shows them, and selecting one keeps the work-folder that
+is open ([built-in browser](built-in-browser.md)). With four or more
 tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 Tabs can be dragged to reorder, or moved with Alt+Shift+Left/Right while focused.
 The order is saved on this computer; grouping by work-folder confines moves to
@@ -716,6 +719,34 @@ On 2026-10-02 the product copy renamed this concept **work-folder**, always
 lowercase like "work-fold", while ordinary directories stay plain "folder".
 On 2026-10-10 the code, CLI, and stored records took the same words
 ([the vocabulary glossary](../scripts/vocabulary/GLOSSARY.md)).
+
+### 2026-10-23 built-in browser
+
+- work-fold has a browser of its own. The globe button beside **New Chat**
+  opens a browser tab that shows any ordinary website, with Back, Forward,
+  Reload, an address bar that also searches, Find in page, and Open in your
+  web browser. Links that open a new tab, and pages a Worker opens, become
+  browser tabs too.
+- Browser tabs belong to no work-folder (owner decision): every work-folder's
+  tab strip shows them, selecting one keeps the work-folder that is open, and
+  removing a work-folder never closes one. One persistent profile serves every
+  tab, so signing in to a site once signs every tab in; it is machine-local app
+  data, apart from Chrome and from every work-folder.
+- Every Worker and the work-fold agent can list, read, look at, and use the
+  browser tabs, including the one the person has in front, through the
+  `browser_*` tools. A tab a Worker opens appears in the strip behind the
+  person's work. The tools come with the desktop app and need no setup; they
+  are not one of the five included tools.
+- A site that wants the camera, microphone, location, notifications, or
+  similar access asks first in a bar above the page, and the answer is
+  remembered for that site until the person chooses **Ask again** in Site
+  settings. Only the person answers; a Worker is told it is waiting.
+- The address bar suggests pages from the browser's history as you type, a
+  new tab lists recent pages with **Clear browsing history**, and a link in a
+  Chat to a server on this computer, such as a Worker's dev server, opens as a
+  browser tab. A Worker's background job reports the address its server
+  announces, so the Worker can look at it.
+- Importing Chrome's sign-ins and settings is not built. See [Built-in browser](built-in-browser.md).
 
 ### Included tool readiness, 2026-10-02
 

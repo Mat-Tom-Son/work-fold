@@ -141,8 +141,10 @@ extra repository instruction source.
   the bridge suite. It uses an in-memory test database; a live PostgreSQL server
   or Railway account is not required for those tests.
 - `npm run desktop:prepare` verifies desktop resources, compiled code, native
-  preloads, and the real restricted-app sandbox. After a compiled native change,
-  `npm run desktop:restricted-app:smoke` is the focused sandbox probe.
+  preloads, the real restricted-app sandbox, and the built-in browser. After a
+  compiled native change, `npm run desktop:restricted-app:smoke` is the focused
+  sandbox probe and `npm run desktop:browser:smoke` drives real browser pages
+  served from a loopback server.
 
 GitHub Actions is disabled in the canonical source repository as of September
 30, 2026. Pushes, PRs, and release tags do not run remote checks. The checked-in

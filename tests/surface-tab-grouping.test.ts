@@ -9,7 +9,7 @@ const tabBarModuleUrl = pathToFileURL(join(process.cwd(), "web-local/src/lib/sur
 const { groupSurfaceTabsByWorkFolder } = await import(tabBarModuleUrl) as {
   groupSurfaceTabsByWorkFolder: (
     tabs: WorkFolderSurfaceTab[],
-  ) => Array<{ workFolderId: string; tabs: WorkFolderSurfaceTab[] }>;
+  ) => Array<{ workFolderId: string | null; tabs: WorkFolderSurfaceTab[] }>;
 };
 
 test("optional tab grouping keeps both work-folder and tab order stable", () => {
@@ -26,6 +26,23 @@ test("optional tab grouping keeps both work-folder and tab order stable", () => 
   assert.deepEqual(groups[0]?.tabs.map((tab) => tab.title), ["First", "Third"]);
   assert.deepEqual(groups[1]?.tabs.map((tab) => tab.title), ["Second", "Fourth"]);
 });
+
+test("browser tabs belong to no work-folder and group together", () => {
+  const tabs: WorkFolderSurfaceTab[] = [
+    browserTab("abc123", "Docs"),
+    chatTab("work-folder-1", "one", "First"),
+    browserTab("def456", "News"),
+  ];
+
+  const groups = groupSurfaceTabsByWorkFolder(tabs);
+
+  assert.deepEqual(groups.map((group) => group.workFolderId), [null, "work-folder-1"]);
+  assert.deepEqual(groups[0]?.tabs.map((tab) => tab.title), ["Docs", "News"]);
+});
+
+function browserTab(pageId: string, title: string): WorkFolderSurfaceTab {
+  return { id: `browser:${pageId}`, kind: "browser", workFolderId: null, pageId, url: `https://${title.toLowerCase()}.example/`, title };
+}
 
 function chatTab(workFolderId: string, conversationId: string, title: string): WorkFolderSurfaceTab {
   return {

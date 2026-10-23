@@ -102,6 +102,14 @@ module.exports = {
     notarize: macReleaseBuild,
     entitlements: path.join(root, "desktop", "entitlements.plist"),
     entitlementsInherit: path.join(root, "desktop", "entitlements.plist"),
+    // What macOS shows when a site in the built-in browser asks for these
+    // (docs/built-in-browser.md). The browser asks the person first.
+    extendInfo: {
+      NSCameraUsageDescription: "A website open in work-fold's browser wants to use your camera.",
+      NSMicrophoneUsageDescription: "A website open in work-fold's browser wants to use your microphone.",
+      NSLocationUsageDescription: "A website open in work-fold's browser wants to know your location.",
+      NSLocationWhenInUseUsageDescription: "A website open in work-fold's browser wants to know your location.",
+    },
   },
   dmg: {
     artifactName: `${identity.productName}-\${version}-mac-\${arch}.\${ext}`,

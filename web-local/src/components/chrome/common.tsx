@@ -1,9 +1,11 @@
 import type React from "react";
-import { ChatAdd20Filled, ChatAdd20Regular, bundleIcon, type FluentIcon } from "@fluentui/react-icons";
+import { ChatAdd20Filled, ChatAdd20Regular, Globe20Filled, Globe20Regular, GlobeAdd20Filled, GlobeAdd20Regular, bundleIcon, type FluentIcon } from "@fluentui/react-icons";
 import { AlertTriangle, X } from "lucide-react";
 import type { WorkFolderIconOption } from "../../work-folder-icons";
 
 const NewChatIcon = bundleIcon(ChatAdd20Filled, ChatAdd20Regular);
+const BrowserTabIcon = bundleIcon(Globe20Filled, Globe20Regular);
+const NewBrowserTabIcon = bundleIcon(GlobeAdd20Filled, GlobeAdd20Regular);
 
 function FluentGlyph({
   icon: Icon,
@@ -84,4 +86,4 @@ function CenteredState({ icon, title, text }: { icon?: React.ReactNode; title: s
   );
 }
 
-export { Banner, CenteredState, EmptyInline, FluentGlyph, NewChatIcon, PanelTitle, WorkFolderIconGlyph };
+export { Banner, BrowserTabIcon, CenteredState, EmptyInline, FluentGlyph, NewBrowserTabIcon, NewChatIcon, PanelTitle, WorkFolderIconGlyph };

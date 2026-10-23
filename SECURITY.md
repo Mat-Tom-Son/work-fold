@@ -76,6 +76,19 @@ reviewed source and included in the app's signing lane; normal installation
 does not run upstream helper downloads. These checks establish provenance,
 not a sandbox or proof that every external action is safe.
 
+The built-in browser's pages run in Chromium's sandbox with context isolation,
+no Node integration, no preload, and no webview tags, in their own persistent
+session; they never receive the app's desktop bridge, and a page is never a
+trusted renderer for the app's IPC checks. Non-web schemes are refused (mail
+links go to the mail app). Camera, microphone, location, notifications, MIDI,
+clipboard reading, window placement, and activity status are granted only after
+the person allows them for that site, never by a Worker; USB, serial, HID, and
+Bluetooth devices are refused. Workers drive pages with the Chrome DevTools
+Protocol through Electron's in-process debugger, which needs no extension or
+port and exposes nothing outside the app. A page signed in to an account acts
+with that account's authority whether the person or a Worker uses it. See
+[the built-in browser](docs/built-in-browser.md).
+
 Native resource enable/disable preserves Pi's filters and scopes, pins the
 resource and settings identity, journals before effect, and refuses changes
 while affected work is active. It is a lifecycle control, not a way to revoke
