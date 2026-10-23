@@ -13,7 +13,7 @@ import { recentlyDeletedSettings } from "../../ui-contract";
  * how long items are kept. Nothing here empties the whole store.
  */
 
-export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
+export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "skill" | "app-storage" | "app-retained" | "app-release" | "app-studio";
 
 export interface RecentlyDeletedEntry {
   id: string;
@@ -23,6 +23,7 @@ export interface RecentlyDeletedEntry {
     | "agent.chat.delete"
     | "chats.delete"
     | "work-folders.delete"
+    | "skills.remove"
     | "apps.remove"
     | "apps.work-folder.removed"
     | "apps.storage.clear"
@@ -31,6 +32,8 @@ export interface RecentlyDeletedEntry {
     | "apps.release.delete";
   workFolderId: string;
   workFolderName?: string;
+  /** skill only: the scope it goes back into. */
+  scope?: "everywhere" | "work-folder";
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -54,6 +57,7 @@ const kindLabels: Record<RecentlyDeletedKind, string> = {
   file: "File",
   folder: "Folder",
   "work-folder": "work-folder",
+  skill: "Skill",
   "app-storage": "App Data",
   "app-retained": "App Data",
   "app-release": "Release",
@@ -77,6 +81,13 @@ export function formatDeletedSize(bytes: number, approximate?: boolean): string 
   }
   const rounded = unit === 0 ? String(Math.round(value)) : value.toFixed(1);
   return `${approximate ? "at least " : ""}${rounded} ${units[unit]}`;
+}
+
+/** What the item was and where it came from, such as "Chat from Notes" or "Everywhere Skill". */
+export function describeOrigin(entry: RecentlyDeletedEntry): string {
+  if (entry.kind === "skill" && entry.scope === "everywhere") return "Everywhere Skill";
+  const label = entry.reason === "agent.chat.delete" || entry.reason === "chats.delete" ? "Chat" : kindLabels[entry.kind];
+  return `${label} from ${entry.workFolderName ?? entry.workFolderId}`;
 }
 
 export function describeUncovered(entry: RecentlyDeletedEntry): string | null {
@@ -213,7 +224,7 @@ export function RecentlyDeletedPane() {
                 <div>
                   <strong>{entry.name}</strong>
                   <small>
-                    {entry.reason === "agent.chat.delete" || entry.reason === "chats.delete" ? "Chat" : kindLabels[entry.kind]} from {entry.workFolderName ?? entry.workFolderId} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
+                    {describeOrigin(entry)} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
                     Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}

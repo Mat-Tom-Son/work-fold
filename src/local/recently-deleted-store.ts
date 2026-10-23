@@ -5,16 +5,16 @@
  * Nothing work-fold destroys is permanent at the moment it happens. History
  * covers ordinary deletion; whatever History cannot capture (oversized,
  * unreadable, symbolic-link, or always-excluded content), a deleted managed
- * work-folder, app data that was cleared or purged, a deleted App Studio
- * Release, and the App Studio history a removed work-folder takes with it is
- * moved here instead of erased, and stays restorable for a retention window
- * (default 30 days, 1..365).
+ * work-folder, a removed imported Skill, app data that was cleared or purged,
+ * a deleted App Studio Release, and the App Studio history a removed
+ * work-folder takes with it is moved here instead of erased, and stays
+ * restorable for a retention window (default 30 days, 1..365).
  *
  * Layout under `rootPath` (`workFoldRecentlyDeletedRoot()` in production):
  *
  *   settings.json                              { version: 1, retentionDays, lastPurgeAt }
  *   entries/<entryId>/manifest.json            WorkFoldRecentlyDeletedManifest — the only commit marker
- *   entries/<entryId>/payload/<name>           file | folder | work-folder: the moved tree, original basename
+ *   entries/<entryId>/payload/<name>           file | folder | work-folder | skill: the moved tree, original basename
  *   entries/<entryId>/payload/app-data.json    app-storage | app-retained: a RestrictedAppDataBackup
  *   entries/<entryId>/payload/app-release.json app-release: the Release's registry record and its verified envelope
  *   entries/<entryId>/payload/app-studio/      app-studio: studio.json (the Project, Development Instance, previews,
@@ -30,7 +30,7 @@
  * API (every method serializes through one in-process queue):
  *
  *   WorkFoldRecentlyDeletedStore.open(options)   create the layout, load settings, sweep debris
- *   store.moveTreeToRecentlyDeleted(input)       move a file, folder, or work-folder in
+ *   store.moveTreeToRecentlyDeleted(input)       move a file, folder, work-folder, or Skill folder in
  *   store.moveAppDataToRecentlyDeleted(input)    write a verified app-data export in
  *   store.moveAppReleaseToRecentlyDeleted(input) write a deleted Release's record and envelope in
  *   store.moveAppStudioToRecentlyDeleted(input)  write a removed work-folder's App Studio history in
@@ -99,7 +99,7 @@ export const WORKFOLD_RECENTLY_DELETED_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** Shape of every entry id; CLI and route input must match it before any path join. */
 export const workFoldRecentlyDeletedEntryIdPattern = /^trash-\d{14}-[0-9a-f]{8}$/;
 
-export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
+export type WorkFoldRecentlyDeletedKind = "file" | "folder" | "work-folder" | "skill" | "app-storage" | "app-retained" | "app-release" | "app-studio";
 
 export type WorkFoldRecentlyDeletedReason =
   | "files.delete"
@@ -108,6 +108,8 @@ export type WorkFoldRecentlyDeletedReason =
   /** Deleting a Worker Chat keeps its portable transcript recoverable. */
   | "chats.delete"
   | "work-folders.delete"
+  /** Removing an imported Skill keeps its whole folder; `.pi/` and Pi's own folder are outside History. */
+  | "skills.remove"
   /** Removing a Development preview, which takes its namespace with it. */
   | "apps.remove"
   /** Unregistering a work-folder removes the previews installed in it, and its App Studio history. */
@@ -161,9 +163,24 @@ export type WorkFoldRecentlyDeletedAppStudioIdentity = {
   projectId: string | null;
 };
 
+/**
+ * A removed Skill's folder, kept like a tree, and where it goes back: the
+ * same scope's skills folder (Pi's own for Everywhere, the work-folder's
+ * `.pi/skills` otherwise), at the entry's `originalPath` inside it.
+ */
+export type WorkFoldRecentlyDeletedSkillPayload = {
+  kind: "skill";
+  scope: "everywhere" | "work-folder";
+  /** The basename of the moved Skill folder under `payload/`. */
+  name: string;
+  /** The name Pi loads the Skill under; another Skill with it in the same scope blocks the restore. */
+  skillName: string;
+};
+
 export type WorkFoldRecentlyDeletedPayload =
   /** file | folder | work-folder: the basename of the moved tree under `payload/`. */
   | { kind: "tree"; name: string }
+  | WorkFoldRecentlyDeletedSkillPayload
   | WorkFoldRecentlyDeletedAppDataIdentity
   | WorkFoldRecentlyDeletedAppReleaseIdentity
   | WorkFoldRecentlyDeletedAppStudioIdentity;
@@ -188,7 +205,7 @@ export interface WorkFoldRecentlyDeletedManifest {
   workFolderName?: string;
   /** Person-facing label; the payload name remains the recovery identity. */
   displayName?: string;
-  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. app-storage/app-retained: `<appId>/<dataNamespaceId>`. app-release: `<projectId>/<releaseDigest>`. app-studio: the project id, or the work-folder id when there is no Project. */
+  /** file/folder: work-folder-relative path. work-folder: absolute managed folder path. skill: the Skill folder's `/`-separated path inside its scope's skills folder. app-storage/app-retained: `<appId>/<dataNamespaceId>`. app-release: `<projectId>/<releaseDigest>`. app-studio: the project id, or the work-folder id when there is no Project. */
   originalPath: string;
   sizeBytes: number;
   /** The measurement walk hit its budget, so `sizeBytes` is a lower bound. */
@@ -257,7 +274,7 @@ export interface WorkFoldRecentlyDeletedStoreOptions {
 }
 
 export interface WorkFoldRecentlyDeletedTreeInput {
-  kind: "file" | "folder" | "work-folder";
+  kind: "file" | "folder" | "work-folder" | "skill";
   reason: WorkFoldRecentlyDeletedReason;
   /** Absolute path of the file or directory to move (for `work-folder`, the removal claim path). */
   sourcePath: string;
@@ -265,12 +282,14 @@ export interface WorkFoldRecentlyDeletedTreeInput {
   workFolderName?: string;
   /** Optional Recently deleted label; it never affects the restore path. */
   displayName?: string;
-  /** work-folder-relative path (file/folder) or the absolute original root (work-folder). Its basename names the payload. */
+  /** work-folder-relative path (file/folder), the absolute original root (work-folder), or the path inside the scope's skills folder (skill). Its basename names the payload. */
   originalPath: string;
   receiptId: string | null;
   uncovered?: WorkFoldRecentlyDeletedUncoveredPath[];
   /** work-folder: absolute `workFolderStateDir` to move under `state/`; a missing directory is fine. */
   stateDirPath?: string;
+  /** skill only, and required there: the scope it goes back into and the name Pi loads it under. */
+  skill?: { scope: WorkFoldRecentlyDeletedSkillPayload["scope"]; skillName: string };
 }
 
 export interface WorkFoldRecentlyDeletedAppDataInput {
@@ -364,11 +383,12 @@ export interface WorkFoldRecentlyDeletedPurgeResult {
   failed: WorkFoldRecentlyDeletedDamagedRecord[];
 }
 
-const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "app-storage", "app-retained", "app-release", "app-studio"];
+const RECENTLY_DELETED_KINDS: readonly WorkFoldRecentlyDeletedKind[] = ["file", "folder", "work-folder", "skill", "app-storage", "app-retained", "app-release", "app-studio"];
 const RECENTLY_DELETED_REASONS: readonly WorkFoldRecentlyDeletedReason[] = [
-  "files.delete", "agent.chat.delete", "chats.delete", "work-folders.delete", "apps.remove", "apps.work-folder.removed",
+  "files.delete", "agent.chat.delete", "chats.delete", "work-folders.delete", "skills.remove", "apps.remove", "apps.work-folder.removed",
   "apps.storage.clear", "apps.retained.purge", "apps.uninstall.purge", "apps.release.delete",
 ];
+const SKILL_SCOPES: readonly WorkFoldRecentlyDeletedSkillPayload["scope"][] = ["everywhere", "work-folder"];
 const UNCOVERED_REASONS: readonly WorkFoldRecentlyDeletedUncoveredPath["reason"][] = ["too_large", "unreadable", "symbolic_link", "excluded"];
 const HOLD_REASONS: readonly WorkFoldRecentlyDeletedHold["reason"][] = ["legacy-metadata", "unreadable"];
 const MANIFEST_KEYS = new Set([
@@ -487,17 +507,18 @@ export class WorkFoldRecentlyDeletedStore {
   }
 
   /**
-   * Moves a file, folder, or work-folder into Recently deleted. Crash-safe order:
-   * entry dir → manifest `{complete:false}` → move source → optional state
-   * dir → measure → manifest `{complete:true}`. A failure before the source
-   * moved removes the entry directory and throws MOVE_FAILED (nothing was
-   * moved). A failure after the copy landed keeps the entry — the copy is now
-   * the only complete one — and throws MOVE_FAILED naming it.
+   * Moves a file, folder, work-folder, or Skill folder into Recently deleted.
+   * Crash-safe order: entry dir → manifest `{complete:false}` → move source →
+   * optional state dir → measure → manifest `{complete:true}`. A failure
+   * before the source moved removes the entry directory and throws
+   * MOVE_FAILED (nothing was moved). A failure after the copy landed keeps
+   * the entry — the copy is now the only complete one — and throws
+   * MOVE_FAILED naming it.
    */
   async moveTreeToRecentlyDeleted(input: WorkFoldRecentlyDeletedTreeInput): Promise<WorkFoldRecentlyDeletedEntry> {
     const sourcePath = requireAbsolutePath(input.sourcePath, "The path to move");
-    if (input.kind !== "file" && input.kind !== "folder" && input.kind !== "work-folder") {
-      throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "Only files, folders, and work-folders can be moved as trees.");
+    if (input.kind !== "file" && input.kind !== "folder" && input.kind !== "work-folder" && input.kind !== "skill") {
+      throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "Only files, folders, work-folders, and Skills can be moved as trees.");
     }
     assertReason(input.reason);
     const workFolderId = requireText(input.workFolderId, "work-folder id", 160);
@@ -511,6 +532,12 @@ export class WorkFoldRecentlyDeletedStore {
     if (stateDirPath !== undefined && input.kind !== "work-folder") {
       throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "Only a work-folder carries History state with it.");
     }
+    if ((input.kind === "skill") !== (input.skill !== undefined)) {
+      throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "A Skill, and only a Skill, names the scope it goes back into.");
+    }
+    const payload: WorkFoldRecentlyDeletedPayload = input.skill === undefined
+      ? { kind: "tree", name }
+      : normalizeSkillPayload({ kind: "skill", scope: input.skill.scope, name, skillName: input.skill.skillName });
     const sourceInfo = await lstat(sourcePath).catch((error: NodeJS.ErrnoException) => {
       throw new WorkFoldRecentlyDeletedError("MOVE_FAILED", `work-fold could not move ${sourcePath} into ${RECENTLY_DELETED}: ${errorMessage(error)}. Nothing was moved.`, { cause: error });
     });
@@ -540,7 +567,7 @@ export class WorkFoldRecentlyDeletedStore {
         deletedAt,
         restoreBy: addDays(deletedAt, this.#settings.retentionDays),
         receiptId,
-        payload: { kind: "tree", name },
+        payload,
         complete: false,
         ...(uncovered.length ? { uncovered } : {}),
       };
@@ -870,9 +897,10 @@ export class WorkFoldRecentlyDeletedStore {
   }
 
   /**
-   * Moves a file, folder, or work-folder back. An occupied destination is
-   * collision-renamed with the work-folder.ts rules (`stem (2).ext` for files,
-   * `name-2` for folders). On success the entry directory is removed. On
+   * Moves a file, folder, work-folder, or Skill folder back. An occupied
+   * destination is collision-renamed with the work-folder.ts rules
+   * (`stem (2).ext` for files, `name-2` for folders) unless the caller says
+   * the name is an identity. On success the entry directory is removed. On
    * failure the entry is left intact and MOVE_FAILED is thrown.
    */
   async restoreTree(id: string, destination: WorkFoldRecentlyDeletedRestoreDestination): Promise<WorkFoldRecentlyDeletedRestoreResult> {
@@ -880,7 +908,7 @@ export class WorkFoldRecentlyDeletedStore {
     const desired = requireAbsolutePath(destination.absolutePath, "The restore destination");
     return await this.#mutate(async () => {
       const entry = await this.#requireEntry(id, true);
-      if (entry.payload.kind !== "tree") {
+      if (entry.payload.kind !== "tree" && entry.payload.kind !== "skill") {
         const holds = entry.payload.kind === "app-release" ? "a Release" : entry.payload.kind === "app-studio" ? "App Studio history" : "app data";
         throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", `${id} holds ${holds}, which cannot be put back as a file or folder this way.`);
       }
@@ -911,7 +939,7 @@ export class WorkFoldRecentlyDeletedStore {
       }
       const failure = (error: unknown): WorkFoldRecentlyDeletedError => new WorkFoldRecentlyDeletedError(
         "MOVE_FAILED",
-        `work-fold could not restore ${entry.payload.kind === "tree" ? entry.payload.name : id} to ${finalPath}: ${errorMessage(error)}. It is still in ${RECENTLY_DELETED}.`,
+        `work-fold could not restore ${entry.payload.kind === "tree" || entry.payload.kind === "skill" ? entry.payload.name : id} to ${finalPath}: ${errorMessage(error)}. It is still in ${RECENTLY_DELETED}.`,
         { entryId: id, cause: error },
       );
       try {
@@ -1253,7 +1281,7 @@ export class WorkFoldRecentlyDeletedStore {
       return { state: "damaged", id, error: `manifest.json is not a valid record: ${errorMessage(error)}` };
     }
     if (manifest.id !== id) return { state: "damaged", id, error: `manifest.json names ${manifest.id} instead of ${id}.` };
-    const payloadPath = join(entryPath, "payload", manifest.payload.kind === "tree"
+    const payloadPath = join(entryPath, "payload", manifest.payload.kind === "tree" || manifest.payload.kind === "skill"
       ? manifest.payload.name
       : manifest.payload.kind === "app-release"
         ? APP_RELEASE_FILE
@@ -1284,7 +1312,7 @@ export class WorkFoldRecentlyDeletedStore {
     }
     if (!manifest.complete) {
       // The move landed but the commit never happened (a crash between the two manifest writes).
-      const measured = manifest.payload.kind === "tree" || manifest.payload.kind === "app-studio"
+      const measured = manifest.payload.kind === "tree" || manifest.payload.kind === "skill" || manifest.payload.kind === "app-studio"
         ? await measureTree(payloadPath)
         : { sizeBytes: payloadInfo.size, approximate: false };
       manifest = {
@@ -1340,7 +1368,7 @@ function assertEntryId(id: string): void {
 
 function assertReason(reason: unknown): asserts reason is WorkFoldRecentlyDeletedReason {
   if (!RECENTLY_DELETED_REASONS.includes(reason as WorkFoldRecentlyDeletedReason)) {
-    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The reason must name the delete, work-folder, app-data, or Release command that produced the item.");
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "The reason must name the delete, work-folder, Skill, app-data, or Release command that produced the item.");
   }
 }
 
@@ -1389,6 +1417,18 @@ function normalizeUncovered(value: unknown): WorkFoldRecentlyDeletedUncoveredPat
     }
     return { path: requireText((item as WorkFoldRecentlyDeletedUncoveredPath).path, "An uncovered path", MAX_TEXT_LENGTH), reason: (item as WorkFoldRecentlyDeletedUncoveredPath).reason };
   });
+}
+
+function normalizeSkillPayload(value: unknown): WorkFoldRecentlyDeletedSkillPayload {
+  const invalid = (): never => {
+    throw new WorkFoldRecentlyDeletedError("INPUT_INVALID", "A kept Skill must name its scope, its folder, and the name Pi loads it under.");
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return invalid();
+  const raw = value as Partial<WorkFoldRecentlyDeletedSkillPayload>;
+  if (Object.keys(raw).some((key) => !["kind", "scope", "name", "skillName"].includes(key)) || raw.kind !== "skill") return invalid();
+  if (!SKILL_SCOPES.includes(raw.scope as WorkFoldRecentlyDeletedSkillPayload["scope"]) || !isSafeSegment(raw.name as string)) return invalid();
+  if (typeof raw.skillName !== "string" || !raw.skillName.trim() || raw.skillName.length > 200 || FORBIDDEN_TEXT.test(raw.skillName)) return invalid();
+  return { kind: "skill", scope: raw.scope!, name: raw.name!, skillName: raw.skillName };
 }
 
 function normalizeAppDataIdentity(value: unknown): WorkFoldRecentlyDeletedAppDataIdentity {
@@ -1703,6 +1743,13 @@ function parsePayload(value: unknown, kind: WorkFoldRecentlyDeletedKind): WorkFo
       throw new Error("invalid tree payload");
     }
     return { kind: "tree", name: raw.name as string };
+  }
+  if (kind === "skill") {
+    try {
+      return normalizeSkillPayload(raw);
+    } catch {
+      throw new Error("invalid Skill payload");
+    }
   }
   if (kind === "app-release") {
     try {

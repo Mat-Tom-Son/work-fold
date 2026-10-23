@@ -40,12 +40,13 @@ export interface WorkFoldActWorkFolderRef {
 /** One Recently deleted item, as the act lane reports it: identifiers and paths only. */
 export interface WorkFoldActRecentlyDeletedEntry {
   id: string;
-  kind: "file" | "folder" | "work-folder" | "app-storage" | "app-retained" | "app-release" | "app-studio";
+  kind: "file" | "folder" | "work-folder" | "skill" | "app-storage" | "app-retained" | "app-release" | "app-studio";
   reason:
     | "files.delete"
     | "agent.chat.delete"
     | "chats.delete"
     | "work-folders.delete"
+    | "skills.remove"
     | "apps.remove"
     | "apps.work-folder.removed"
     | "apps.storage.clear"
@@ -54,7 +55,9 @@ export interface WorkFoldActRecentlyDeletedEntry {
     | "apps.release.delete";
   workFolderId: string;
   workFolderName?: string;
-  /** work-folder-relative path, a deleted work-folder's original folder path, `<appId>/<namespace>`, `<projectId>/<releaseDigest>`, or an App Project id (App Studio history). */
+  /** skill only: the scope it goes back into. An Everywhere Skill names the work-fold agent's scope as its work-folder. */
+  scope?: "everywhere" | "work-folder";
+  /** work-folder-relative path, a deleted work-folder's original folder path, a Skill's path inside its scope's skills folder, `<appId>/<namespace>`, `<projectId>/<releaseDigest>`, or an App Project id (App Studio history). */
   originalPath: string;
   name: string;
   sizeBytes: number;
@@ -1647,7 +1650,9 @@ export interface WorkFoldActFacade {
   /**
    * Puts one item back. A file or folder returns to its work-folder at its original
    * path, renamed when something else took the name; a deleted work-folder's
-   * folder returns and is re-registered with its portable identity; app data goes back into
+   * folder returns and is re-registered with its portable identity; a removed
+   * Skill returns to the same scope and path and loads with the next turn,
+   * unless a Skill of the same name is installed there now; app data goes back into
    * the same installation at the same revision; a Release goes back into the
    * App Project it came from; a removed work-folder's App Studio history goes
    * back once that work-folder is registered again, bringing its previews'
@@ -1660,6 +1665,8 @@ export interface WorkFoldActFacade {
       /** `safetyCheckpointId` is null when the restore succeeded but History could not record an undo point for it. */
       | { kind: "file" | "folder"; workFolder: WorkFoldActWorkFolderRef; path: string; renamed: boolean; safetyCheckpointId: string | null }
       | { kind: "work-folder"; workFolder: WorkFoldActWorkFolderRef; workFolderRoot: string; renamed: boolean }
+      /** `workFolder` only for the work-folder scope; `path` is the restored Skill folder. */
+      | { kind: "skill"; scope: "everywhere" | "work-folder"; workFolder?: WorkFoldActWorkFolderRef; name: string; path: string }
       | { kind: "app-storage"; workFolder: WorkFoldActWorkFolderRef; appId: string; usage: { revision: number; usageBytes: number } }
       | { kind: "app-release"; workFolder: WorkFoldActWorkFolderRef; releaseDigest: string; displayVersion: string }
       | {

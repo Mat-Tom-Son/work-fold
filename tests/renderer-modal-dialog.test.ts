@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement, StrictMode, useRef, type ReactElement } from "react";
 
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
-import { ConfirmDialogHost, requestConfirm } from "../web-local/src/ui/feedback.js";
+import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "../web-local/src/ui/feedback.js";
 import { createDomHarness } from "./support/dom.js";
 
 /**
@@ -125,6 +125,27 @@ test("an open dialog hides the background and restores it on close", async (t) =
 
   await dom.settle();
   assert.equal(document.activeElement?.id, "opener", "focus returns to the control that opened the dialog");
+});
+
+test("an action toast raised from inside an open dialog stays reachable", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  let undone = 0;
+  let closes = 0;
+
+  await dom.render(createElement("div", null,
+    createElement(Screen, { open: true, onClose: () => { closes += 1; } }),
+    createElement(ToastHost)));
+  await dom.act(() => {
+    showToast({ text: "Moved notes to Recently Deleted", tone: "success", actionLabel: "Undo", onAction: () => { undone += 1; } });
+  });
+  const stack = document.querySelector<HTMLElement>(".toast-stack");
+  assert.equal(document.getElementById("background")?.inert, true, "the rest of the background still stops taking input");
+  assert.notEqual(stack?.inert, true, "the toast stack is drawn above modals, so it keeps taking input");
+  assert.equal(stack?.getAttribute("aria-hidden"), null, "and stays announced");
+  await dom.act(() => { document.querySelector<HTMLButtonElement>(".toast-action")!.click(); });
+  assert.equal(undone, 1);
+  assert.equal(closes, 0, "using the toast does not close the dialog");
 });
 
 test("focus restoration survives React Strict Mode effect replay", async (t) => {

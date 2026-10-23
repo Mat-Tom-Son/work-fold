@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
-import { lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -275,10 +275,26 @@ function errorMessage(error: unknown): string {
 }
 
 
-export interface PiSkillRemovalResult {
+/** A validated imported Skill, as removal hands it over to be kept. */
+export interface PiSkillRemovalCandidate {
   scope: "user" | "project";
-  /** The Skill directory that was deleted. */
+  /** The Skill directory, an ordinary directory inside `skillsRoot`. */
+  skillDir: string;
+  /** The scope's import root: `<agentDir>/skills` or the work-folder's `.pi/skills`. */
+  skillsRoot: string;
+  /** `skillDir` inside `skillsRoot`, `/`-separated; what `restorePiSkill` takes back. */
+  relativePath: string;
+  /** The name Pi loads the Skill under: its frontmatter `name`, else its folder name. */
+  skillName: string;
+}
+
+export interface PiSkillRemovalResult<K> {
+  scope: "user" | "project";
+  /** The Skill directory that left the import root. */
   removedPath: string;
+  skillName: string;
+  /** Whatever `keep` returned for the moved folder. */
+  kept: K;
 }
 
 /**
@@ -287,18 +303,23 @@ export interface PiSkillRemovalResult {
  * own import roots (`<agentDir>/skills` for Everywhere, `.pi/skills` in the
  * work-folder) are eligible; Skills that arrived through a Pi package, a settings
  * path, or another location are managed where they were installed.
+ *
+ * Removal never erases the Skill. `.pi/` and Pi's own folder are outside
+ * History, so `keep` must move the validated folder somewhere it can come back
+ * from (Recently deleted, docs/receipts-not-gates.md F20); if `keep` throws,
+ * nothing else is touched.
  */
-export async function removePiSkill(
+export async function removePiSkill<K>(
   workFolderRoot: string,
-  input: { skillPath: string; scope?: "user" | "project" },
+  input: { skillPath: string; scope?: "user" | "project"; keep: (skill: PiSkillRemovalCandidate) => Promise<K> },
   runtimeProvider?: PiRuntimeProvider,
-): Promise<PiSkillRemovalResult> {
+): Promise<PiSkillRemovalResult<K>> {
   const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
   const scope = input.scope ?? "user";
   if (scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
     throw new Error("Trust this work-folder before removing work-folder-scoped Skills.");
   }
-  const root = resolve(scope === "project" ? join(workFolderRoot, ".pi", "skills") : join(runtime.agentDir, "skills"));
+  const root = piSkillsRoot(workFolderRoot, runtime.agentDir, scope);
   const skillFile = resolve(input.skillPath);
   if (basename(skillFile).toLowerCase() !== "skill.md") throw new Error("Only a Skill's SKILL.md identifies it for removal.");
   const skillDir = dirname(skillFile);
@@ -317,17 +338,18 @@ export async function removePiSkill(
   const fileInfo = await lstat(skillFile).catch(() => null);
   if (!fileInfo || !fileInfo.isFile()) throw new Error("The Skill's SKILL.md no longer exists.");
   // Lexical containment is not enough: an ancestor below the import root may
-  // itself be a symlink. Resolve both existing directories before a recursive
-  // delete so `skills/linked/nested/SKILL.md` cannot remove bytes elsewhere.
+  // itself be a symlink. Resolve both existing directories before the folder
+  // is moved so `skills/linked/nested/SKILL.md` cannot take bytes from elsewhere.
   const [realRoot, realSkillDir] = await Promise.all([realpath(root), realpath(skillDir)]);
   const realRelativeDir = relative(realRoot, realSkillDir);
   if (!realRelativeDir || realRelativeDir === "." || realRelativeDir.startsWith("..") || isAbsolute(realRelativeDir)) {
     throw new Error("The Skill folder resolves outside work-fold's import root and cannot be removed.");
   }
-  await rm(skillDir, { recursive: true, force: true });
+  const skillName = await piSkillName(skillFile);
+  const kept = await input.keep({ scope, skillDir, skillsRoot: root, relativePath: relativeDir.split(sep).join("/"), skillName });
 
   // A multi-Skill bundle folder that is now empty is removed as well so the
-  // same bundle can be imported again later.
+  // same bundle can be imported again later. Restoring recreates it.
   let parent = dirname(skillDir);
   while (parent !== root) {
     const parentRelative = relative(root, parent);
@@ -337,5 +359,139 @@ export async function removePiSkill(
     await rmdir(parent).catch(() => undefined);
     parent = dirname(parent);
   }
-  return { scope, removedPath: skillDir };
+  return { scope, removedPath: skillDir, skillName, kept };
 }
+
+/** Restoring would put a second Skill under a name Pi already loads in that scope, or over an existing folder. */
+export class PiSkillRestoreConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PiSkillRestoreConflictError";
+  }
+}
+
+/**
+ * Puts a removed Skill back into the same scope's import root at the same
+ * path inside it, through `putBack`, which moves the kept folder to the
+ * destination it is given. The destination is re-derived from the current
+ * runtime, never taken from the record, and every folder above it that
+ * already exists must be an ordinary directory inside the root.
+ *
+ * Pi loads only the first Skill of a given name, so a restore that would sit
+ * beside a Skill of the same name — such as the same Skill imported again in
+ * the meantime — is refused with PiSkillRestoreConflictError rather than
+ * renamed into a Skill that silently does not load. An occupied destination
+ * folder is refused the same way; nothing is merged or replaced.
+ */
+export async function restorePiSkill<R>(
+  workFolderRoot: string,
+  input: {
+    scope: "user" | "project";
+    relativePath: string;
+    skillName: string;
+    putBack: (destination: string) => Promise<R>;
+  },
+  runtimeProvider?: PiRuntimeProvider,
+): Promise<{ scope: "user" | "project"; restoredPath: string; restored: R }> {
+  const runtime = await resolvePiRuntime(workFolderRoot, runtimeProvider, { requestProjectTrust: false });
+  if (input.scope === "project" && !hasExplicitPiProjectMutationTrust(runtime)) {
+    throw new Error("Trust this work-folder before restoring work-folder-scoped Skills.");
+  }
+  const segments = input.relativePath.split("/");
+  if (!segments.length || segments.some((segment) => (
+    !segment || segment === "." || segment === ".." || /[\\\u0000-\u001f:]/.test(segment)
+  ))) {
+    throw new Error("The kept Skill's path is invalid.");
+  }
+  const root = piSkillsRoot(workFolderRoot, runtime.agentDir, input.scope);
+  await mkdir(root, { recursive: true });
+  const realRoot = await realpath(root);
+  const destination = join(root, ...segments);
+  const where = input.scope === "project" ? "in this work-folder" : "Everywhere";
+  let ancestor = root;
+  for (const segment of segments.slice(0, -1)) {
+    ancestor = join(ancestor, segment);
+    const info = await lstat(ancestor).catch(() => null);
+    if (!info) break;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new PiSkillRestoreConflictError(`${relative(root, ancestor)} is not an ordinary folder, so the Skill cannot go back inside it.`);
+    }
+    const realRelative = relative(realRoot, await realpath(ancestor));
+    if (!realRelative || realRelative.startsWith("..") || isAbsolute(realRelative)) {
+      throw new Error("The Skill's folder resolves outside work-fold's import root, so it cannot go back there.");
+    }
+  }
+  const sameName = await findPiSkillNamed(root, input.skillName);
+  if (sameName) {
+    throw new PiSkillRestoreConflictError(
+      `A Skill named "${input.skillName}" is already installed ${where} (${relative(root, dirname(sameName)).split(sep).join("/") || "."}). `
+        + "Remove that one first, then restore this one.",
+    );
+  }
+  if (await lstat(destination).catch(() => null)) {
+    throw new PiSkillRestoreConflictError(
+      `Something is already at ${input.relativePath} ${where}. Remove it, then restore this Skill.`,
+    );
+  }
+  const restored = await input.putBack(destination);
+  return { scope: input.scope, restoredPath: destination, restored };
+}
+
+function piSkillsRoot(workFolderRoot: string, agentDir: string, scope: "user" | "project"): string {
+  return resolve(scope === "project" ? join(workFolderRoot, ".pi", "skills") : join(agentDir, "skills"));
+}
+
+/** Pi's rule for a SKILL.md's name: the frontmatter `name`, else the folder that holds it. */
+async function piSkillName(skillFile: string): Promise<string> {
+  return skillFrontmatterName(await readSkillHead(skillFile) ?? "") ?? basename(dirname(skillFile));
+}
+
+/** The start of a Skill file, enough for its frontmatter; null when it cannot be read. */
+async function readSkillHead(path: string): Promise<string | null> {
+  const handle = await open(path, "r").catch(() => null);
+  if (!handle) return null;
+  try {
+    const buffer = Buffer.alloc(maxSkillHeadBytes);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+/**
+ * The first Skill in an import root that Pi would load under `name`, walked
+ * the way Pi walks a skills folder: a folder holding SKILL.md is one Skill,
+ * dot-folders and node_modules are skipped, and a root-level Markdown file
+ * with a frontmatter name counts too. Links are not followed. The walk is
+ * bounded; past the bound it stops looking rather than guessing.
+ */
+async function findPiSkillNamed(root: string, name: string): Promise<string | null> {
+  const stack = [root];
+  let visited = 0;
+  while (stack.length) {
+    const dir = stack.pop()!;
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => null);
+    if (!entries) continue;
+    const skillFile = entries.find((entry) => entry.name === "SKILL.md" && entry.isFile());
+    if (skillFile) {
+      if (await piSkillName(join(dir, skillFile.name)) === name) return join(dir, skillFile.name);
+      continue;
+    }
+    for (const entry of entries) {
+      if (++visited > maxSkillScanEntries) return null;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(path);
+      else if (dir === root && entry.isFile() && extname(entry.name) === ".md") {
+        if (skillFrontmatterName(await readSkillHead(path) ?? "") === name) return path;
+      }
+    }
+  }
+  return null;
+}
+
+const maxSkillHeadBytes = 64 * 1024;
+const maxSkillScanEntries = 64 * 1024;
