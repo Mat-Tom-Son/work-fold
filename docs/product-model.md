@@ -109,7 +109,7 @@ inference, sign in to Azure, or discover deployments.
 
 **First run and Connect your AI (2026-10-11).** With no work-folder yet, the
 app opens on a short first run: a welcome that says what work-fold is, **Connect
-your AI**, then **Pick a folder to start with** (Add existing folder or Create
+your AI**, then **Pick a folder to start with** (Use existing folder or Create
 new work-folder). Connect your AI offers ChatGPT, Claude, and OpenRouter first,
 signing in where the desktop app can run the provider's sign-in and taking a key
 otherwise, plus **Another provider**, a search over the rest of Pi's catalog
@@ -200,7 +200,11 @@ the next message. Selecting a file in Files is not context: since 2026-10-11 the
 Worker is not told which file is selected, so a stale or deleted selection can
 neither mislead it nor block a message; attach a file to include it. A quiet file icon, filename, and remove control above the
 composer show that selection; attaching does not produce a success toast or
-an extraction-status warning. Documents and other non-image files are not
+an extraction-status warning. Once that message is accepted, its files leave the
+composer and appear as the same chips above the sent message, which keeps their
+work-folder-relative paths and opens the file on click; a send that fails keeps
+them in the composer. Attach to Chat goes to the Chat in front, else the
+work-folder's Chat the person was last in, else a blank draft. Documents and other non-image files are not
 extracted or copied into the model prompt: the Worker is told which paths the
 person attached and uses its file or document tools to inspect the originals
 as the task needs. Staging checks that each path names an available file;

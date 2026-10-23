@@ -108,6 +108,8 @@ export interface ChatMessage {
   workTrail?: ChatMessageWorkTrailEntry[];
   assistantPresentation?: import("../../src/shared/chat-presentation").AssistantPresentation;
   interruption?: ChatMessageInterruption;
+  /** Files sent with a user message, as work-folder-relative paths. */
+  attachments?: { kind: "file" | "folder" | "url"; target: string; name: string }[];
   turnId?: string;
   requestId?: string;
   /** Sent into an already-running turn; the agent saw it after its current step. */

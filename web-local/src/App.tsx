@@ -355,7 +355,7 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and workers."} action={error ? <button className="ui-control" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and Workers."} action={error ? <button className="ui-control" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
@@ -1168,7 +1168,11 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     });
   }
   function attachToChat(path: string) {
-    const existing = tabs.surfaceTabs.find((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id && (!tab.conversationId || tab.id === tabs.activeSurfaceTabId));
+    // The Chat in front, else the one the person was last in, else a blank draft.
+    const workFolderChats = tabs.surfaceTabs.filter((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id);
+    const existing = workFolderChats.find((tab) => tab.id === tabs.activeSurfaceTabId)
+      ?? tabs.recentChatSurfaceTab(workFolder.id)
+      ?? workFolderChats.find((tab) => tab.kind === "chat" && !tab.conversationId);
     const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(workFolder, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
     setContextRequest({ id: ++contextRequestId.current, path, workFolderId: workFolder.id, surfaceTabId });

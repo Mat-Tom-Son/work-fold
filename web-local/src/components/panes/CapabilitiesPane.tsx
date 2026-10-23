@@ -848,10 +848,18 @@ function isCoreTool(tool: AgentTool): boolean {
   return tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim()));
 }
 
+/** "1 tool · 2 commands"; a part with nothing in it is left out. */
+function extensionContentsSummary(tools: number, commands: number): string {
+  return [
+    tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : "",
+    commands ? `${commands} ${commands === 1 ? "command" : "commands"}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 /** One installed Skill or Extension; the whole row opens its details. */
 function InstalledCapabilityRow({ item, onSelect }: { item: InstalledCapability; onSelect: () => void }) {
   const trouble = ["error", "blocked", "missing"].includes(item.status);
-  const detail = item.description || (item.kind === "extension" ? `${item.tools.length} tools · ${item.commands.length} commands` : "");
+  const detail = item.description || (item.kind === "extension" ? extensionContentsSummary(item.tools.length, item.commands.length) : "");
   return (
     <button className="capabilities-resource-card" type="button" onClick={onSelect}>
       <span className="capabilities-kind-icon" aria-hidden="true">{item.kind === "skill" ? <BookToolbox20Regular /> : <PlugConnected20Regular />}</span>
@@ -1111,10 +1119,11 @@ function CapabilityEmpty({ title }: { title: string }) {
 
 export function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
   const fromSkills = catalog.skills.map((item) => normalizeSkill(item, catalog.diagnostics));
-  // Pi's named built-in factories already appear in Core Tools. They have no
-  // installable resource or lifecycle controls to present as another Extension.
+  // Named built-in factories (Pi's native tools and work-fold's own turn hooks)
+  // have no installable resource or lifecycle controls to present as an
+  // Extension; any tools they add already appear in Core Tools.
   const fromExtensions = catalog.extensions
-    .filter((item) => item.path !== "builtin:codemode" && item.path !== "builtin:tool_search")
+    .filter((item) => !item.path.startsWith("builtin:"))
     .map((item) => normalizeExtension(item, catalog.diagnostics));
   const items = [...fromSkills, ...fromExtensions];
   for (const resource of catalog.resources ?? []) {

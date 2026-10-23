@@ -78,6 +78,7 @@ import {
   setGeneratedConversationTitle,
   updateConversationLifecycle,
   type ChatMessage,
+  type ChatMessageAttachmentRef,
   type ConversationSummary,
 } from "./agent/chat-store.js";
 import {
@@ -4094,8 +4095,10 @@ async function admitConversationTurn(
     /** work-folder Workers the person addressed with @ (2026-10-01); registered ids, never this scope's own. */
     addressedWorkFolderIds?: string[];
   },
-): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string }; taskId: string; replayed: boolean }> {
+): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string; attachments?: ChatMessageAttachmentRef[] }; taskId: string; replayed: boolean }> {
   const turnKey = clientKey(workFolder.id, conversationId);
+  const fileAttachments = workFolder.id === workFoldAgentScopeId ? [] : contextPathAttachments(input.contextPaths);
+  const attachmentFields = fileAttachments.length ? { attachments: fileAttachments } : {};
   const existing = await readConversationSummary(workFolder.workFolderRoot, conversationId);
   if (!existing) throw notFound("Conversation not found.");
   const requestId = turnIdentity(input.requestId ?? (input.remotePrincipal
@@ -4116,8 +4119,8 @@ async function admitConversationTurn(
       const persisted = messages.find((candidate) => candidate.id === prior.userMessageId && candidate.role === "user");
       return {
         message: persisted
-          ? { id: persisted.id, role: "user", content: persisted.content, createdAt: persisted.createdAt }
-          : { id: prior.userMessageId, role: "user", content: input.content, createdAt: prior.userMessageCreatedAt },
+          ? { id: persisted.id, role: "user", content: persisted.content, createdAt: persisted.createdAt, ...(persisted.attachments?.length ? { attachments: persisted.attachments } : {}) }
+          : { id: prior.userMessageId, role: "user", content: input.content, createdAt: prior.userMessageCreatedAt, ...attachmentFields },
         taskId: prior.turnId,
         replayed: true,
       };
@@ -4173,7 +4176,7 @@ async function admitConversationTurn(
       if (accepted.replayed) {
         state.runningTurns.delete(turnKey);
         return {
-          message: { id: accepted.record.userMessageId, role: "user", content: input.content, createdAt: accepted.record.userMessageCreatedAt },
+          message: { id: accepted.record.userMessageId, role: "user", content: input.content, createdAt: accepted.record.userMessageCreatedAt, ...attachmentFields },
           taskId: accepted.record.turnId,
           replayed: true,
         };
@@ -4209,7 +4212,7 @@ async function admitConversationTurn(
     requestId,
     ...(workFoldAgentAttachments?.length
       ? { attachments: workFoldAgentAttachments.map((ref) => ({ kind: ref.kind, target: ref.target, name: ref.name })) }
-      : {}),
+      : attachmentFields),
     ...(input.remotePrincipal ? {
       source: "remote_web" as const,
       remotePrincipalId: input.remotePrincipal.browserId,
@@ -15526,6 +15529,11 @@ async function normalizeAddressedWorkFolderIds(value: unknown, ownScopeId: strin
   if (!ids.length) return [];
   const registered = new Set((await registeredWorkFolderOutline()).map((workFolder) => workFolder.id));
   return ids.filter((id) => registered.has(id)).sort();
+}
+
+/** A work-folder Chat's attached files, kept on its message so the Chat shows what was sent. */
+function contextPathAttachments(contextPaths: string[]): ChatMessageAttachmentRef[] {
+  return contextPaths.slice(0, 32).map((path) => ({ kind: "file", target: path, name: path.slice(path.lastIndexOf("/") + 1) || path }));
 }
 
 function normalizeContextPaths(workFolderRoot: string, value: unknown): string[] {

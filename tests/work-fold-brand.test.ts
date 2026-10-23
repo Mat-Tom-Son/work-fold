@@ -208,7 +208,7 @@ test("the empty-folder actions, loading, About, and the popover loading state ke
     assert.doesNotMatch(css, /#(c84f30|d95735|f08363|f3f0e9|252321|1b1a18)/i, `${name} still carries the pre-rebrand palette`);
   }
 
-  assert.match(onboarding, /Add existing folder/);
+  assert.match(onboarding, /Use existing folder/);
   assert.match(onboarding, /Create new work-folder/);
   assert.match(app, /<WorkFoldLoadingState message=/);
   assert.match(settings, /<WorkFoldLockup className="about-work-fold-brand"/);

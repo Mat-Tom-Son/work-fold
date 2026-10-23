@@ -2240,6 +2240,13 @@ to {
   font-weight: 600;
 }
 
+/* These searches draw their own clear button; Chromium's would be a second one. */
+.file-tree-search input::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .file-tree-search button {
   width: 24px;
   min-height: 24px;
@@ -5930,6 +5937,43 @@ to {
 .context-chip-remove:hover,
 .context-chip-remove:focus-visible {
   background: rgba(255, 255, 255, 0.96);
+}
+
+/* The files a sent message carried: the composer's chips, above the bubble. */
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.message-attachments > li {
+  min-width: 0;
+  display: flex;
+}
+
+.context-chip.message-attachment {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0 6px 0 0;
+  font: inherit;
+  font-size: 0.68rem;
+  text-align: left;
+}
+
+button.context-chip.message-attachment {
+  cursor: pointer;
+}
+
+button.context-chip.message-attachment:hover {
+  border-color: var(--ui-border-strong, #b8c4d6);
+}
+
+button.context-chip.message-attachment:focus-visible {
+  outline: 2px solid var(--work-fold-accent);
+  outline-offset: 1px;
 }
 
 .context-meta-grid {

@@ -171,6 +171,7 @@ export function ChatPanel({
   const conversationsRef = useRef<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const conversationIdRef = useRef<string | null>(null);
   const turnPreviousAssistantMessageIdRef = useRef<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
   // One draft queued behind the running turn: Enter mid-turn holds it as a
@@ -316,6 +317,7 @@ export function ChatPanel({
   };
   runningRef.current = running;
   messagesRef.current = messages;
+  conversationIdRef.current = conversation?.id ?? null;
 
   function beginTurnArtifactTracking(): void {
     if (turnPreviousAssistantMessageIdRef.current !== undefined) return;
@@ -1244,11 +1246,19 @@ export function ChatPanel({
     const now = Date.now();
     const requestId = clientTurnIdentity("request");
     const userMessageId = clientTurnIdentity("message");
-    const localUserMessage: ChatMessage = { id: userMessageId, role: "user", content, createdAt: new Date(now).toISOString() };
+    const sentAttachments = contextAttachments.map((attachment) => ({ kind: "file" as const, target: attachment.sourcePath, name: attachment.sourceFileName }));
+    const localUserMessage: ChatMessage = {
+      id: userMessageId,
+      role: "user",
+      content,
+      createdAt: new Date(now).toISOString(),
+      ...(sentAttachments.length ? { attachments: sentAttachments } : {}),
+    };
     setMessages((current) => [...current, localUserMessage]);
     scrollMessagesToBottom("auto");
     if (fixtureMode) {
       const fixtureConversation = conversation ?? { id: "fixture-chat", title: "New Chat", updatedAt: new Date(now).toISOString() };
+      setContextAttachments([]);
       setConversation(fixtureConversation);
       onConversationActivated?.(fixtureConversation);
       commitConversations((current) => current.some((item) => item.id === fixtureConversation.id) ? current : [fixtureConversation, ...current]);
@@ -1378,6 +1388,12 @@ export function ChatPanel({
       });
       clearStoredChatDraft(pending.draftStorageKey);
       clearStoredPendingChatSend(workFolder.id, pending.conversation.id);
+      // An attachment belongs to the message it went out with. Files attached
+      // while this one was being delivered stay for the next message.
+      const sentPaths = new Set(pending.contextPaths);
+      if (sentPaths.size && conversationIdRef.current === pending.conversation.id) {
+        setContextAttachments((current) => current.filter((attachment) => !sentPaths.has(attachment.sourcePath)));
+      }
       const updatedConversation = {
         ...pending.conversation,
         title: chatDisplayTitle({ serverTitle: pending.conversation.title }),
