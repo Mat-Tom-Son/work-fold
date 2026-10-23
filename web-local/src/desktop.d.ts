@@ -91,6 +91,18 @@ interface WorkFoldRestrictedAppViewRequest {
   openedFrom?: { kind: "notification"; permissionId: string };
 }
 
+interface WorkFoldBrowserHistoryEntry {
+  url: string;
+  title: string;
+  visits: number;
+  lastVisitedAt: string;
+}
+
+type WorkFoldBrowserCommand =
+  | { type: "back" | "forward" | "reload" | "stop" | "focus" | "stop-find" | "inspect" | "zoom-in" | "zoom-out" | "zoom-reset" | "dismiss-notice" }
+  | { type: "find"; text: string; forward: boolean; newSearch: boolean }
+  | { type: "forget-permission" | "open-privacy-settings"; kind: import("../../src/shared/browser").BrowserSitePermission };
+
 interface WorkFoldRestrictedAppAttention {
   workFolderId: string;
   appId: string;
@@ -201,6 +213,31 @@ declare global {
         onOpenRequest: (listener: (owner: WorkFoldRestrictedAppOwner) => void) => () => void;
         attentionStates?: () => Promise<WorkFoldRestrictedAppAttention[]>;
         onAttention?: (listener: (state: WorkFoldRestrictedAppAttention) => void) => () => void;
+      };
+      /** The built-in browser's tabs; main-window only (docs/built-in-browser.md). */
+      browser?: {
+        mount: (request: import("../../src/shared/browser").BrowserViewRequest) => Promise<import("../../src/shared/browser").BrowserPageState | null>;
+        layout: (request: import("../../src/shared/browser").BrowserViewRequest) => void;
+        unmount: (pageId: string) => Promise<void>;
+        navigate: (pageId: string, address: string) => Promise<import("../../src/shared/browser").BrowserPageState>;
+        command: (pageId: string, command: WorkFoldBrowserCommand) => Promise<void>;
+        close: (pageId: string) => Promise<void>;
+        respondPermission: (pageId: string, requestId: string, decision: "allow" | "block") => Promise<void>;
+        sync: (tabs: import("../../src/shared/browser").BrowserTabsSync) => void;
+        states: () => Promise<import("../../src/shared/browser").BrowserPageState[]>;
+        /** Shows a file the browser downloaded in Finder or Explorer. */
+        showDownload: (path: string) => Promise<void>;
+        /** Pages from history matching what someone typed in the address bar. */
+        suggest: (text: string) => Promise<WorkFoldBrowserHistoryEntry[]>;
+        /** The most recently visited pages, for a new tab. */
+        recent: () => Promise<WorkFoldBrowserHistoryEntry[]>;
+        clearHistory: () => Promise<void>;
+        onState: (listener: (state: import("../../src/shared/browser").BrowserPageState) => void) => () => void;
+        onOpenTab: (listener: (command: import("../../src/shared/browser").BrowserOpenTabCommand) => void) => () => void;
+        onCloseTab: (listener: (command: { pageId: string }) => void) => () => void;
+        onShortcut: (listener: (shortcut: import("../../src/shared/browser").BrowserShortcut) => void) => () => void;
+        onFindResult: (listener: (result: import("../../src/shared/browser").BrowserFindResult) => void) => () => void;
+        onDownload: (listener: (download: import("../../src/shared/browser").BrowserDownload) => void) => () => void;
       };
       window: {
         material: "mica" | "vibrancy" | "none";

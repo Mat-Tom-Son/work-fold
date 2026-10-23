@@ -107,6 +107,8 @@ import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan }
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
+import { BuiltInBrowser, parseBrowserCommand, parseBrowserTabsSync, parseBrowserViewRequest } from "./built-in-browser.js";
+import { isBrowserPageId } from "../../src/shared/browser.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
 import { resolveDesktopApplicationVersion } from "./application-version.js";
 import {
@@ -186,6 +188,7 @@ const folderGrants = new Map<string, { workFolderRoot: string; expiresAt: number
 
 let mainWindow: BrowserWindow | null = null;
 let railTooltipOverlay: RailTooltipOverlay | null = null;
+let builtInBrowser: BuiltInBrowser | null = null;
 let tray: Tray | null = null;
 let workFoldAgentPopover: WorkFoldAgentPopover | null = null;
 let modelContextWindow: ModelContextWindow | null = null;
@@ -765,6 +768,8 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       settleSignal: host.settleSignal,
       actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
+      // Every Worker and the work-fold agent can use the browser tabs the person sees.
+      browser: ensureBuiltInBrowser().toolHost,
       restrictedAppService: host.restrictedApps,
       appNotificationRecord: host.restrictedAppNotificationRecord,
       onAgentTurnActivity: updateAgentPowerState,
@@ -1092,6 +1097,9 @@ async function createMainWindow(): Promise<void> {
     mainWindow?.hide();
     maybeShowTrayNotice();
   });
+  // A closing window gives its browser pages back; they show again in the next window.
+  const browserWindow = mainWindow;
+  mainWindow.on("close", (event) => { if (!event.defaultPrevented) builtInBrowser?.detachWindow(browserWindow); });
   mainWindow.on("query-session-end", () => { void shutdown(); });
   mainWindow.on("session-end", () => {
     quitting = true;
@@ -1470,6 +1478,75 @@ function registerIpc(): void {
   ipcMain.on("work-fold:window:rail-tooltip-hide", (event) => {
     assertTrustedMainRenderer(event);
     railTooltipOverlay?.hide();
+  });
+  ipcMain.handle("work-fold:browser:mount", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    return ensureBuiltInBrowser().mount(parseBrowserViewRequest(value));
+  });
+  ipcMain.on("work-fold:browser:layout", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    try {
+      ensureBuiltInBrowser().layout(parseBrowserViewRequest(value));
+    } catch (error) {
+      console.warn(`${productName} could not lay out a browser tab: ${errorMessage(error)}`);
+    }
+  });
+  ipcMain.handle("work-fold:browser:unmount", (event, pageId: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
+    ensureBuiltInBrowser().detach(pageId);
+  });
+  ipcMain.handle("work-fold:browser:navigate", (event, pageId: unknown, address: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
+    if (typeof address !== "string" || address.length > 32_768) throw new Error("The browser address is invalid.");
+    return ensureBuiltInBrowser().navigate(pageId, address);
+  });
+  ipcMain.handle("work-fold:browser:command", (event, pageId: unknown, command: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
+    ensureBuiltInBrowser().command(pageId, parseBrowserCommand(command));
+  });
+  ipcMain.handle("work-fold:browser:respond-permission", (event, pageId: unknown, requestId: unknown, decision: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId) || typeof requestId !== "string" || !/^[a-f0-9]{16}$/.test(requestId)) throw new Error("The site's request is invalid.");
+    if (decision !== "allow" && decision !== "block") throw new Error("Choose Allow or Block.");
+    ensureBuiltInBrowser().respondPermission(pageId, requestId, decision);
+  });
+  ipcMain.handle("work-fold:browser:close", (event, pageId: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isBrowserPageId(pageId)) throw new Error("The browser tab id is invalid.");
+    ensureBuiltInBrowser().close(pageId);
+  });
+  ipcMain.on("work-fold:browser:sync", (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    try {
+      ensureBuiltInBrowser().sync(parseBrowserTabsSync(value));
+    } catch (error) {
+      console.warn(`${productName} could not read the browser tab list: ${errorMessage(error)}`);
+    }
+  });
+  ipcMain.handle("work-fold:browser:states", (event) => {
+    assertTrustedMainRenderer(event);
+    return ensureBuiltInBrowser().states();
+  });
+  ipcMain.handle("work-fold:browser:suggest", (event, text: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (typeof text !== "string" || text.length > 2_048) throw new Error("The address is invalid.");
+    return ensureBuiltInBrowser().suggest(text);
+  });
+  ipcMain.handle("work-fold:browser:recent", (event) => {
+    assertTrustedMainRenderer(event);
+    return ensureBuiltInBrowser().recentHistory();
+  });
+  ipcMain.handle("work-fold:browser:clear-history", (event) => {
+    assertTrustedMainRenderer(event);
+    return ensureBuiltInBrowser().clearHistory();
+  });
+  ipcMain.handle("work-fold:browser:show-download", (event, path: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (typeof path !== "string") throw new Error("The download is invalid.");
+    ensureBuiltInBrowser().showDownload(path);
   });
   ipcMain.handle("work-fold:restricted-app-view:mount", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
@@ -2080,6 +2157,24 @@ function updateAgentPowerState(activeTurns: number): void {
   }
 }
 
+/** The built-in browser (docs/built-in-browser.md); created once the app is ready, before any window. */
+function ensureBuiltInBrowser(): BuiltInBrowser {
+  builtInBrowser ??= new BuiltInBrowser({
+    window: () => mainWindow && !mainWindow.isDestroyed() ? mainWindow : null,
+    send: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    },
+    openExternal,
+    downloadsPath: () => app.getPath("downloads"),
+    sitePermissionsPath: join(app.getPath("userData"), "browser-site-permissions.json"),
+    historyPath: join(app.getPath("userData"), "browser-history.json"),
+    // The app names itself, as Claude's browser does; Google's sign-in refuses a browser posing as plain Chrome.
+    userAgentProduct: `${productionProductName}/${applicationVersion}`,
+    onViewAttached: () => railTooltipOverlay?.raise(),
+  });
+  return builtInBrowser;
+}
+
 async function openExternal(value: string): Promise<void> {
   const url = new URL(value);
   if (!new Set(["https:", "http:", "mailto:"]).has(url.protocol)) throw new Error(`work-fold cannot open ${url.protocol} links.`);
@@ -2089,6 +2184,8 @@ async function openExternal(value: string): Promise<void> {
 async function shutdown(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   modelContextWindow?.dispose();
+  // Closing pages for quit must not close their tabs: they come back next launch.
+  builtInBrowser?.dispose();
   if (rendererRecoveryTimer) clearTimeout(rendererRecoveryTimer);
   rendererRecoveryTimer = null;
   // Queued act requests must answer unavailable instead of racing a closing
@@ -2384,6 +2481,8 @@ function getSystemAccentColor(): string | null {
 function configureWindowResilience(window: BrowserWindow): void {
   const unmountRestrictedViews = () => {
     void desktopHostPromise?.then((host) => host.restrictedAppHost.unmountUiOwner(window.webContents.id));
+    // Browser pages keep running; they show again when the renderer lays their tabs out.
+    builtInBrowser?.detachWindow(window);
   };
   window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) unmountRestrictedViews();

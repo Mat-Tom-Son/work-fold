@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { chatDisplayTitle } from "../lib/format";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
 import { retargetMovedPath } from "../lib/tree";
-import type { AgentExtensionSurfaceView, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, WorkFolderSummary, WorkFolderSurfaceTab } from "../types";
+import type { AgentExtensionSurfaceView, BrowserSurfaceTab, CapabilitySurface, ConversationSummary, RestrictedAppInstalled, WorkFolderSummary, WorkFolderSurfaceTab } from "../types";
 
 const surfaceTabsStorageKey = "work-fold.work-folder.surface-tabs.v1";
 
@@ -213,6 +213,33 @@ export function useSurfaceTabs({
       : tab));
   }
 
+  /**
+   * Opens a browser tab (docs/built-in-browser.md). It belongs to no
+   * work-folder, so selecting it keeps the work-folder that is open. A tab the
+   * desktop opened (a link, or a Worker's page) brings its own page id.
+   */
+  function openBrowserSurfaceTab(options: { pageId?: string; url?: string; title?: string; show?: boolean } = {}): string {
+    const tab = browserSurfaceTab(options.pageId ?? newBrowserPageId(), options.url ?? "", options.title);
+    setSurfaceTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
+    if (options.show !== false) setActiveSurfaceTabId(tab.id);
+    return tab.id;
+  }
+
+  /** Keeps a browser tab's address and title in step with its page, so they survive a restart. */
+  const updateBrowserSurfaceTab = useCallback((pageId: string, page: { url: string; title: string }): void => {
+    setSurfaceTabs((current) => {
+      let changed = false;
+      const next = current.map((tab) => {
+        if (tab.kind !== "browser" || tab.pageId !== pageId) return tab;
+        const title = browserTabTitle(page.title, page.url);
+        if (tab.url === page.url && tab.title === title) return tab;
+        changed = true;
+        return { ...tab, url: page.url, title };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
   function closeRestrictedAppSurfaceTab(workFolderId: string, appId: string, digest: string, appTabId: string, featureInstallationId: string): void {
     closeSurfaceTab(restrictedAppSurfaceTabId(workFolderId, appId, digest, appTabId, featureInstallationId));
   }
@@ -317,6 +344,8 @@ export function useSurfaceTabs({
     updateRestrictedAppSurfaceTab,
     closeRestrictedAppSurfaceTab,
     reconcileRestrictedAppSurfaceTabs,
+    openBrowserSurfaceTab,
+    updateBrowserSurfaceTab,
     closeSurfaceTab,
     reorderSurfaceTabs,
     handleTabConversationActivated,
@@ -398,6 +427,11 @@ function normalizeStoredSurfaceTabs(tabs: unknown[]): WorkFolderSurfaceTab[] {
 function normalizeStoredSurfaceTab(value: unknown): WorkFolderSurfaceTab | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
+  if (record.kind === "browser") {
+    if (typeof record.pageId !== "string" || !browserPageIdPattern.test(record.pageId)) return null;
+    const url = typeof record.url === "string" && record.url.length <= 32_768 ? record.url : "";
+    return browserSurfaceTab(record.pageId, url, typeof record.title === "string" ? record.title : undefined);
+  }
   if (typeof record.id !== "string" || typeof record.workFolderId !== "string" || typeof record.title !== "string") return null;
   if (record.kind === "chat") {
     if (record.conversationId !== null && typeof record.conversationId !== "string") return null;
@@ -508,7 +542,8 @@ function restoreStoredSurfaceTabsForWorkFolders(state: SurfaceTabsState, workFol
 
 function filterSurfaceTabsToWorkFolders(tabs: WorkFolderSurfaceTab[], workFolders: WorkFolderSummary[]): WorkFolderSurfaceTab[] {
   const workFolderIds = new Set(workFolders.map((item) => item.id));
-  return tabs.filter((tab) => workFolderIds.has(tab.workFolderId));
+  // Browser tabs belong to no work-folder, so removing one never closes them.
+  return tabs.filter((tab) => tab.workFolderId === null || workFolderIds.has(tab.workFolderId));
 }
 
 function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {
@@ -521,7 +556,7 @@ function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {
 
 function recordActiveSurfaceTabWorkFolderRecency(recentTabIdsByWorkFolder: Map<string, string>, tabs: WorkFolderSurfaceTab[], activeTabId: string | null): void {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  if (!activeTab) return;
+  if (!activeTab || activeTab.workFolderId === null) return;
   recentTabIdsByWorkFolder.set(activeTab.workFolderId, activeTab.id);
 }
 
@@ -541,7 +576,8 @@ function surfaceTabWorkFolderSwitchTarget({
   workFolders: WorkFolderSummary[];
 }): WorkFolderSummary | null {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  if (!activeTab || activeTab.workFolderId === activeWorkFolderId) return null;
+  // A browser tab keeps whichever work-folder is open.
+  if (!activeTab || activeTab.workFolderId === null || activeTab.workFolderId === activeWorkFolderId) return null;
   return workFolders.find((item) => item.id === activeTab.workFolderId) ?? null;
 }
 
@@ -689,6 +725,43 @@ function restrictedAppSurfaceTab(
   };
 }
 
+const browserPageIdPattern = /^[a-z0-9]{6,32}$/;
+
+function browserSurfaceTab(pageId: string, url: string, title?: string): BrowserSurfaceTab {
+  return {
+    id: browserSurfaceTabId(pageId),
+    kind: "browser",
+    workFolderId: null,
+    pageId,
+    url,
+    title: browserTabTitle(title ?? "", url),
+  };
+}
+
+function browserSurfaceTabId(pageId: string): string {
+  return `browser:${pageId}`;
+}
+
+/** The page's own title; its host while it has none; "New Tab" for a blank tab. */
+function browserTabTitle(title: string, url: string): string {
+  const trimmed = title.trim();
+  if (trimmed) return trimmed.length > 300 ? `${trimmed.slice(0, 299)}…` : trimmed;
+  if (!url || url === "about:blank") return "New Tab";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "file:") return decodeURIComponent(parsed.pathname.split("/").pop() || parsed.pathname);
+    return parsed.host || url;
+  } catch {
+    return url;
+  }
+}
+
+function newBrowserPageId(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => (byte % 36).toString(36)).join("");
+}
+
 function restrictedAppSurfaceTabId(workFolderId: string, appId: string, digest: string, appTabId: string, featureInstallationId: string): string {
   return `restricted-app:${workFolderId}:${appId}:${featureInstallationId}:${digest}:${appTabId}`;
 }
@@ -735,6 +808,9 @@ function closeFileSurfaceTabs(tabs: WorkFolderSurfaceTab[], workFolderId: string
 
 export {
   activeTabAfterConversationActivation,
+  browserSurfaceTab,
+  browserSurfaceTabId,
+  browserTabTitle,
   closeFileSurfaceTabs,
   closeUnavailableRestrictedAppSurfaceTabs,
   fileSurfaceTab,

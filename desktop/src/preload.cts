@@ -146,6 +146,53 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:restricted-app-view:open-request", listener);
     },
   },
+  // The built-in browser's tabs (docs/built-in-browser.md). Pages run in the
+  // main process; this renderer only places them and shows their state.
+  browser: {
+    mount: (request: unknown) => ipcRenderer.invoke("work-fold:browser:mount", request),
+    layout: (request: unknown) => ipcRenderer.send("work-fold:browser:layout", request),
+    unmount: (pageId: string) => ipcRenderer.invoke("work-fold:browser:unmount", pageId),
+    navigate: (pageId: string, address: string) => ipcRenderer.invoke("work-fold:browser:navigate", pageId, address),
+    command: (pageId: string, command: unknown) => ipcRenderer.invoke("work-fold:browser:command", pageId, command),
+    close: (pageId: string) => ipcRenderer.invoke("work-fold:browser:close", pageId),
+    respondPermission: (pageId: string, requestId: string, decision: "allow" | "block") => ipcRenderer.invoke("work-fold:browser:respond-permission", pageId, requestId, decision),
+    sync: (tabs: unknown) => ipcRenderer.send("work-fold:browser:sync", tabs),
+    states: () => ipcRenderer.invoke("work-fold:browser:states"),
+    showDownload: (path: string) => ipcRenderer.invoke("work-fold:browser:show-download", path),
+    suggest: (text: string) => ipcRenderer.invoke("work-fold:browser:suggest", text),
+    recent: () => ipcRenderer.invoke("work-fold:browser:recent"),
+    clearHistory: () => ipcRenderer.invoke("work-fold:browser:clear-history"),
+    onState: (callback: (state: unknown) => void) => {
+      const listener = (_event: unknown, state: unknown) => callback(state);
+      ipcRenderer.on("work-fold:browser:state", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:state", listener);
+    },
+    onOpenTab: (callback: (command: unknown) => void) => {
+      const listener = (_event: unknown, command: unknown) => callback(command);
+      ipcRenderer.on("work-fold:browser:open-tab", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:open-tab", listener);
+    },
+    onCloseTab: (callback: (command: unknown) => void) => {
+      const listener = (_event: unknown, command: unknown) => callback(command);
+      ipcRenderer.on("work-fold:browser:close-tab", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:close-tab", listener);
+    },
+    onShortcut: (callback: (shortcut: unknown) => void) => {
+      const listener = (_event: unknown, shortcut: unknown) => callback(shortcut);
+      ipcRenderer.on("work-fold:browser:shortcut", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:shortcut", listener);
+    },
+    onFindResult: (callback: (result: unknown) => void) => {
+      const listener = (_event: unknown, result: unknown) => callback(result);
+      ipcRenderer.on("work-fold:browser:find-result", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:find-result", listener);
+    },
+    onDownload: (callback: (download: unknown) => void) => {
+      const listener = (_event: unknown, download: unknown) => callback(download);
+      ipcRenderer.on("work-fold:browser:download", listener);
+      return () => ipcRenderer.removeListener("work-fold:browser:download", listener);
+    },
+  },
   window: {
     material: windowMaterial,
     setTheme: (theme: "light" | "dark", source?: "light" | "dark" | "system") => ipcRenderer.send("work-fold:window:set-theme", theme, source),

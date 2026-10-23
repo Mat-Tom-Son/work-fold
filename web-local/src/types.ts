@@ -229,7 +229,24 @@ export type WorkFolderSurfaceTab =
     appTabId: string;
     route: string;
     state?: unknown;
-  });
+  })
+  | BrowserSurfaceTab;
+
+/**
+ * A built-in browser tab (docs/built-in-browser.md). It belongs to no
+ * work-folder: every work-folder's tab strip shows it, and selecting it keeps
+ * the work-folder that is open.
+ */
+export interface BrowserSurfaceTab {
+  id: string;
+  kind: "browser";
+  workFolderId: null;
+  title: string;
+  /** The desktop page behind the tab. */
+  pageId: string;
+  /** The page's address; empty for a new tab nothing has loaded in yet. */
+  url: string;
+}
 
 export type ChecksStatus = WorkFoldCheckStatusSnapshot;
 export type ChecksOverview = WorkFoldCheckRendererOverview;

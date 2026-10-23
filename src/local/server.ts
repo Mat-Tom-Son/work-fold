@@ -5,6 +5,7 @@ import { createIncludedMcpSetup } from "./agent/included-mcp-setup.js";
 import { prepareResourceEnable, resourceEnableAdapter } from "./agent/resource-enable-act.js";
 import { listIncludedToolStatus, setupIncludedTool, shutdownIncludedToolHost, type IncludedSetupAction } from "./agent/included-tool-setup.js";
 import { includedToolDefinitions, type IncludedToolId } from "../shared/included-tools.js";
+import type { BrowserToolHost } from "../shared/browser.js";
 import { RestrictedAppTaskService, RestrictedAppTaskError, restrictedAppTaskAuthorityDigest, restrictedAppTaskChatTitle, restrictedAppTaskPrompt, restrictedAppTaskTurnRequestId, type RestrictedAppAssistantActivity } from "./agent/restricted-app-tasks.js";
 import { RestrictedAppInferenceService, RestrictedAppInferenceError, type RestrictedAppInferenceActivity } from "./agent/restricted-app-inference.js";
 import { BrowserAppActionService } from "./agent/restricted-app-browser-actions.js";
@@ -501,6 +502,12 @@ export interface LocalApiOptions {
    * same file itself.
    */
   appNotificationRecord?: RestrictedAppNotificationRecord;
+  /**
+   * The desktop's built-in browser (docs/built-in-browser.md). With it, every
+   * Worker and the work-fold agent carry the browser_* tools; a development API
+   * without Electron has none.
+   */
+  browser?: BrowserToolHost;
   /** Failure-injection seam that runs immediately before mandatory post-reservation work-folder validation. */
   beforeRestrictedAppWorkFolderRevalidation?: (workFolderId: string) => Promise<void>;
   maxBodyBytes?: number;
@@ -798,6 +805,8 @@ interface LocalApiState {
   imageModelPreference: ImageModelPreference;
   /** Pictures generate_image made, kept outside every work-folder for Chats to show. */
   generatedImages: GeneratedImageStore;
+  /** The desktop's built-in browser, shared by every Worker and the work-fold agent. */
+  browser?: BrowserToolHost;
   checkRunReservations: Set<string>;
   workFolderIdsByRoot: Map<string, string>;
   extensionRequests: Map<string, PiExtensionUiRequest>;
@@ -1050,6 +1059,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       path: join(workFoldStateRoot(), "restricted-apps", "notification-receipts.jsonl"),
     }),
     appMode,
+    ...(options.browser ? { browser: options.browser } : {}),
     workFolderBase: options.workFolderBase ? resolve(options.workFolderBase) : undefined,
     allowedOrigins: options.allowedOrigins ?? ["http://127.0.0.1:5173", "http://localhost:5173"],
     sessionToken: options.sessionToken,
@@ -13080,6 +13090,7 @@ async function getClient(
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
     ...(workFolderId === workFoldAgentScopeId ? {} : { imageStore: state.generatedImages }),
     backgroundJobs: createBackgroundJobToolHost(state, workFolderId, conversationId),
+    ...(state.browser ? { browser: state.browser, browserOwner: `${workFolderId}/${conversationId}` } : {}),
     ...(workFolderId === workFoldAgentScopeId ? {} : { collaboration: createCollaborationToolHost(state, workFolderId, conversationId) }),
     helperTool: workFolderId !== workFoldAgentScopeId,
     recoveryScope: taskId => {

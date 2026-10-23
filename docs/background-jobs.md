@@ -229,8 +229,10 @@ are now supported by the same job service; see [Worker tools](worker-tools.md).
 
 ## Not in this version
 
-- Port and URL detection, notifications when a job ends, and a dedicated jobs
-  panel.
+- Notifications when a job ends, and a dedicated jobs panel. (A running job's
+  announced local address, such as a dev server's `http://localhost:5173/`, is
+  reported by `job_start`, `job_output`, and `jobs show` as `serving` while it
+  runs; see [Built-in browser](built-in-browser.md).)
 - CLI access to the work-fold agent's own jobs (it uses the tools).
 
 ## Owner decisions (2026-10-18)

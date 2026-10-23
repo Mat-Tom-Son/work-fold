@@ -8,6 +8,7 @@ import {
   DocumentAdd20Regular,
   DocumentEdit20Regular,
   Folder20Regular,
+  Globe20Regular,
   Search20Regular,
   Thinking20Regular,
   WindowConsole20Regular,
@@ -131,7 +132,7 @@ function ToolStep({
   const command = commandTools.has(key);
   const candidate = !command && target ? workFolderRelativeToolPath(target, workFolderRoot) : null;
   const resolved = candidate ? workFolderLinks?.get(candidate) ?? null : null;
-  const display = command ? target : targetFileName(target);
+  const display = stepTarget(key, target);
   const shimmer = active ? " work-step-shimmer" : "";
   const diffLines = entry.edit?.diff.split("\n") ?? [];
   return (
@@ -139,8 +140,8 @@ function ToolStep({
       <FluentGlyph icon={toolIcon(key)} size={16} filled={false} className="work-step-icon" />
       <div className="work-step-body">
         <div className="work-step-line">
-          <span className={`work-step-verb${shimmer}`}>{toolVerb(key, active, toolTitle(entry))}</span>
-          {target ? (resolved && onOpenWorkFolderFile ? (
+          <span className={`work-step-verb${shimmer}`}>{display ? toolVerb(key, active, toolTitle(entry)) : bareToolVerb(key, active, toolTitle(entry))}</span>
+          {display ? (resolved && onOpenWorkFolderFile ? (
             <button type="button" className={`work-step-target file${shimmer}`} title={resolved} onClick={() => onOpenWorkFolderFile(resolved)}>
               {display}
             </button>
@@ -310,8 +311,17 @@ const toolVerbs: Record<string, { running: string; done: string; one: string; ma
   search: { running: "Searching", done: "Searched", one: "Searched", many: "Searched" },
   find: { running: "Finding", done: "Found", one: "Found files", many: "Found files" },
   ls: { running: "Listing", done: "Listed", one: "Listed files", many: "Listed files" },
+  browser_open: { running: "Opening", done: "Opened", one: "Opened a web page", many: "Opened web pages" },
+  browser_navigate: { running: "Going to", done: "Went to", one: "Went to a web page", many: "Went to web pages" },
+  browser_read: { running: "Reading", done: "Read", one: "Read a web page", many: "Read web pages" },
+  browser_screenshot: { running: "Looking at", done: "Looked at", one: "Looked at a web page", many: "Looked at web pages" },
+  browser: { running: "Using the browser", done: "Used the browser", one: "Used the browser", many: "Used the browser" },
 };
 const commandTools = new Set(["bash"]);
+/** Built-in browser steps whose detail is a web address, shown without its scheme. */
+const addressTools = new Set(["browser_open", "browser_navigate"]);
+/** Clicks, typing, and the rest of a Worker's work inside a page read as one kind of step. */
+const browserActionTools = new Set(["browser_tabs", "browser_click", "browser_type", "browser_press", "browser_scroll", "browser_evaluate", "browser_wait", "browser_close"]);
 
 function toolIcon(key: string): FluentIcon {
   switch (key) {
@@ -323,7 +333,7 @@ function toolIcon(key: string): FluentIcon {
     case "search":
     case "find": return Search20Regular;
     case "ls": return Folder20Regular;
-    default: return Wrench20Regular;
+    default: return key.startsWith("browser") ? Globe20Regular : Wrench20Regular;
   }
 }
 
@@ -333,9 +343,38 @@ function summaryIcon(steps: RuntimePreviewEntry[]): FluentIcon {
 }
 
 export function toolKey(entry: RuntimePreviewEntry): string {
-  return (entry.toolName?.trim() || entry.text
+  const key = (entry.toolName?.trim() || entry.text
     .replace(/\s+(?:queued|running|updating|finished|failed)$/i, "")
     .trim() || "tool").toLowerCase();
+  return browserActionTools.has(key) ? "browser" : key;
+}
+
+/** What a step names after its verb: a command, a web address, or a file's name; nothing for clicks and typing in a page. */
+function stepTarget(key: string, target: string): string {
+  if (!target) return "";
+  if (commandTools.has(key)) return target;
+  if (addressTools.has(key)) return compactAddress(target);
+  if (key.startsWith("browser")) return "";
+  return targetFileName(target);
+}
+
+/** A step with nothing to name still reads as a phrase: "Read a web page", not "Read". */
+const bareBrowserVerbs: Record<string, { running: string; done: string }> = {
+  browser_open: { running: "Opening a web page", done: "Opened a web page" },
+  browser_navigate: { running: "Going to a web page", done: "Went to a web page" },
+  browser_read: { running: "Reading a web page", done: "Read a web page" },
+  browser_screenshot: { running: "Looking at a web page", done: "Looked at a web page" },
+};
+
+function bareToolVerb(key: string, active: boolean, title: string): string {
+  const bare = bareBrowserVerbs[key];
+  return bare ? (active ? bare.running : bare.done) : toolVerb(key, active, title);
+}
+
+/** A web address without its scheme or a trailing slash: "example.com/docs". */
+function compactAddress(target: string): string {
+  const address = target.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  return address.length > 60 ? `${address.slice(0, 59)}…` : address;
 }
 
 function humanizeTool(key: string): string {
@@ -369,7 +408,8 @@ export function toolVerb(key: string, active: boolean, title = humanizeTool(key)
 export function toolStepLabel(entry: RuntimePreviewEntry): string {
   const key = toolKey(entry);
   const target = entry.detail?.trim() ?? "";
-  const display = commandTools.has(key) ? target : targetFileName(target);
+  const display = stepTarget(key, target);
+  if (!display) return bareToolVerb(key, false, toolTitle(entry));
   return `${toolVerb(key, false, toolTitle(entry))} ${display}`.trim();
 }
 

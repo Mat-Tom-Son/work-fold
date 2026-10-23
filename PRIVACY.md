@@ -44,6 +44,7 @@ By default, work-fold stores:
 - A hidden `.work-fold/` directory inside each work-folder. Its `work-folder.json` file stores the portable work-folder identity, and its `conversations/` directory stores that work-folder's append-only Chat records, including title, archive, and snooze lifecycle events, and, on a message an installed app sent with `assistant.request`, that app's manifest id and title.
 - The work-folder registry, History objects, ignore rules, application settings, per-work-folder model defaults and work-folder instructions, and machine-local Chat attention acknowledgements under the local work-fold application-data directory or browser-backed application storage.
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
+- The built-in browser's profile — cookies, sign-ins, site storage, cache, the address and title of each open browser tab, the pages the browser's tabs visited (`browser-history.json`, cleared with **Clear browsing history** on a new tab), and what you allowed or blocked for each site (`browser-site-permissions.json`) — under the local work-fold application-data directory, apart from Chrome and from every work-folder. A site gets the camera, microphone, location, notifications, or similar access only after you allow it. Its cookies are encrypted with the operating system's keychain. Files it downloads go to the Downloads folder. Nothing is imported from Chrome or another browser ([built-in browser](docs/built-in-browser.md)).
 - Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; a bounded record of each app notification outcome (time, work-folder, app, installation, revision, the reviewed category id and title, and whether it was shown, held back, or unavailable — never where a click would open the app), keeping each installation's newest 1,000 and 20,000 overall for at most 90 days; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
 - Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, and the corresponding production or separately identified smoke-app directory on macOS.
@@ -109,6 +110,11 @@ native tool results. Pi's machine-local sessions can retain those results;
 the compact portable Chat trail and memory-only developer inspector are
 separate projections. Created documents and chosen page renders remain normal
 files where the script writes them until deliberately removed.
+
+The built-in browser's pages are ordinary web traffic to the sites the person or
+a Worker opens; an address-bar search goes to Google. A Worker can read and use
+every browser tab, including pages signed in to the person's accounts, and what
+it reads or captures from a page reaches the selected model as a tool result.
 
 Web sends search terms to DuckDuckGo by default, or Brave when that connection
 is selected by saved setup, and fetches explicitly requested URLs. The included

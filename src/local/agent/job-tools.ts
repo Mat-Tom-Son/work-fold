@@ -80,12 +80,18 @@ function jobHeader(job: WorkFoldJobRecord, now: Date): string {
 export function describeJobForModel(job: WorkFoldJobRecord, output: JobOutputRead | null, now: Date, notes: string[] = []): string {
   const lines = [jobHeader(job, now)];
   if (isWorkFoldJobTerminalState(job.state)) lines.push(describeJobHistory(job.history));
+  else if (job.serving) lines.push(servingNote(job.serving));
   lines.push(...notes);
   if (output) {
     lines.push(describeJobOutputRead(output) + (output.totalLines ? ` Next offset: ${output.nextOffset}.` : ""));
     if (output.text) lines.push("", output.text);
   }
   return lines.join("\n");
+}
+
+/** A running server's address: the Worker can look at it in the built-in browser, and the person can click it in the reply. */
+function servingNote(address: string): string {
+  return `It is serving ${address}. Look at it with browser_open when that tool is available, and write the address in your reply: the person can click it to open it as a browser tab.`;
 }
 
 function describeWait(outcome: WorkFoldJobWaitOutcome | null, seconds: number): string[] {
@@ -200,7 +206,7 @@ export function createBackgroundJobTools(input: BackgroundJobToolsInput): ToolDe
       if (value.job === undefined || value.job === null || value.job === "") {
         const { here, elsewhere } = input.host.list({ taskId });
         const lines = here.length
-          ? ["Background jobs in this Chat:", ...here.map((job) => `- ${job.jobId} "${job.name}" — ${describeJobState(job, now)}`)]
+          ? ["Background jobs in this Chat:", ...here.map((job) => `- ${job.jobId} "${job.name}" — ${describeJobState(job, now)}${job.serving && !isWorkFoldJobTerminalState(job.state) ? `; serving ${job.serving}` : ""}`)]
           : ["No background jobs in this Chat."];
         if (elsewhere.length) lines.push("Running elsewhere in this folder:", ...elsewhere.map((job) => `- ${job.jobId} "${job.name}" — ${describeJobState(job, now)}`));
         return { content: [{ type: "text" as const, text: lines.join("\n") }], details: { jobs: here.length } };
