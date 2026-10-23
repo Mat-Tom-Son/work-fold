@@ -244,13 +244,21 @@ async function run() {
     // The address of a hovered link shows at the page's bottom-left, above the page.
     const bubble = new BrowserStatusBubble();
     bubble.show(window, placement.bounds, "example.com/a <b>link</b>");
-    await until(() => window.contentView.children.length === 2, "the link bubble joins the window");
-    assert.deepEqual(window.contentView.children[1].getBounds(), { x: 100, y: 556, width: 185, height: 24 });
+    await until(() => window.contentView.children.length === 2 && window.contentView.children[1].getVisible(), "the link bubble joins the window");
+    const bubbleView = window.contentView.children[1];
+    assert.deepEqual(bubbleView.getBounds(), { x: 100, y: 556, width: 185, height: 24 });
+    assert.equal(await bubbleView.webContents.executeJavaScript("document.getElementById('text').textContent"), "example.com/a <b>link</b>", "the address is text, never markup");
     bubble.show(window, placement.bounds, "example.com/a <b>link</b>", { x: 120, y: 570 });
-    await until(() => window.contentView.children[1]?.getBounds().x === 615, "a pointer in the corner moves the bubble right");
-    bubble.hide();
-    assert.equal(window.contentView.children.length, 1, "the bubble leaves with the pointer");
+    await until(() => bubbleView.getBounds().x === 615, "a pointer in the corner moves the bubble right");
+    bubble.hideSoon();
+    assert.equal(bubbleView.getVisible(), true, "moving between links keeps the bubble");
+    bubble.show(window, placement.bounds, "example.com/next");
+    await until(() => bubbleView.getBounds().x === 100, "the next link reuses the bubble");
+    bubble.hideSoon();
+    await until(() => !bubbleView.getVisible(), "the bubble leaves with the pointer");
+    assert.equal(window.contentView.children.length, 2, "it stays in the window, ready for the next link");
     bubble.close();
+    assert.equal(window.contentView.children.length, 1);
     browser.detachWindow(window);
     assert.equal(window.contentView.children.length, 0, "a closing window gives its pages back");
     assert.equal((await host.read({ tab: restoredId, mode: "text" })).text.includes("Second page"), true, "the page outlives its window");
@@ -317,6 +325,16 @@ async function run() {
     assert.equal((await host.evaluate({ tab: popupTab.tab, script: `String(window.open("${base}/") !== null)` })).result, "true", "an allowed site opens pop-ups");
     await until(async () => (await tabCount()) === beforePopup + 3, "the allowed pop-up opens");
     browser.command(popupTab.tab, { type: "forget-permission", kind: "popups" });
+    await until(() => !popupState().sitePermissions.some((item) => item.kind === "popups"), "Ask again forgets the allowance");
+
+    // One press opens one pop-up, as in Chrome.
+    await host.evaluate({ tab: popupTab.tab, script: `document.body.insertAdjacentHTML("beforeend", '<button onclick="window.first = window.open(\\'/\\') !== null; window.second = window.open(\\'/\\') !== null">Two pop-ups</button>'); true` });
+    const twoButton = /button "Two pop-ups"[^\n]*\[ref=(e\d+)\]/.exec((await host.read({ tab: popupTab.tab, mode: "structure" })).text)?.[1];
+    assert.ok(twoButton);
+    await host.click({ tab: popupTab.tab, ref: twoButton });
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: "String(window.first) + ':' + String(window.second)" })).result, "true:false");
+    await until(() => popupState()?.blockedPopup, "the second pop-up is blocked");
+    browser.command(popupTab.tab, { type: "dismiss-blocked-popup" });
 
     // Mute and zoom show on the tab.
     browser.command(popupTab.tab, { type: "mute", muted: true });

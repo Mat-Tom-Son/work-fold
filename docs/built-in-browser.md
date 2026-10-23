@@ -39,7 +39,10 @@ they open appear in the same strip.
   site's information: the connection in words and what the site was allowed
   or blocked. A zoom level other than 100% shows at the end of the address
   bar; clicking it resets the zoom.
-- Hovering a link shows its address at the page's bottom-left, as in Chrome. The address bar takes a full
+- Hovering a link shows its address at the page's bottom-left, as in Chrome,
+  or at the bottom-right when the pointer is in that corner. The bubble stays
+  in the window between links, so moving across a page of links only changes
+  its text. The address bar takes a full
   address, a bare host (`example.com`, opened over https), this computer's
   servers (`localhost:3000`, `127.0.0.1:5173`, over http), an absolute file
   path, or words to search for with Google.
@@ -59,15 +62,17 @@ they open appear in the same strip.
   ] go back and forward, Cmd/Ctrl+=, - and 0 zoom the page, Cmd/Ctrl+P prints,
   and Cmd/Ctrl+Shift+T reopens a closed tab. The app's own tab keys keep
   working.
-- Right-clicking offers opening a link in a new tab or in the default browser,
+- Right-clicking offers opening a link in a new tab or in your web browser,
   copying links and images, spelling suggestions and **Add to Dictionary** on
   a misspelled word, the usual editing actions, Back, Forward, Reload, Print…,
-  Save as PDF…, and Inspect.
+  Save as PDF…, and Inspect. On macOS the suggestions come from the system
+  spell checker when Electron has none, which it often does there
+  (electron/electron#24455).
 - **Print…** uses the system print dialog. **Save as PDF…** asks where to save
   (the Downloads folder, named after the page, by default) and then offers
   **Show in Finder** like a download.
 - A site opens a new tab or window only within five seconds of a press in the
-  page, by the person or a Worker. Otherwise a bar above the page says **Pop-up
+  page, by the person or a Worker, and one press opens one, as in Chrome. Otherwise a bar above the page says **Pop-up
   blocked** with the address it wanted, **Always allow on this site**, **Open
   it**, and a close button. The allowance is remembered and listed with the
   site's other decisions.

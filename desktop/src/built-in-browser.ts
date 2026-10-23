@@ -41,6 +41,7 @@ import {
 
 import { BrowserHistoryStore, type BrowserHistoryEntry } from "./browser-history.js";
 import { BrowserStatusBubble } from "./browser-status-bubble.js";
+import { macSpellingGuesses } from "./mac-spelling.js";
 import { BrowserSitePermissionStore } from "./browser-site-permissions.js";
 import { parseBrowserKeys, type BrowserKeyPress } from "../../src/shared/browser-keys.js";
 import { backendNodeIdForRef, findInSnapshot, formatAccessibilitySnapshot, type AccessibilityNode } from "../../src/shared/browser-snapshot.js";
@@ -502,7 +503,7 @@ export class BuiltInBrowser {
     contents.on("will-attach-webview", (event) => event.preventDefault());
     contents.on("will-navigate", (event) => this.#guardNavigation(event, event.url));
     contents.on("will-redirect", (event) => this.#guardNavigation(event, event.url));
-    contents.on("context-menu", (_event, params) => this.#contextMenu(page, params));
+    contents.on("context-menu", (_event, params) => { void this.#contextMenu(page, params); });
     contents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown") return;
       if (this.#handleKey(page, input)) event.preventDefault();
@@ -540,13 +541,16 @@ export class BuiltInBrowser {
     // A site opens a tab or pop-up only right after a press, unless the person allowed it pop-ups.
     const origin = siteOrigin(opener.view.webContents.getURL());
     const pressed = Date.now() - opener.lastInputAt <= popupGestureMs;
-    if (!pressed && !(origin && this.#sitePermissions.get(origin, "popups") === "allow")) {
+    const allowed = Boolean(origin && this.#sitePermissions.get(origin, "popups") === "allow");
+    if (!pressed && !allowed) {
       if (details.url && isBrowserUrl(details.url)) {
         opener.blockedPopup = { url: details.url };
         this.#emit(opener);
       }
       return { action: "deny" };
     }
+    // One press opens one tab or pop-up, as in Chrome; a second one needs another press.
+    if (!allowed) opener.lastInputAt = 0;
     // A sized pop-up, such as "Sign in with…", keeps its own small window and
     // its link back to the page that opened it, which sign-in flows rely on.
     if (details.disposition === "new-window") {
@@ -887,7 +891,7 @@ export class BuiltInBrowser {
   #hover(page: BrowserPage, url: string): void {
     const window = page.attachedTo;
     if (!url || !window || window.isDestroyed() || page.closed) {
-      this.#bubble.hide();
+      this.#bubble.hideSoon();
       return;
     }
     const content = window.getContentBounds();
@@ -929,13 +933,18 @@ export class BuiltInBrowser {
 
   // ── Context menu and keys ─────────────────────────────────────────────────
 
-  #contextMenu(page: BrowserPage, params: ContextMenuParams): void {
+  async #contextMenu(page: BrowserPage, params: ContextMenuParams): Promise<void> {
     const contents = page.view.webContents;
+    // macOS often leaves Electron's suggestions empty; ask the system spell checker, as Chrome's menu does.
+    const suggestions = params.misspelledWord && !params.dictionarySuggestions.length
+      ? await macSpellingGuesses(params.misspelledWord)
+      : params.dictionarySuggestions.slice(0, 5);
+    if (contents.isDestroyed() || page.closed) return;
     const template: MenuItemConstructorOptions[] = [];
     if (params.linkURL && isBrowserUrl(params.linkURL)) {
       template.push(
         { label: "Open Link in New Tab", click: () => { this.#openTab(params.linkURL, false, "person"); } },
-        { label: "Open Link in Default Browser", click: () => { void this.#options.openExternal(params.linkURL).catch(() => undefined); } },
+        { label: "Open Link in Your Web Browser", click: () => { void this.#options.openExternal(params.linkURL).catch(() => undefined); } },
         { label: "Copy Link Address", click: () => clipboard.writeText(params.linkURL) },
         { type: "separator" },
       );
@@ -951,8 +960,8 @@ export class BuiltInBrowser {
     if (params.misspelledWord) {
       const word = params.misspelledWord;
       template.push(
-        ...params.dictionarySuggestions.slice(0, 5).map((suggestion) => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })),
-        ...(params.dictionarySuggestions.length ? [] : [{ label: "No Guesses Found", enabled: false }]),
+        ...suggestions.map((suggestion) => ({ label: suggestion, click: () => contents.replaceMisspelling(suggestion) })),
+        ...(suggestions.length ? [] : [{ label: "No Guesses Found", enabled: false }]),
         { label: "Add to Dictionary", click: () => { this.session.addWordToSpellCheckerDictionary(word); } },
         { type: "separator" },
       );

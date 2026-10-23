@@ -10,6 +10,7 @@ import { parseBrowserKey, parseBrowserKeys } from "../src/shared/browser-keys.js
 import { backendNodeIdForRef, findInSnapshot, formatAccessibilitySnapshot, type AccessibilityNode } from "../src/shared/browser-snapshot.js";
 import { BrowserHistoryStore, historyUrl } from "../desktop/src/browser-history.js";
 import { BrowserSitePermissionStore, isSiteOrigin } from "../desktop/src/browser-site-permissions.js";
+import { macSpellingGuesses } from "../desktop/src/mac-spelling.js";
 import { describeJobForModel } from "../src/local/agent/job-tools.js";
 import { localServerAddress } from "../src/local/jobs/job-output.js";
 import type { WorkFoldJobRecord } from "../src/local/jobs/job-records.js";
@@ -201,6 +202,13 @@ test("the address bar says whether a connection is secure, and the link bubble k
   assert.equal(long.length, 60);
   assert.match(long, /^example\.com\/a+…a+\/end\.html$/);
   assert.equal(browserPermissionPhrase(["popups"]), "open pop-ups");
+});
+
+test("a misspelled word gets macOS's own guesses when Electron has none", { skip: process.platform !== "darwin" }, async () => {
+  assert.ok((await macSpellingGuesses("speling")).includes("spelling"));
+  assert.deepEqual(await macSpellingGuesses("-speling"), [], "a word that would read as an option is not passed on");
+  assert.deepEqual(await macSpellingGuesses(""), []);
+  assert.ok((await macSpellingGuesses("sentense", 2)).length <= 2);
 });
 
 test("browser tabs reopen, take a right-click menu, and show which Worker is using them", async () => {
