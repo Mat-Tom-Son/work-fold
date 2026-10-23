@@ -21521,11 +21521,18 @@ to {
   color: var(--ui-text-muted);
   font-size: 18px;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
 .browser-tab-button:hover:not(:disabled) {
   background: var(--ui-surface-hover);
   color: var(--ui-text);
+}
+
+/* A press answers at once, like the send button's. */
+.browser-tab-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-text) 12%, transparent);
+  transform: scale(0.92);
 }
 
 .browser-tab-button:focus-visible {
