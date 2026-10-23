@@ -129,9 +129,10 @@ has no browser and no browser tools.
   two Chats using the same page never type into each other's fields. A script
   run does not take a turn; it sends no input and may wait on the page.
 - The tools follow [Receipts, not gates](receipts-not-gates.md): an action runs
-  when called. Stop before an action means none of its input reaches the
-  page; Stop also interrupts a wait or a load, but an effect a page already
-  received is not undone.
+  when called. Stop before or during an action sends no further input (a
+  button already pressed is still released, so the page is never left
+  mid-click); Stop also interrupts a wait or a load, but an effect a page
+  already received is not undone.
 
 ## Boundaries
 

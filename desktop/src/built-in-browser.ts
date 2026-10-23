@@ -933,7 +933,10 @@ export class BuiltInBrowser {
           return await this.#observeAction(page, signal, async () => {
             await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
             for (let count = 1; count <= (double ? 2 : 1); count += 1) {
+              // Stop during the move, or between two clicks, presses nothing more.
+              signal?.throwIfAborted();
               await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: count });
+              // A pressed button is always released, even after Stop, so the page is never left mid-click.
               await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: count });
             }
           });

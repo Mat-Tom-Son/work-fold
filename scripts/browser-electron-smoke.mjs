@@ -26,9 +26,21 @@ const pages = {
 <div style="height: 2400px"></div><p>Bottom of the page</p>
 <script>console.log("smoke console"); setTimeout(() => { const late = document.createElement("p"); late.textContent = "Arrived late"; document.body.append(late); }, 600);</script>`,
   "/two": "<!doctype html><title>Two</title><h1>Second page</h1>",
+  // The first mouse move tells the server, which stops the click in progress before the button is pressed.
+  "/stop-click": `<!doctype html><title>Stop</title><button id="count" onclick="window.clicks = (window.clicks || 0) + 1">Count</button>
+<script>document.addEventListener("mousemove", () => { const request = new XMLHttpRequest(); request.open("GET", "/moved", false); request.send(); }, { once: true });</script>`,
 };
 
+/** The Stop a test arms; the page's first mouse move fires it. */
+let stopOnMove = null;
+
 const server = createServer((request, response) => {
+  if (request.url === "/moved") {
+    stopOnMove?.abort(new Error("Stopped by person"));
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   // Two downloads with one name that are still arriving at the same time.
   if (request.url?.startsWith("/slow.txt")) {
     response.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=\"same.txt\"" });
@@ -114,6 +126,18 @@ async function run() {
     await assert.rejects(host.click({ tab: tab.tab, ref: send, signal: stopped.signal }));
     await assert.rejects(host.type({ tab: tab.tab, ref: name, text: "never", signal: stopped.signal }));
     assert.equal((await host.evaluate({ tab: tab.tab, script: "document.getElementById('out').textContent + '|' + document.getElementById('name').value" })).result, "waiting|Grace");
+
+    // Stop that arrives while the pointer moves to the button presses nothing.
+    const stopTab = await host.open({ url: `${base}/stop-click`, owner: "chat-a" });
+    const count = /button "Count"[^\n]*\[ref=(e\d+)\]/.exec((await host.read({ tab: stopTab.tab, mode: "structure" })).text)?.[1];
+    assert.ok(count);
+    const duringMove = new AbortController();
+    stopOnMove = duringMove;
+    await assert.rejects(host.click({ tab: stopTab.tab, ref: count, signal: duringMove.signal }), /Stopped by person/);
+    assert.equal(duringMove.signal.aborted, true, "Stop came during the click");
+    assert.equal((await host.evaluate({ tab: stopTab.tab, script: "String(window.clicks || 0)" })).result, "0");
+    stopOnMove = null;
+    await host.close({ tab: stopTab.tab, owner: "chat-a" });
 
     // Two Chats typing into one page at once each reach their own field.
     const city = ref(/textbox "City"[^\n]*\[ref=(e\d+)\]/);
