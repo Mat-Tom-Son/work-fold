@@ -21563,10 +21563,17 @@ to {
   background: var(--ui-surface-subtle);
 }
 
-.browser-tab-address-box:has(input:focus) {
-  border-color: var(--ui-accent);
+/* The focus ring goes around the whole pill, site button and zoom included, not just the text. */
+.browser-tab-address-box:has(input:focus),
+:root[data-theme] .app-shell .browser-tab-address-box:has(input:focus) {
   background: var(--ui-surface);
-  box-shadow: 0 0 0 3px var(--ui-accent-soft);
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: 2px;
+}
+
+.browser-tab-address input:focus-visible,
+:root[data-theme] .app-shell .browser-tab-address input:focus-visible {
+  outline: 0;
 }
 
 .browser-tab-address {
