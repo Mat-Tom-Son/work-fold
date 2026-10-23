@@ -7,20 +7,20 @@ export function KeyboardShortcutsPane() {
   const macOS = isMacOS();
   const shortcutGroups: ShortcutGroup[] = [
     {
-      title: "Open surfaces",
+      title: "Tabs",
       rows: [
         { keys: [modifier, "T"], action: "Open a new Chat tab in the current work-folder." },
-        { keys: ["Ctrl", "Tab"], action: "Move to the next surface tab." },
-        { keys: ["Ctrl", "Shift", "Tab"], action: "Move to the previous surface tab." },
-        { keys: [modifier, "1–9"], action: "Jump to a surface tab by position; 9 is the last tab." },
-        { keys: macOS ? [modifier, "W"] : ["Ctrl", "W"], action: "Close the active surface tab." },
+        { keys: ["Ctrl", "Tab"], action: "Move to the next tab." },
+        { keys: ["Ctrl", "Shift", "Tab"], action: "Move to the previous tab." },
+        { keys: [modifier, "1–9"], action: "Jump to a tab by position; 9 is the last tab." },
+        { keys: macOS ? [modifier, "W"] : ["Ctrl", "W"], action: "Close the active tab." },
         ...(macOS ? [{ keys: [modifier, "Shift", "W"], action: "Close the window." }] : []),
-        { keys: ["Arrow left"], action: "Move to the previous surface tab when focus is on the tab list." },
-        { keys: ["Arrow right"], action: "Move to the next surface tab when focus is on the tab list." },
+        { keys: ["Arrow left"], action: "Move to the previous tab when focus is on the tab list." },
+        { keys: ["Arrow right"], action: "Move to the next tab when focus is on the tab list." },
         { keys: ["Alt", "Shift", "Arrow left"], action: "Move the focused tab one position left; grouped tabs stay in their work-folder." },
         { keys: ["Alt", "Shift", "Arrow right"], action: "Move the focused tab one position right; grouped tabs stay in their work-folder." },
-        { keys: ["Home"], action: "Move to the first surface tab." },
-        { keys: ["End"], action: "Move to the last surface tab." },
+        { keys: ["Home"], action: "Move to the first tab." },
+        { keys: ["End"], action: "Move to the last tab." },
       ],
     },
     {
@@ -59,7 +59,7 @@ export function KeyboardShortcutsPane() {
       title: "Help",
       rows: [
         { keys: [modifier, "K"], action: "Command palette." },
-        { keys: [modifier, "/"], action: "Open keyboard shortcuts." },
+        { keys: [modifier, "/"], action: "Open Shortcut Keys." },
       ],
     },
   ];
@@ -68,7 +68,7 @@ export function KeyboardShortcutsPane() {
       title: "Desktop File menu",
       rows: [
         { keys: [modifier, "N"], action: "Create a new work-folder." },
-        { keys: [modifier, "O"], action: "Add an existing folder." },
+        { keys: [modifier, "O"], action: "Use an existing folder." },
         { keys: [modifier, "Shift", "N"], action: "Start a new Chat in the current work-folder." },
         { keys: [modifier, "R"], action: "Refresh the current work-folder." },
         { keys: [modifier, ","], action: "Open Settings." },
@@ -79,7 +79,7 @@ export function KeyboardShortcutsPane() {
 
   return (
     <section className="keyboard-shortcuts-pane">
-      <h2>Keyboard Shortcuts</h2>
+      <h2>Shortcut Keys</h2>
         <div className="keyboard-shortcuts-grid">
           {shortcutGroups.map((group) => (
             <section className="keyboard-shortcuts-group" key={group.title}>

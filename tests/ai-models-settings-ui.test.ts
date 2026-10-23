@@ -487,6 +487,21 @@ test("scope round trips preserve model and instruction drafts, omit credentials 
   assert.equal(ui.dom.container.querySelector<HTMLSelectElement>('select[aria-label="Provider"]')?.value, "openrouter");
 });
 
+test("closing and reopening Settings keeps unsaved instructions when the host keeps drafts", async (t) => {
+  const ui = await setup(t);
+  const drafts = new Map();
+  const own = () => ui.requests.filter((item) => !/scope=agent/.test(item.path));
+  await ui.render(workFolder("a"), "work-folder", false, { drafts });
+  await ui.finish(own()[0]!, modelResponse());
+  await ui.type("textarea", "Half-written instructions");
+  await ui.dom.render(null);
+  await ui.render(workFolder("a"), "work-folder", false, { drafts });
+  await ui.finish(own().at(-1)!, modelResponse());
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")?.value, "Half-written instructions");
+  assert.equal(ui.button("Save Instructions").disabled, false);
+  assert.equal(ui.requests.some((item) => item.path.endsWith("/instructions")), false, "keeping a draft never saves it");
+});
+
 test("closing and reopening Settings waits for an accepted write before loading saved values", async (t) => {
   const ui = await setup(t);
   await ui.render(workFolder("a"));

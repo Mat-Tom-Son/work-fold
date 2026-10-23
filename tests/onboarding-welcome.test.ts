@@ -91,7 +91,7 @@ test("first run says what work-fold is, connects AI, then picks the first folder
   await dom.act(() => button("Continue")!.click());
   assert.equal(document.querySelector("h1")?.textContent, "Pick a folder to start with");
   assert.match(document.body.textContent!, /Step 3 of 3/);
-  await dom.act(() => button(/^Add existing folder/)!.click());
+  await dom.act(() => button(/^Use existing folder/)!.click());
   await dom.act(() => button(/^Create new work-folder/)!.click());
   assert.deepEqual(chosen, ["open", "create"]);
 });

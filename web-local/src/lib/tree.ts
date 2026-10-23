@@ -222,6 +222,20 @@ export function isInsideFolder(path: string, folderPath: string | null): boolean
   if (folderPath === "") return true;
   return path !== folderPath && path.startsWith(`${folderPath}/`);
 }
+/** Folders the tree shows open, even beneath a closed parent: loaded and not collapsed. */
+export function collectOpenFolderPaths(entries: TreeEntry[], collapsedPaths: ReadonlySet<string>): Set<string> {
+  const open = new Set<string>();
+  const visit = (items: TreeEntry[]) => {
+    for (const entry of items) {
+      if (entry.kind !== "folder") continue;
+      if (!treeEntryNeedsLazyChildren(entry) && !collapsedPaths.has(entry.path)) open.add(entry.path);
+      if (entry.children?.length) visit(entry.children);
+    }
+  };
+  visit(entries);
+  return open;
+}
+
 export function collectFolderPaths(entries: TreeEntry[]): string[] {
   const paths: string[] = [];
   for (const entry of entries) {

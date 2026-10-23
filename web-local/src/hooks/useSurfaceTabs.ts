@@ -25,6 +25,7 @@ export function useSurfaceTabs({
   const initialStateRef = useRef<SurfaceTabsState | null>(null);
   const skipNextPersistRef = useRef(!fixtureMode);
   const recentSurfaceTabIdsByWorkFolderRef = useRef<Map<string, string>>(new Map());
+  const recentChatSurfaceTabIdsByWorkFolderRef = useRef<Map<string, string>>(new Map());
   const previousActiveSurfaceTabIdRef = useRef<string | null | undefined>(undefined);
   const previousWorkFolderCountRef = useRef(workFolders.length);
   const previousWorkFolderIdRef = useRef(workFolder.id);
@@ -39,6 +40,7 @@ export function useSurfaceTabs({
 
   useEffect(() => {
     recordActiveSurfaceTabWorkFolderRecency(recentSurfaceTabIdsByWorkFolderRef.current, surfaceTabs, activeSurfaceTabId);
+    recordActiveSurfaceTabWorkFolderRecency(recentChatSurfaceTabIdsByWorkFolderRef.current, surfaceTabs.filter((tab) => tab.kind === "chat"), activeSurfaceTabId);
   }, [activeSurfaceTabId, surfaceTabs]);
 
   useEffect(() => {
@@ -284,6 +286,12 @@ export function useSurfaceTabs({
     setSurfaceTabs((current) => closeFileSurfaceTabs(current, workFolderId, deletedPaths));
   }
 
+  /** The Chat tab a person was last in for this work-folder, while it is still open. */
+  function recentChatSurfaceTab(workFolderId: string): WorkFolderSurfaceTab | null {
+    const recentTabId = recentChatSurfaceTabIdsByWorkFolderRef.current.get(workFolderId);
+    return surfaceTabs.find((tab) => tab.id === recentTabId && tab.kind === "chat" && tab.workFolderId === workFolderId) ?? null;
+  }
+
   function updateSurfaceTabConversationTitle(workFolderId: string, conversation: ConversationSummary): void {
     setSurfaceTabs((current) => current.map((tab) => (
       tab.kind === "chat" && tab.workFolderId === workFolderId && tab.conversationId === conversation.id
@@ -315,6 +323,7 @@ export function useSurfaceTabs({
     removeWorkFolderSurfaceTabs,
     retargetFileSurfaceTabsForMove,
     closeFileSurfaceTabsForDeletedPaths,
+    recentChatSurfaceTab,
     updateSurfaceTabConversationTitle,
   };
 }
