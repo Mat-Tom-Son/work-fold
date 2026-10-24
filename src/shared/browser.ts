@@ -12,7 +12,7 @@ export const browserPartition = "persist:work-fold-browser";
 export const browserSearchUrl = "https://www.google.com/search?q=";
 
 /** What a site can ask the person for; each is allowed or blocked per site. */
-export const browserSitePermissions = ["camera", "microphone", "location", "notifications", "midi", "clipboard", "windows", "idle"] as const;
+export const browserSitePermissions = ["camera", "microphone", "location", "notifications", "midi", "clipboard", "windows", "idle", "popups"] as const;
 export type BrowserSitePermission = (typeof browserSitePermissions)[number];
 export type BrowserSiteDecision = "allow" | "block";
 
@@ -32,6 +32,7 @@ const permissionPhrases: Record<BrowserSitePermission, string> = {
   clipboard: "see what you copy",
   windows: "manage windows on all your displays",
   idle: "know when you're using this computer",
+  popups: "open pop-ups",
 };
 
 /** "use your camera and microphone", "know your location and show notifications". */
@@ -54,6 +55,7 @@ export const browserPermissionNames: Record<BrowserSitePermission, string> = {
   clipboard: "Clipboard",
   windows: "Window management",
   idle: "Activity",
+  popups: "Pop-ups",
 };
 
 /** What the renderer shows for one browser tab; the desktop host sends it on every change. */
@@ -76,6 +78,35 @@ export interface BrowserPageState {
   permissionRequest: BrowserPermissionRequest | null;
   /** Why something the person allowed still cannot work, such as macOS keeping the camera off. */
   notice: { kind: BrowserSitePermission; text: string } | null;
+  muted: boolean;
+  /** The page's zoom, 100 when it has none. */
+  zoomPercent: number;
+  /** The last tab or pop-up the site tried to open without a click, held for the person. */
+  blockedPopup: { url: string; origin: string | null } | null;
+  /** The Chat whose Worker is using this page right now; `owner` is `<work-folder id>/<conversation id>`. */
+  worker: { owner: string } | null;
+}
+
+/** What a browser tab's right-click menu asks the tab strip to do; the page's own actions run in the desktop host. */
+export type BrowserTabMenuCommand = "duplicate" | "close" | "close-others" | "reopen-closed";
+
+/**
+ * How a page reached the browser, for the site button: over https; on this
+ * computer (a local server or a file); over plain http elsewhere, which is
+ * not secure; or neither (a blank page).
+ */
+export function browserConnection(url: string): "secure" | "local" | "insecure" | "none" {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "none";
+  }
+  if (parsed.protocol === "file:") return "local";
+  if (parsed.protocol === "https:") return "secure";
+  if (parsed.protocol !== "http:") return "none";
+  const host = parsed.hostname.toLowerCase();
+  return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]" ? "local" : "insecure";
 }
 
 export interface BrowserViewBounds {
@@ -160,21 +191,29 @@ export interface BrowserActionResult {
  * What the agent tools need from the desktop host. Present only in the
  * desktop app; a development API without Electron gives Workers no browser.
  */
+/**
+ * Who is calling: `owner` names the Chat (`<work-folder id>/<conversation id>`).
+ * Tabs it opens are its own to close, and the person sees which Chat's
+ * Worker is using a page.
+ */
+export interface BrowserCaller {
+  owner?: string;
+}
+
 export interface BrowserToolHost {
   tabs(): Promise<BrowserTabSummary[]>;
-  /** `owner` names the Chat opening the tab; only that Chat may close it. */
-  open(input: { url: string; show?: boolean; signal?: AbortSignal; owner?: string }): Promise<BrowserTabSummary>;
-  navigate(input: { tab: string; to: string; signal?: AbortSignal }): Promise<BrowserTabSummary>;
-  read(input: { tab: string; mode: "structure" | "text"; find?: string; offset?: number }): Promise<{ tab: BrowserTabSummary; text: string; total: number; nextOffset: number | null }>;
-  screenshot(input: { tab: string; ref?: string; fullPage?: boolean }): Promise<{ tab: BrowserTabSummary; data: string; mimeType: string; width: number; height: number }>;
-  click(input: { tab: string; ref?: string; x?: number; y?: number; double?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  type(input: { tab: string; ref?: string; text: string; clear?: boolean; submit?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  press(input: { tab: string; keys: string; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  scroll(input: { tab: string; ref?: string; direction?: "up" | "down" | "left" | "right"; amount?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  evaluate(input: { tab: string; script: string; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; result: string }>;
-  wait(input: { tab: string; text?: string; seconds: number; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; found: boolean | null }>;
-  console(input: { tab: string }): Promise<{ tab: BrowserTabSummary; entries: string[] }>;
-  close(input: { tab: string; owner?: string }): Promise<void>;
+  open(input: BrowserCaller & { url: string; show?: boolean; signal?: AbortSignal }): Promise<BrowserTabSummary>;
+  navigate(input: BrowserCaller & { tab: string; to: string; signal?: AbortSignal }): Promise<BrowserTabSummary>;
+  read(input: BrowserCaller & { tab: string; mode: "structure" | "text"; find?: string; offset?: number }): Promise<{ tab: BrowserTabSummary; text: string; total: number; nextOffset: number | null }>;
+  screenshot(input: BrowserCaller & { tab: string; ref?: string; fullPage?: boolean }): Promise<{ tab: BrowserTabSummary; data: string; mimeType: string; width: number; height: number }>;
+  click(input: BrowserCaller & { tab: string; ref?: string; x?: number; y?: number; double?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  type(input: BrowserCaller & { tab: string; ref?: string; text: string; clear?: boolean; submit?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  press(input: BrowserCaller & { tab: string; keys: string; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  scroll(input: BrowserCaller & { tab: string; ref?: string; direction?: "up" | "down" | "left" | "right"; amount?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  evaluate(input: BrowserCaller & { tab: string; script: string; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; result: string }>;
+  wait(input: BrowserCaller & { tab: string; text?: string; seconds: number; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; found: boolean | null }>;
+  console(input: BrowserCaller & { tab: string }): Promise<{ tab: BrowserTabSummary; entries: string[] }>;
+  close(input: BrowserCaller & { tab: string }): Promise<void>;
 }
 
 const pageIdPattern = /^[a-z0-9]{6,32}$/;
@@ -271,4 +310,12 @@ export function siteOrigin(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** A long address keeps its start and end: "example.com/very/…/page.html". */
+export function bubbleText(url: string, limit = 120): string {
+  const text = url.replace(/^https?:\/\//, "");
+  if (text.length <= limit) return text;
+  const head = Math.ceil((limit - 1) * 0.6);
+  return `${text.slice(0, head)}…${text.slice(text.length - (limit - 1 - head))}`;
 }

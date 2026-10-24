@@ -1,6 +1,6 @@
 import { useWorkFolderIdentityResolver } from "../../lib/work-folder-appearance-context";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular, Speaker216Regular } from "@fluentui/react-icons";
+import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular, Speaker216Regular, SpeakerMute16Regular } from "@fluentui/react-icons";
 
 import { chatDisplayTitle } from "../../lib/format";
 import { chatActivityKey } from "../../lib/chat-lifecycle";
@@ -25,8 +25,11 @@ export interface BrowserTabLook {
   favicon: string | null;
   loading: boolean;
   audible: boolean;
+  muted: boolean;
   /** The site is waiting for the person to allow or block something. */
   asking: boolean;
+  /** A Worker is using the page right now. */
+  worker: boolean;
 }
 
 /** Size tier for the tab strip: compact above three tabs, dense above six. */
@@ -64,6 +67,7 @@ export function WorkFolderSurfaceTabBar({
   isSharedFile,
   browserTabLooks = {},
   onNewBrowserTab,
+  onBrowserTabMenu,
 }: {
   tabs: WorkFolderSurfaceTab[];
   workFolders: WorkFolderSummary[];
@@ -83,6 +87,8 @@ export function WorkFolderSurfaceTabBar({
   browserTabLooks?: Record<string, BrowserTabLook>;
   /** Present in the desktop app, where the built-in browser runs. */
   onNewBrowserTab?: () => void;
+  /** A browser tab's right-click menu. */
+  onBrowserTabMenu?: (tab: BrowserSurfaceTab, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const workFolderIdentityFor = useWorkFolderIdentityResolver();
   const [workFolderMenuOpen, setWorkFolderMenuOpen] = useState(false);
@@ -298,13 +304,19 @@ export function WorkFolderSurfaceTabBar({
   /** A browser tab carries its page's icon instead of a work-folder's, and selecting it keeps the open work-folder. */
   function renderBrowserTab(tab: BrowserSurfaceTab, grouped: boolean) {
     const look = browserTabLooks[tab.pageId];
-    const state = look?.asking ? ", waiting for you" : look?.loading ? ", loading" : look?.audible ? ", playing sound" : "";
+    const state = [
+      look?.asking ? "waiting for you" : "",
+      look?.worker ? "a Worker is using it" : "",
+      look?.loading ? "loading" : "",
+      look?.muted ? "muted" : look?.audible ? "playing sound" : "",
+    ].filter(Boolean).map((part) => `, ${part}`).join("");
     return (
       <span
         className={["surface-tab", "surface-tab-browser", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : ""].filter(Boolean).join(" ")}
         key={tab.id}
         data-tab-id={tab.id}
         title={tab.url ? `${tab.title}\n${tab.url}` : tab.title}
+        onContextMenu={(event) => onBrowserTabMenu?.(tab, event)}
         onAuxClick={(event) => {
           if (event.button !== 1) return;
           event.preventDefault();
@@ -328,7 +340,9 @@ export function WorkFolderSurfaceTabBar({
           <span className="surface-tab-copy">
             <span className="surface-tab-title">{tab.title}</span>
           </span>
-          {look?.audible ? <Speaker216Regular className="surface-tab-audio-marker" aria-hidden="true" /> : null}
+          {look?.muted ? <SpeakerMute16Regular className="surface-tab-audio-marker" aria-hidden="true" /> : look?.audible ? <Speaker216Regular className="surface-tab-audio-marker" aria-hidden="true" /> : null}
+          {/* The same pulse a running Worker shows on a Chat tab. */}
+          {look?.worker ? <span className="surface-tab-chat-status running" aria-hidden="true" /> : null}
           {look?.asking ? <span className="surface-tab-browser-asking" aria-hidden="true" /> : null}
         </button>
         <button

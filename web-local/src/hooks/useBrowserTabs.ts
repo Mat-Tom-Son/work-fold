@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import type { BrowserPageState } from "../../../src/shared/browser";
 import type { BrowserTabLook } from "../components/chat/WorkFolderSurfaceTabBar";
 import { openBrowserTabEvent, type OpenBrowserTabRequest } from "../lib/browser-links";
 import { isMacOS } from "../lib/platform";
-import type { WorkFolderSurfaceTab } from "../types";
+import type { BrowserSurfaceTab, WorkFolderSurfaceTab } from "../types";
 import { showToast } from "../ui/feedback";
 import type { useSurfaceTabs } from "./useSurfaceTabs";
 
@@ -20,6 +20,10 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const browserTabs = tabs.surfaceTabs.filter((tab): tab is Extract<WorkFolderSurfaceTab, { kind: "browser" }> => tab.kind === "browser");
+  /** Closed browser tabs, newest last, for Reopen Closed Tab; kept for this window's life. */
+  const closedRef = useRef<Array<{ url: string; title: string }>>([]);
+  const knownRef = useRef(new Map<string, { url: string; title: string }>());
+  for (const tab of browserTabs) knownRef.current.set(tab.pageId, { url: tab.url, title: tab.title });
   const viewingPageId = browserTabs.find((tab) => tab.id === tabs.activeSurfaceTabId)?.pageId ?? null;
 
   useEffect(() => {
@@ -97,6 +101,11 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
     if (!desktop || !previous) return;
     const closed = [...previous].filter((pageId) => !current.has(pageId));
     if (!closed.length) return;
+    for (const pageId of closed) {
+      const known = knownRef.current.get(pageId);
+      knownRef.current.delete(pageId);
+      if (known?.url) closedRef.current = [...closedRef.current, known].slice(-25);
+    }
     for (const pageId of closed) void desktop.close(pageId).catch(() => undefined);
     setPages((existing) => {
       const next = { ...existing };
@@ -117,8 +126,32 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
 
   const looks = useMemo(() => Object.fromEntries(Object.values(pages).map((page): [string, BrowserTabLook] => [
     page.pageId,
-    { favicon: page.favicon, loading: page.loading, audible: page.audible, asking: Boolean(page.permissionRequest) },
+    { favicon: page.favicon, loading: page.loading, audible: page.audible, muted: page.muted, asking: Boolean(page.permissionRequest), worker: Boolean(page.worker) },
   ])), [pages]);
+
+  /** Opens the most recently closed browser tab again. False when there is none. */
+  function reopenClosed(): boolean {
+    const last = closedRef.current.at(-1);
+    if (!last) return false;
+    closedRef.current = closedRef.current.slice(0, -1);
+    tabsRef.current.openBrowserSurfaceTab({ url: last.url, title: last.title });
+    return true;
+  }
+
+  /** A browser tab's right-click menu: the desktop runs the page's actions and hands back the tab strip's. */
+  function openTabMenu(tab: BrowserSurfaceTab, event: ReactMouseEvent<HTMLElement>): void {
+    if (!desktop) return;
+    event.preventDefault();
+    const others = tabsRef.current.surfaceTabs.filter((item) => item.kind === "browser" && item.id !== tab.id);
+    void desktop.popupTabMenu(tab.pageId, pages[tab.pageId]?.url || tab.url, { x: event.clientX, y: event.clientY }, { canReopen: closedRef.current.length > 0, hasOthers: others.length > 0 })
+      .then((command) => {
+        if (command === "duplicate") tabsRef.current.openBrowserSurfaceTab({ url: pages[tab.pageId]?.url || tab.url, title: tab.title });
+        else if (command === "close") tabsRef.current.closeSurfaceTab(tab.id);
+        else if (command === "close-others") for (const other of others) tabsRef.current.closeSurfaceTab(other.id);
+        else if (command === "reopen-closed") reopenClosed();
+      })
+      .catch(() => undefined);
+  }
 
   return {
     available: Boolean(desktop),
@@ -126,5 +159,7 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
     looks,
     newTab: () => tabs.openBrowserSurfaceTab(),
     reload: (pageId: string) => { void desktop?.command(pageId, { type: "reload" }); },
+    reopenClosed,
+    openTabMenu,
   };
 }

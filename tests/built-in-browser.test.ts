@@ -10,18 +10,21 @@ import { parseBrowserKey, parseBrowserKeys } from "../src/shared/browser-keys.js
 import { backendNodeIdForRef, findInSnapshot, formatAccessibilitySnapshot, type AccessibilityNode } from "../src/shared/browser-snapshot.js";
 import { BrowserHistoryStore, historyUrl } from "../desktop/src/browser-history.js";
 import { BrowserSitePermissionStore, isSiteOrigin } from "../desktop/src/browser-site-permissions.js";
+import { macSpellingGuesses } from "../desktop/src/mac-spelling.js";
 import { describeJobForModel } from "../src/local/agent/job-tools.js";
 import { localServerAddress } from "../src/local/jobs/job-output.js";
 import type { WorkFoldJobRecord } from "../src/local/jobs/job-records.js";
 import { localServerHref } from "../web-local/src/lib/browser-links.js";
 import {
   browserAddressFor,
+  browserConnection,
   browserDisplayAddress,
   browserPermissionPhrase,
   browserUserAgent,
   isBrowserPageId,
   isBrowserUrl,
   permissionKinds,
+  bubbleText,
   siteOrigin,
   type BrowserTabSummary,
   type BrowserToolHost,
@@ -169,6 +172,11 @@ test("the browser tools name tabs plainly and follow the tab a Chat used", async
   assert.deepEqual(calls.at(-1), { method: "open", input: { url: "docs.example", owner: "wf-1/chat-1" } });
   await owned.get("browser_close")!.execute("call", { tab: "work01" } as never, undefined as never, undefined as never, undefined as never);
   assert.deepEqual(calls.at(-1), { method: "close", input: { tab: "work01", owner: "wf-1/chat-1" } });
+  // Every call names the Chat, so the tab can show which Worker is using it.
+  await owned.get("browser_read")!.execute("call", { tab: "mine01" } as never, undefined as never, undefined as never, undefined as never);
+  assert.deepEqual(calls.at(-1), { method: "read", input: { tab: "mine01", mode: "structure", owner: "wf-1/chat-1" } });
+  await owned.get("browser_click")!.execute("call", { tab: "mine01", ref: "e3" } as never, undefined as never, undefined as never, undefined as never);
+  assert.deepEqual(calls.at(-1), { method: "click", input: { tab: "mine01", ref: "e3", owner: "wf-1/chat-1" } });
 
   const empty = createBrowserTools({ host: { ...host, tabs: async () => [] } });
   await assert.rejects(
@@ -177,6 +185,42 @@ test("the browser tools name tabs plainly and follow the tab a Chat used", async
   );
   assert.equal(describeBrowserTab({ tab: "t1abcd", url: "", title: "", loading: true, viewing: false, error: "net::ERR_NAME_NOT_RESOLVED (https://nowhere.invalid/)" }),
     "Tab t1abcd · blank (still loading)\nThe page did not load: net::ERR_NAME_NOT_RESOLVED (https://nowhere.invalid/)");
+});
+
+test("the address bar says whether a connection is secure, and the link bubble keeps both ends of a long address", () => {
+  assert.equal(browserConnection("https://example.com/"), "secure");
+  assert.equal(browserConnection("http://example.com/"), "insecure");
+  assert.equal(browserConnection("http://localhost:5173/"), "local");
+  assert.equal(browserConnection("http://app.localhost/"), "local");
+  assert.equal(browserConnection("http://127.0.0.1:8080/"), "local");
+  assert.equal(browserConnection("http://[::1]:3000/"), "local");
+  assert.equal(browserConnection("file:///Users/me/index.html"), "local");
+  assert.equal(browserConnection("about:blank"), "none");
+  assert.equal(browserConnection(""), "none");
+  assert.equal(bubbleText("https://example.com/docs"), "example.com/docs");
+  const long = bubbleText(`https://example.com/${"a".repeat(200)}/end.html`, 60);
+  assert.equal(long.length, 60);
+  assert.match(long, /^example\.com\/a+…a+\/end\.html$/);
+  assert.equal(browserPermissionPhrase(["popups"]), "open pop-ups");
+});
+
+test("a misspelled word gets macOS's own guesses when Electron has none", { skip: process.platform !== "darwin" }, async () => {
+  assert.ok((await macSpellingGuesses("speling")).includes("spelling"));
+  assert.deepEqual(await macSpellingGuesses("-speling"), [], "a word that would read as an option is not passed on");
+  assert.deepEqual(await macSpellingGuesses(""), []);
+  assert.ok((await macSpellingGuesses("sentense", 2)).length <= 2);
+});
+
+test("browser tabs reopen, take a right-click menu, and show which Worker is using them", async () => {
+  const hook = await readFile("web-local/src/hooks/useBrowserTabs.ts", "utf8");
+  assert.match(hook, /closedRef\.current = \[\.\.\.closedRef\.current, known\]\.slice\(-25\)/, "closed tabs are remembered for Reopen Closed Tab");
+  const app = await readFile("web-local/src/App.tsx", "utf8");
+  assert.match(app, /event\.shiftKey && event\.key\.toLocaleLowerCase\(\) === "t"[\s\S]*browser\.reopenClosed\(\)/, "Cmd/Ctrl+Shift+T reopens the last closed browser tab");
+  assert.match(app, /onBrowserTabMenu=\{browser\.openTabMenu\}/);
+  assert.match(app, /conversations\/\$\{conversationId\}\/abort/, "the Worker chip's Stop ends that Chat's turn");
+  const host = await readFile("desktop/src/built-in-browser.ts", "utf8");
+  assert.match(host, /key === "t" && input\.shift\) return this\.#forwardKey/, "a focused page hands Cmd/Ctrl+Shift+T to the tab strip");
+  assert.match(host, /replaceMisspelling/, "the page's right-click menu offers spelling suggestions");
 });
 
 test("browser tabs survive a restart and belong to no work-folder", () => {

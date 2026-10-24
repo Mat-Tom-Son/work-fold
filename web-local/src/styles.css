@@ -21493,6 +21493,10 @@ to {
   background: var(--ui-surface);
 }
 
+.browser-tab-toolbar {
+  container-type: inline-size;
+}
+
 .browser-tab-toolbar,
 .browser-tab-find {
   flex: 0 0 auto;
@@ -21517,11 +21521,18 @@ to {
   color: var(--ui-text-muted);
   font-size: 18px;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
 .browser-tab-button:hover:not(:disabled) {
   background: var(--ui-surface-hover);
   color: var(--ui-text);
+}
+
+/* A press answers at once, like the send button's. */
+.browser-tab-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-text) 12%, transparent);
+  transform: scale(0.92);
 }
 
 .browser-tab-button:focus-visible {
@@ -21541,12 +21552,115 @@ to {
   margin: 0 6px;
 }
 
+/* The address pill holds the site button, the address, and the zoom level. */
+.browser-tab-address-box {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--ui-border);
+  border-radius: 15px;
+  background: var(--ui-surface-subtle);
+}
+
+/* The focus ring goes around the whole pill, site button and zoom included, not just the text. */
+.browser-tab-address-box:has(input:focus),
+:root[data-theme] .app-shell .browser-tab-address-box:has(input:focus) {
+  background: var(--ui-surface);
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: 2px;
+}
+
+.browser-tab-address input:focus-visible,
+:root[data-theme] .app-shell .browser-tab-address input:focus-visible {
+  outline: 0;
+}
+
 .browser-tab-address {
   display: block;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.browser-tab-address input,
+.browser-tab-address input {
+  width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.browser-tab-address input:focus {
+  outline: none;
+}
+
+.browser-tab-site-settings + .browser-tab-address input {
+  padding-left: 6px;
+}
+
+.browser-tab-site-button {
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-left: 3px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-tab-site-button svg {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.browser-tab-site-button:hover,
+.browser-tab-site-button[aria-expanded="true"] {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.browser-tab-site-button:focus-visible,
+.browser-tab-zoom:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.browser-tab-site-button.insecure {
+  color: var(--ui-danger);
+}
+
+.browser-tab-zoom {
+  flex: 0 0 auto;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--ui-surface-hover);
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.browser-tab-zoom:hover {
+  color: var(--ui-text);
+}
+
 .browser-tab-find input {
   width: 100%;
   height: 30px;
@@ -21559,7 +21673,6 @@ to {
   font-size: 13px;
 }
 
-.browser-tab-address input:focus,
 .browser-tab-find input:focus {
   outline: none;
   border-color: var(--ui-accent);
@@ -21710,6 +21823,73 @@ to {
 .browser-tab-site-menu-decision {
   color: var(--ui-text-muted);
   font-size: 12px;
+}
+
+.browser-tab-site-menu-connection {
+  padding: 0 6px 8px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.browser-tab-site-menu-connection.insecure {
+  color: var(--ui-danger);
+}
+
+.browser-tab-popup {
+  background: var(--ui-surface-subtle);
+}
+
+.browser-tab-popup-url {
+  color: var(--ui-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* A Worker is using the page: a running dot and a Stop button, in the toolbar so the page keeps its size. */
+.browser-tab-worker {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.browser-tab-worker-label {
+  min-width: 0;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: 13px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* A narrow tab keeps the address readable: the dot and the warning icon stay, their words go. */
+@container (max-width: 560px) {
+  .browser-tab-worker-text,
+  .browser-tab-site-label {
+    display: none;
+  }
+
+  .browser-tab-worker-label {
+    padding: 0 9px;
+  }
+}
+
+.browser-tab-worker-label:disabled {
+  cursor: default;
+}
+
+.browser-tab-worker-label:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 1px;
 }
 
 /* A link to a server on this computer opens as a browser tab; it looks like any other link. */

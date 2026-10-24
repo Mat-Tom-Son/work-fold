@@ -25,8 +25,24 @@ they open appear in the same strip.
   close, Ctrl+Tab and Cmd/Ctrl+1–9 to move between them, and they come back
   after a restart with their address and title. A restored page loads when
   its tab is next shown or a Worker uses it.
+- Cmd/Ctrl+Shift+T, or **Reopen closed tab** in the command palette, brings
+  back the browser tab closed last; the window remembers the last 25.
+- Right-clicking a browser tab offers Reload, Duplicate, Copy Address, Open in
+  Your Web Browser, Mute Tab, Print…, Save as PDF…, Close Tab, Close Other
+  Browser Tabs, and Reopen Closed Tab. A muted tab shows a crossed-out
+  speaker; one playing sound shows a speaker.
 - The toolbar has Back, Forward, Reload (Stop while loading), the address bar,
-  Find in page, and Open in your web browser. The address bar takes a full
+  Find in page, and Open in your web browser.
+- The site button at the start of the address bar shows the connection: a
+  lock for https, an information mark for this computer's servers and files,
+  and a warning with **Not secure** for plain http anywhere else. It opens the
+  site's information: the connection in words and what the site was allowed
+  or blocked. A zoom level other than 100% shows at the end of the address
+  bar; clicking it resets the zoom.
+- Hovering a link shows its address at the page's bottom-left, as in Chrome,
+  or at the bottom-right when the pointer is in that corner. The bubble stays
+  in the window between links, so moving across a page of links only changes
+  its text. The address bar takes a full
   address, a bare host (`example.com`, opened over https), this computer's
   servers (`localhost:3000`, `127.0.0.1:5173`, over http), an absolute file
   path, or words to search for with Google.
@@ -43,11 +59,26 @@ they open appear in the same strip.
   still open in the default browser.
 - With the page focused: Cmd/Ctrl+L goes to the address bar, Cmd/Ctrl+F finds
   in the page, Cmd/Ctrl+R reloads (with Shift, past the cache), Cmd/Ctrl+[ and
-  ] go back and forward, and Cmd/Ctrl+=, - and 0 zoom the page. The app's own
-  tab keys keep working.
-- Right-clicking offers opening a link in a new tab or in the default browser,
-  copying links and images, the usual editing actions, Back, Forward, Reload,
-  and Inspect.
+  ] go back and forward, Cmd/Ctrl+=, - and 0 zoom the page, Cmd/Ctrl+P prints,
+  and Cmd/Ctrl+Shift+T reopens a closed tab. The app's own tab keys keep
+  working.
+- Right-clicking offers opening a link in a new tab or in your web browser,
+  copying links and images, spelling suggestions and **Add to Dictionary** on
+  a misspelled word, the usual editing actions, Back, Forward, Reload, Print…,
+  Save as PDF…, and Inspect. On macOS the suggestions come from the system
+  spell checker when Electron has none, which it often does there
+  (electron/electron#24455).
+- **Print…** uses the system print dialog. **Save as PDF…** asks where to save
+  (the Downloads folder, named after the page, by default) and then offers
+  **Show in Finder** like a download.
+- A site opens a new tab or window only within five seconds of a press in the
+  page, by the person or a Worker, and one press opens one, as in Chrome. Otherwise a bar above the page says **Pop-up
+  blocked** with the address it wanted, **Always allow on this site**, **Open
+  it**, and a close button. The allowance is remembered and listed with the
+  site's other decisions. These rules also apply inside a sign-in pop-up
+  window. Its blocked requests appear in the original tab, naming the site
+  that asked; **Always allow** grants that site, even when it differs from
+  the original tab's site.
 - A sized pop-up such as "Sign in with…" opens as its own small window that
   keeps its link to the page that opened it, which sign-in flows rely on.
   Mail links open the mail app; other non-web addresses are refused.
@@ -58,9 +89,9 @@ they open appear in the same strip.
   devices, the clipboard, window placement, or activity status asks first: a
   bar above the page says what it wants, with **Block** and **Allow**. A tab
   waiting for an answer carries a dot, and a Worker using that tab is told the
-  person has to answer. The answer is remembered for that site; **Site
-  settings** in the toolbar lists what a site was allowed or blocked, and **Ask
-  again** forgets one. A pop-up window asks with a dialog instead.
+  person has to answer. The answer is remembered for that site; the site
+  button in the address bar lists what a site was allowed or blocked, and
+  **Ask again** forgets one. A pop-up window asks with a dialog instead.
 - On macOS the camera and microphone also need the system's own permission:
   the first time a site is allowed one, macOS asks once for work-fold, and if
   it is turned off the bar says so with **Open System Settings**. Screen
@@ -121,6 +152,13 @@ has no browser and no browser tools.
   says why.
 - A tool without a `tab` uses the tab this Chat last used, else the one the
   person is looking at.
+- While a Worker uses a page, its tab carries a pulsing dot and the toolbar a
+  **Worker** chip naming the Chat. The chip opens that Chat, and its Stop
+  button stops the Chat's turn. For the work-fold agent the chip opens its
+  panel. The mark stays three seconds after the last step, so a run of steps
+  reads as one. When several Chats use a page, the chip names the most recent
+  Chat with an active step; finishing its step restores another active Chat
+  rather than leaving Stop pointed at a Chat that finished.
 - Workers act through the Chrome DevTools Protocol on Electron's own debugger:
   mouse and keyboard input arrive as real presses. While a Worker uses a page
   in the background, focus emulation lets it render and take input as if it
@@ -129,9 +167,10 @@ has no browser and no browser tools.
   two Chats using the same page never type into each other's fields. A script
   run does not take a turn; it sends no input and may wait on the page.
 - The tools follow [Receipts, not gates](receipts-not-gates.md): an action runs
-  when called. Stop before an action means none of its input reaches the
-  page; Stop also interrupts a wait or a load, but an effect a page already
-  received is not undone.
+  when called. Stop before or during an action sends no further input (a
+  button already pressed is still released, so the page is never left
+  mid-click); Stop also interrupts a wait or a load, but an effect a page
+  already received is not undone.
 
 ## Boundaries
 
@@ -155,11 +194,15 @@ with no window, structure and refs, trusted clicks and typing, lists, waiting,
 scripts, the console, three kinds of screenshot, scrolling, new-tab links,
 downloads, back and forward, restored tabs, window placement and occlusion,
 a site's question answered, remembered, forgotten, blocked, and dropped on
-navigation, history suggestions and clearing, and quitting without closing
-tabs. `tests/built-in-browser.test.ts`
-covers the address bar, the user agent, the structure format, keys, the tools,
-site decisions, history, local server addresses and links, and saving browser
-tabs. A complete Google sign-in needs a real
+navigation, history suggestions and clearing, a pop-up blocked and then
+opened or allowed (including requests from a sign-in window on another site),
+mute and zoom, the Worker mark and overlapping Chats, the link bubble, and
+quitting without closing tabs. `tests/built-in-browser.test.ts`
+covers the address bar, the connection labels, the link bubble's text, the
+user agent, the structure format, keys, the tools, site decisions, history,
+local server addresses and links, reopening tabs, and saving browser tabs.
+The tab and page right-click menus, printing, and saving a PDF use native
+dialogs and are checked by hand. A complete Google sign-in needs a real
 account and is checked by hand: the 2026-10-23 check reached the account page.
 
 ## Next

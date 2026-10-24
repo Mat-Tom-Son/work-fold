@@ -160,6 +160,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     states: () => ipcRenderer.invoke("work-fold:browser:states"),
     showDownload: (path: string) => ipcRenderer.invoke("work-fold:browser:show-download", path),
     suggest: (text: string) => ipcRenderer.invoke("work-fold:browser:suggest", text),
+    popupTabMenu: (pageId: string, url: string, point: { x: number; y: number }, options: { canReopen: boolean; hasOthers: boolean }) => ipcRenderer.invoke("work-fold:browser:popup-tab-menu", pageId, url, point, options),
     recent: () => ipcRenderer.invoke("work-fold:browser:recent"),
     clearHistory: () => ipcRenderer.invoke("work-fold:browser:clear-history"),
     onState: (callback: (state: unknown) => void) => {

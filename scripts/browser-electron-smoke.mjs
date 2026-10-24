@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow } from "electron";
 
+import { BrowserStatusBubble } from "../dist/desktop/desktop/src/browser-status-bubble.js";
 import { BuiltInBrowser } from "../dist/desktop/desktop/src/built-in-browser.js";
 
 const pages = {
@@ -26,9 +27,21 @@ const pages = {
 <div style="height: 2400px"></div><p>Bottom of the page</p>
 <script>console.log("smoke console"); setTimeout(() => { const late = document.createElement("p"); late.textContent = "Arrived late"; document.body.append(late); }, 600);</script>`,
   "/two": "<!doctype html><title>Two</title><h1>Second page</h1>",
+  // The first mouse move tells the server, which stops the click in progress before the button is pressed.
+  "/stop-click": `<!doctype html><title>Stop</title><button id="count" onclick="window.clicks = (window.clicks || 0) + 1">Count</button>
+<script>document.addEventListener("mousemove", () => { const request = new XMLHttpRequest(); request.open("GET", "/moved", false); request.send(); }, { once: true });</script>`,
 };
 
+/** The Stop a test arms; the page's first mouse move fires it. */
+let stopOnMove = null;
+
 const server = createServer((request, response) => {
+  if (request.url === "/moved") {
+    stopOnMove?.abort(new Error("Stopped by person"));
+    response.writeHead(204);
+    response.end();
+    return;
+  }
   // Two downloads with one name that are still arriving at the same time.
   if (request.url?.startsWith("/slow.txt")) {
     response.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=\"same.txt\"" });
@@ -114,6 +127,18 @@ async function run() {
     await assert.rejects(host.click({ tab: tab.tab, ref: send, signal: stopped.signal }));
     await assert.rejects(host.type({ tab: tab.tab, ref: name, text: "never", signal: stopped.signal }));
     assert.equal((await host.evaluate({ tab: tab.tab, script: "document.getElementById('out').textContent + '|' + document.getElementById('name').value" })).result, "waiting|Grace");
+
+    // Stop that arrives while the pointer moves to the button presses nothing.
+    const stopTab = await host.open({ url: `${base}/stop-click`, owner: "chat-a" });
+    const count = /button "Count"[^\n]*\[ref=(e\d+)\]/.exec((await host.read({ tab: stopTab.tab, mode: "structure" })).text)?.[1];
+    assert.ok(count);
+    const duringMove = new AbortController();
+    stopOnMove = duringMove;
+    await assert.rejects(host.click({ tab: stopTab.tab, ref: count, signal: duringMove.signal }), /Stopped by person/);
+    assert.equal(duringMove.signal.aborted, true, "Stop came during the click");
+    assert.equal((await host.evaluate({ tab: stopTab.tab, script: "String(window.clicks || 0)" })).result, "0");
+    stopOnMove = null;
+    await host.close({ tab: stopTab.tab, owner: "chat-a" });
 
     // Two Chats typing into one page at once each reach their own field.
     const city = ref(/textbox "City"[^\n]*\[ref=(e\d+)\]/);
@@ -216,6 +241,24 @@ async function run() {
     assert.equal(window.contentView.children.length, 0, "an older layout never wins");
     browser.layout({ ...placement, sequence: 3, active: true });
     assert.equal(window.contentView.children.length, 1);
+    // The address of a hovered link shows at the page's bottom-left, above the page.
+    const bubble = new BrowserStatusBubble();
+    bubble.show(window, placement.bounds, "example.com/a <b>link</b>");
+    await until(() => window.contentView.children.length === 2 && window.contentView.children[1].getVisible(), "the link bubble joins the window");
+    const bubbleView = window.contentView.children[1];
+    assert.deepEqual(bubbleView.getBounds(), { x: 100, y: 556, width: 185, height: 24 });
+    assert.equal(await bubbleView.webContents.executeJavaScript("document.getElementById('text').textContent"), "example.com/a <b>link</b>", "the address is text, never markup");
+    bubble.show(window, placement.bounds, "example.com/a <b>link</b>", { x: 120, y: 570 });
+    await until(() => bubbleView.getBounds().x === 615, "a pointer in the corner moves the bubble right");
+    bubble.hideSoon();
+    assert.equal(bubbleView.getVisible(), true, "moving between links keeps the bubble");
+    bubble.show(window, placement.bounds, "example.com/next");
+    await until(() => bubbleView.getBounds().x === 100, "the next link reuses the bubble");
+    bubble.hideSoon();
+    await until(() => !bubbleView.getVisible(), "the bubble leaves with the pointer");
+    assert.equal(window.contentView.children.length, 2, "it stays in the window, ready for the next link");
+    bubble.close();
+    assert.equal(window.contentView.children.length, 1);
     browser.detachWindow(window);
     assert.equal(window.contentView.children.length, 0, "a closing window gives its pages back");
     assert.equal((await host.read({ tab: restoredId, mode: "text" })).text.includes("Second page"), true, "the page outlives its window");
@@ -262,6 +305,122 @@ async function run() {
     assert.deepEqual(browser.recentHistory(), []);
     assert.deepEqual(JSON.parse(await readFile(join(downloads, "history.json"), "utf8")), { version: 1, entries: [] });
 
+    // A page that opens a pop-up on its own is stopped; the person can open it or allow the site.
+    const popupTab = await host.open({ url: `${base}/two`, owner: "chat-a" });
+    const popupState = () => browser.states().find((state) => state.pageId === popupTab.tab);
+    const tabCount = async () => (await host.tabs()).length;
+    const beforePopup = await tabCount();
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: `String(window.open("${base}/") === null)` })).result, "true");
+    await until(() => popupState()?.blockedPopup, "the blocked pop-up reaches the tab");
+    assert.equal(popupState().blockedPopup.url, `${base}/`);
+    assert.equal(await tabCount(), beforePopup, "nothing opened");
+    browser.command(popupTab.tab, { type: "open-blocked-popup" });
+    assert.equal(popupState().blockedPopup, null);
+    await until(async () => (await tabCount()) === beforePopup + 1, "Open it opens the pop-up as a tab");
+    await host.evaluate({ tab: popupTab.tab, script: `window.open("${base}/"); true` });
+    await until(() => popupState()?.blockedPopup, "a second pop-up is blocked too");
+    browser.command(popupTab.tab, { type: "allow-popups" });
+    await until(async () => (await tabCount()) === beforePopup + 2, "Always allow opens it");
+    await until(() => popupState().sitePermissions.some((item) => item.kind === "popups" && item.decision === "allow"), "the site keeps the allowance");
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: `String(window.open("${base}/") !== null)` })).result, "true", "an allowed site opens pop-ups");
+    await until(async () => (await tabCount()) === beforePopup + 3, "the allowed pop-up opens");
+    browser.command(popupTab.tab, { type: "forget-permission", kind: "popups" });
+    await until(() => !popupState().sitePermissions.some((item) => item.kind === "popups"), "Ask again forgets the allowance");
+
+    // One press opens one pop-up, as in Chrome.
+    await host.evaluate({ tab: popupTab.tab, script: `document.body.insertAdjacentHTML("beforeend", '<button onclick="window.first = window.open(\\'/\\') !== null; window.second = window.open(\\'/\\') !== null">Two pop-ups</button>'); true` });
+    const twoButton = /button "Two pop-ups"[^\n]*\[ref=(e\d+)\]/.exec((await host.read({ tab: popupTab.tab, mode: "structure" })).text)?.[1];
+    assert.ok(twoButton);
+    await host.click({ tab: popupTab.tab, ref: twoButton });
+    assert.equal((await host.evaluate({ tab: popupTab.tab, script: "String(window.first) + ':' + String(window.second)" })).result, "true:false");
+    await until(() => popupState()?.blockedPopup, "the second pop-up is blocked");
+    browser.command(popupTab.tab, { type: "dismiss-blocked-popup" });
+
+    // A sign-in window obeys the same popup policy, using its own site rather than the tab's.
+    const popupOrigin = base.replace("127.0.0.1", "localhost");
+    await host.evaluate({ tab: popupTab.tab, script: `(() => {
+      const button = document.createElement("button");
+      button.textContent = "Sign-in window";
+      button.onclick = () => window.open(${JSON.stringify(`${popupOrigin}/two`)}, "sign-in", "width=300,height=200");
+      document.body.append(button);
+      return true;
+    })()` });
+    const signInButton = /button "Sign-in window"[^\n]*\[ref=(e\d+)\]/.exec((await host.read({ tab: popupTab.tab, mode: "structure" })).text)?.[1];
+    assert.ok(signInButton);
+    await host.click({ tab: popupTab.tab, ref: signInButton });
+    const signInWindow = () => BrowserWindow.getAllWindows().find((candidate) => candidate !== window && candidate.webContents.getURL() === `${popupOrigin}/two`);
+    await until(signInWindow, "the sign-in window loads");
+    const popup = signInWindow();
+    popup.hide();
+    try {
+      assert.equal(await popup.webContents.executeJavaScript("navigator.userActivation.isActive"), false);
+      const beforeChildren = await tabCount();
+      const openTwo = `[window.open(${JSON.stringify(`${popupOrigin}/two`)}) !== null, window.open(${JSON.stringify(`${popupOrigin}/two`)}) !== null].join(":")`;
+      assert.equal(await popup.webContents.executeJavaScript(openTwo), "false:false", "a popup cannot open further tabs without a press");
+      assert.equal(await tabCount(), beforeChildren);
+      assert.deepEqual(popupState().blockedPopup, { url: `${popupOrigin}/two`, origin: popupOrigin });
+      browser.command(popupTab.tab, { type: "open-blocked-popup" });
+      assert.equal(await tabCount(), beforeChildren + 1, "Open it also handles a request from a popup window");
+      await popup.webContents.executeJavaScript(`window.open(${JSON.stringify(`${popupOrigin}/two`)}); true`);
+      assert.equal(popupState().blockedPopup.origin, popupOrigin);
+      browser.command(popupTab.tab, { type: "allow-popups" });
+      await until(async () => {
+        const decisions = JSON.parse(await readFile(join(downloads, "site-permissions.json"), "utf8"));
+        return decisions.sites[popupOrigin]?.popups === "allow";
+      }, "the allowance belongs to the popup's site");
+      assert.equal(popupState().sitePermissions.some((item) => item.kind === "popups"), false, "the original tab's site is not granted popups");
+      await popup.webContents.executeJavaScript(openTwo);
+      assert.equal(await tabCount(), beforeChildren + 4, "a popup's saved site allowance is honored");
+      await until(async () => (await host.tabs()).some((item) => item.url.startsWith(popupOrigin)), "a tab on the popup's site loads");
+      const popupSiteTab = (await host.tabs()).find((item) => item.url.startsWith(popupOrigin));
+      browser.command(popupSiteTab.tab, { type: "forget-permission", kind: "popups" });
+      await until(() => !browser.states().find((state) => state.pageId === popupSiteTab.tab).sitePermissions.some((item) => item.kind === "popups"), "the popup site's allowance can be forgotten");
+      const afterAllowed = await tabCount();
+      assert.equal(await popup.webContents.executeJavaScript(openTwo), "false:false", "forgetting the popup's allowance blocks it again");
+      assert.equal(await tabCount(), afterAllowed);
+      browser.command(popupTab.tab, { type: "dismiss-blocked-popup" });
+    } finally {
+      popup.destroy();
+    }
+
+    // Mute and zoom show on the tab.
+    browser.command(popupTab.tab, { type: "mute", muted: true });
+    assert.equal(popupState().muted, true);
+    browser.command(popupTab.tab, { type: "zoom-in" });
+    assert.equal(popupState().zoomPercent, 110);
+    browser.command(popupTab.tab, { type: "zoom-reset" });
+    assert.equal(popupState().zoomPercent, 100);
+
+    // A Worker's step marks the page with its Chat while it runs, and the mark fades after.
+    await until(() => !popupState().worker, "the opening step's mark fades", 6_000);
+    const waiting = host.wait({ tab: popupTab.tab, text: "never on this page", seconds: 1, owner: "chat-b" });
+    await until(() => popupState().worker?.owner === "chat-b", "the page shows which Chat is using it");
+    assert.equal((await waiting).found, false);
+    assert.deepEqual(popupState().worker, { owner: "chat-b" }, "the mark lingers briefly");
+    await until(() => !popupState().worker, "the mark fades", 6_000);
+    await host.read({ tab: popupTab.tab, mode: "text" });
+    assert.equal(popupState().worker, null, "a step with no Chat leaves no mark");
+
+    // Finishing one Chat's step restores a Chat still using the page, including overlapping steps from that Chat.
+    const firstA = host.evaluate({ tab: popupTab.tab, owner: "chat-a", script: "new Promise((resolve) => { window.finishFirstA = resolve; })" });
+    await until(() => popupState().worker?.owner === "chat-a", "Chat A starts using the page");
+    const secondA = host.evaluate({ tab: popupTab.tab, owner: "chat-a", script: "new Promise((resolve) => { window.finishSecondA = resolve; })" });
+    await until(async () => (await host.evaluate({ tab: popupTab.tab, script: "typeof window.finishSecondA" })).result === "function", "Chat A's second step starts");
+    const pendingB = host.evaluate({ tab: popupTab.tab, owner: "chat-b", script: "new Promise((resolve) => { window.finishB = resolve; })" });
+    await until(() => popupState().worker?.owner === "chat-b", "Chat B is shown while its step runs");
+    await until(async () => (await host.evaluate({ tab: popupTab.tab, script: "typeof window.finishB" })).result === "function", "Chat B's step is ready to finish");
+    await host.evaluate({ tab: popupTab.tab, script: "window.finishB('B done'); true" });
+    assert.equal((await pendingB).result, "B done");
+    assert.deepEqual(popupState().worker, { owner: "chat-a" }, "the chip returns to the Chat whose steps are still running");
+    await host.evaluate({ tab: popupTab.tab, script: "window.finishFirstA('first done'); true" });
+    await firstA;
+    await host.read({ tab: popupTab.tab, mode: "text", owner: "chat-b" });
+    assert.deepEqual(popupState().worker, { owner: "chat-a" }, "finishing one of a Chat's overlapping steps does not make it idle");
+    await host.evaluate({ tab: popupTab.tab, script: "window.finishSecondA('second done'); true" });
+    await secondA;
+    assert.deepEqual(popupState().worker, { owner: "chat-a" }, "the final active Chat lingers after all steps finish");
+    await until(() => !popupState().worker, "the restored Chat's marker fades", 6_000);
+
     // A blank tab gets its page from the first address typed.
     const typed = browser.navigate("typed01", `127.0.0.1:${server.address().port}/two`);
     assert.equal(typed.pageId, "typed01");
@@ -282,7 +441,7 @@ async function run() {
     browser.dispose();
     window?.destroy();
     server.close();
-    await rm(downloads, { recursive: true, force: true });
+    await rm(downloads, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     assert.equal(existsSync(downloads), false);
   }
 }
