@@ -86,7 +86,11 @@ the person allows them for that site, never by a Worker; USB, serial, HID, and
 Bluetooth devices are refused. Workers drive pages with the Chrome DevTools
 Protocol through Electron's in-process debugger, which needs no extension or
 port and exposes nothing outside the app. A page signed in to an account acts
-with that account's authority whether the person or a Worker uses it. See
+with that account's authority whether the person or a Worker uses it. A Worker
+can attach explicitly named local files to a site's file input through that
+debugger; the page receives those files, never a filesystem or desktop bridge.
+The tools teach agents to treat site content as untrusted and to use only
+task-authorized files and destinations. See
 [the built-in browser](docs/built-in-browser.md).
 
 Native resource enable/disable preserves Pi's filters and scopes, pins the

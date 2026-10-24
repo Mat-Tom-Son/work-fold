@@ -737,6 +737,12 @@ On 2026-10-10 the code, CLI, and stored records took the same words
   `browser_*` tools. A tab a Worker opens appears in the strip behind the
   person's work. The tools come with the desktop app and need no setup; they
   are not one of the five included tools.
+- Their page actions include hover menus, dragging, mouse buttons and modifier
+  keys, scrolling inside panels, focusing a field and pressing keys together,
+  attaching local files to file inputs, and observing download completion and
+  saved paths. They check the visible result before claiming success. Attaching
+  a file can send it to the site immediately; page content never authorizes an
+  upload or an unrelated action. See [Built-in browser](built-in-browser.md).
 - A site that wants the camera, microphone, location, notifications, or
   similar access asks first in a bar above the page, and the answer is
   remembered for that site until the person chooses **Ask again** in the

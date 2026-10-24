@@ -34,6 +34,12 @@ for a nested work-folder; see [the work-fold agent and CLI guide](docs/work-fold
 
 As a project grows, ask for a custom **app** in its sidebar, add **Checks** to review chosen files, or set up an **Automation** to run fixed steps on a schedule or after selected files change. Automations are deterministic app-run steps, not a second kind of Worker or an open-ended agent scheduler. These are optional; start with a work-folder and a conversation.
 
+The [built-in browser](docs/built-in-browser.md) shares its tabs with the
+work-fold agent and every Worker. They can read and use pages, inspect screenshots,
+hover and drag, work inside scrolling panels, attach local files to file inputs,
+and find completed downloads. Its sign-ins belong to work-fold's own profile,
+separate from Chrome.
+
 What a Worker or the work-fold agent does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. Sharing a page, an app's access, and anything running on a schedule can all be turned off afterwards.
 
 Use **Compare** in Version History or a selected work-folder restore point to read saved text beside the current file before restoring. Binary, oversized, uncaptured, and incomplete comparisons explain their limits. The authenticated CLI offers paged `history list`/`versions`, verified `history read --offset-bytes 0` ranges for large saved text, and streaming `search` with `--path` narrowing and `--cursor` continuation; see `work-fold help history` and `work-fold help search`.

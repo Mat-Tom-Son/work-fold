@@ -321,7 +321,7 @@ const commandTools = new Set(["bash"]);
 /** Built-in browser steps whose detail is a web address, shown without its scheme. */
 const addressTools = new Set(["browser_open", "browser_navigate"]);
 /** Clicks, typing, and the rest of a Worker's work inside a page read as one kind of step. */
-const browserActionTools = new Set(["browser_tabs", "browser_click", "browser_type", "browser_press", "browser_scroll", "browser_evaluate", "browser_wait", "browser_close"]);
+const browserActionTools = new Set(["browser_tabs", "browser_click", "browser_hover", "browser_drag", "browser_upload", "browser_downloads", "browser_type", "browser_press", "browser_scroll", "browser_evaluate", "browser_wait", "browser_close"]);
 
 function toolIcon(key: string): FluentIcon {
   switch (key) {

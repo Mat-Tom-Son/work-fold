@@ -13,8 +13,8 @@
  */
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { stat, writeFile } from "node:fs/promises";
+import { extname, isAbsolute, join } from "node:path";
 import {
   BrowserWindow,
   Menu,
@@ -62,6 +62,8 @@ import {
   type BrowserSitePermission,
   type BrowserActionResult,
   type BrowserDownload,
+  type BrowserDownloadRecord,
+  type BrowserTarget,
   type BrowserFindResult,
   type BrowserOpenTabCommand,
   type BrowserPageState,
@@ -164,6 +166,7 @@ export class BuiltInBrowser {
   readonly #pages = new Map<string, BrowserPage>();
   /** Files this browser downloaded during this run: the only paths it shows in the file manager. */
   readonly #downloads = new Set<string>();
+  readonly #downloadRecords = new Map<string, BrowserDownloadRecord>();
   /** Paths downloads are still writing to, so two downloads never share one. */
   readonly #pendingDownloads = new Set<string>();
   readonly #sitePermissions: BrowserSitePermissionStore;
@@ -786,14 +789,39 @@ export class BuiltInBrowser {
     });
     // Screen sharing goes through the macOS picker (macOS 15 and later), where the person chooses what to share.
     session.setDisplayMediaRequestHandler((_request, callback) => callback({}), { useSystemPicker: true });
-    session.on("will-download", (_event, item) => {
+    session.on("will-download", (_event, item, contents) => {
       const directory = this.#options.downloadsPath();
       const path = uniquePath(directory, safeFileName(item.getFilename()), this.#pendingDownloads);
       this.#pendingDownloads.add(path);
       item.setSavePath(path);
+      const page = contents && this.#pageForContentsId(contents.id);
+      const record: BrowserDownloadRecord | null = page ? {
+        id: randomBytes(8).toString("hex"), tab: page.pageId, url: item.getURL(),
+        filename: item.getFilename(), state: "progressing", receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(), path: null,
+      } : null;
+      if (record) {
+        this.#downloadRecords.set(record.id, record);
+        // Keep recent finished downloads; an active transfer is never forgotten.
+        for (const [id, entry] of this.#downloadRecords) {
+          if (this.#downloadRecords.size <= 200) break;
+          if (entry.state !== "progressing") this.#downloadRecords.delete(id);
+        }
+      }
+      item.on("updated", () => {
+        if (!record) return;
+        record.receivedBytes = item.getReceivedBytes();
+        record.totalBytes = item.getTotalBytes();
+      });
       item.once("done", (_doneEvent, state) => {
         this.#pendingDownloads.delete(path);
         if (state === "completed") this.#downloads.add(path);
+        if (record) {
+          record.state = state;
+          record.receivedBytes = item.getReceivedBytes();
+          record.totalBytes = item.getTotalBytes();
+          record.path = state === "completed" ? path : null;
+        }
         const download: BrowserDownload = { filename: item.getFilename(), path, state };
         this.#options.send(browserChannels.download, download);
       });
@@ -1159,22 +1187,95 @@ export class BuiltInBrowser {
         if (image.isEmpty() || !size.width || !size.height) throw new Error("The page could not be captured. Try again after it finishes loading.");
         return { tab: this.#summary(page), data: image.toJPEG(82).toString("base64"), mimeType: "image/jpeg", width: size.width, height: size.height };
       },
-      click: async ({ tab, ref, x, y, double, signal }) => {
+      click: async ({ tab, ref, x, y, double, button = "left", modifiers = [], signal }) => {
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          const point = ref ? await this.#elementCenter(page, ref) : pointFrom(x, y);
+          const bits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
+          const held = modifiers.reduce((value, key) => value | bits[key], 0);
+          return await this.#observeAction(page, signal, async () => {
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, modifiers: held });
+            for (let count = 1; count <= (double ? 2 : 1); count += 1) {
+              // Stop during the move, or between two clicks, presses nothing more.
+              signal?.throwIfAborted();
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button, modifiers: held, clickCount: count });
+              // A pressed button is always released, even after Stop, so the page is never left mid-click.
+              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button, modifiers: held, clickCount: count });
+            }
+          });
+        });
+      },
+      hover: async ({ tab, ref, x, y, signal }) => {
         const page = await this.#agentPage(tab, signal);
         return await this.#exclusive(page, signal, async () => {
           const cdp = await this.#debugger(page);
           const point = ref ? await this.#elementCenter(page, ref) : pointFrom(x, y);
           return await this.#observeAction(page, signal, async () => {
-            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
-            for (let count = 1; count <= (double ? 2 : 1); count += 1) {
-              // Stop during the move, or between two clicks, presses nothing more.
+            signal?.throwIfAborted();
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
+          }, false);
+        });
+      },
+      drag: async ({ tab, from, to, signal }) => {
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          const target = async (value: BrowserTarget) => value.ref ? this.#elementCenter(page, value.ref, false) : pointFrom(value.x, value.y);
+          const start = await target(from);
+          const end = await target(to);
+          const viewport = await this.#viewport(page);
+          for (const point of [start, end]) {
+            if (point.x >= viewport.width || point.y >= viewport.height) throw new Error("Both drag targets must be visible in the viewport. Scroll and read the page first.");
+          }
+          return await this.#observeAction(page, signal, () => this.#drag(cdp, start, end, signal));
+        });
+      },
+      upload: async ({ tab, ref, paths, signal }) => {
+        signal?.throwIfAborted();
+        if (paths.length > 100) throw new Error("Attach at most 100 files at once.");
+        for (const path of paths) {
+          signal?.throwIfAborted();
+          if (!isAbsolute(path)) throw new Error("File uploads need absolute paths.");
+          if (!(await stat(path)).isFile()) throw new Error(`The upload path is not a file: ${path}`);
+        }
+        const page = await this.#agentPage(tab, signal);
+        return await this.#exclusive(page, signal, async () => {
+          const cdp = await this.#debugger(page);
+          const backendNodeId = refNodeId(ref);
+          const described = await cdp.sendCommand("DOM.describeNode", { backendNodeId }).catch(() => { throw staleRef(ref); });
+          const attributes = described.node?.attributes as string[] | undefined;
+          const pairs = new Map<string, string>();
+          for (let index = 0; index < (attributes?.length ?? 0); index += 2) pairs.set(attributes![index]!, attributes![index + 1]!);
+          const attribute = (name: string) => pairs.get(name);
+          if (described.node?.nodeName !== "INPUT" || attribute("type")?.toLowerCase() !== "file") throw new Error("Use the ref of a file upload field from browser_read.");
+          if (attribute("disabled") !== undefined) throw new Error("That file upload field is disabled.");
+          if (attribute("webkitdirectory") !== undefined) throw new Error("Folder upload fields are not supported; choose a file upload field.");
+          if (paths.length > 1 && attribute("multiple") === undefined) throw new Error("That field accepts only one file.");
+          return await this.#observeAction(page, signal, async () => {
+            signal?.throwIfAborted();
+            if (paths.length) {
+              await cdp.sendCommand("DOM.setFileInputFiles", { backendNodeId, files: paths });
+            } else {
+              // Chromium can leave the previous FileList in place for an empty
+              // setFileInputFiles call. Emptying a file input's value is permitted.
+              const objectId = await this.#resolve(cdp, ref);
               signal?.throwIfAborted();
-              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: count });
-              // A pressed button is always released, even after Stop, so the page is never left mid-click.
-              await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: count });
+              await cdp.sendCommand("Runtime.callFunctionOn", { objectId, functionDeclaration: "function() { this.value = ''; this.dispatchEvent(new Event('input', { bubbles: true })); this.dispatchEvent(new Event('change', { bubbles: true })); }" });
             }
           });
         });
+      },
+      downloads: async ({ tab, seconds = 0, signal }) => {
+        const page = await this.#agentPage(tab, signal);
+        const deadline = Date.now() + Math.min(60, Math.max(0, seconds)) * 1_000;
+        const records = () => [...this.#downloadRecords.values()].filter((entry) => entry.tab === tab);
+        while (records().some((entry) => entry.state === "progressing") && Date.now() < deadline) {
+          signal?.throwIfAborted();
+          await delay(100);
+        }
+        signal?.throwIfAborted();
+        return { tab: this.#summary(page), downloads: records().slice(-50).reverse().map((entry) => ({ ...entry })) };
       },
       type: async ({ tab, ref, text, clear, submit, signal }) => {
         const page = await this.#agentPage(tab, signal);
@@ -1211,22 +1312,30 @@ export class BuiltInBrowser {
           });
         });
       },
-      press: async ({ tab, keys, signal }) => {
+      press: async ({ tab, ref, keys, signal }) => {
         const presses = parseBrowserKeys(keys);
         const page = await this.#agentPage(tab, signal);
         return await this.#exclusive(page, signal, async () => {
           const cdp = await this.#debugger(page);
-          return await this.#observeAction(page, signal, () => this.#press(cdp, presses, signal));
+          return await this.#observeAction(page, signal, async () => {
+            if (ref) {
+              signal?.throwIfAborted();
+              await cdp.sendCommand("DOM.focus", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); });
+            }
+            await this.#press(cdp, presses, signal);
+          });
         });
       },
-      scroll: async ({ tab, ref, direction, amount, signal }) => {
+      scroll: async ({ tab, ref, x, y, direction, amount, signal }) => {
         const page = await this.#agentPage(tab, signal);
         return await this.#exclusive(page, signal, async () => {
           const cdp = await this.#debugger(page);
-          if (ref) {
+          if (ref && !direction && amount === undefined) {
+            signal?.throwIfAborted();
             await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId: refNodeId(ref) }).catch(() => { throw staleRef(ref); });
           } else {
             const viewport = await this.#viewport(page);
+            const point = ref ? await this.#elementCenter(page, ref) : x !== undefined || y !== undefined ? pointFrom(x, y) : { x: Math.round(viewport.width / 2), y: Math.round(viewport.height / 2) };
             const screens = typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? amount : 1;
             const along = direction === "left" || direction === "right" ? viewport.width : viewport.height;
             const distance = Math.round(along * 0.8 * screens) * (direction === "up" || direction === "left" ? -1 : 1);
@@ -1234,8 +1343,7 @@ export class BuiltInBrowser {
             signal?.throwIfAborted();
             await cdp.sendCommand("Input.dispatchMouseEvent", {
               type: "mouseWheel",
-              x: Math.round(viewport.width / 2),
-              y: Math.round(viewport.height / 2),
+              ...point,
               deltaX: horizontal ? distance : 0,
               deltaY: horizontal ? 0 : distance,
             });
@@ -1245,8 +1353,8 @@ export class BuiltInBrowser {
           return { tab: this.#summary(page), navigated: false };
         });
       },
-      // A script sends no input, and it may wait on the page for as long as it
-      // likes, so it does not hold the page's turn the way typing does.
+      // A script may await a page event or navigation, so it cannot hold the input
+      // queue. Scripts can mutate the page; prefer the queued tools for input.
       evaluate: async ({ tab, script, signal }) => {
         const page = await this.#agentPage(tab, signal);
         const cdp = await this.#debugger(page);
@@ -1304,6 +1412,10 @@ export class BuiltInBrowser {
       read: marked(operations.read),
       screenshot: marked(operations.screenshot),
       click: marked(operations.click),
+      hover: marked(operations.hover),
+      drag: marked(operations.drag),
+      upload: marked(operations.upload),
+      downloads: marked(operations.downloads),
       type: marked(operations.type),
       press: marked(operations.press),
       scroll: marked(operations.scroll),
@@ -1419,13 +1531,13 @@ export class BuiltInBrowser {
   }
 
   /** Runs an input action and reports whether it led to a new page. */
-  async #observeAction(page: BrowserPage, signal: AbortSignal | undefined, action: () => Promise<void>): Promise<BrowserActionResult> {
+  async #observeAction(page: BrowserPage, signal: AbortSignal | undefined, action: () => Promise<void>, gesture = true): Promise<BrowserActionResult> {
     const contents = page.view.webContents;
     const before = { url: contents.getURL(), index: contents.navigationHistory.getActiveIndex() };
     // Stop before any input reaches the page; an action already sent is not taken back.
     signal?.throwIfAborted();
     // A Worker's click or key counts as a press, so a link it opens in a new tab is not blocked.
-    page.lastInputAt = Date.now();
+    if (gesture) page.lastInputAt = Date.now();
     await action();
     await delay(300);
     await this.#waitForLoad(page, signal, actionSettleMs);
@@ -1448,6 +1560,48 @@ export class BuiltInBrowser {
     }
   }
 
+  /** Real pointer drags, including Chromium's native HTML drag-and-drop path. */
+  async #drag(cdp: Debugger, start: { x: number; y: number }, end: { x: number; y: number }, signal?: AbortSignal): Promise<void> {
+    let data: Record<string, unknown> | null = null;
+    let pressed = false;
+    let dropped = false;
+    let point = start;
+    const intercept = (_event: Electron.Event, method: string, params: { data?: Record<string, unknown> }) => {
+      if (method === "Input.dragIntercepted" && params.data) data = params.data;
+    };
+    cdp.on("message", intercept);
+    try {
+      signal?.throwIfAborted();
+      await cdp.sendCommand("Input.setInterceptDrags", { enabled: true });
+      signal?.throwIfAborted();
+      await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", ...start });
+      signal?.throwIfAborted();
+      await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", ...start, button: "left", buttons: 1, clickCount: 1 });
+      pressed = true;
+      for (let step = 1; step <= 12; step += 1) {
+        signal?.throwIfAborted();
+        point = { x: start.x + (end.x - start.x) * step / 12, y: start.y + (end.y - start.y) * step / 12 };
+        await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, button: "left", buttons: 1 });
+        await abortable(delay(16), signal);
+        if (data) break;
+      }
+      if (data) {
+        for (const type of ["dragEnter", "dragOver", "drop"]) {
+          signal?.throwIfAborted();
+          await cdp.sendCommand("Input.dispatchDragEvent", { type, ...end, data });
+        }
+        dropped = true;
+        point = end;
+      }
+    } finally {
+      // Release even after Stop; cancel an unfinished native drag before letting go.
+      if (!dropped) await cdp.sendCommand("Input.cancelDragging").catch(() => undefined);
+      if (pressed) await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", buttons: 0, clickCount: 1 }).catch(() => undefined);
+      await cdp.sendCommand("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
+      cdp.removeListener("message", intercept);
+    }
+  }
+
   async #viewport(page: BrowserPage): Promise<{ width: number; height: number }> {
     const size = await page.view.webContents.executeJavaScriptInIsolatedWorld(isolatedWorldId, [{ code: "[innerWidth, innerHeight]" }]).catch(() => null);
     if (Array.isArray(size) && typeof size[0] === "number" && typeof size[1] === "number" && size[0] > 0 && size[1] > 0) return { width: size[0], height: size[1] };
@@ -1461,16 +1615,20 @@ export class BuiltInBrowser {
     return resolved.object.objectId;
   }
 
-  async #elementCenter(page: BrowserPage, ref: string): Promise<{ x: number; y: number }> {
-    const box = await this.#elementBox(page, ref);
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  async #elementCenter(page: BrowserPage, ref: string, scroll = true): Promise<{ x: number; y: number }> {
+    const box = await this.#elementBox(page, ref, scroll);
+    const viewport = await this.#viewport(page);
+    const left = Math.max(0, box.x), top = Math.max(0, box.y);
+    const right = Math.min(viewport.width, box.x + box.width), bottom = Math.min(viewport.height, box.y + box.height);
+    if (right <= left || bottom <= top) throw new Error(`The element ${ref} is outside the viewport. Scroll to it first.`);
+    return { x: (left + right) / 2, y: (top + bottom) / 2 };
   }
 
   /** The element's box in the viewport, after scrolling it into view. */
-  async #elementBox(page: BrowserPage, ref: string): Promise<{ x: number; y: number; width: number; height: number }> {
+  async #elementBox(page: BrowserPage, ref: string, scroll = true): Promise<{ x: number; y: number; width: number; height: number }> {
     const cdp = await this.#debugger(page);
     const backendNodeId = refNodeId(ref);
-    await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => { throw staleRef(ref); });
+    if (scroll) await cdp.sendCommand("DOM.scrollIntoViewIfNeeded", { backendNodeId }).catch(() => { throw staleRef(ref); });
     const quads = await cdp.sendCommand("DOM.getContentQuads", { backendNodeId }).catch(() => { throw staleRef(ref); }) as { quads?: number[][] };
     for (const quad of quads.quads ?? []) {
       if (quad.length < 8) continue;
