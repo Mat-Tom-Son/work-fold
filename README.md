@@ -100,6 +100,11 @@ keeps assembled context, provider payloads, and source provenance in bounded
 local memory. The [feedback contract](docs/tool-feedback.md) keeps Pi's tool
 loop for text, data, and selected images without continuous screen recording.
 
+Linux x64 local candidates can also be built for Ubuntu and Fedora. See the
+[Linux build guide](docs/linux-build.md) for DEB/RPM/AppImage packaging, keyring
+setup and the current Wayland computer-control limits. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.13.1)
+provide manual downloads. Stable releases and automatic updates remain Mac-only.
+
 ## Help build work-fold
 
 This is an actively developed independent project, and I'd love people to build and maintain it with me. UI polish, reliable tests, clearer onboarding, and real-world bug reports would all help.

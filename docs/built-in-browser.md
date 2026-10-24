@@ -168,6 +168,12 @@ has no browser and no browser tools.
   mouse and keyboard input arrive as real presses. While a Worker uses a page
   in the background, focus emulation lets it render and take input as if it
   were in front; the debugger lets go after two quiet minutes.
+- On Linux, background pages using that debugger stay attached to one hidden,
+  sandboxed native window: Linux drops trusted mouse presses for an unattached
+  view. This window never shows or takes focus. A page moves to the normal
+  window when its tab is shown, and the hidden parent is destroyed on quit.
+  Requested screenshots let the hidden renderer produce a capture frame; a
+  full-page capture temporarily resizes only that hidden view and restores it.
 - Clicks, hovering, dragging, file attachment, typing, keys, scrolling, and navigation on one page take turns, so
   two Chats using the same page never type into each other's fields. A script
   run does not take a turn because it may wait on page events or navigation;
@@ -225,4 +231,3 @@ account and is checked by hand: the 2026-10-23 check reached the account page.
   passkey entitlement (requested by the developer account holder), and Touch
   ID passkeys created in work-fold through Electron's `app.configureWebAuthn`,
   which needs a provisioning profile in the signed build.
-

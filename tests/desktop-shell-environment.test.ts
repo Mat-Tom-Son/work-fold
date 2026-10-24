@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test from "node:test";
@@ -16,6 +16,19 @@ import {
 } from "../desktop/src/shell-environment.js";
 
 const launchdPath = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+test("shell repair keeps the live desktop session and cannot invent a stale display", () => {
+  const graphical = {
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+    WAYLAND_DISPLAY: "wayland-1", XDG_RUNTIME_DIR: "/run/user/1000",
+    XDG_SESSION_TYPE: "wayland", XDG_CURRENT_DESKTOP: "GNOME",
+  };
+  const launch = { ...graphical, PATH: "/usr/bin" };
+  const shell = Object.fromEntries(Object.keys(graphical).map(key => [key, "stale-session"]));
+  const merged = mergeLoginShellEnvironment(launch, { ...shell, DISPLAY: ":99", XAUTHORITY: "/stale/cookie", PATH: "/tools:/usr/bin" });
+  assert.deepEqual({ ...launch, ...merged.env }, { ...launch, PATH: "/tools:/usr/bin" });
+  assert.deepEqual(merged.importedKeys, ["PATH"]);
+});
 
 test("GUI launches resolve the login shell; terminal launches, Windows, probes, and opt-outs do not", () => {
   assert.equal(shouldResolveLoginShellEnvironment({ PATH: launchdPath }, "darwin").resolve, true);
@@ -140,7 +153,7 @@ test("a hanging or missing login shell leaves the launch environment untouched",
 });
 
 test("the default login shell follows $SHELL and falls back to a platform shell that exists", () => {
-  assert.equal(defaultLoginShell({ SHELL: "/definitely/missing/shell" }, "darwin"), "/bin/zsh");
+  assert.equal(defaultLoginShell({ SHELL: "/definitely/missing/shell" }, "darwin"), existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/bash");
   assert.equal(defaultLoginShell({}, "linux"), "/bin/bash");
   assert.equal(defaultLoginShell({ SHELL: "/bin/sh" }, "darwin"), "/bin/sh");
 });

@@ -1462,6 +1462,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.requestSettleChain.catch(() => undefined);
       // So may any other acceptance already past the flag (acceptConversationTurn).
       await Promise.allSettled([...state.turnAcceptances]);
+      await stopComputerSharingForScope(state, workFoldAgentRoot()).catch((error) => console.warn("Screen sharing shutdown:", errorMessage(error)));
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
       await shutdownIncludedToolHost(workFoldAgentRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
@@ -3145,9 +3146,12 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.once("close", closed);
     try {
       const operation = () => setupIncludedTool(workFolder.workFolderRoot, body.id!, body.action!, { secret: body.secret }, state.runtimeProvider, signal.signal);
-      // Observation and deliberate start never repair or dispose peer Chats.
-      // Repair/permission setup keeps the mutation fence and idle-client reset.
-      const result = body.action === "check" || body.id === "computer" && body.action === "start-check" ? await operation() : await runCapabilityMutation(state, workFolder, "global", operation);
+      // Read-only checks and deliberate start preserve peer Chats.
+      // Sharing preserves clients; Stop remains available during accepted work.
+      const result = body.action === "check" || body.id === "computer" && ["start-check", "stop-sharing"].includes(body.action)
+        ? await operation() : await runCapabilityMutation(state, workFolder, "global", operation, {
+            preserveClients: body.id === "computer" && body.action === "share-screen",
+          });
       sendJson(res, result);
     } finally { res.off("close", closed); }
     return;
@@ -3295,6 +3299,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       if (Date.parse(body.snoozedUntil) <= Date.now()) throw badRequest("Choose a future snooze time.");
     }
     const conversation = await runConversationMutation(state, workFolder.id, conversationId, async () => {
+      if (body.archived === true) await stopComputerSharingForScope(state, workFolder.workFolderRoot, workFolder.id, conversationId);
       const updated = body.title !== undefined
         ? await renameConversation(workFolder.workFolderRoot, conversationId, body.title)
         : await updateConversationLifecycle(workFolder.workFolderRoot, conversationId, {
@@ -5418,6 +5423,7 @@ async function removeWorkFolderRegistrationInternal(
             + `served from this work-folder before removing it: ${named}${more}.`,
         );
       }
+      await stopComputerSharingForScope(state, workFolder.workFolderRoot, workFolder.id);
       const intent = await beginWorkFolderRemoval(workFolder.id, state.workFolderBase, removal.io, {
         ...(options.managedFolderDisposition ? { folderDisposition: options.managedFolderDisposition } : {}),
       });
@@ -7261,6 +7267,7 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       return runActOperation(() => runConversationMutation(state, workFolder.id, input.conversationId, async () => {
         const summary = await requireConversationSummary(workFolder.workFolderRoot, input.conversationId);
         if (summary.archivedAt) throw new WorkFoldCliError("conflict", "This Chat is already archived.");
+        await stopComputerSharingForScope(state, workFolder.workFolderRoot, workFolder.id, input.conversationId);
         const conversation = await runActOperation(() =>
           updateConversationLifecycle(workFolder.workFolderRoot, input.conversationId, { archived: true }));
         await recordFacadeAction(state, input.parentTaskId, { command: "chat.archive", workFolder, conversationId: conversation.id });
@@ -9287,6 +9294,7 @@ async function deleteWorkFoldAgentConversation(
     }
     // An idle client can still hold the Pi session and extension callbacks.
     // Stop disposes that session before its transcript leaves the live root.
+    await stopComputerSharingForScope(state, root, workFoldAgentScopeId, conversationId);
     await state.clients.get(key)?.stop();
     // `readConversationSummary` validated the id before this join. The source
     // remains a single known transcript below the app-owned management root.
@@ -9347,6 +9355,7 @@ async function deleteWorkFolderConversation(
       && requestHasUnsettledWork(state, request))) {
       throw httpError(409, "Finish or stop this Chat's outstanding work before deleting it.");
     }
+    await stopComputerSharingForScope(state, workFolder.workFolderRoot, workFolder.id, conversationId);
     await state.clients.get(key)?.stop();
     // `readConversationSummary` validated the id before this join.
     const relativePath = `.work-fold/conversations/${conversationId}.jsonl`;
@@ -13143,10 +13152,22 @@ async function invalidateWorkFoldClients(state: LocalApiState, workFolderId: str
 }
 
 async function invalidateAllClients(state: LocalApiState): Promise<void> {
+  await stopComputerSharingForScope(state, workFoldAgentRoot());
   for (const [key, client] of [...state.clients]) {
     await client.stop().catch(() => undefined);
     state.clients.delete(key);
   }
+}
+
+/** Removing the controlling Chat/Folder revokes input. Idle app-wide sharing
+ * survives unrelated Chat lifecycle changes. */
+async function stopComputerSharingForScope(state: LocalApiState, root: string, workFolderId?: string, conversationId?: string): Promise<void> {
+  const service = (await state.runtimeProvider.resolveRuntime(root)).includedTools?.computerSession;
+  const owner = service?.status().owner;
+  if (!owner) return;
+  if (workFolderId !== undefined && (workFolderId === workFoldAgentScopeId ? owner.scope !== "management" : owner.scope !== "work-folder" || owner.workFolderId !== workFolderId)) return;
+  if (conversationId !== undefined && owner.conversationId !== conversationId) return;
+  await service!.stop();
 }
 
 type CapabilityScope = "global" | "project";
@@ -13270,7 +13291,7 @@ async function runCapabilityMutation<T>(
   workFolder: { id: string; workFolderRoot: string },
   scope: CapabilityScope,
   operation: () => Promise<T>,
-  options: { requireProjectTrust?: boolean } = {},
+  options: { requireProjectTrust?: boolean; preserveClients?: boolean } = {},
 ): Promise<T> {
   const key = scope === "global" ? globalCapabilityMutationKey : workFolder.id;
   reserveCapabilityMutation(state, workFolder.id, scope, key);
@@ -13283,8 +13304,10 @@ async function runCapabilityMutation<T>(
       throw forbidden("Trust this work-folder before changing work-folder-scoped capabilities.");
     }
     const result = await operation();
-    if (scope === "global") await invalidateAllClients(state);
-    else await invalidateWorkFoldClients(state, workFolder.id);
+    if (!options.preserveClients) {
+      if (scope === "global") await invalidateAllClients(state);
+      else await invalidateWorkFoldClients(state, workFolder.id);
+    }
     publishControlHint(state, "models");
     return result;
   } finally {

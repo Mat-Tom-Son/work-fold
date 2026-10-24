@@ -8,6 +8,7 @@ import type { NativeResource } from "./resource-lifecycle.js";
 
 import { includedToolDefinitions } from "../../shared/included-tools.js";
 import type { IncludedChromeConnectionHost } from "./included-chrome-connection.js";
+import type { ComputerSessionService, ComputerTurn, NativeComputerOwner } from "./computer-session.js";
 import type { DocumentEngineSearch } from "../../../resources/included-tools/readiness.js";
 import { beginIncludedToolObservation } from "./included-tool-observations.js";
 import { toolInputFeedbackExtension } from "./tool-input-feedback.js";
@@ -21,6 +22,7 @@ export interface IncludedToolsConfiguration {
   prepareComputerHelper?: () => Promise<void>;
   repairComputerHelper?: (beforeReplace: () => Promise<void>) => Promise<void>;
   chromeConnection?: IncludedChromeConnectionHost;
+  computerSession?: ComputerSessionService;
   /** Where Documents looks for LibreOffice and Tesseract; defaults to this computer's usual install locations. */
   documentEngineSearch?: DocumentEngineSearch;
 }
@@ -61,7 +63,7 @@ export async function resolveIncludedResources(cwd: string, runtime: ResolvedPiR
  * A per-runtime native event bus; no process-global current Chat or renderer capability.
  * A Chat session names its role, which opens each request with that role instead of Pi's coding preamble.
  */
-export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", role?: WorkFoldSessionRole) {
+export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRuntime, mode: "catalog" | "session", role?: WorkFoldSessionRole, computer?: { owner: NativeComputerOwner; turn(): ComputerTurn | undefined }) {
   const config = runtime.config.includedTools;
   const extensionFactories = [
     { name: "tool_input_feedback", builtin: true, factory: toolInputFeedbackExtension },
@@ -83,6 +85,7 @@ export async function includedResourceOptions(cwd: string, runtime: ResolvedPiRu
       prepareComputerHelper: config.prepareComputerHelper,
       ...(mode === "session" ? { beginIncludedToolObservation: (id: "computer" | "documents") => beginIncludedToolObservation(runtime, id) } : {}),
       companionPath: join(config.stateRoot, "chrome-companion"),
+      ...(mode === "session" && computer && config.computerSession ? config.computerSession.forSession(computer.owner, computer.turn) : {}),
       ...(config.chromeConnection ? {
         getChromeConnection: config.chromeConnection.getChromeConnection,
         onChromeConnectionRevoked: config.chromeConnection.onChromeConnectionRevoked,

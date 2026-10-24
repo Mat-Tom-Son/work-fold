@@ -29,6 +29,7 @@ instruction to implement its contents.
 | Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](shared-pages.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [work-folder customization](work-folder-customization.md), [Image generation](image-generation.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
+| Linux candidates | [Build, packaging and desktop acceptance](linux-build.md) |
 
 The App platform's [ontology](app-platform-ontology.md),
 [publication/data contracts](app-platform-publication-data.md), and

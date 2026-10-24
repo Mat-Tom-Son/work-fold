@@ -21422,6 +21422,20 @@ to {
   color: var(--ui-text);
 }
 
+.desktop-titlebar-linux {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 0 0 0 8px;
+}
+.desktop-window-controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
+.desktop-window-controls button {
+  display: grid; place-items: center; width: 46px; border: 0; border-radius: 0;
+  color: inherit; background: transparent; -webkit-app-region: no-drag;
+}
+.desktop-window-controls svg { fill: none; stroke: currentColor; stroke-width: 1; }
+.desktop-window-controls button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.desktop-window-controls button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+.desktop-window-controls .desktop-window-quit:hover { background: #c42b1c; color: white; }
+
 /* Built-in browser (docs/built-in-browser.md, 2026-10-23). Browser tabs belong
    to no work-folder, so they wear the app's own accent and the page's icon. */
 

@@ -63,6 +63,20 @@ const neverImportedKeys = new Set([
   "NODE_OPTIONS",
   "NODE_CHANNEL_FD",
   "WORKFOLD_RESOLVING_LOGIN_SHELL",
+  // Preserve the actual launch session, including absence (e.g. no XWayland).
+  // Shell profiles may contain stale values from another graphical session.
+  "DBUS_SESSION_BUS_ADDRESS",
+  "DBUS_SESSION_BUS_PID",
+  "DBUS_SESSION_BUS_WINDOWID",
+  "WAYLAND_DISPLAY",
+  "DISPLAY",
+  "XAUTHORITY",
+  "XDG_RUNTIME_DIR",
+  "XDG_SESSION_ID",
+  "XDG_SESSION_TYPE",
+  "XDG_CURRENT_DESKTOP",
+  "XDG_SESSION_DESKTOP",
+  "DESKTOP_SESSION",
 ]);
 
 /** Prefixes whose process values are explicit product/runtime configuration and always win. */
@@ -144,7 +158,7 @@ export function parseLoginShellEnvironment(output: string, marker: string): Reco
  * - `PATH` keeps the shell's order first, then appends any process-only
  *   entries so nothing the process already relied on disappears.
  * - Explicit product and Electron runtime variables keep their process values.
- * - Variables that only describe the probe shell are never imported.
+ * - Probe-only and graphical-session variables are never imported.
  * - Everything else takes the shell's value, matching what a terminal `pi`
  *   session would see.
  */
