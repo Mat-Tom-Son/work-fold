@@ -75,7 +75,10 @@ they open appear in the same strip.
   page, by the person or a Worker, and one press opens one, as in Chrome. Otherwise a bar above the page says **Pop-up
   blocked** with the address it wanted, **Always allow on this site**, **Open
   it**, and a close button. The allowance is remembered and listed with the
-  site's other decisions.
+  site's other decisions. These rules also apply inside a sign-in pop-up
+  window. Its blocked requests appear in the original tab, naming the site
+  that asked; **Always allow** grants that site, even when it differs from
+  the original tab's site.
 - A sized pop-up such as "Sign in with…" opens as its own small window that
   keeps its link to the page that opened it, which sign-in flows rely on.
   Mail links open the mail app; other non-web addresses are refused.
@@ -153,7 +156,9 @@ has no browser and no browser tools.
   **Worker** chip naming the Chat. The chip opens that Chat, and its Stop
   button stops the Chat's turn. For the work-fold agent the chip opens its
   panel. The mark stays three seconds after the last step, so a run of steps
-  reads as one.
+  reads as one. When several Chats use a page, the chip names the most recent
+  Chat with an active step; finishing its step restores another active Chat
+  rather than leaving Stop pointed at a Chat that finished.
 - Workers act through the Chrome DevTools Protocol on Electron's own debugger:
   mouse and keyboard input arrive as real presses. While a Worker uses a page
   in the background, focus emulation lets it render and take input as if it
@@ -190,7 +195,8 @@ scripts, the console, three kinds of screenshot, scrolling, new-tab links,
 downloads, back and forward, restored tabs, window placement and occlusion,
 a site's question answered, remembered, forgotten, blocked, and dropped on
 navigation, history suggestions and clearing, a pop-up blocked and then
-opened or allowed, mute and zoom, the Worker mark, the link bubble, and
+opened or allowed (including requests from a sign-in window on another site),
+mute and zoom, the Worker mark and overlapping Chats, the link bubble, and
 quitting without closing tabs. `tests/built-in-browser.test.ts`
 covers the address bar, the connection labels, the link bubble's text, the
 user agent, the structure format, keys, the tools, site decisions, history,

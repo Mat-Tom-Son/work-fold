@@ -467,8 +467,8 @@ export function BrowserTabPanel({
       {page?.blockedPopup ? (
         <div className="browser-tab-bar browser-tab-popup" role="status">
           <WindowNew16Regular aria-hidden="true" />
-          <span className="browser-tab-bar-text">Pop-up blocked: <span className="browser-tab-popup-url">{page.blockedPopup.url}</span></span>
-          <button className="ui-control compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "allow-popups" }); }}>Always allow on this site</button>
+          <span className="browser-tab-bar-text">Pop-up blocked{page.blockedPopup.origin ? ` from ${siteHost(page.blockedPopup.origin)}` : ""}: <span className="browser-tab-popup-url">{page.blockedPopup.url}</span></span>
+          <button className="ui-control compact no-margin" type="button" disabled={!page.blockedPopup.origin} onClick={() => { void desktop.command(tab.pageId, { type: "allow-popups" }); }}>Always allow on this site</button>
           <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "open-blocked-popup" }); }}>Open it</button>
           <button className="browser-tab-button" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "dismiss-blocked-popup" }); }} aria-label="Dismiss" title="Dismiss">
             <Dismiss16Regular />

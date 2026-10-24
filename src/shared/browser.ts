@@ -82,7 +82,7 @@ export interface BrowserPageState {
   /** The page's zoom, 100 when it has none. */
   zoomPercent: number;
   /** The last tab or pop-up the site tried to open without a click, held for the person. */
-  blockedPopup: { url: string } | null;
+  blockedPopup: { url: string; origin: string | null } | null;
   /** The Chat whose Worker is using this page right now; `owner` is `<work-folder id>/<conversation id>`. */
   worker: { owner: string } | null;
 }

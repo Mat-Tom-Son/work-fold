@@ -133,10 +133,10 @@ interface BrowserPage {
   notice: { kind: BrowserSitePermission; text: string } | null;
   /** When a person, or a Worker's click or key, last pressed something in the page: what lets it open a tab or pop-up. */
   lastInputAt: number;
-  blockedPopup: { url: string } | null;
+  blockedPopup: BrowserPageState["blockedPopup"];
   /** The Chat whose Worker is using the page, kept a moment after its last step so the marker does not flicker. */
   worker: { owner: string } | null;
-  workerSteps: number;
+  workerSteps: Map<string, number>;
   workerLinger: ReturnType<typeof setTimeout> | null;
 }
 
@@ -244,7 +244,7 @@ export class BuiltInBrowser {
       case "allow-popups": {
         const blocked = page.blockedPopup;
         page.blockedPopup = null;
-        const origin = siteOrigin(contents.getURL());
+        const origin = blocked?.origin ?? null;
         if (command.type === "allow-popups" && origin) void this.#sitePermissions.set(origin, ["popups"], "allow").then(() => this.#emitSite(origin));
         if (blocked) this.#openTab(blocked.url, true, page.openedBy, page.owner);
         this.#emit(page);
@@ -407,7 +407,7 @@ export class BuiltInBrowser {
       lastInputAt: 0,
       blockedPopup: null,
       worker: null,
-      workerSteps: 0,
+      workerSteps: new Map(),
       workerLinger: null,
     };
     this.#pages.set(pageId, page);
@@ -509,7 +509,7 @@ export class BuiltInBrowser {
       if (this.#handleKey(page, input)) event.preventDefault();
     });
     contents.setWindowOpenHandler((details) => this.#windowOpen(page, details));
-    contents.on("did-create-window", (window) => this.#configurePopup(window));
+    contents.on("did-create-window", (window) => this.#configurePopup(window, page));
     contents.on("destroyed", () => {
       this.#dropPermissions(page);
       if (this.#pages.get(page.pageId) !== page) return;
@@ -539,18 +539,10 @@ export class BuiltInBrowser {
       return { action: "deny" };
     }
     // A site opens a tab or pop-up only right after a press, unless the person allowed it pop-ups.
-    const origin = siteOrigin(opener.view.webContents.getURL());
-    const pressed = Date.now() - opener.lastInputAt <= popupGestureMs;
-    const allowed = Boolean(origin && this.#sitePermissions.get(origin, "popups") === "allow");
-    if (!pressed && !allowed) {
-      if (details.url && isBrowserUrl(details.url)) {
-        opener.blockedPopup = { url: details.url };
-        this.#emit(opener);
-      }
+    if (!this.#canOpenPopup(opener.view.webContents, opener)) {
+      this.#blockPopup(opener, opener.view.webContents, details.url);
       return { action: "deny" };
     }
-    // One press opens one tab or pop-up, as in Chrome; a second one needs another press.
-    if (!allowed) opener.lastInputAt = 0;
     // A sized pop-up, such as "Sign in with…", keeps its own small window and
     // its link back to the page that opened it, which sign-in flows rely on.
     if (details.disposition === "new-window") {
@@ -573,12 +565,40 @@ export class BuiltInBrowser {
     };
   }
 
-  /** Pop-up windows a page opened: links in them become tabs, and they keep the same address rules. */
-  #configurePopup(window: BrowserWindow): void {
+  /** One policy for tabs and pop-up windows; a press is consumed by its first opening. */
+  #canOpenPopup(contents: WebContents, input: { lastInputAt: number }): boolean {
+    const origin = siteOrigin(contents.getURL());
+    if (origin && this.#sitePermissions.get(origin, "popups") === "allow") return true;
+    if (!input.lastInputAt || Date.now() - input.lastInputAt > popupGestureMs) return false;
+    input.lastInputAt = 0;
+    return true;
+  }
+
+  /** Pop-up windows use the original tab's bar, retaining the site that actually asked. */
+  #blockPopup(page: BrowserPage, contents: WebContents, url: string): void {
+    if (page.closed || !url || !isBrowserUrl(url)) return;
+    page.blockedPopup = { url, origin: siteOrigin(contents.getURL()) };
+    this.#emit(page);
+  }
+
+  /** Pop-up windows a page opened: links in them become tabs under the same popup rules. */
+  #configurePopup(window: BrowserWindow, opener: BrowserPage): void {
     const contents = window.webContents;
+    const input = { lastInputAt: 0 };
+    contents.on("input-event", (_event, event) => {
+      if (gestureInputTypes.has(event.type)) input.lastInputAt = Date.now();
+    });
+    contents.on("did-start-navigation", (event) => {
+      if (event.isMainFrame && !event.isSameDocument) input.lastInputAt = 0;
+    });
     contents.setWindowOpenHandler((details) => {
-      if (isBrowserUrl(details.url)) this.#openTab(details.url, true, "person");
-      else void this.#openOutside(details.url);
+      if (!isBrowserUrl(details.url)) {
+        void this.#openOutside(details.url);
+      } else if (this.#canOpenPopup(contents, input)) {
+        this.#openTab(details.url, true, "person");
+      } else {
+        this.#blockPopup(opener, contents, details.url);
+      }
       return { action: "deny" };
     });
     contents.on("will-navigate", (event) => this.#guardNavigation(event, event.url));
@@ -906,7 +926,10 @@ export class BuiltInBrowser {
     if (!owner) return await step();
     if (page.workerLinger) clearTimeout(page.workerLinger);
     page.workerLinger = null;
-    page.workerSteps += 1;
+    // Insertion order follows the most recently started Chat, including repeated calls.
+    const count = page.workerSteps.get(owner) ?? 0;
+    page.workerSteps.delete(owner);
+    page.workerSteps.set(owner, count + 1);
     if (page.worker?.owner !== owner) {
       page.worker = { owner };
       this.#emit(page);
@@ -914,8 +937,14 @@ export class BuiltInBrowser {
     try {
       return await step();
     } finally {
-      page.workerSteps -= 1;
-      if (!page.workerSteps) {
+      const remaining = (page.workerSteps.get(owner) ?? 1) - 1;
+      if (remaining) page.workerSteps.set(owner, remaining);
+      else page.workerSteps.delete(owner);
+      const activeOwner = [...page.workerSteps.keys()].at(-1);
+      if (activeOwner && page.worker?.owner !== activeOwner) {
+        page.worker = { owner: activeOwner };
+        this.#emit(page);
+      } else if (!activeOwner && !page.closed) {
         page.workerLinger = setTimeout(() => {
           page.workerLinger = null;
           page.worker = null;
