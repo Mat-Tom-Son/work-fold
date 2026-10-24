@@ -175,3 +175,10 @@ patch remains in place with its malformed-input and packaged-byte tests.
 Upstream references: [brace-expansion 5.0.12](https://github.com/juliangruber/brace-expansion/releases/tag/v5.0.12),
 [undici 8.10.2](https://github.com/nodejs/undici/releases/tag/v8.10.2), and
 [Electron 42.11.10](https://github.com/electron/electron/releases/tag/v42.11.10).
+
+The October 23, 2026 Mac release review advances Electron within major 42 to
+42.11.18. It includes the block for compromised eMudhra intermediate certificates in both
+Chromium and Node TLS clients, as required by
+[GHSA-jr5w-w6x2-84p9](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9).
+The Pi dependency graph and reviewed document patches above remain unchanged;
+this is not a claim that the remaining upstream audit advisories are resolved.

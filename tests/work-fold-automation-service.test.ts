@@ -1725,7 +1725,7 @@ test("enabling an identical declaration again changes nothing and leaves the act
   assert.equal((await harness.journal()).find((line) => line.scope === "run" && line.outcome === "stopped")?.runId, "run-1");
 });
 
-test("automation declarations accept more than the former sixteen-step default", async (t) => {
+test("automation declarations accept more than the former sixteen-step default", { timeout: 30_000 }, async (t) => {
   const harness = await createHarness(t);
   assert.ok(workFoldAutomationMaxConcurrentRuns >= 8, "runs at once only ever grew");
 
@@ -1743,7 +1743,11 @@ test("automation declarations accept more than the former sixteen-step default",
   }), "request-eighteen");
   assert.equal(eighteen.declaration.steps.length, 18);
 
-  harness.ports.chatImpl = harness.ports.abortableChat;
+  const slotsEntered = deferred();
+  harness.ports.chatImpl = (step, context) => {
+    if (harness.ports.calls.filter((call) => call.hopId === "hold").length === workFoldAutomationMaxConcurrentRuns) slotsEntered.resolve();
+    return harness.ports.abortableChat(step, context);
+  };
   const automationIds = Array.from({ length: workFoldAutomationMaxConcurrentRuns + 1 }, (_, index) => `automation-slot-hold-${index}`);
   for (const automationId of automationIds) {
     await harness.enable(declarationInput(automationId, {
@@ -1751,10 +1755,10 @@ test("automation declarations accept more than the former sixteen-step default",
     }), `request-${automationId}`);
   }
   const runs = automationIds.map((automationId) => harness.service.runNow(automationId, { requestId: `request-run-${automationId}` }));
-  await waitForCondition(
-    () => harness.ports.calls.filter((call) => call.hopId === "hold").length === workFoldAutomationMaxConcurrentRuns,
-    "a run holding every slot",
-  );
+  // Journal writes for all 32 admissions can take more than the polling
+  // helper's two-second window under full-suite load. Wait for the owned
+  // port-entry signal; the test deadline still bounds a broken admission.
+  await slotsEntered.promise;
   assert.equal(harness.service.status().activeRunCount, workFoldAutomationMaxConcurrentRuns);
   await new Promise<void>((resolve) => setTimeout(resolve, 20));
   assert.equal(
