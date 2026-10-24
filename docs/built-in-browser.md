@@ -1,7 +1,8 @@
 # Built-in browser
 
-> **Status:** Accepted 2026-10-23 (owner decision) and built; not yet in a
-> release. `desktop/src/built-in-browser.ts`, `src/shared/browser*.ts`,
+> **Status:** Accepted 2026-10-23 (owner decision), built for
+> [0.13.0](releases/work-fold-0.13.0.md). The Mac feed records publication.
+> `desktop/src/built-in-browser.ts`, `src/shared/browser*.ts`,
 > `src/local/agent/browser-tools.ts`, the renderer's browser tab, and their
 > suites are the implementation authority.
 
