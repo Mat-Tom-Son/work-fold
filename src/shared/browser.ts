@@ -187,6 +187,22 @@ export interface BrowserActionResult {
   navigated: boolean;
 }
 
+/** A target in viewport CSS pixels, or an observed element. */
+export type BrowserTarget = { ref: string; x?: never; y?: never } | { ref?: never; x: number; y: number };
+export type BrowserMouseModifier = "Alt" | "Control" | "Meta" | "Shift";
+
+/** A download observed during this launch. Paths are usable only after completion. */
+export interface BrowserDownloadRecord {
+  id: string;
+  tab: string;
+  url: string;
+  filename: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+  path: string | null;
+}
+
 /**
  * What the agent tools need from the desktop host. Present only in the
  * desktop app; a development API without Electron gives Workers no browser.
@@ -206,10 +222,14 @@ export interface BrowserToolHost {
   navigate(input: BrowserCaller & { tab: string; to: string; signal?: AbortSignal }): Promise<BrowserTabSummary>;
   read(input: BrowserCaller & { tab: string; mode: "structure" | "text"; find?: string; offset?: number }): Promise<{ tab: BrowserTabSummary; text: string; total: number; nextOffset: number | null }>;
   screenshot(input: BrowserCaller & { tab: string; ref?: string; fullPage?: boolean }): Promise<{ tab: BrowserTabSummary; data: string; mimeType: string; width: number; height: number }>;
-  click(input: BrowserCaller & { tab: string; ref?: string; x?: number; y?: number; double?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  click(input: BrowserCaller & { tab: string; ref?: string; x?: number; y?: number; double?: boolean; button?: "left" | "right" | "middle"; modifiers?: BrowserMouseModifier[]; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  hover(input: BrowserCaller & { tab: string; ref?: string; x?: number; y?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  drag(input: BrowserCaller & { tab: string; from: BrowserTarget; to: BrowserTarget; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  upload(input: BrowserCaller & { tab: string; ref: string; paths: string[]; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  downloads(input: BrowserCaller & { tab: string; seconds?: number; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; downloads: BrowserDownloadRecord[] }>;
   type(input: BrowserCaller & { tab: string; ref?: string; text: string; clear?: boolean; submit?: boolean; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  press(input: BrowserCaller & { tab: string; keys: string; signal?: AbortSignal }): Promise<BrowserActionResult>;
-  scroll(input: BrowserCaller & { tab: string; ref?: string; direction?: "up" | "down" | "left" | "right"; amount?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  press(input: BrowserCaller & { tab: string; ref?: string; keys: string; signal?: AbortSignal }): Promise<BrowserActionResult>;
+  scroll(input: BrowserCaller & { tab: string; ref?: string; x?: number; y?: number; direction?: "up" | "down" | "left" | "right"; amount?: number; signal?: AbortSignal }): Promise<BrowserActionResult>;
   evaluate(input: BrowserCaller & { tab: string; script: string; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; result: string }>;
   wait(input: BrowserCaller & { tab: string; text?: string; seconds: number; signal?: AbortSignal }): Promise<{ tab: BrowserTabSummary; found: boolean | null }>;
   console(input: BrowserCaller & { tab: string }): Promise<{ tab: BrowserTabSummary; entries: string[] }>;

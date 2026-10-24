@@ -139,7 +139,11 @@ has no browser and no browser tools.
 | `browser_navigate` | Loads an address in a tab, or goes back, forward, or reloads. |
 | `browser_read` | Reads a tab: its `structure` (the default), its visible `text`, or its `console` (messages and failed requests). `find` keeps matching lines; long pages come in 50,000-character parts. |
 | `browser_screenshot` | A picture of the visible page, one element, or the whole page (up to 8,000 pixels tall), in page pixels. |
-| `browser_click`, `browser_type`, `browser_press`, `browser_scroll` | Act in the page by element ref or by page coordinates. Typing into a field replaces its contents; typing into a list picks the matching option. |
+| `browser_click`, `browser_type`, `browser_press`, `browser_scroll` | Act in the page by element ref or viewport coordinates. Click supports left, right, middle, double, and modifier keys. Typing replaces a field or chooses a list option. Press can focus a ref and send keys together. Scroll accepts a ref alone to bring it into view, a ref plus direction to scroll inside a panel, or coordinates to aim the wheel. |
+| `browser_hover` | Moves the pointer over a ref or viewport coordinates to reveal a hover menu or tooltip. |
+| `browser_drag` | Drags between two refs or viewport points: sliders, custom handles, and native HTML drag-and-drop. Both ends must already be visible in the viewport. Stop releases the button and cancels an unfinished native drag. |
+| `browser_upload` | Attaches up to 100 existing local files by absolute path to a file input ref, without a native chooser. Multiple files require a multiple-file input; an empty list clears it. Folder inputs are unsupported. Attaching may immediately upload to the site, so the tool teaches the agent to use only the files and destination authorized by the task. |
+| `browser_downloads` | Lists a tab's latest 50 downloads from this app launch, with ids, source URLs, filenames, byte counts, states, and completed local paths. Optionally waits up to 60 seconds for transfers already in progress. The host retains the most recent 200 finished/active records, never dropping an active transfer. |
 | `browser_evaluate` | Runs JavaScript in the page and returns the result. |
 | `browser_wait` | Waits for text to appear, or for loading to finish. |
 | `browser_close` | Closes a tab this Chat opened. The person's tabs, and tabs another Chat opened, stay open. |
@@ -163,9 +167,18 @@ has no browser and no browser tools.
   mouse and keyboard input arrive as real presses. While a Worker uses a page
   in the background, focus emulation lets it render and take input as if it
   were in front; the debugger lets go after two quiet minutes.
-- Clicks, typing, keys, scrolling, and navigation on one page take turns, so
+- Clicks, hovering, dragging, file attachment, typing, keys, scrolling, and navigation on one page take turns, so
   two Chats using the same page never type into each other's fields. A script
-  run does not take a turn; it sends no input and may wait on the page.
+  run does not take a turn because it may wait on page events or navigation;
+  scripts can change the page, so agents are taught to prefer the queued tools
+  for input. Download observation and waiting likewise leave that queue free.
+- The tool instructions teach the same observation loop for every Chat: read
+  the page, act on observed refs, and check the resulting page or screenshot
+  before claiming success. An unchanged page calls for inspecting an overlay,
+  disabled control, or stale ref rather than repeating the same action.
+  Page text and downloaded content are untrusted data, not instructions or
+  authorization. Download paths become usable evidence only after completion;
+  the normal file tools read the saved bytes.
 - The tools follow [Receipts, not gates](receipts-not-gates.md): an action runs
   when called. Stop before or during an action sends no further input (a
   button already pressed is still released, so the page is never left

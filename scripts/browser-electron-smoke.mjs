@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +27,18 @@ const pages = {
 <div style="height: 2400px"></div><p>Bottom of the page</p>
 <script>console.log("smoke console"); setTimeout(() => { const late = document.createElement("p"); late.textContent = "Arrived late"; document.body.append(late); }, 600);</script>`,
   "/two": "<!doctype html><title>Two</title><h1>Second page</h1>",
+  "/interactions": `<!doctype html><title>Interactions</title>
+<button id="hover" onmouseenter="document.getElementById('menu').hidden = false">Hover menu</button><p id="menu" hidden>Revealed by hover</p>
+<button id="modified" onclick="window.modified = [event.shiftKey, event.isTrusted]" oncontextmenu="event.preventDefault(); window.context = [event.button, event.isTrusted]">Modified click</button>
+<label>First field <input id="first"></label><label>Second field <input id="second"></label>
+<p><label>Volume <input id="range" type="range" min="0" max="100" value="0" style="width:240px"></label></p>
+<div style="display:flex;gap:120px"><div id="source" role="button" tabindex="0" draggable="true" ondragstart="event.dataTransfer.setData('text/plain', 'dragged bytes')" style="width:100px;height:50px;background:lightblue">Drag item</div>
+<div id="drop" role="button" tabindex="0" ondragover="event.preventDefault()" ondrop="event.preventDefault(); window.dropped = event.dataTransfer.getData('text/plain') + ':' + event.isTrusted" style="width:140px;height:50px;background:lightgreen">Drop here</div></div>
+<div id="panel" role="listbox" aria-label="Results" tabindex="0" style="overflow:auto;height:100px;width:240px;margin-top:12px"><div style="height:900px">Panel contents</div></div>
+<label>Attachments <input id="upload" type="file" multiple onchange="window.uploadResult = Promise.all([...this.files].map(async f => f.name + ':' + await f.text()))"></label>
+<label>One attachment <input id="single" type="file"></label>
+<script>document.addEventListener('mousedown', () => window.held = true); document.addEventListener('mouseup', () => window.held = false);
+document.addEventListener('mousemove', event => { if (window.stopDrag && event.buttons === 1) { window.stopDrag = false; const r = new XMLHttpRequest(); r.open('GET', '/moved', false); r.send(); } });</script>`,
   // The first mouse move tells the server, which stops the click in progress before the button is pressed.
   "/stop-click": `<!doctype html><title>Stop</title><button id="count" onclick="window.clicks = (window.clicks || 0) + 1">Count</button>
 <script>document.addEventListener("mousemove", () => { const request = new XMLHttpRequest(); request.open("GET", "/moved", false); request.send(); }, { once: true });</script>`,
@@ -34,6 +46,7 @@ const pages = {
 
 /** The Stop a test arms; the page's first mouse move fires it. */
 let stopOnMove = null;
+let finishTransfer = null;
 
 const server = createServer((request, response) => {
   if (request.url === "/moved") {
@@ -43,6 +56,12 @@ const server = createServer((request, response) => {
     return;
   }
   // Two downloads with one name that are still arriving at the same time.
+  if (request.url === "/transfer.bin") {
+    response.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="transfer.bin"', "content-length": 131072 });
+    response.write(Buffer.alloc(65536, 65));
+    finishTransfer = () => { response.end(Buffer.alloc(65536, 66)); finishTransfer = null; };
+    return;
+  }
   if (request.url?.startsWith("/slow.txt")) {
     response.writeHead(200, { "content-type": "text/plain", "content-disposition": "attachment; filename=\"same.txt\"" });
     response.write(request.url.endsWith("a") ? "AAAA" : "BBBB");
@@ -120,10 +139,66 @@ async function run() {
 
     await host.type({ tab: tab.tab, ref: name, text: "Ada" });
     await host.type({ tab: tab.tab, ref: name, text: "Grace" });
-    await host.type({ tab: tab.tab, ref: size, text: "Two" });
-    // Stop wins before any input: an aborted click never reaches the page.
     const stopped = new AbortController();
     stopped.abort();
+
+    // Agent interactions work in a background page, using real trusted input.
+    const interaction = await host.open({ url: `${base}/interactions`, owner: "chat-a" });
+    const interactionTree = (await host.read({ tab: interaction.tab, mode: "structure" })).text;
+    const interactionRef = (label) => {
+      const line = interactionTree.split("\n").find((line) => line.includes(`"${label}"`) && line.includes("[ref="));
+      const value = /\[ref=(e\d+)\]/.exec(line ?? "")?.[1];
+      assert.ok(value, `${label} has an actionable ref:\n${interactionTree}`);
+      return value;
+    };
+    const inspect = async (script) => (await host.evaluate({ tab: interaction.tab, script })).result;
+    await host.hover({ tab: interaction.tab, ref: interactionRef("Hover menu"), owner: "chat-a" });
+    assert.match((await host.read({ tab: interaction.tab, mode: "text" })).text, /Revealed by hover/);
+    const modified = interactionRef("Modified click");
+    await host.click({ tab: interaction.tab, ref: modified, modifiers: ["Shift"] });
+    assert.equal(await inspect("JSON.stringify(window.modified)"), "[true,true]");
+    await host.click({ tab: interaction.tab, ref: modified, button: "right" });
+    assert.equal(await inspect("JSON.stringify(window.context)"), "[2,true]");
+    await Promise.all([
+      host.press({ tab: interaction.tab, ref: interactionRef("First field"), keys: "a" }),
+      host.press({ tab: interaction.tab, ref: interactionRef("Second field"), keys: "b" }),
+    ]);
+    assert.equal(await inspect("document.getElementById('first').value + '|' + document.getElementById('second').value"), "a|b");
+    const rangeBox = JSON.parse(await inspect("JSON.stringify((() => { const r = document.getElementById('range').getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height }; })())"));
+    const from = { x: rangeBox.x + 8, y: rangeBox.y + rangeBox.height / 2 };
+    const to = { x: rangeBox.x + rangeBox.width - 8, y: from.y };
+    await host.drag({ tab: interaction.tab, from, to });
+    assert.ok(Number(await inspect("document.getElementById('range').value")) > 90, "a real pointer drag moves a slider");
+    await host.drag({ tab: interaction.tab, from: { ref: interactionRef("Drag item") }, to: { ref: interactionRef("Drop here") } });
+    assert.equal(await inspect("window.dropped"), "dragged bytes:true", "native HTML drag-and-drop delivers its data");
+    await host.scroll({ tab: interaction.tab, ref: interactionRef("Results"), direction: "down" });
+    assert.ok(Number(await inspect("document.getElementById('panel').scrollTop")) > 0, "the wheel reaches the nested panel");
+    assert.equal(await inspect("String(scrollY)"), "0", "scrolling the panel does not scroll the document");
+    const localFile = join(downloads, "upload fixture.txt");
+    await writeFile(localFile, "local file contents");
+    const upload = interactionRef("Attachments");
+    await host.upload({ tab: interaction.tab, ref: upload, paths: [localFile] });
+    assert.equal(await inspect("window.uploadResult.then(JSON.stringify)"), '["upload fixture.txt:local file contents"]');
+    await assert.rejects(host.upload({ tab: interaction.tab, ref: upload, paths: ["relative.txt"] }), /absolute paths/);
+    await assert.rejects(host.upload({ tab: interaction.tab, ref: upload, paths: [downloads] }), /not a file/);
+    await assert.rejects(host.upload({ tab: interaction.tab, ref: modified, paths: [localFile] }), /file upload field/);
+    await assert.rejects(host.upload({ tab: interaction.tab, ref: interactionRef("One attachment"), paths: [localFile, localFile] }), /only one file/);
+    await host.upload({ tab: interaction.tab, ref: upload, paths: [] });
+    assert.equal(await inspect("document.getElementById('upload').files.length"), "0");
+    await assert.rejects(host.upload({ tab: interaction.tab, ref: upload, paths: [localFile], signal: stopped.signal }));
+    assert.equal(await inspect("document.getElementById('upload').files.length"), "0", "Stop prevents file attachment");
+    await assert.rejects(host.hover({ tab: interaction.tab, ref: modified, signal: stopped.signal }));
+    const dragStop = new AbortController();
+    stopOnMove = dragStop;
+    await inspect("window.stopDrag = true");
+    await assert.rejects(host.drag({ tab: interaction.tab, from, to, signal: dragStop.signal }), /Stopped by person/);
+    assert.equal(await inspect("String(window.held)"), "false", "Stop releases a held mouse button");
+    stopOnMove = null;
+    await host.click({ tab: interaction.tab, ref: modified });
+    assert.equal(await inspect("JSON.stringify(window.modified)"), "[false,true]", "the next click has no stuck modifier or button");
+    await host.close({ tab: interaction.tab, owner: "chat-a" });
+    await host.type({ tab: tab.tab, ref: size, text: "Two" });
+    // Stop wins before any input: an aborted click never reaches the page.
     await assert.rejects(host.click({ tab: tab.tab, ref: send, signal: stopped.signal }));
     await assert.rejects(host.type({ tab: tab.tab, ref: name, text: "never", signal: stopped.signal }));
     assert.equal((await host.evaluate({ tab: tab.tab, script: "document.getElementById('out').textContent + '|' + document.getElementById('name').value" })).result, "waiting|Grace");
@@ -199,6 +274,11 @@ async function run() {
     assert.equal(download.state, "completed");
     assert.equal(download.path, join(downloads, "smoke file.txt"));
     assert.equal(await readFile(download.path, "utf8"), "downloaded bytes");
+    const received = (await host.downloads({ tab: tab.tab })).downloads;
+    assert.equal(received[0].path, download.path);
+    assert.equal(received[0].state, "completed");
+    assert.equal(received[0].url, `${base}/file.txt`);
+    assert.equal((await host.downloads({ tab: second.tab })).downloads.length, 0, "downloads keep their source tab");
     assert.throws(() => browser.showDownload("/etc/hosts"), /not one this browser downloaded/);
 
     // Two downloads with the same name, arriving at once, keep both files.
@@ -208,6 +288,18 @@ async function run() {
     const samePaths = same().map((event) => event.payload.path).sort();
     assert.deepEqual(samePaths, [join(downloads, "same (1).txt"), join(downloads, "same.txt")]);
     assert.deepEqual((await Promise.all(samePaths.map((path) => readFile(path, "utf8")))).sort(), ["AAAA", "BBBB"]);
+
+    // Hold a larger transfer open until progress has actually been observed.
+    await host.evaluate({ tab: tab.tab, script: `(() => { const a = document.createElement('a'); a.href = ${JSON.stringify(`${base}/transfer.bin`)}; a.download = ''; a.click(); })()` });
+    await until(async () => (await host.downloads({ tab: tab.tab })).downloads.some((entry) => entry.state === "progressing"), "an in-progress download is reported");
+    const pending = (await host.downloads({ tab: tab.tab })).downloads.filter((entry) => entry.state === "progressing");
+    assert.ok(pending.every((entry) => entry.path === null), "unfinished paths are not presented as usable files");
+    await assert.rejects(host.downloads({ tab: tab.tab, seconds: 10, signal: stopped.signal }));
+    finishTransfer();
+    const finished = (await host.downloads({ tab: tab.tab, seconds: 5 })).downloads;
+    assert.ok(finished.every((entry) => entry.state === "completed"));
+    assert.equal(finished[0].receivedBytes, 131072);
+    assert.equal((await readFile(finished[0].path)).length, 131072);
 
     // Navigation, back and forward, and a page that does not exist.
     const two = await host.navigate({ tab: tab.tab, to: `${base}/two` });

@@ -115,6 +115,11 @@ The built-in browser's pages are ordinary web traffic to the sites the person or
 a Worker opens; an address-bar search goes to Google. A Worker can read and use
 every browser tab, including pages signed in to the person's accounts, and what
 it reads or captures from a page reaches the selected model as a tool result.
+Workers and the work-fold agent can attach local files to a site's file input;
+the site may transmit them as soon as they are attached. The tools teach the
+agent to use only the files and destination authorized by the task. Download
+observation reports source URLs, filenames, progress, and completed local paths
+to the model; the recent transfer records stay in memory for this app launch.
 
 Web sends search terms to DuckDuckGo by default, or Brave when that connection
 is selected by saved setup, and fetches explicitly requested URLs. The included

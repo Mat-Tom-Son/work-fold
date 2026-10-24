@@ -90,6 +90,9 @@ test("the summary names tool kinds in first-use order and counts what they touch
   assert.equal(workStepsSummary([browser("c1", "browser_click", "e12")]), "Used the browser");
   assert.equal(workStepsSummary([browser("r1", "browser_read")]), "Read a web page");
   assert.equal(workStepsSummary([browser("s1", "browser_screenshot")]), "Looked at a web page");
+  for (const name of ["browser_hover", "browser_drag", "browser_upload", "browser_downloads"]) {
+    assert.equal(workStepsSummary([browser("b1", name)]), "Used the browser");
+  }
   assert.equal(workStepsSummary([]), "");
 });
 

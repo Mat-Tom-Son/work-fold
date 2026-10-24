@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { pathToFileURL } from "node:url";
 
 import { createBrowserTools, browserToolNames, describeBrowserTab } from "../src/local/agent/browser-tools.js";
@@ -202,6 +203,52 @@ test("the address bar says whether a connection is secure, and the link bubble k
   assert.equal(long.length, 60);
   assert.match(long, /^example\.com\/a+…a+\/end\.html$/);
   assert.equal(browserPermissionPhrase(["popups"]), "open pop-ups");
+});
+
+test("advanced browser tools keep Chat attribution, Stop, targets, and download evidence", async () => {
+  const tab: BrowserTabSummary = { tab: "mine01", url: "https://example.com/", title: "Example", loading: false, viewing: true };
+  const calls: Array<{ method: string; input: unknown }> = [];
+  const action = (method: string) => async (input: unknown) => { calls.push({ method, input }); return { tab, navigated: false }; };
+  const host = {
+    tabs: async () => [tab], click: action("click"), hover: action("hover"), drag: action("drag"), upload: action("upload"), press: action("press"), scroll: action("scroll"),
+    downloads: async (input: unknown) => {
+      calls.push({ method: "downloads", input });
+      return { tab, downloads: [{ id: "download-1", tab: tab.tab, filename: "report.csv", url: "https://example.com/report", state: "completed", path: "/tmp/report.csv", receivedBytes: 42, totalBytes: 42 }] };
+    },
+  } as Partial<BrowserToolHost> as BrowserToolHost;
+  const tools = new Map(createBrowserTools({ host, owner: "work-fold-agent/chat-1" }).map((tool) => [tool.name, tool]));
+  const signal = new AbortController().signal;
+  const run = async (name: string, params: Record<string, unknown>) => {
+    const tool = tools.get(name)!;
+    const validated = validateToolArguments(tool, { type: "toolCall", id: "call", name, arguments: params });
+    return await tool.execute("call", validated as never, signal, undefined as never, undefined as never) as { content: Array<{ text?: string }> };
+  };
+  const by = { tab: tab.tab, owner: "work-fold-agent/chat-1", signal };
+  await run("browser_hover", { ref: "e1" });
+  assert.deepEqual(calls.at(-1), { method: "hover", input: { ...by, ref: "e1" } });
+  await run("browser_drag", { from: { ref: "e1" }, to: { x: 120, y: 50 } });
+  assert.deepEqual(calls.at(-1), { method: "drag", input: { ...by, from: { ref: "e1" }, to: { x: 120, y: 50 } } });
+  await run("browser_click", { ref: "e1", button: "middle", modifiers: ["Meta"] });
+  assert.deepEqual(calls.at(-1), { method: "click", input: { ...by, ref: "e1", button: "middle", modifiers: ["Meta"] } });
+  await run("browser_press", { ref: "e2", keys: "Enter" });
+  assert.deepEqual(calls.at(-1), { method: "press", input: { ...by, ref: "e2", keys: "Enter" } });
+  await run("browser_scroll", { ref: "e3" });
+  assert.deepEqual(calls.at(-1), { method: "scroll", input: { ...by, ref: "e3" } });
+  await run("browser_scroll", { ref: "e3", direction: "down" });
+  assert.deepEqual(calls.at(-1), { method: "scroll", input: { ...by, ref: "e3", direction: "down" } });
+  await run("browser_scroll", { x: 100, y: 200, direction: "up", amount: 2 });
+  assert.deepEqual(calls.at(-1), { method: "scroll", input: { ...by, x: 100, y: 200, direction: "up", amount: 2 } });
+  await run("browser_upload", { ref: "e4", paths: ["/tmp/report.csv"] });
+  assert.deepEqual(calls.at(-1), { method: "upload", input: { ...by, ref: "e4", paths: ["/tmp/report.csv"] } });
+  const downloaded = await run("browser_downloads", { seconds: 10 });
+  assert.deepEqual(calls.at(-1), { method: "downloads", input: { ...by, seconds: 10 } });
+  assert.match(downloaded.content[0]!.text!, /completed[\s\S]*\/tmp\/report.csv/);
+  const count = calls.length;
+  await assert.rejects(run("browser_drag", { from: { ref: "e1", x: 1, y: 2 }, to: { x: 2, y: 3 } }), /either a ref/);
+  await assert.rejects(run("browser_hover", { x: 4 }), /both x and y/);
+  await assert.rejects(run("browser_upload", { ref: "e4", paths: [{}] }), /paths/);
+  await assert.rejects(run("browser_click", { ref: "e1", modifiers: ["Hyper"] }), /modifiers/);
+  assert.equal(calls.length, count, "invalid input never reaches the host");
 });
 
 test("a misspelled word gets macOS's own guesses when Electron has none", { skip: process.platform !== "darwin" }, async () => {
