@@ -3,16 +3,17 @@
 The Linux x64 lane produces **local candidates** for Ubuntu 24.04 or newer and
 Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The stable release and automatic-update lane remains
-macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.12.2)
+macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.13.1)
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
-The local 0.13.1 candidate integrates main through `a320928` (Mac 0.13.0
+The 0.13.1 preview integrates main through `a320928` (Mac 0.13.0
 source plus the Electron 42.11.18 security update). It adds the shared built-in
 browser and Worker browser tools, reversible Skill removal, persistent Chat
 attachments, and Files/Settings fixes. It retains Linux's native CLI, title-bar
-controls and app-wide Wayland sharing. The published preview link above still
-identifies 0.12.2 until this candidate is published.
+controls and app-wide Wayland sharing. Linux background browser tabs support
+trusted input and viewport/element/full-page capture without showing an extra
+window or taking desktop focus. The 0.12.2 preview keeps its original tag and downloads.
 
 The 0.12.2 preview integrates main through `7f2e871` (Mac 0.12.1):
 background and interactive jobs, structured Worker collaboration, managed working
