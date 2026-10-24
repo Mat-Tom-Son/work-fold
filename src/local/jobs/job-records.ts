@@ -113,6 +113,8 @@ export interface WorkFoldJobRecord {
   output: WorkFoldJobOutputCounters;
   history: WorkFoldJobHistory | null;
   delivery: WorkFoldJobDelivery | null;
+  /** The address on this computer the running job announced it serves; known only while it runs. */
+  serving?: string;
 }
 
 /** A refusal that names its bound, like every request limit (receipts-not-gates principle 6). */

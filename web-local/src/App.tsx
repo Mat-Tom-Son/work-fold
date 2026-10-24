@@ -14,6 +14,7 @@ import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { WorkFolderSurfaceTabBar } from "./components/chat/WorkFolderSurfaceTabBar";
+import { BrowserTabPanel, type BrowserTabWorker } from "./components/browser/BrowserTabPanel";
 import { WorkFoldLoadingState } from "./components/brand/WorkFoldBrand";
 import { Banner, CenteredState, EmptyInline, WorkFolderIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
@@ -54,6 +55,7 @@ import { useBootstrapRefresh } from "./hooks/useBootstrapRefresh";
 import { folderActivityStatuses, useChatActivity } from "./hooks/useChatActivity";
 import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
+import { useBrowserTabs } from "./hooks/useBrowserTabs";
 import { useWorkFolderTree } from "./hooks/useWorkFolderTree";
 import { useWorkFolderChecks } from "./hooks/useWorkFolderChecks";
 import { useFolderAutomations } from "./hooks/useFolderAutomations";
@@ -356,7 +358,7 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
-  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar sidebarControlsRef={setSidebarControlsTarget} /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and workers."} action={error ? <button className="ui-control" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
+  if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar sidebarControlsRef={setSidebarControlsTarget} /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and Workers."} action={error ? <button className="ui-control" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
 
   return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar sidebarControlsRef={setSidebarControlsTarget} /> : null}
@@ -557,6 +559,7 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     fixtureMode: Boolean(fixture),
     onSwitchWorkFolder,
   });
+  const browser = useBrowserTabs(tabs);
   useEffect(() => {
     function openResult(event: Event) {
       const { workFolderId, path } = (event as CustomEvent<{ workFolderId: string; path: string }>).detail;
@@ -809,7 +812,12 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     if (desktopAction.command === "open-checks") tabs.openChecksSurfaceTab(workFolder);
     else if (desktopAction.command === "customize-work-folder") { const target = workFolders.find((item) => item.id === desktopAction.workFolderId); if (target) openWorkFolderAppearance(target); }
     else if (desktopAction.command === "new-chat") openChat(workFolder, null);
-    else if (desktopAction.command === "reload-work-folder-state") void refreshWorkFolderState();
+    // Cmd/Ctrl+R reloads the page while a browser tab is in front.
+    else if (desktopAction.command === "reload-work-folder-state") {
+      const front = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId);
+      if (front?.kind === "browser") browser.reload(front.pageId);
+      else void refreshWorkFolderState();
+    }
     else if (desktopAction.command === "open-capabilities" || desktopAction.command === "open-skills" || desktopAction.command === "open-extensions") setSkillsExtensionsView("installed");
     else if (desktopAction.command === "app-change-chat" && desktopAction.app) void startAppChangeChat(desktopAction.app).catch((caught) => onError(errorText(caught)));
     else if (desktopAction.command === "open-app-build-chat" && desktopAction.workFolderId && desktopAction.conversationId) void openAppBuildChat(desktopAction.workFolderId, desktopAction.conversationId).catch((caught) => onError(errorText(caught)));
@@ -850,6 +858,11 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
         const step = event.shiftKey ? -1 : 1;
         const next = tabs.surfaceTabs[(index + step + tabs.surfaceTabs.length) % tabs.surfaceTabs.length];
         if (next) tabs.setActiveSurfaceTabId(next.id);
+        return;
+      }
+      // Cmd/Ctrl+Shift+T brings back the browser tab closed last.
+      if (command && event.shiftKey && event.key.toLocaleLowerCase() === "t") {
+        if (browser.reopenClosed()) event.preventDefault();
         return;
       }
       if (!command || event.shiftKey) return;
@@ -1096,6 +1109,33 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     tabs.openChatSurfaceTab(targetWorkFolder, conversation);
   }
 
+  /** Names the Chat using a browser page (its owner is `<work-folder id>/<conversation id>`). */
+  function browserWorker(owner: string | undefined): BrowserTabWorker | null {
+    if (!owner) return null;
+    const slash = owner.indexOf("/");
+    const workFolderId = slash > 0 ? owner.slice(0, slash) : owner;
+    const conversationId = slash > 0 ? owner.slice(slash + 1) : "";
+    if (workFolderId === "work-fold-agent") {
+      return {
+        label: "work-fold agent",
+        title: "The work-fold agent is using this page",
+        onOpen: () => { setAgentPanelMounted(true); updateAgentPanel((current) => ({ ...current, open: true })); },
+      };
+    }
+    const target = workFolders.find((item) => item.id === workFolderId);
+    const conversation = target ? conversationGroups[target.id]?.find((item) => item.id === conversationId) ?? null : null;
+    if (!target) return { label: "Worker", title: "A Worker is using this page" };
+    return {
+      label: "Worker",
+      title: `${conversation?.title || "A Chat"} in ${target.name} is using this page`,
+      ...(conversation ? { onOpen: () => openChat(target, conversation) } : {}),
+      onStop: () => {
+        void api(`/api/work-folders/${target.id}/conversations/${conversationId}/abort`, { method: "POST" })
+          .catch((caught) => onError(errorText(caught)));
+      },
+    };
+  }
+
   /** Opens a fresh Chat with the app-building starter text, cursor at the end. */
   async function startAppChangeChat(app: RestrictedAppInstalled) {
     const source = workFolders.find((item) => item.id === app.sourceWorkFolderId);
@@ -1170,7 +1210,11 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     });
   }
   function attachToChat(path: string) {
-    const existing = tabs.surfaceTabs.find((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id && (!tab.conversationId || tab.id === tabs.activeSurfaceTabId));
+    // The Chat in front, else the one the person was last in, else a blank draft.
+    const workFolderChats = tabs.surfaceTabs.filter((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id);
+    const existing = workFolderChats.find((tab) => tab.id === tabs.activeSurfaceTabId)
+      ?? tabs.recentChatSurfaceTab(workFolder.id)
+      ?? workFolderChats.find((tab) => tab.kind === "chat" && !tab.conversationId);
     const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(workFolder, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
     setContextRequest({ id: ++contextRequestId.current, path, workFolderId: workFolder.id, surfaceTabId });
@@ -1633,6 +1677,10 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
       ];
     }),
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(workFolder, null) },
+    ...(browser.available ? [
+      { id: "action:new-browser-tab", groupId: "actions" as const, groupLabel: "Actions", label: "New browser tab", keywords: ["browser", "web", "website", "internet", "page"], defaultVisible: true, run: browser.newTab },
+      { id: "action:reopen-closed-tab", groupId: "actions" as const, groupLabel: "Actions", label: "Reopen closed tab", keywords: ["browser", "undo", "restore", "closed"], run: () => { if (!browser.reopenClosed()) showToast({ text: "No closed browser tab to reopen", tone: "info" }); } },
+    ] : []),
     ...(!fixture ? [
       { id: "action:set-up", groupId: "actions" as const, groupLabel: "Actions", label: "Set up for me", keywords: ["organize", "tidy", "setup", "banner", "instructions"], run: () => { void startSetUp("full"); } },
       { id: "action:just-the-look", groupId: "actions" as const, groupLabel: "Actions", label: "Just the look", keywords: ["banner", "icon", "color", "appearance", "customize"], run: () => { void startSetUp("look"); } },
@@ -1650,7 +1698,7 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     { id: "action:toggle-agent-panel", groupId: "actions", groupLabel: "Actions", label: agentPanelOpen ? "Close work-fold agent" : "Open work-fold agent", keywords: ["agent", "chat", "panel"], run: toggleAgentPanel },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Shortcut Keys", run: onOpenShortcuts },
     ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
-  ], [agentPanelOpen, checks.status, conversationGroups, fixture, restrictedApps, sidebarCollapsed, surfaces, themePreference, tree.selectedPath, tree.tree, workFolders, workFolder.id]);
+  ], [agentPanelOpen, browser.available, checks.status, conversationGroups, fixture, restrictedApps, sidebarCollapsed, surfaces, themePreference, tree.selectedPath, tree.tree, workFolders, workFolder.id]);
 
   const layoutStyle = { ...(workFolderIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--work-folder-sidebar-width": `${paneResize.sidebarWidth}px` } : {}), "--agent-panel-width": `${agentPanel.width}px` } as CSSProperties;
 
@@ -1751,8 +1799,17 @@ function WorkFolderView({ sidebarControlsTarget, workFolder, workFolders, restri
     </section>
     <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">
-      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onChatActions={openChatActions} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} />
+      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onChatActions={openChatActions} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
+        if (tab.kind === "browser") {
+          // A browser tab belongs to no work-folder; every work-folder shows it.
+          const active = tab.id === tabs.activeSurfaceTabId;
+          return (
+            <div className="work-folder-surface-body work-folder-surface-body-browser" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id}>
+              <BrowserTabPanel tab={tab} page={browser.pages[tab.pageId]} active={active} worker={browserWorker(browser.pages[tab.pageId]?.worker?.owner)} onError={onError} />
+            </div>
+          );
+        }
         const targetWorkFolder = workFolders.find((item) => item.id === tab.workFolderId);
         if (!targetWorkFolder) return null;
         const active = tab.id === tabs.activeSurfaceTabId;

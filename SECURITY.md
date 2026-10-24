@@ -76,6 +76,23 @@ reviewed source and included in the app's signing lane; normal installation
 does not run upstream helper downloads. These checks establish provenance,
 not a sandbox or proof that every external action is safe.
 
+The built-in browser's pages run in Chromium's sandbox with context isolation,
+no Node integration, no preload, and no webview tags, in their own persistent
+session; they never receive the app's desktop bridge, and a page is never a
+trusted renderer for the app's IPC checks. Non-web schemes are refused (mail
+links go to the mail app). Camera, microphone, location, notifications, MIDI,
+clipboard reading, window placement, and activity status are granted only after
+the person allows them for that site, never by a Worker; USB, serial, HID, and
+Bluetooth devices are refused. Workers drive pages with the Chrome DevTools
+Protocol through Electron's in-process debugger, which needs no extension or
+port and exposes nothing outside the app. A page signed in to an account acts
+with that account's authority whether the person or a Worker uses it. A Worker
+can attach explicitly named local files to a site's file input through that
+debugger; the page receives those files, never a filesystem or desktop bridge.
+The tools teach agents to treat site content as untrusted and to use only
+task-authorized files and destinations. See
+[the built-in browser](docs/built-in-browser.md).
+
 Native resource enable/disable preserves Pi's filters and scopes, pins the
 resource and settings identity, journals before effect, and refuses changes
 while affected work is active. It is a lifecycle control, not a way to revoke
@@ -350,7 +367,7 @@ Mutations ride a separately versioned act lane over the same broker files. Act r
 
 **Receipts, not gates.** work-fold has one authority setting for acts: none. Every act-lane verb — including making bytes runnable, widening an app's or a page's standing power, and deleting — runs on its first call through the same prepare, pin, journal-first, fenced execution path the desktop uses, and returns a receipt. The security properties are the receipt and the pins, not a person's click: journal-before-effect, identity pins rechecked at effect time, at-most-once execution, failure without automatic retry, capability-mutation fences, and turn-conflict rejection all remain. A changed package identity or a moved target invalidates an act instead of executing something else. Receipts preserve the initiating surface and, for remote-originated acts, the exact browser and grant. A paired browser inherits the same lane; it gains no authority the desktop does not already hold.
 
-Destruction is reversible. File deletion and work-folder removal refuse until affected work has settled, including waiting questions and stopped turns still draining; the desktop and CLI share that reservation. Managed parents also refuse deletion while nested work-folder registrations remain. Once idle, `files delete` keeps History coverage and moves every uncovered path into a machine-local trash under the application-data root with a manifest per item (source work-folder, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it). `work-folders delete` moves the managed folder and its History there and unregisters the work-folder; interrupted moves retain remaining state until it can be matched to one intact recovery entry. Clearing an app's storage, purging retained data, and uninstalling with purge leave a recoverable copy there first, and deleting an unused App Studio Release keeps its record and envelope there; a restore re-verifies the envelope against its content digest before the Release returns. Items are restorable from Settings → Recently deleted and from `work-fold recently-deleted list|restore`, and are removed only when their retention window ends (30 days by default). No verb empties the trash, and retention never erases an item whose tree contains legacy `.workspace/` state. The clean-break rule for legacy `.workspace/` trees and the rule that `.work-fold/`, `.pi/`, and `.workspace/` are never valid file endpoints are unchanged.
+Destruction is reversible. File deletion and work-folder removal refuse until affected work has settled, including waiting questions and stopped turns still draining; the desktop and CLI share that reservation. Managed parents also refuse deletion while nested work-folder registrations remain. Once idle, `files delete` keeps History coverage and moves every uncovered path into a machine-local trash under the application-data root with a manifest per item (source work-folder, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it). `work-folders delete` moves the managed folder and its History there and unregisters the work-folder; interrupted moves retain remaining state until it can be matched to one intact recovery entry. Clearing an app's storage, purging retained data, and uninstalling with purge leave a recoverable copy there first, removing an imported Skill moves its whole folder there with its scope, and deleting an unused App Studio Release keeps its record and envelope there; a restore re-verifies the envelope against its content digest before the Release returns. Items are restorable from Settings → Recently deleted and from `work-fold recently-deleted list|restore`, and are removed only when their retention window ends (30 days by default). No verb empties the trash, and retention never erases an item whose tree contains legacy `.workspace/` state. The clean-break rule for legacy `.workspace/` trees and the rule that `.work-fold/`, `.pi/`, and `.workspace/` are never valid file endpoints are unchanged.
 
 The only human-only surfaces establish identity or secrets: entering a provider or app secret, pairing a browser, and enrolling or administering a remote address. They have no act verb and no remote operation, and no task needs them mid-flight. This boundary binds the product's lanes; the management agent remains full-trust and taught rather than tool-restricted, and same-user processes remain inside the local trust boundary, exactly as documented above.
 

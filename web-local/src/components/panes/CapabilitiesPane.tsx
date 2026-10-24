@@ -413,32 +413,39 @@ export function CapabilitiesPane({
     }
   }
 
+  // Removal is reversible, so it asks nothing first: like Chat deletion, it acts and offers Undo.
   async function removeSkill(item: InstalledCapability) {
     const operation = operationGateRef.current.capture();
-    const confirmed = await requestConfirm({
-      title: `Remove ${item.name}?`,
-      body: item.scope === "project"
-        ? `The Skill folder is deleted from this work-folder's .pi/skills. The Worker in ${workFolder.name} stops using it with the next turn.`
-        : "The Skill folder is deleted from your Pi skills. The work-fold agent and every Worker stop using it with the next turn.",
-      confirmLabel: "Remove Skill",
-      tone: "danger",
-    });
-    if (!confirmed || !operationGateRef.current.isCurrent(operation)) return;
     setBusy(true);
     try {
+      let recentlyDeleted: { entryId: string; restoreBy: string } | null = null;
       if (fixtureMode) {
         setCatalog((current) => current ? { ...current, skills: current.skills.filter((skill) => skill.path !== item.path) } : current);
       } else {
-        await api("/api/agent/skills/remove", {
+        recentlyDeleted = (await api<{ recentlyDeleted: { entryId: string; restoreBy: string } }>("/api/agent/skills/remove", {
           method: "POST",
           body: { workFolderId: operation.workFolderId, path: item.path, scope: item.scope },
-        });
+        })).recentlyDeleted;
         if (!operationGateRef.current.isCurrent(operation)) return;
         await loadCatalog(operation);
       }
       if (!operationGateRef.current.isCurrent(operation)) return;
       setSelectedCapability(null);
-      showToast({ text: `${item.name} removed.`, tone: "success" });
+      showToast({
+        text: `Moved "${item.name}" to Recently Deleted`,
+        tone: "success",
+        durationMs: 6500,
+        ...(recentlyDeleted ? {
+          actionLabel: "Undo",
+          onAction: () => {
+            // Restoring puts the Skill back in the same scope and reloads
+            // capabilities like an install; a same-named Skill added since is a refusal.
+            void api(`/api/settings/recently-deleted/${recentlyDeleted.entryId}/restore`, { method: "POST", body: {} })
+              .then(() => loadCatalog(operation))
+              .catch((caught) => { if (operationGateRef.current.isCurrent(operation)) onError(errorText(caught)); });
+          },
+        } : {}),
+      });
     } catch (caught) {
       if (operationGateRef.current.isCurrent(operation)) onError(errorText(caught));
     } finally {
@@ -848,10 +855,18 @@ function isCoreTool(tool: AgentTool): boolean {
   return tool.core === true || tool.kind === "core" || (tool.core === undefined && tool.kind === undefined && /^(?:pi|built-?in)$/i.test(tool.source.trim()));
 }
 
+/** "1 tool · 2 commands"; a part with nothing in it is left out. */
+function extensionContentsSummary(tools: number, commands: number): string {
+  return [
+    tools ? `${tools} ${tools === 1 ? "tool" : "tools"}` : "",
+    commands ? `${commands} ${commands === 1 ? "command" : "commands"}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 /** One installed Skill or Extension; the whole row opens its details. */
 function InstalledCapabilityRow({ item, onSelect }: { item: InstalledCapability; onSelect: () => void }) {
   const trouble = ["error", "blocked", "missing"].includes(item.status);
-  const detail = item.description || (item.kind === "extension" ? `${item.tools.length} tools · ${item.commands.length} commands` : "");
+  const detail = item.description || (item.kind === "extension" ? extensionContentsSummary(item.tools.length, item.commands.length) : "");
   return (
     <button className="capabilities-resource-card" type="button" onClick={onSelect}>
       <span className="capabilities-kind-icon" aria-hidden="true">{item.kind === "skill" ? <BookToolbox20Regular /> : <PlugConnected20Regular />}</span>
@@ -1111,10 +1126,11 @@ function CapabilityEmpty({ title }: { title: string }) {
 
 export function normalizedCapabilities(catalog: AgentCatalog): InstalledCapability[] {
   const fromSkills = catalog.skills.map((item) => normalizeSkill(item, catalog.diagnostics));
-  // Pi's named built-in factories already appear in Core Tools. They have no
-  // installable resource or lifecycle controls to present as another Extension.
+  // Named built-in factories (Pi's native tools and work-fold's own turn hooks)
+  // have no installable resource or lifecycle controls to present as an
+  // Extension; any tools they add already appear in Core Tools.
   const fromExtensions = catalog.extensions
-    .filter((item) => item.path !== "builtin:codemode" && item.path !== "builtin:tool_search")
+    .filter((item) => !item.path.startsWith("builtin:"))
     .map((item) => normalizeExtension(item, catalog.diagnostics));
   const items = [...fromSkills, ...fromExtensions];
   for (const resource of catalog.resources ?? []) {

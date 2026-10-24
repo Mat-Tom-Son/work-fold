@@ -46,7 +46,8 @@ export interface ChatMessage {
 
 /**
  * Reference-style attachment metadata persisted with a user message. The
- * work-fold agent records absolute paths and links here; the content
+ * work-fold agent records absolute paths and links here; a work-folder Chat
+ * records its attached files as work-folder-relative paths. The content
  * itself is never copied into the transcript.
  */
 export interface ChatMessageAttachmentRef {

@@ -134,6 +134,16 @@ test("until returns as soon as a line matches, and stop ends the whole process g
   assert.equal(h.settled.length, 1);
 });
 
+test("a running server's announced address is reported while it runs, even split across writes", async (t) => {
+  const h = await harness(t);
+  const job = await start(h, `printf 'VITE ready\\n  Local:   http://local'; sleep 0.2; printf 'host:5173/\\n'; echo ready; sleep 30`);
+  const ready = await h.service.wait(job.jobId, { seconds: 10, until: /^ready$/ });
+  assert.equal(ready.outcome, "matched");
+  assert.equal(h.service.get(job.jobId)?.serving, "http://localhost:5173/");
+  const stopped = await h.service.stop(job.jobId, "agent");
+  assert.equal(stopped.serving, undefined, "a stopped server serves nothing");
+});
+
 test("a wait without a pattern times out while the job keeps running", async (t) => {
   const h = await harness(t);
   const job = await start(h, "sleep 30");

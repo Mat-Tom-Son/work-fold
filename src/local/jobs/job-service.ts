@@ -36,6 +36,7 @@ import {
 } from "./job-records.js";
 import {
   JobOutputWriter,
+  localServerAddress,
   readJobOutputPage,
   readJobOutputTail,
   sanitizeJobOutput,
@@ -112,6 +113,9 @@ interface LiveJob {
   events: EventEmitter;
   settled: Promise<WorkFoldJobRecord>;
   resolveSettled: (record: WorkFoldJobRecord) => void;
+  /** The address the job announced it serves, and the end of the output a split address may continue from. */
+  serving: string | null;
+  servingTail: string;
 }
 
 export class WorkFoldJobService {
@@ -153,7 +157,9 @@ export class WorkFoldJobService {
     const record = this.store.get(jobId);
     if (!record) return null;
     const live = this.#live.get(jobId);
-    return live && !isWorkFoldJobTerminalState(record.state) ? { ...record, output: live.writer.counters } : record;
+    return live && !isWorkFoldJobTerminalState(record.state)
+      ? { ...record, output: live.writer.counters, ...(live.serving ? { serving: live.serving } : {}) }
+      : record;
   }
 
   require(jobId: string): WorkFoldJobRecord {
@@ -270,6 +276,8 @@ export class WorkFoldJobService {
       events: new EventEmitter(),
       settled,
       resolveSettled,
+      serving: null,
+      servingTail: "",
     };
     live.events.setMaxListeners(0);
     let child: ChildProcess;
@@ -314,6 +322,12 @@ export class WorkFoldJobService {
         writer.write(chunk);
       } catch {
         // A full disk stops keeping output; the job keeps running.
+      }
+      // A server says where it listens early on; look until it has.
+      if (!live.serving) {
+        const text = live.servingTail + chunk.toString("utf8");
+        live.serving = localServerAddress(text);
+        live.servingTail = text.slice(-256);
       }
       live.events.emit("data", chunk);
     };

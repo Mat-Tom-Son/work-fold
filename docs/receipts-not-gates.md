@@ -112,7 +112,7 @@ it; competing History copies are never merged or replaced.
 
 - New machine-local store under the state root (`recently-deleted/`), with a manifest
   per entry: source work-folder id, original work-folder-relative path or folder, kind
-  (file, folder, work-folder, app-storage, app-retained, app-release, app-studio), size, deleted-at,
+  (file, folder, work-folder, skill, app-storage, app-retained, app-release, app-studio), size, deleted-at,
   restore-by, and the receipt id that produced it.
 - Producers: `files delete` for uncoverable paths, `work-folders delete`,
   `apps storage clear`, `apps retained purge`, `apps uninstall --purge-data`,
@@ -122,7 +122,12 @@ it; competing History copies are never merged or replaced.
   work-folder in any way keeps its App Studio history — App Project, previews
   with their packages, Releases, prepared operations, and receipts — as one
   `app-studio` item; it goes back once the work-folder is registered again and
-  returns the previews' data with it.
+  returns the previews' data with it. Also (2026-10-22) removing an imported
+  Skill in Skills & Extensions keeps its whole folder as a `skill` item with
+  its scope (Everywhere or the work-folder) and its path inside that scope's
+  skills folder, because `.pi/` and Pi's own folder are outside History; it
+  goes back to the same place and loads again, and is refused while a Skill of
+  the same name is installed in that scope.
   The desktop's Delete action and Undo toast keep working; Undo restores from
   History or trash as appropriate.
 - Consumers: Settings → Recently deleted (list, Restore, Delete now), and

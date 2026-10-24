@@ -35,7 +35,7 @@ import {
 import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
 import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
-import { AiModelsPane, type ModelScope } from "../panes/AiModelsPane";
+import { AiModelsPane, type AiModelsDraft, type ModelScope } from "../panes/AiModelsPane";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { AppearanceSettingsPane } from "./AppearanceSettingsPane";
 import { WorkFoldLimitsPane } from "./WorkFoldLimitsPane";
@@ -49,6 +49,8 @@ import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
 export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type SettingsSection = "automations" | "deleted" | "limits";
 type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
+// AI Models edits nobody saved yet: closing Settings and opening it again finds them as left.
+const unsavedAiModelsEdits = new Map<string, AiModelsDraft>();
 
 /**
  * The tab a Settings page id opens. "remote", "general" and "desktop" are
@@ -207,7 +209,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "ai-models" || aiModelsVisited ? (
               <div hidden={page !== "ai-models"} className="settings-tab-panel" id="settings-panel-ai-models" role="tabpanel" aria-labelledby="settings-tab-ai-models">
-                <AiModelsPane active={page === "ai-models"} workFolder={workFolder} status={agentStatus} fixtureMode={fixtureMode} embedded initialScope={initialModelScope} focusModelOnOpen={focusAiModel} focusInstructionsOnOpen={focusWorkerInstructions} onConfigured={onAgentConfigured} onModelChanged={onModelChanged} />
+                <AiModelsPane active={page === "ai-models"} workFolder={workFolder} status={agentStatus} fixtureMode={fixtureMode} embedded drafts={unsavedAiModelsEdits} initialScope={initialModelScope} focusModelOnOpen={focusAiModel} focusInstructionsOnOpen={focusWorkerInstructions} onConfigured={onAgentConfigured} onModelChanged={onModelChanged} />
               </div>
             ) : null}
             {page === "web-access" ? (

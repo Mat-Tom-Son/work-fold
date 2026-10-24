@@ -342,3 +342,21 @@ export function fenceJobOutput(text: string): string {
   const fence = "`".repeat(longest + 1);
   return `${fence}text\n${text}\n${fence}`;
 }
+
+/**
+ * The first address on this computer a job's output announces, such as a dev
+ * server's "Local: http://localhost:5173/", so a Worker can open it in the
+ * built-in browser (docs/built-in-browser.md). An all-interfaces address
+ * (0.0.0.0, [::]) is opened as localhost.
+ */
+export function localServerAddress(text: string): string | null {
+  const match = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[a-z0-9-]+\.localhost)(?::\d{2,5})?(?:\/[^\s"'<>`)\]]*)?/i.exec(sanitizeJobOutput(text));
+  if (!match) return null;
+  try {
+    const url = new URL(match[0].replace(/[.,;:!?]+$/, ""));
+    if (url.hostname === "0.0.0.0" || url.hostname === "[::]") url.hostname = "localhost";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}

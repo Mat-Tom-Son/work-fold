@@ -1,6 +1,6 @@
 import { useWorkFolderIdentityResolver } from "../../lib/work-folder-appearance-context";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
-import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular } from "@fluentui/react-icons";
+import { Checkmark16Regular, ChevronDown16Regular, Dismiss12Regular, Speaker216Regular, SpeakerMute16Regular } from "@fluentui/react-icons";
 
 import { chatDisplayTitle } from "../../lib/format";
 import { chatActivityKey } from "../../lib/chat-lifecycle";
@@ -11,14 +11,26 @@ import { createSurfaceTabMotion } from "../../lib/surface-tab-motion";
 import { createSurfaceTabReorder } from "../../lib/surface-tab-reorder";
 import { workFolderIdentityStyle } from "../../lib/work-folder-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/work-folder-ui";
-import type { ChatActivityStatus, ConversationSummary, WorkFolderCustomizationMap, WorkFolderSummary, WorkFolderSurfaceTab } from "../../types";
-import { FluentGlyph, NewChatIcon, WorkFolderIconGlyph } from "../chrome/common";
+import type { BrowserSurfaceTab, ChatActivityStatus, ConversationSummary, WorkFolderCustomizationMap, WorkFolderSummary, WorkFolderSurfaceTab } from "../../types";
+import { BrowserTabIcon, FluentGlyph, NewBrowserTabIcon, NewChatIcon, WorkFolderIconGlyph } from "../chrome/common";
 import { fileSharing } from "../../ui-contract";
 import { SharedPageGlyph } from "../tree/FileTree";
 
 const groupSurfaceTabsStorageKey = "work-fold.work-folder.surface-tabs.group-by-work-folder.v1";
 
 export type SurfaceTabOverflow = "start" | "end" | "both" | null;
+
+/** What a browser tab shows beyond its title: the page's icon, and whether it is loading or playing sound. */
+export interface BrowserTabLook {
+  favicon: string | null;
+  loading: boolean;
+  audible: boolean;
+  muted: boolean;
+  /** The site is waiting for the person to allow or block something. */
+  asking: boolean;
+  /** A Worker is using the page right now. */
+  worker: boolean;
+}
 
 /** Size tier for the tab strip: compact above three tabs, dense above six. */
 export function surfaceTabCountTier(tabCount: number): "tab-count-dense" | "tab-count-compact" | "" {
@@ -53,6 +65,9 @@ export function WorkFolderSurfaceTabBar({
   onNewChatInWorkFolder,
   onChatActions,
   isSharedFile,
+  browserTabLooks = {},
+  onNewBrowserTab,
+  onBrowserTabMenu,
 }: {
   tabs: WorkFolderSurfaceTab[];
   workFolders: WorkFolderSummary[];
@@ -68,6 +83,12 @@ export function WorkFolderSurfaceTabBar({
   onChatActions: (workFolder: WorkFolderSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
   /** True when this work-folder file is shared as a page; file tabs carry the mark. */
   isSharedFile?: (workFolderId: string, path: string) => boolean;
+  /** Each browser tab's page icon and state, by page id. */
+  browserTabLooks?: Record<string, BrowserTabLook>;
+  /** Present in the desktop app, where the built-in browser runs. */
+  onNewBrowserTab?: () => void;
+  /** A browser tab's right-click menu. */
+  onBrowserTabMenu?: (tab: BrowserSurfaceTab, event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   const workFolderIdentityFor = useWorkFolderIdentityResolver();
   const [workFolderMenuOpen, setWorkFolderMenuOpen] = useState(false);
@@ -92,8 +113,8 @@ export function WorkFolderSurfaceTabBar({
   );
   const tabGroups = useMemo(
     () => groupingActive
-      ? groupSurfaceTabsByWorkFolder(tabs)
-      : [{ workFolderId: null, tabs }],
+      ? groupSurfaceTabsByWorkFolder(tabs).map((group) => ({ ...group, grouped: true }))
+      : [{ workFolderId: null, tabs, grouped: false }],
     [groupingActive, tabs],
   );
   const countTier = surfaceTabCountTier(tabs.length);
@@ -272,7 +293,73 @@ export function WorkFolderSurfaceTabBar({
     window.requestAnimationFrame(() => menuButtonRef.current?.focus());
   }
 
+  function renderBrowserTabIcon(tab: BrowserSurfaceTab) {
+    const look = browserTabLooks[tab.pageId];
+    if (look?.loading) return <span className="surface-tab-browser-spinner" />;
+    return look?.favicon
+      ? <img className="surface-tab-favicon" src={look.favicon} alt="" draggable={false} />
+      : <FluentGlyph icon={BrowserTabIcon} size={15} filled={false} />;
+  }
+
+  /** A browser tab carries its page's icon instead of a work-folder's, and selecting it keeps the open work-folder. */
+  function renderBrowserTab(tab: BrowserSurfaceTab, grouped: boolean) {
+    const look = browserTabLooks[tab.pageId];
+    const state = [
+      look?.asking ? "waiting for you" : "",
+      look?.worker ? "a Worker is using it" : "",
+      look?.loading ? "loading" : "",
+      look?.muted ? "muted" : look?.audible ? "playing sound" : "",
+    ].filter(Boolean).map((part) => `, ${part}`).join("");
+    return (
+      <span
+        className={["surface-tab", "surface-tab-browser", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : ""].filter(Boolean).join(" ")}
+        key={tab.id}
+        data-tab-id={tab.id}
+        title={tab.url ? `${tab.title}\n${tab.url}` : tab.title}
+        onContextMenu={(event) => onBrowserTabMenu?.(tab, event)}
+        onAuxClick={(event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          onClose(tab.id);
+        }}
+      >
+        <button
+          id={surfaceTabDomId(tab.id)}
+          className="surface-tab-main"
+          type="button"
+          role="tab"
+          aria-selected={tab.id === activeTabId}
+          aria-controls={surfacePanelDomId(tab.id)}
+          aria-label={`${tab.title}, browser tab${state}`}
+          tabIndex={tab.id === activeTabId ? 0 : -1}
+          aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+          onPointerDown={(event) => reorderRef.current?.begin(event.nativeEvent, tab.id, event.currentTarget)}
+          onClick={() => { if (!reorderRef.current?.consumeClick()) onActivate(tab.id); }}
+        >
+          <span className="surface-tab-icon" aria-hidden="true">{renderBrowserTabIcon(tab)}</span>
+          <span className="surface-tab-copy">
+            <span className="surface-tab-title">{tab.title}</span>
+          </span>
+          {look?.muted ? <SpeakerMute16Regular className="surface-tab-audio-marker" aria-hidden="true" /> : look?.audible ? <Speaker216Regular className="surface-tab-audio-marker" aria-hidden="true" /> : null}
+          {/* The same pulse a running Worker shows on a Chat tab. */}
+          {look?.worker ? <span className="surface-tab-chat-status running" aria-hidden="true" /> : null}
+          {look?.asking ? <span className="surface-tab-browser-asking" aria-hidden="true" /> : null}
+        </button>
+        <button
+          className="surface-tab-close"
+          type="button"
+          onClick={() => onClose(tab.id)}
+          aria-label={`Close ${tab.title}`}
+          title="Close tab"
+        >
+          <Dismiss12Regular />
+        </button>
+      </span>
+    );
+  }
+
   function renderSurfaceTab(tab: WorkFolderSurfaceTab, grouped: boolean) {
+    if (tab.kind === "browser") return renderBrowserTab(tab, grouped);
     const tabWorkFolder = workFolders.find((item) => item.id === tab.workFolderId);
     const workFolderName = tabWorkFolder?.name ?? "work-folder";
     const resolvedWorkFolder = tabWorkFolder ?? fallbackWorkFolderSummary(tab.workFolderId, workFolderName);
@@ -355,7 +442,20 @@ export function WorkFolderSurfaceTabBar({
       >
         <span ref={activeChromeRef} className="surface-tab-active-chrome" aria-hidden="true" />
         {tabGroups.map((group) => {
-          if (!group.workFolderId) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
+          if (!group.grouped) return group.tabs.map((tab) => renderSurfaceTab(tab, false));
+          if (group.workFolderId === null) {
+            return (
+              <span className="surface-tab-group surface-tab-group-browser" role="presentation" key="browser">
+                <span className="surface-tab-group-label" title="Browser" aria-hidden="true">
+                  <FluentGlyph icon={BrowserTabIcon} size={14} filled={false} />
+                  <span>Browser</span>
+                </span>
+                <span className="surface-tab-group-tabs" role="presentation">
+                  {group.tabs.map((tab) => renderSurfaceTab(tab, true))}
+                </span>
+              </span>
+            );
+          }
           const tabWorkFolder = workFolders.find((item) => item.id === group.workFolderId)
             ?? fallbackWorkFolderSummary(group.workFolderId, "work-folder");
           const identity = workFolderIdentityFor(tabWorkFolder, workFolderCustomizations);
@@ -378,6 +478,20 @@ export function WorkFolderSurfaceTabBar({
         })}
       </div>
       <div className="surface-tab-actions">
+        {onNewBrowserTab ? (
+          <button
+            className="surface-tab-action surface-tab-new-browser"
+            type="button"
+            onClick={() => {
+              setWorkFolderMenuOpen(false);
+              onNewBrowserTab();
+            }}
+            aria-label="Open a browser tab"
+            title="New browser tab"
+          >
+            <FluentGlyph icon={NewBrowserTabIcon} size={18} />
+          </button>
+        ) : null}
         <div
           className="surface-tab-work-folder-menu-anchor"
           ref={menuAnchorRef}
@@ -449,10 +563,28 @@ export function WorkFolderSurfaceTabBar({
                   <span className="surface-tab-work-folder-menu-separator" role="separator" />
                   <span className="surface-tab-work-folder-menu-heading">Open Tabs</span>
                   {orderedTabs.map((tab) => {
+                    const active = tab.id === activeTabId;
+                    if (tab.kind === "browser") {
+                      return (
+                        <button
+                          className="surface-tab-open-item surface-tab-open-item-browser"
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          aria-label={`${tab.title}, browser tab`}
+                          tabIndex={-1}
+                          key={tab.id}
+                          onClick={() => handleOpenTabSelect(tab.id)}
+                          title={tab.url || tab.title}
+                        >
+                          <span className="work-folder-identity-icon">{renderBrowserTabIcon(tab)}</span>
+                          <span className="surface-tab-work-folder-menu-copy"><strong>{tab.title}</strong></span>
+                        </button>
+                      );
+                    }
                     const tabWorkFolder = workFolders.find((item) => item.id === tab.workFolderId)
                       ?? fallbackWorkFolderSummary(tab.workFolderId, "work-folder");
                     const identity = workFolderIdentityFor(tabWorkFolder, workFolderCustomizations);
-                    const active = tab.id === activeTabId;
                     return (
                       <button
                         className="surface-tab-open-item"

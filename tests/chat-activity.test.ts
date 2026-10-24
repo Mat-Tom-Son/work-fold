@@ -75,14 +75,24 @@ test("steps keep the order they happened and fold into a plain summary once the 
 
 test("the summary names tool kinds in first-use order and counts what they touched", () => {
   const edit: RuntimePreviewEntry = { id: "e1", kind: "tool", toolName: "edit", text: "Edit finished", detail: "a.md", phase: "complete" };
-  const other: RuntimePreviewEntry = { id: "x1", kind: "tool", toolName: "browser_navigate", text: "Browser Navigate finished", detail: "https://example.com", phase: "complete" };
+  const other: RuntimePreviewEntry = { id: "x1", kind: "tool", toolName: "web_search", text: "Web Search finished", detail: "weather", phase: "complete" };
+  const browser = (id: string, toolName: string, detail = ""): RuntimePreviewEntry => ({ id, kind: "tool", toolName, text: "finished", detail, phase: "complete" });
   assert.equal(workStepsSummary([read("r1", "docs/a.md")]), "Read a.md");
   assert.equal(workStepsSummary([bash("b1", "ls -la")]), "Ran ls -la");
   assert.equal(workStepsSummary([read("r1", "a.md"), read("r2", "b.md"), bash("b1", "ls"), bash("b2", "ls -la"), edit]), "Read files, ran commands, edited a file");
   assert.equal(workStepsSummary([read("r1", "a.md"), thought("t1", "Thinking text.")]), "Read a.md");
   assert.equal(workStepsSummary([thought("t1", "Only reasoning.")]), "Thought it through");
   assert.equal(workStepsSummary([thought("t1", "", { durationMs: 2_400 }), thought("t2", "", { durationMs: 1_100 })]), "Thought for 4s");
-  assert.equal(workStepsSummary([other, read("r1", "a.md")]), "Used Browser Navigate, read a file");
+  assert.equal(workStepsSummary([other, read("r1", "a.md")]), "Used Web Search, read a file");
+  // The built-in browser's steps read as plain actions on web pages.
+  assert.equal(workStepsSummary([browser("o1", "browser_open", "https://example.com/docs/")]), "Opened example.com/docs");
+  assert.equal(workStepsSummary([browser("o1", "browser_open", "https://a.example"), browser("r1", "browser_read"), browser("c1", "browser_click", "e12"), browser("t1", "browser_type", "e13")]), "Opened a web page, read a web page, used the browser");
+  assert.equal(workStepsSummary([browser("c1", "browser_click", "e12")]), "Used the browser");
+  assert.equal(workStepsSummary([browser("r1", "browser_read")]), "Read a web page");
+  assert.equal(workStepsSummary([browser("s1", "browser_screenshot")]), "Looked at a web page");
+  for (const name of ["browser_hover", "browser_drag", "browser_upload", "browser_downloads"]) {
+    assert.equal(workStepsSummary([browser("b1", name)]), "Used the browser");
+  }
   assert.equal(workStepsSummary([]), "");
 });
 

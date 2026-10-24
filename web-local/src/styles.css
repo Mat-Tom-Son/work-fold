@@ -2240,6 +2240,13 @@ to {
   font-weight: 600;
 }
 
+/* These searches draw their own clear button; Chromium's would be a second one. */
+.file-tree-search input::-webkit-search-cancel-button {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .file-tree-search button {
   width: 24px;
   min-height: 24px;
@@ -5930,6 +5937,43 @@ to {
 .context-chip-remove:hover,
 .context-chip-remove:focus-visible {
   background: rgba(255, 255, 255, 0.96);
+}
+
+/* The files a sent message carried: the composer's chips, above the bubble. */
+.message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.message-attachments > li {
+  min-width: 0;
+  display: flex;
+}
+
+.context-chip.message-attachment {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0 6px 0 0;
+  font: inherit;
+  font-size: 0.68rem;
+  text-align: left;
+}
+
+button.context-chip.message-attachment {
+  cursor: pointer;
+}
+
+button.context-chip.message-attachment:hover {
+  border-color: var(--ui-border-strong, #b8c4d6);
+}
+
+button.context-chip.message-attachment:focus-visible {
+  outline: 2px solid var(--work-fold-accent);
+  outline-offset: 1px;
 }
 
 .context-meta-grid {
@@ -21391,3 +21435,603 @@ to {
 .desktop-window-controls button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
 .desktop-window-controls button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
 .desktop-window-controls .desktop-window-quit:hover { background: #c42b1c; color: white; }
+
+/* Built-in browser (docs/built-in-browser.md, 2026-10-23). Browser tabs belong
+   to no work-folder, so they wear the app's own accent and the page's icon. */
+
+.surface-tab-new-browser {
+  margin-right: 2px;
+}
+
+.surface-tab.surface-tab-browser {
+  --surface-tab-accent: var(--ui-accent);
+  --surface-tab-accent-soft: var(--ui-accent-soft);
+}
+
+/* No work-folder's colors: these name the browser, not a work-folder. */
+.surface-tab-group-browser,
+.surface-tab-open-item-browser {
+  --work-folder-accent-text-ui: var(--ui-text-muted);
+  --work-folder-accent-glyph: var(--ui-text-muted);
+  --work-folder-custom-color: var(--ui-text-muted);
+}
+
+.surface-tab-browser .surface-tab-icon,
+.surface-tab-open-item-browser .work-folder-identity-icon {
+  color: var(--ui-text-muted);
+}
+
+.surface-tab-favicon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.surface-tab-browser-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--ui-text-muted) 28%, transparent);
+  border-top-color: var(--ui-text-muted);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* A site in this tab is waiting for the person to allow or block something. */
+.surface-tab-browser-asking {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  margin-right: 1px;
+  border-radius: 999px;
+  background: var(--ui-attention);
+}
+
+.surface-tab-audio-marker {
+  margin-right: 1px;
+  font-size: 14px;
+  color: var(--ui-text-muted);
+}
+
+.work-folder-surface-body-browser {
+  display: flex;
+}
+
+.browser-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+}
+
+.browser-tab-toolbar {
+  container-type: inline-size;
+}
+
+.browser-tab-toolbar,
+.browser-tab-find {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.browser-tab-button {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
+}
+
+.browser-tab-button:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+/* A press answers at once, like the send button's. */
+.browser-tab-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-text) 12%, transparent);
+  transform: scale(0.92);
+}
+
+.browser-tab-button:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.browser-tab-button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.browser-tab-address-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 6px;
+}
+
+/* The address pill holds the site button, the address, and the zoom level. */
+.browser-tab-address-box {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--ui-border);
+  border-radius: 15px;
+  background: var(--ui-surface-subtle);
+}
+
+/* The focus ring goes around the whole pill, site button and zoom included, not just the text. */
+.browser-tab-address-box:has(input:focus),
+:root[data-theme] .app-shell .browser-tab-address-box:has(input:focus) {
+  background: var(--ui-surface);
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: 2px;
+}
+
+.browser-tab-address input:focus-visible,
+:root[data-theme] .app-shell .browser-tab-address input:focus-visible {
+  outline: 0;
+}
+
+.browser-tab-address {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.browser-tab-address input {
+  width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.browser-tab-address input:focus {
+  outline: none;
+}
+
+.browser-tab-site-settings + .browser-tab-address input {
+  padding-left: 6px;
+}
+
+.browser-tab-site-button {
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-left: 3px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-tab-site-button svg {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.browser-tab-site-button:hover,
+.browser-tab-site-button[aria-expanded="true"] {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.browser-tab-site-button:focus-visible,
+.browser-tab-zoom:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: -2px;
+}
+
+.browser-tab-site-button.insecure {
+  color: var(--ui-danger);
+}
+
+.browser-tab-zoom {
+  flex: 0 0 auto;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--ui-surface-hover);
+  color: var(--ui-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.browser-tab-zoom:hover {
+  color: var(--ui-text);
+}
+
+.browser-tab-find input {
+  width: 100%;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 15px;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.browser-tab-find input:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+  background: var(--ui-surface);
+  box-shadow: 0 0 0 3px var(--ui-accent-soft);
+}
+
+.browser-tab-address input::placeholder,
+.browser-tab-find input::placeholder {
+  color: var(--ui-text-subtle);
+}
+
+.browser-tab-find {
+  gap: 4px;
+}
+
+.browser-tab-find input {
+  flex: 0 1 260px;
+  min-width: 120px;
+  margin-right: 4px;
+}
+
+.browser-tab-find-count {
+  flex: 0 0 auto;
+  min-width: 72px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.browser-tab-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ui-surface);
+}
+
+.browser-tab-state,
+.browser-tab-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--ui-text-muted);
+  text-align: center;
+}
+
+.browser-tab-state {
+  position: absolute;
+  inset: 0;
+}
+
+.browser-tab-unavailable {
+  flex: 1 1 auto;
+}
+
+.browser-tab-state strong,
+.browser-tab-unavailable strong {
+  color: var(--ui-text);
+  font-size: 15px;
+}
+
+.browser-tab-state span {
+  max-width: 420px;
+  line-height: 1.45;
+}
+
+.browser-tab-state code {
+  max-width: min(560px, 100%);
+  overflow-wrap: anywhere;
+  color: var(--ui-text-subtle);
+  font-size: 12px;
+}
+
+.browser-tab-bar {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font-size: 13px;
+}
+
+.browser-tab-bar > svg {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-size: 18px;
+}
+
+.browser-tab-permission {
+  background: var(--ui-accent-soft);
+}
+
+.browser-tab-notice {
+  background: var(--ui-attention-soft);
+}
+
+.browser-tab-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.browser-tab-site-settings {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.browser-tab-site-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.browser-tab-site-menu-heading {
+  padding: 4px 6px 8px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.browser-tab-site-menu-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.browser-tab-site-menu-decision {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+.browser-tab-site-menu-connection {
+  padding: 0 6px 8px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.browser-tab-site-menu-connection.insecure {
+  color: var(--ui-danger);
+}
+
+.browser-tab-popup {
+  background: var(--ui-surface-subtle);
+}
+
+.browser-tab-popup-url {
+  color: var(--ui-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* A Worker is using the page: a running dot and a Stop button, in the toolbar so the page keeps its size. */
+.browser-tab-worker {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.browser-tab-worker-label {
+  min-width: 0;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: 13px;
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* A narrow tab keeps the address readable: the dot and the warning icon stay, their words go. */
+@container (max-width: 560px) {
+  .browser-tab-worker-text,
+  .browser-tab-site-label {
+    display: none;
+  }
+
+  .browser-tab-worker-label {
+    padding: 0 9px;
+  }
+}
+
+.browser-tab-worker-label:disabled {
+  cursor: default;
+}
+
+.browser-tab-worker-label:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 1px;
+}
+
+/* A link to a server on this computer opens as a browser tab; it looks like any other link. */
+.message-body .message-browser-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: var(--work-folder-accent-text-body, var(--work-folder-custom-color));
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.browser-tab-suggestions {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.browser-tab-suggestions li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.browser-tab-suggestions li > svg,
+.browser-tab-suggestions li > .fluent-ui-icon {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+}
+
+.browser-tab-suggestions li.selected {
+  background: var(--ui-surface-hover);
+}
+
+.browser-tab-suggestion-label {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-suggestion-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-new {
+  justify-content: flex-start;
+  padding-top: 48px;
+}
+
+.browser-tab-recent {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.browser-tab-recent-heading {
+  padding: 0 10px 6px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.browser-tab-recent-item {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-tab-recent-item:hover,
+.browser-tab-recent-item:focus-visible {
+  background: var(--ui-surface-hover);
+}
+
+.browser-tab-recent-item strong,
+.browser-tab-recent-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-recent-item strong {
+  font-size: 13px;
+}
+
+.browser-tab-recent-item span {
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+.browser-tab-clear-history {
+  justify-self: start;
+  margin-top: 10px;
+}

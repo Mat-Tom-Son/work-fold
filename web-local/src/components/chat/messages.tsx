@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { Checkmark20Regular, Copy20Regular, Sparkle20Regular } from "@fluentui/react-icons";
 
 import { safeExternalHref } from "../../lib/api";
+import { browserTabsAvailable, localServerHref, requestBrowserTab } from "../../lib/browser-links";
 import { copyToClipboard } from "../../lib/clipboard";
 import { requestConnectAi } from "../../lib/connect-ai";
 import { formatDateTime } from "../../lib/format";
@@ -12,6 +13,7 @@ import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-t
 import { collectWorkFolderPathCandidates, findWorkFolderPathMentions, workFolderPathCandidate } from "../../lib/work-folder-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
+import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview, type WorkFolderPathLinkResolver } from "./activity";
 import { GeneratedImages, turnGeneratedImages } from "./GeneratedImages";
 
@@ -86,6 +88,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <article className={`message ${sender}${suppressEnterAnimation ? " settled" : ""}`}>
       {fromApp ? <p className="message-sender">From {fromApp}</p> : null}
+      {message.role === "user" && message.attachments?.length ? <SentAttachments attachments={message.attachments} onOpenWorkFolderFile={onOpenWorkFolderFile} /> : null}
       <div className="message-surface">
         {turnView.steps.length ? (
           <RuntimeContextPreview
@@ -139,6 +142,7 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previousMessage.workTrail === nextMessage.workTrail
     && previousMessage.assistantPresentation === nextMessage.assistantPresentation
     && previousMessage.interruption === nextMessage.interruption
+    && previousMessage.attachments === nextMessage.attachments
     && previousMessage.delivery === nextMessage.delivery
     && previousMessage.source === nextMessage.source
     && previousMessage.appTitle === nextMessage.appTitle
@@ -157,6 +161,27 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.onOpenWorkFolderFile === next.onOpenWorkFolderFile
     && previous.resolveWorkFolderPathLinks === next.resolveWorkFolderPathLinks
     && previous.onCopyMessage === next.onCopyMessage;
+}
+
+/** The files that went out with a message, drawn like the composer's chips; each opens its file. */
+function SentAttachments({ attachments, onOpenWorkFolderFile }: {
+  attachments: NonNullable<ChatMessage["attachments"]>;
+  onOpenWorkFolderFile?: (path: string) => void;
+}) {
+  return (
+    <ul className="message-attachments" aria-label="Attached files">
+      {attachments.map((attachment) => {
+        const content = <span className="context-chip-main"><FileTypeIcon path={attachment.target} /><span className="context-chip-name">{attachment.name}</span></span>;
+        return (
+          <li key={`${attachment.kind}:${attachment.target}`}>
+            {onOpenWorkFolderFile && attachment.kind === "file"
+              ? <button className="context-chip message-attachment" type="button" title={attachment.target} onClick={() => onOpenWorkFolderFile(attachment.target)}>{content}</button>
+              : <span className="context-chip message-attachment" title={attachment.target}>{content}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function MessageActions({ copied, onCopy }: { copied: boolean; onCopy: () => void }) {
@@ -229,7 +254,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
     );
   }
   const retryText = interruption.retryAttempts > 0
-    ? `${interruption.retryAttempts} automatic ${interruption.retryAttempts === 1 ? "retry" : "retries"} were attempted.`
+    ? interruption.retryAttempts === 1 ? "1 automatic retry was attempted." : `${interruption.retryAttempts} automatic retries were attempted.`
     : "The provider did not identify this as safely retryable.";
   return (
     <section className="turn-interruption" role="status" aria-label="Interrupted Worker response">
@@ -282,6 +307,11 @@ export function MarkdownMessage({
             const resolvedPath = workFolderPath ? workFolderLinks?.get(workFolderPath) ?? null : null;
             if (resolvedPath && onOpenWorkFolderFile) {
               return <button className="work-folder-file-link" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{children}</button>;
+            }
+            // A server on this computer, such as a Worker's dev server, opens as a browser tab.
+            const localServer = localServerHref(href);
+            if (localServer && browserTabsAvailable()) {
+              return <button className="message-external-link message-browser-link" type="button" onClick={() => requestBrowserTab(localServer)} title={`Open ${localServer} in a browser tab`}>{children}</button>;
             }
             const safeHref = safeExternalHref(href);
             return safeHref ? <a className="message-external-link" href={safeHref} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;

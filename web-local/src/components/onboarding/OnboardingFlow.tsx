@@ -108,8 +108,8 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
           <div className="onboarding-actions" aria-label="Choose a folder" role="group">
             <button className="onboarding-folder-action" type="button" onClick={onOpenFolder}>
               <FolderOpen size={20} aria-hidden="true" />
-              <strong>Add existing folder</strong>
-              <span>Use a folder you already have. Nothing moves.</span>
+              <strong>Use existing folder</strong>
+              <span>A folder you already have. Nothing moves.</span>
             </button>
             <button className="onboarding-folder-action" type="button" onClick={onCreateWorkFolder}>
               <FolderPlus size={20} aria-hidden="true" />

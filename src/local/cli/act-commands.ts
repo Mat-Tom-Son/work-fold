@@ -3785,6 +3785,7 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         name?: unknown;
         workFolderName?: unknown;
         workFolderId?: unknown;
+        scope?: unknown;
         sizeBytes?: unknown;
         deletedAt?: unknown;
         restoreBy?: unknown;
@@ -3794,9 +3795,11 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const days = terminalText(record.retentionDays);
       if (!entries.length) return `Nothing in Recently deleted (items are kept ${days} days).\n`;
       const lines = entries.slice(0, 50).map((entry) => {
-        const where = typeof entry.workFolderName === "string" && entry.workFolderName
-          ? `from ${terminalText(entry.workFolderName)} [${terminalText(entry.workFolderId)}]`
-          : `from work-folder ${terminalText(entry.workFolderId)}`;
+        const where = entry.kind === "skill" && entry.scope === "everywhere"
+          ? "from Everywhere"
+          : typeof entry.workFolderName === "string" && entry.workFolderName
+            ? `from ${terminalText(entry.workFolderName)} [${terminalText(entry.workFolderId)}]`
+            : `from work-folder ${terminalText(entry.workFolderId)}`;
         const how = entry.restorable === "save-only" ? " — can only be saved as a copy" : "";
         const held = entry.held ? " — kept indefinitely; it holds records from the earlier Workspace product" : "";
         return `- ${terminalText(entry.id)} — ${recentlyDeletedKindLabel(entry.kind)} "${terminalText(entry.name)}" ${where}`
@@ -3815,6 +3818,8 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         path?: unknown;
         renamed?: unknown;
         workFolderRoot?: unknown;
+        scope?: unknown;
+        name?: unknown;
         appId?: unknown;
         releaseDigest?: unknown;
         displayVersion?: unknown;
@@ -3834,6 +3839,10 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       if (restored.kind === "work-folder") {
         return `Restored work-folder ${where} to ${terminalText(restored.workFolderRoot)}`
           + `${restored.renamed === true ? " under a new folder name, because the old one was taken" : ""}.\n`;
+      }
+      if (restored.kind === "skill") {
+        const scope = restored.scope === "everywhere" ? "Everywhere" : `to ${where}`;
+        return `Restored Skill "${terminalText(restored.name)}" ${scope} at ${terminalText(restored.path)}; it loads with the next turn.\n`;
       }
       if (restored.kind === "app-storage") return `Restored ${terminalText(restored.appId)}'s data in ${where}.\n`;
       if (restored.kind === "app-release") {
@@ -4133,6 +4142,7 @@ function recentlyDeletedKindLabel(kind: unknown): string {
     case "file": return "file";
     case "folder": return "folder";
     case "work-folder": return "work-folder";
+    case "skill": return "Skill";
     case "app-storage":
     case "app-retained": return "app data";
     case "app-release": return "Release";

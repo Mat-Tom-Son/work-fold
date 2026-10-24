@@ -53,7 +53,7 @@ use the same request, receipt and Stop paths: [Worker tools](worker-tools.md).
 | **work-fold agent** | The agent above all work-folders: one conversation scope, shown in the menu-bar/tray popover, the main window's agent panel, and the Web Access client under one name. | It is not a work-folder, a second Worker, or a renamed contract; "work-fold agent" stays the technical term. |
 | **Automation** | A declared, inert-until-enabled set of deterministic steps that move work between work-folders on a reviewed trigger. | It is executed by app code, never by a Worker conversation, and nothing automation-shaped is written into any work-folder. The technical contract remains `automation`. |
 | **Viewer** | Someone reading one published page or app through a share link while the desktop is online. | A viewer is not a paired browser, never touches the management lane, and is never a Principal. |
-| **Recently deleted** | The machine-local holding place for anything work-fold removed that History could not restore — files, folders, a managed work-folder's folder, app storage and retained-data exports — kept for a retention window and restorable from Settings or the CLI. | It is not a work-folder, not portable, not a backup, and never empties on a verb; only retention purges it. |
+| **Recently deleted** | The machine-local holding place for anything work-fold removed that History could not restore — files, folders, a managed work-folder's folder, a removed imported Skill, app storage and retained-data exports — kept for a retention window and restorable from Settings or the CLI. | It is not a work-folder, not portable, not a backup, and never empties on a verb; only retention purges it. |
 
 The work-folder header chooses the active working folder and provides compact
 actions to use an existing folder, create a work-folder, or manage work-folders. The
@@ -109,7 +109,7 @@ inference, sign in to Azure, or discover deployments.
 
 **First run and Connect your AI (2026-10-11).** With no work-folder yet, the
 app opens on a short first run: a welcome that says what work-fold is, **Connect
-your AI**, then **Pick a folder to start with** (Add existing folder or Create
+your AI**, then **Pick a folder to start with** (Use existing folder or Create
 new work-folder). Connect your AI offers ChatGPT, Claude, and OpenRouter first,
 signing in where the desktop app can run the provider's sign-in and taking a key
 otherwise, plus **Another provider**, a search over the rest of Pi's catalog
@@ -141,7 +141,10 @@ Connections retain the complete credential in encrypted machine-local storage;
 only non-secret connection status and model metadata reach Settings.
 
 Each open tab belongs to one work-folder. Selecting a tab takes the user back to
-that work-folder; selecting a work-folder restores its most recent tab. With four or more
+that work-folder; selecting a work-folder restores its most recent tab. Browser
+tabs are the exception (2026-10-23): they belong to no work-folder, every
+work-folder's tab strip shows them, and selecting one keeps the work-folder that
+is open ([built-in browser](built-in-browser.md)). With four or more
 tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 Tabs can be dragged to reorder, or moved with Alt+Shift+Left/Right while focused.
 The order is saved on this computer; grouping by work-folder confines moves to
@@ -202,7 +205,11 @@ the next message. Selecting a file in Files is not context: since 2026-10-11 the
 Worker is not told which file is selected, so a stale or deleted selection can
 neither mislead it nor block a message; attach a file to include it. A quiet file icon, filename, and remove control above the
 composer show that selection; attaching does not produce a success toast or
-an extraction-status warning. Documents and other non-image files are not
+an extraction-status warning. Once that message is accepted, its files leave the
+composer and appear as the same chips above the sent message, which keeps their
+work-folder-relative paths and opens the file on click; a send that fails keeps
+them in the composer. Attach to Chat goes to the Chat in front, else the
+work-folder's Chat the person was last in, else a blank draft. Documents and other non-image files are not
 extracted or copied into the model prompt: the Worker is told which paths the
 person attached and uses its file or document tools to inspect the originals
 as the task needs. Staging checks that each path names an available file;
@@ -718,6 +725,47 @@ On 2026-10-02 the product copy renamed this concept **work-folder**, always
 lowercase like "work-fold", while ordinary directories stay plain "folder".
 On 2026-10-10 the code, CLI, and stored records took the same words
 ([the vocabulary glossary](../scripts/vocabulary/GLOSSARY.md)).
+
+### 2026-10-23 built-in browser
+
+- work-fold has a browser of its own. The globe button beside **New Chat**
+  opens a browser tab that shows any ordinary website, with Back, Forward,
+  Reload, an address bar that also searches, Find in page, and Open in your
+  web browser. Links that open a new tab, and pages a Worker opens, become
+  browser tabs too.
+- Browser tabs belong to no work-folder (owner decision): every work-folder's
+  tab strip shows them, selecting one keeps the work-folder that is open, and
+  removing a work-folder never closes one. One persistent profile serves every
+  tab, so signing in to a site once signs every tab in; it is machine-local app
+  data, apart from Chrome and from every work-folder.
+- Every Worker and the work-fold agent can list, read, look at, and use the
+  browser tabs, including the one the person has in front, through the
+  `browser_*` tools. A tab a Worker opens appears in the strip behind the
+  person's work. The tools come with the desktop app and need no setup; they
+  are not one of the five included tools.
+- Their page actions include hover menus, dragging, mouse buttons and modifier
+  keys, scrolling inside panels, focusing a field and pressing keys together,
+  attaching local files to file inputs, and observing download completion and
+  saved paths. They check the visible result before claiming success. Attaching
+  a file can send it to the site immediately; page content never authorizes an
+  upload or an unrelated action. See [Built-in browser](built-in-browser.md).
+- A site that wants the camera, microphone, location, notifications, or
+  similar access asks first in a bar above the page, and the answer is
+  remembered for that site until the person chooses **Ask again** in the
+  site's information. Only the person answers; a Worker is told it is waiting.
+- Everyday browser basics: Cmd/Ctrl+Shift+T reopens a closed tab, a browser
+  tab has a right-click menu, the page's menu offers spelling suggestions,
+  Print, and Save as PDF, the address bar shows the connection (with **Not
+  secure** for plain http) and any zoom, a hovered link shows its address, a
+  pop-up a site opens without a press is blocked with **Open it** and
+  **Always allow on this site**, and a tab a Worker is using shows which Chat,
+  with Stop.
+- The address bar suggests pages from the browser's history as you type, a
+  new tab lists recent pages with **Clear browsing history**, and a link in a
+  Chat to a server on this computer, such as a Worker's dev server, opens as a
+  browser tab. A Worker's background job reports the address its server
+  announces, so the Worker can look at it.
+- Importing Chrome's sign-ins and settings is not built. See [Built-in browser](built-in-browser.md).
 
 ### Included tool readiness, 2026-10-02
 

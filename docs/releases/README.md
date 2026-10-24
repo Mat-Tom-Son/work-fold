@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 23, 2026
+
+[0.13.0](work-fold-0.13.0.md) adds a built-in browser shared with the work-fold
+agent and every Worker, richer page actions and file transfers, reversible
+Skill removal, and fixes for Chat attachments, Files search, and Settings drafts.
+
 ## October 18, 2026
 
 [0.11.0](work-fold-0.11.0.md) adds questions with choices, follow-up, redirect and Make a Copy for Chats, background jobs, a checklist for long tasks, Workers that remember preferences and keep their place through long turns, and checked Word, PowerPoint and Excel files.

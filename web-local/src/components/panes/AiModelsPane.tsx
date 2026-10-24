@@ -49,8 +49,11 @@ function beginAiModelsMutation(): (() => void) | null {
 }
 
 type AzureConnectionDraft = { baseUrl: string; deployments: string };
-type AiModelsDraft = { model?: { provider: string; model: string }; connectionProvider?: string; instructions?: string; azure?: AzureConnectionDraft };
-export function AiModelsPane(props: AiModelsProps) {
+export type AiModelsDraft = { model?: { provider: string; model: string }; connectionProvider?: string; instructions?: string; azure?: AzureConnectionDraft };
+export function AiModelsPane(props: AiModelsProps & {
+  /** Unsaved edits per scope; a host that outlives this pane passes one so closing it keeps them. */
+  drafts?: Map<string, AiModelsDraft>;
+}) {
   const { workFolder, embedded = false, initialScope, active = true, focusModelOnOpen = false, focusInstructionsOnOpen = false } = props;
   const identity = JSON.stringify([workFolder?.id ?? null, initialScope ?? null]);
   const defaultScope = initialScope === "agent" || !workFolder ? "agent" : "work-folder";
@@ -61,9 +64,10 @@ export function AiModelsPane(props: AiModelsProps) {
   useEffect(() => { setSelection({ identity, scope: defaultScope }); }, [identity]);
   const currentWorkFolderTarget = useRef<string | null>(null);
   currentWorkFolderTarget.current = workFolder ? `work-folder:${workFolder.id}` : null;
-  const drafts = useRef(new Map<string, AiModelsDraft>());
-  for (const key of drafts.current.keys()) {
-    if (key !== "agent" && key !== currentWorkFolderTarget.current) drafts.current.delete(key);
+  const ownDrafts = useRef(new Map<string, AiModelsDraft>());
+  const drafts = props.drafts ?? ownDrafts.current;
+  for (const key of drafts.keys()) {
+    if (key !== "agent" && key !== currentWorkFolderTarget.current) drafts.delete(key);
   }
   const mutationBusy = useSyncExternalStore(subscribeMutation, () => aiModelsMutation !== null, () => false);
   const initialIdentity = useRef(identity);
@@ -95,7 +99,7 @@ export function AiModelsPane(props: AiModelsProps) {
   }
   function editDraftFor(draftTarget: string, edit: (draft: AiModelsDraft) => AiModelsDraft) {
     if (draftTarget !== "agent" && draftTarget !== currentWorkFolderTarget.current) return;
-    drafts.current.set(draftTarget, edit(drafts.current.get(draftTarget) ?? {}));
+    drafts.set(draftTarget, edit(drafts.get(draftTarget) ?? {}));
   }
   const target = scope === "work-folder" ? `work-folder:${workFolder!.id}` : "agent";
   // What each scope last showed. Switching scopes mounts from here at once and
@@ -139,7 +143,7 @@ export function AiModelsPane(props: AiModelsProps) {
         beginMutation={beginAiModelsMutation}
         waitForMutation={() => aiModelsMutation?.done ?? Promise.resolve()}
         isMutating={() => aiModelsMutation !== null}
-        readDraft={() => drafts.current.get(target) ?? {}}
+        readDraft={() => drafts.get(target) ?? {}}
         editDraft={(edit) => editDraftFor(target, edit)}
         focusModelWhenReady={focusModelWhenReady}
         initialResult={loaded.current.get(target)}

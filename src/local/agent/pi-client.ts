@@ -73,6 +73,8 @@ import {
   type WorkFoldTurnIdentity,
 } from "./turn-identity.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
+import { createBrowserTools } from "./browser-tools.js";
+import type { BrowserToolHost } from "../../shared/browser.js";
 import { createCollaborationTools, type CollaborationToolHost } from "./collaboration-tools.js";
 import { createWorktreeTool, type WorktreeToolHost } from "./worktree-tool.js";
 import { createHelperTool, type HelperRunRecord, type HelperSession } from "./helper-tool.js";
@@ -204,6 +206,10 @@ export interface PiConversationClientOptions {
   imageStore?: GeneratedImageSink;
   /** The job service behind job_start, job_output, and job_stop for this Chat (docs/background-jobs.md). */
   backgroundJobs?: BackgroundJobToolHost;
+  /** The desktop's built-in browser behind the browser_* tools (docs/built-in-browser.md); absent without Electron. */
+  browser?: BrowserToolHost;
+  /** This Chat's identity in the browser: it may close only the tabs it opened. */
+  browserOwner?: string;
   /** Where the `checklist` tool keeps its request's checklist (2026-10-18). */
   checklist?: ChecklistToolHost;
   collaboration?: CollaborationToolHost;
@@ -900,6 +906,8 @@ export class PiConversationClient extends EventEmitter {
             binDir: join(runtime.agentDir, "bin"),
           }),
         }) : []),
+        // Every session in the desktop app can use the built-in browser the person sees.
+        ...(this.options.browser ? createBrowserTools({ host: this.options.browser, ...(this.options.browserOwner ? { owner: this.options.browserOwner } : {}) }) : []),
         ...(this.hostCapabilities?.restrictedAppProposals
           ? [createRestrictedAppStarterTool({ workFolderRoot: options.cwd }), createRestrictedAppProposalTool({
             workFolderId: this.hostCapabilities.workFolderId,
@@ -2269,7 +2277,7 @@ function summarizeToolValue(value: unknown): string {
   }
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
-    const useful = record.path ?? record.file ?? record.command ?? record.pattern ?? record.query;
+    const useful = record.path ?? record.file ?? record.command ?? record.pattern ?? record.query ?? record.url ?? record.to;
     if (useful) return compactText(String(useful));
   }
   return "";

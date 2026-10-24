@@ -170,7 +170,8 @@ function viewRequest(
   };
 }
 
-function nativeViewBounds(element: HTMLElement, bounds: DOMRect, placement: "navigator" | "tab"): RestrictedAppViewRequest["bounds"] {
+/** The placeholder's inner box, where a native view (an app or a browser page) shows. */
+export function nativeViewBounds(element: HTMLElement, bounds: DOMRect, placement: "navigator" | "tab"): RestrictedAppViewRequest["bounds"] {
   const style = getComputedStyle(element);
   const borderLeft = cssPixelValue(style.borderLeftWidth);
   const borderTop = cssPixelValue(style.borderTopWidth);
@@ -201,7 +202,8 @@ function currentTheme(): AppTheme {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
-function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
+/** True while a menu, dialog, or other overlay covers the placeholder, so the native view must step aside. */
+export function nativeViewOccluded(element: HTMLElement, bounds: DOMRect): boolean {
   const candidates = document.querySelectorAll<HTMLElement>([
     "[data-native-view-occluder='true']",
     ".modal-backdrop",

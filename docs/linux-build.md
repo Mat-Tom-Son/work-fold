@@ -7,6 +7,13 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
+The local 0.13.1 candidate integrates main through `a320928` (Mac 0.13.0
+source plus the Electron 42.11.18 security update). It adds the shared built-in
+browser and Worker browser tools, reversible Skill removal, persistent Chat
+attachments, and Files/Settings fixes. It retains Linux's native CLI, title-bar
+controls and app-wide Wayland sharing. The published preview link above still
+identifies 0.12.2 until this candidate is published.
+
 The 0.12.2 preview integrates main through `7f2e871` (Mac 0.12.1):
 background and interactive jobs, structured Worker collaboration, managed working
 copies, read-only helpers, checklists, document-engine setup, and progress/evidence

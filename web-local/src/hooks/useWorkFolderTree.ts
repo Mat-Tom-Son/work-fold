@@ -4,6 +4,7 @@ import { api, createEventSource, errorText } from "../lib/api";
 import {
   collectFolderPaths,
   collectLoadedFolderPaths,
+  collectOpenFolderPaths,
   findTreeEntry,
   groupTreePathsByDepth,
   removeTreeEntries,
@@ -34,11 +35,29 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
   const refreshTimerRef = useRef<number | null>(null);
   const eventPathsRef = useRef(new Set<string>());
   const needsFullRefreshRef = useRef(false);
+  // Folders a search loaded while they were closed. Search must not change
+  // the ordinary view, so they stay closed afterwards, as if never loaded.
+  // Kept per work-folder in memory only; opening one removes it.
+  const searchClosedPathsRef = useRef(new Map<string, ReadonlySet<string>>());
+  const [searchClosedPaths, setSearchClosedPathsState] = useState<ReadonlySet<string>>(() => new Set());
+  const shownCollapsedPaths = useMemo(
+    () => searchClosedPaths.size ? new Set([...collapsedPaths, ...searchClosedPaths]) : collapsedPaths,
+    [collapsedPaths, searchClosedPaths],
+  );
   const treeRef = useRef(tree);
   const collapsedPathsRef = useRef(collapsedPaths);
+  const shownCollapsedPathsRef = useRef(shownCollapsedPaths);
+  const selectedPathRef = useRef(selectedPath);
   treeRef.current = tree;
   collapsedPathsRef.current = collapsedPaths;
+  shownCollapsedPathsRef.current = shownCollapsedPaths;
+  selectedPathRef.current = selectedPath;
   activeWorkFolderIdRef.current = workFolder.id;
+
+  function setSearchClosedPaths(workFolderId: string, paths: ReadonlySet<string>) {
+    searchClosedPathsRef.current.set(workFolderId, paths);
+    if (activeWorkFolderIdRef.current === workFolderId) setSearchClosedPathsState(paths);
+  }
 
   const setTree: Dispatch<SetStateAction<TreeEntry[]>> = (update) => {
     setTreeState((current) => {
@@ -56,6 +75,7 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
     requestRef.current += 1;
     setSelectedPathState(saved.selectedPath);
     setCollapsedPaths(saved.collapsedPaths);
+    setSearchClosedPathsState(searchClosedPathsRef.current.get(workFolder.id) ?? new Set());
     setLoadingFolderPaths(new Set());
     setMovingTreePath(null);
     setDropTargetFolderPath(null);
@@ -104,6 +124,32 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
     const timer = window.setTimeout(() => void hydrateForSearch(), 260);
     return () => window.clearTimeout(timer);
   }, [fixtureTree, query, workFolder.id]);
+
+  // Leaving a search shows the tree as it was, except that a file picked from
+  // the results is revealed in place.
+  const searching = Boolean(query.trim());
+  const searchStartRef = useRef<{ workFolderId: string; selectedPath: string | null } | null>(null);
+  useEffect(() => {
+    if (searching) {
+      searchStartRef.current ??= { workFolderId: workFolder.id, selectedPath: selectedPathRef.current };
+      return;
+    }
+    const start = searchStartRef.current;
+    searchStartRef.current = null;
+    const picked = selectedPathRef.current;
+    if (!start || start.workFolderId !== workFolder.id || !picked || picked === start.selectedPath) return;
+    const ancestors = new Set(picked.split("/").slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join("/")));
+    if (!ancestors.size) return;
+    const closed = searchClosedPathsRef.current.get(workFolder.id) ?? new Set<string>();
+    if ([...ancestors].some((path) => closed.has(path))) setSearchClosedPaths(workFolder.id, new Set([...closed].filter((path) => !ancestors.has(path))));
+    if ([...ancestors].some((path) => collapsedPathsRef.current.has(path))) {
+      setCollapsedPaths((current) => {
+        const next = new Set([...current].filter((path) => !ancestors.has(path)));
+        writeTreeState(workFolder.id, { selectedPath: picked, collapsedPaths: [...next] });
+        return next;
+      });
+    }
+  }, [searching, workFolder.id]);
 
   useEffect(() => {
     if (!tree.length || treeContainsUnloadedFolders(tree)) return;
@@ -170,6 +216,8 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
     try {
       const result = await api<{ tree: TreeEntry[]; truncated?: boolean }>(treeApiPath(workFolderId, "", 6));
       if (activeWorkFolderIdRef.current !== workFolderId) return;
+      const openBefore = collectOpenFolderPaths(treeRef.current, shownCollapsedPathsRef.current);
+      setSearchClosedPaths(workFolderId, new Set(collectFolderPaths(result.tree).filter((path) => !openBefore.has(path))));
       searchHydratedWorkFolderIdsRef.current.add(workFolderId);
       treeCacheRef.current.set(workFolderId, result.tree);
       setTreeState(result.tree);
@@ -206,7 +254,9 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
   function toggleFolder(path: string, expanded?: boolean) {
     const entry = findTreeEntry(treeRef.current, path);
     if (!entry || entry.kind !== "folder") return;
-    const opening = expanded ?? (collapsedPathsRef.current.has(path) || treeEntryNeedsLazyChildren(entry));
+    const opening = expanded ?? (shownCollapsedPathsRef.current.has(path) || treeEntryNeedsLazyChildren(entry));
+    const searchClosed = searchClosedPathsRef.current.get(workFolder.id);
+    if (opening && searchClosed?.has(path)) setSearchClosedPaths(workFolder.id, new Set([...searchClosed].filter((item) => item !== path)));
     setCollapsedPaths((current) => {
       const next = new Set(current); if (opening) next.delete(path); else next.add(path);
       writeTreeState(workFolder.id, { selectedPath, collapsedPaths: [...next] }); return next;
@@ -216,7 +266,7 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
 
   const search = useMemo(() => query.trim() ? searchFileTree(tree, query) : { entries: tree, matchCount: 0 }, [query, tree]);
   return {
-    tree, setTree, status, refresh, selectedPath, setSelectedPath, collapsedPaths,
+    tree, setTree, status, refresh, selectedPath, setSelectedPath, collapsedPaths: shownCollapsedPaths,
     loadingFolderPaths, query, setQuery, visibleEntries: search.entries, matchCount: search.matchCount,
     searchHydrating, treeTruncated, toggleFolder, movingTreePath, setMovingTreePath, dropTargetFolderPath, setDropTargetFolderPath,
   };
