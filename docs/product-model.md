@@ -643,6 +643,9 @@ Owner decisions, recorded here in dated form; the body of this document and
   the dated `Dropped/` folder and attaches them: the same explicit act as
   dropping them on the composer. Commands sits beside it; the model chip, now
   carrying the reasoning level, and Send sit on the right.
+- Composer chip menus choose the side with more room and stay within the Chat
+  panel. The work-folder attachment picker refreshes its file list whenever it
+  is reopened.
 - A finished reply ends with the files its write and edit tools changed, each
   labelled **Saved** or **Edited** with its folder and opening its file on
   click. Files that no longer exist are left out; past five, **Show all**

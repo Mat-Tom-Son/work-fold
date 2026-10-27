@@ -6282,7 +6282,7 @@ button.context-chip.message-attachment:focus-visible {
   bottom: calc(100% + 9px);
   z-index: 8;
   width: min(560px, 100%);
-  max-height: min(360px, 48vh);
+  max-height: min(360px, 48vh, var(--composer-menu-available-height, 100vh));
   overflow: auto;
   padding: 6px;
   color: #253044;
@@ -6479,7 +6479,7 @@ button.context-chip.message-attachment:focus-visible {
 .composer-model-menu {
   width: 280px;
   max-width: calc(100vw - 32px);
-  max-height: min(460px, 64vh);
+  max-height: min(460px, 64vh, var(--composer-menu-available-height, 100vh));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -21090,7 +21090,7 @@ to {
 
 .composer-command-menu.composer-attach-picker {
   width: 380px;
-  max-height: min(420px, 60vh);
+  max-height: min(420px, 60vh, var(--composer-menu-available-height, 100vh));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -21357,6 +21357,11 @@ to {
 .composer-model-control .composer-model-menu {
   left: auto;
   right: 0;
+}
+
+:is(.composer-model-control, .composer-attach-control)[data-menu-placement="below"] .composer-command-menu {
+  top: calc(100% + 9px);
+  bottom: auto;
 }
 
 .composer-model-reasoning {

@@ -2,7 +2,7 @@ import { surfaceDomIdSuffix } from "../../lib/work-folder-ui";
 import { FolderMentionMenu, type MentionFolderOption } from "./FolderMentionMenu";
 import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders } from "../../lib/folder-mentions";
 import { useWorkFolderIdentityResolver } from "../../lib/work-folder-appearance-context";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
@@ -2255,12 +2255,36 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker, rea
 // so no menu is left open (or half-closed) behind the one being used.
 const openComposerChipMenus = new Set<() => void>();
 
+/** Keep chip menus inside the Chat, including the centered New Chat composer. */
+function useComposerMenuBounds(open: boolean, containerRef: React.RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const control = containerRef.current;
+    const panel = control?.closest<HTMLElement>(".chat-panel");
+    if (!open || !control || !panel) return;
+    const update = () => {
+      const bounds = panel.getBoundingClientRect();
+      const anchor = control.getBoundingClientRect();
+      const above = Math.max(0, anchor.top - bounds.top - 9);
+      const below = Math.max(0, bounds.bottom - anchor.bottom - 9);
+      control.dataset.menuPlacement = below > above ? "below" : "above";
+      control.style.setProperty("--composer-menu-available-height", `${Math.max(above, below)}px`);
+    };
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(panel);
+    observer?.observe(control);
+    window.addEventListener("resize", update);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", update); };
+  }, [open, containerRef]);
+}
+
 function useDismissOnOutsideInteraction(
   open: boolean,
   containerRef: React.RefObject<HTMLElement | null>,
   close: () => void,
   triggerRef?: React.RefObject<HTMLElement | null>,
 ): void {
+  useComposerMenuBounds(open, containerRef);
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
@@ -2667,6 +2691,8 @@ function ComposerAttachMenu({
     setView("choose");
     setQuery("");
     setError(null);
+    // Files can be created, renamed or removed between visits to the picker.
+    setFiles(null);
   }, [open]);
   useEffect(() => { setFiles(null); }, [workFolderId]);
   useEffect(() => {
