@@ -172,7 +172,8 @@ test("remote client navigation focuses on chats and shared pages", async () => {
   // and the send button says one thing.
   assert.match(app, /sentFromNewChat \|\| state\.startingNewChat \|\| !state\.selectedConversationId/);
   assert.match(app, /if \(sentFromNewChat\) showContext\("chat"\)/);
-  assert.match(app, /state\.sending \? "Sending message" : unavailable \? "Desktop offline" : "Send message"/);
+  assert.match(app, /state\.sending \? "Sending message" : unavailable \? "Desktop offline" : sendLabel/);
+  assert.match(app, /const sendLabel = steerable \? "Send to the running work" : "Send message";/);
 
   assert.ok(app.includes('id="request-work"'));
 
