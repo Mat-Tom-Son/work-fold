@@ -63,6 +63,9 @@ export class BridgeDatabase {
       max: numberFromEnv("WORKFOLD_BRIDGE_DB_POOL", 10, 1, 50),
       ...(ssl === undefined ? {} : { ssl }),
     });
+    // An idle connection dropped by a database restart or failover must not
+    // crash the process; the pool replaces it on the next query.
+    this.#pool.on("error", (error) => console.warn(`work-fold bridge database connection error: ${error?.message ?? error}`));
     this.#ownsPool = true;
   }
 

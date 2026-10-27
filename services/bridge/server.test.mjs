@@ -244,11 +244,13 @@ test("the live watch is capability-gated, single, and falls back to polling", as
   // The client starts a watch only when the desktop's summary advertises the
   // capability — an older desktop is never asked — keeps at most one watch,
   // ignores ticks from a superseded watch, refreshes immediately on settle,
-  // and one failed watch quietly returns the page to polling.
+  // and one failed watch quietly returns the page to polling for a while
+  // before live streaming is tried again.
   assert.match(applicationSource, /if \(state\.summary\?\.capabilities\?\.watch !== true\) return;/);
   assert.match(applicationSource, /if \(state\.watchToken\) return;/);
   assert.match(applicationSource, /event\.operationId !== state\.watchOperationId\) return;/);
-  assert.match(applicationSource, /state\.watchUnsupported = true;/);
+  assert.match(applicationSource, /state\.watchRetryAt = Date\.now\(\) \+ 30_000;/);
+  assert.match(applicationSource, /if \(fixtureName \|\| Date\.now\(\) < state\.watchRetryAt \|\| state\.sessionRebooting\) return;/);
   assert.match(applicationSource, /result && result\.settled === true/);
   // Each watch begins with a bounded cumulative snapshot, then applies
   // throttled deltas until the durable transcript replaces the live row.
@@ -309,8 +311,15 @@ test("the running control replaces Send inside the composer until there is text 
   assert.match(composer, /class="send-button"[\s\S]*?id="stop-task" class="send-button stop-button"/);
   assert.match(applicationStyles, /\.send-button\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(applicationStyles, /\.stop-button\s*\{/);
-  // A running Chat takes a message only as steering, and only when the desktop offers it.
-  assert.match(applicationSource, /if \(selectedTaskRunning\) \{\s*if \(state\.steerAvailable && state\.contextName === "chat" && !state\.uploads\.length\) await steerPrompt\(input, content\);\s*return;/);
+  // A running Chat takes a message only as steering, only while the agent
+  // itself is working, from a desktop that offers it, without files; when it
+  // cannot, the person is told why. The New chat screen always sends.
+  assert.match(applicationSource, /if \(openChatRunning\(\)\) \{\s*const blocked = steerBlockedReason\(\);/);
+  assert.match(applicationSource, /return state\.contextName === "chat" && !state\.startingNewChat/);
+  assert.match(applicationSource, /\?\.phase !== "working"\) return "Other Workers are still on this/);
+  // Send and Stop sit side by side while steering, never one over the other.
+  assert.match(applicationStyles, /\.composer-field\[data-steering\] \.stop-button \{ right: 52px; \}/);
+  assert.match(applicationSource, /toggleAttribute\("data-steering", running && !button\.hidden\)/);
   assert.match(applicationSource, /remote\("management\.send", \{ content, conversationId, delivery: "steer" \}\)/);
   assert.match(applicationSource, /button\.hidden = running && !\(steerable && input\.value\.trim\(\)\);/);
 });
@@ -764,6 +773,11 @@ test("a displaced device cannot decide a pairing and the current device can decl
   currentSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: false }));
   const declined = await currentMessages.next("pairing.settled");
   assert.equal(declined.status, "declined");
+  // A second dialog for the same pairing (a reconnect shows it again) answered
+  // late is settled as expired, never a protocol error that ends remote access.
+  currentSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: true }));
+  assert.equal((await currentMessages.next("pairing.settled")).status, "expired");
+  assert.equal(currentMessages.takeNow("protocol.error"), null);
   const pairingResult = await jsonRequest(`${baseUrl}/api/pairings/${pairing.body.pairing.id}?slug=device-displacement-test`, {
     headers: { cookie },
   });
@@ -1146,9 +1160,16 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     return result.body.operation?.state === "running" ? result : null;
   });
 
+  // An exact repeat (a desktop recovering a still-running operation re-sends
+  // what it already sent) is dropped quietly: the desktop treats a protocol
+  // error as terminal. A different envelope reusing the sequence is refused.
   socket.send(JSON.stringify({ type: "operation.event", envelope: progressEnvelope }));
-  assert.match((await messages.next("protocol.error")).error, /sequence must increase/);
+  const forged = { ...progressEnvelope, ciphertext: randomBytes(48).toString("base64url"), signature: "" };
+  forged.signature = signText(deviceKeys.signing.privateKey, envelopeText(forged));
+  socket.send(JSON.stringify({ type: "operation.event", envelope: forged }));
+  assert.match((await messages.next("protocol.error")).error, /sequence must increase/, "the different envelope is an error");
   await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(messages.takeNow("protocol.error"), null, "the exact repeat produced no protocol error");
   const afterReplay = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
   assert.equal(afterReplay.body.events.length, 1);
   assert.equal(

@@ -704,6 +704,9 @@ body.drawer-locked { overflow: hidden; }
 .send-button[data-sending="true"] .send-icon { display: none; }
 .send-button[data-sending="true"]::after { content: ""; width: 14px; height: 14px; border: 2px solid color-mix(in srgb, currentColor 35%, transparent); border-top-color: currentColor; border-radius: 50%; animation: spin .8s linear infinite; }
 .send-button[hidden] { display: none; }
+/* Steering: Send and Stop both show, side by side, and the text keeps clear of both. */
+.composer-field[data-steering] .stop-button { right: 52px; }
+.composer-field[data-steering] textarea { padding-right: 100px; }
 .stop-button { background: var(--accent); color: var(--accent-contrast); box-shadow: none; }
 .stop-button:not(:disabled):hover { background: var(--accent-hover); box-shadow: none; }
 .stop-button:disabled { opacity: .5; }

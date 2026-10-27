@@ -32,7 +32,7 @@ test("remote client keeps the load-bearing copy exact", async () => {
 
   // The work-fold agent stays the actor in the composer.
   assert.ok(app.includes('placeholder="Message work-fold agent"'));
-  assert.ok(app.includes('prompt.placeholder = "Message work-fold agent"'));
+  assert.ok(app.includes('input.placeholder = running && state.steerAvailable ? "Add to the running work" : "Message work-fold agent";'));
 
   // Desktop-offline gate: it says the situation once, not four times.
   assert.ok(app.includes('eyebrow: "Desktop offline"'));
