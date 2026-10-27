@@ -788,6 +788,8 @@ interface LocalApiState {
   activeTurnIdsByKey: Map<string, string>;
   /** Mid-turn steering messages already appended, keyed by client key + request id, for idempotent retries. */
   steeredMessages: Map<string, ChatMessage>;
+  /** A steer still being delivered, so a concurrent retry with its request id waits for it instead of steering twice. */
+  steeringInFlight: Map<string, Promise<ChatMessage>>;
   turnCheckpointWriter: TurnCheckpointWriter;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
@@ -1117,6 +1119,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
     steeredMessages: new Map(),
+    steeringInFlight: new Map(),
     turnCheckpointWriter: new TurnCheckpointWriter({
       activeTask: (key) => state.activeTurnIdsByKey.get(key),
       activeTasks: () => state.activeTurnIdsByKey,
@@ -4532,6 +4535,27 @@ async function steerConversationTurn(
   const replayKey = `${key}\u0000${requestId}`;
   const prior = state.steeredMessages.get(replayKey);
   if (prior) return { message: prior, taskId, replayed: true };
+  const inFlight = state.steeringInFlight.get(replayKey);
+  if (inFlight) return { message: await inFlight, taskId, replayed: true };
+  const delivery = deliverSteer(state, workFolder, conversationId, client, taskId, requestId, replayKey, input);
+  state.steeringInFlight.set(replayKey, delivery);
+  try {
+    return { message: await delivery, taskId, replayed: false };
+  } finally {
+    state.steeringInFlight.delete(replayKey);
+  }
+}
+
+async function deliverSteer(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  conversationId: string,
+  client: PiConversationClient,
+  taskId: string,
+  requestId: string,
+  replayKey: string,
+  input: { content: string; userMessageId?: string },
+): Promise<ChatMessage> {
   const message: ChatMessage = {
     id: turnIdentity(input.userMessageId ?? `message-${randomUUID()}`, "user message id"),
     role: "user",
@@ -4558,7 +4582,7 @@ async function steerConversationTurn(
     conversationId,
     message: "Your message will reach the agent after its current step.",
   });
-  return { message, taskId, replayed: false };
+  return message;
 }
 
 const maxRememberedSteeredMessages = 500;

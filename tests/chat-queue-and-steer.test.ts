@@ -179,3 +179,22 @@ test("the work-fold agent's running turn takes a steering message from the panel
   await waitFor(() => h.requests.length === 4, "the browser-steered step");
   assert.match(JSON.stringify(h.requests[3]), /Skip the archive\./);
 });
+
+test("two simultaneous retries of one steer reach the turn once", { timeout: 60_000 }, async (t) => {
+  const h = await startHarness(t);
+  h.reply("Working.", { held: true });
+  h.reply("Adjusted once.");
+  const { workFolder } = await h.api.actFacade.createWorkFolder({ name: "Retry" });
+  const sent = await h.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "Start." });
+  await waitFor(() => h.requests.length === 1, "the held turn");
+  const path = `/api/work-folders/${workFolder.id}/conversations/${sent.conversationId}/messages`;
+  const body = { content: "Only once, please.", delivery: "steer", requestId: "steer-retry-1", userMessageId: "message-steer-retry-1" };
+  const [first, second] = await Promise.all([call(h.api, path, { method: "POST", body }), call(h.api, path, { method: "POST", body })]);
+  assert.deepEqual([first.status, second.status], [202, 202]);
+  assert.deepEqual([first.body.replayed, second.body.replayed].sort(), [false, true]);
+  const steers = (await transcript(h.api, workFolder.id, sent.conversationId)).filter((message) => message.delivery === "steer");
+  assert.equal(steers.length, 1);
+  h.release();
+  await waitFor(() => h.requests.length === 2, "the steered step");
+  assert.equal(JSON.stringify(h.requests[1]).split("Only once, please.").length - 1, 1, "the model received it once");
+});
