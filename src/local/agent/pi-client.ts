@@ -72,6 +72,7 @@ import {
   type WorkFoldTurnIdentity,
 } from "./turn-identity.js";
 import { interruptedToolResultsExtension } from "./interrupted-tool-results.js";
+import { piStreamStallMs, streamWithStallWatchdog } from "./stream-stall-watchdog.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
 import { createBrowserTools } from "./browser-tools.js";
 import type { BrowserToolHost } from "../../shared/browser.js";
@@ -2288,9 +2289,9 @@ function piHeartbeatMs(): number {
 
 /**
  * Wall-clock cap on one agent turn. Disabled by default: a native Pi
- * session has no such cap, Pi's own HTTP idle timeout already catches a
- * provider that stops answering, and a legitimately long agentic turn must
- * not be cut off for being long. Hosts may opt into a cap explicitly.
+ * session has no such cap, the stalled-response watchdog
+ * (stream-stall-watchdog.ts) resends a response that goes silent, and a
+ * legitimately long agentic turn must not be cut off for being long. Hosts may opt into a cap explicitly.
  */
 export function piTurnTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   return positiveNumber(env.WORKFOLD_PI_TURN_TIMEOUT_MS ?? env.PI_TURN_TIMEOUT_MS, 0, true);
@@ -2338,8 +2339,11 @@ function installRetryableProviderErrorNormalization(session: AgentSession): void
   if (normalizedProviderStreams.has(session.agent)) return;
   normalizedProviderStreams.add(session.agent);
   const upstreamStream = session.agent.streamFunction;
+  const stallMs = piStreamStallMs();
   session.agent.streamFunction = async (model, context, options) => {
-    const upstream = await upstreamStream(model, context, options);
+    // A response that goes silent ends as a retryable stream timeout (stream-stall-watchdog.ts).
+    const upstream = await streamWithStallWatchdog(model, options?.signal, stallMs,
+      (signal) => upstreamStream(model, context, { ...options, signal }));
     // Keep a genuine native EventStream, including its class and cancellation behavior.
     return new Proxy(upstream, {
       get(target, key) {
