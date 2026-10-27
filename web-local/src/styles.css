@@ -951,7 +951,8 @@ body:has(> #root > .desktop-chrome-shell) {
   background: color-mix(in srgb, var(--ui-accent) 22%, transparent);
 }
 
-.turn-interruption--setup .ui-control {
+.turn-interruption--setup .ui-control,
+.turn-interruption-continue {
   justify-self: start;
   margin-top: 6px;
 }
@@ -5582,6 +5583,14 @@ to {
   opacity: 0.85;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.queued-send-held {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  white-space: normal;
 }
 
 .queued-send-cancel {

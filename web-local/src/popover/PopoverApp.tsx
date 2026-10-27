@@ -704,6 +704,33 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
     }
   }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders, followLatest]);
 
+  // Enter while the work-fold agent is working reaches its running turn after
+  // its current step, the way a work-folder Chat steers (2026-10-27).
+  const steer = useCallback(async () => {
+    const content = text.trim();
+    const conversation = selectionRef.current;
+    if (!content || sending || !conversation) return;
+    if (staged.length) {
+      setBanner("Attachments go with your next message, after this work finishes.");
+      return;
+    }
+    setSending(true);
+    setBanner("");
+    try {
+      await api("/api/work-fold-agent/messages", {
+        method: "POST",
+        idempotent: true,
+        body: { content, delivery: "steer", conversationId: conversation, requestId: workFoldAgentTurnIdentity("request"), userMessageId: workFoldAgentTurnIdentity("message") },
+      });
+      setText((current) => (current === text ? "" : current));
+      await refreshConversation();
+    } catch (error) {
+      setBanner(errorText(error));
+    } finally {
+      setSending(false);
+    }
+  }, [text, staged, sending, refreshConversation]);
+
   const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
   const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
   const mentionKey = activeMention ? `${activeMention.start}:${text}` : null;
@@ -932,7 +959,10 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   }
 
   const requestRunning = request !== null && activePhases.has(request.phase);
-  const composerPlaceholder = requestRunning
+  const canSteer = request?.phase === "working" && Boolean(conversationId) && !startingNewChat;
+  const composerPlaceholder = canSteer
+    ? "Steer (Enter)"
+    : requestRunning
     ? "Draft a follow-up"
     : request?.phase === "needs_you"
       ? "Reply to work-fold"
@@ -1184,11 +1214,12 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
                   setDismissedMentionKey(mentionKey);
                   return;
                 }
-                // Enter sends when idle; while a turn streams, the composer is a
-                // safe draft area and the action becomes Stop.
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !requestRunning) {
+                // Enter sends when idle and steers while the agent works; while
+                // only delegated work runs, the composer is a safe draft area
+                // and the action stays Stop.
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && (!requestRunning || canSteer)) {
                   event.preventDefault();
-                  void send();
+                  void (requestRunning ? steer() : send());
                 }
               }}
             />

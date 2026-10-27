@@ -25,22 +25,37 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   read("web-local/src/components/chrome/ActivityDot.tsx"),
 ]);
 
-test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
+test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft the app sends on settle", () => {
   // Plain Enter while a turn runs delivers the text through Pi's steering
   // queue (the agent reads it after its current step) and shows it as a
   // mid-turn user message; if the turn settles first (409) it becomes the
   // queued draft. ⌘/Ctrl+Enter holds the draft as a dashed queued bubble;
   // further Enters append; the queued draft fires through the ordinary send
   // path when the turn settles; Stop and the bubble's cancel return it to the
-  // composer ahead of any newer text.
+  // composer ahead of any newer text. Since 2026-10-27 the app holds the
+  // queued draft (every window shows it and the app sends it when the turn
+  // ends, never after a Stop); a window holds it only while its own turn has
+  // not been accepted yet.
   assert.match(chatPanel, /void steerMessage\(content\);/);
   assert.match(chatPanel, /body: \{ content, delivery: "steer", requestId, userMessageId \}/);
   assert.match(chatPanel, /caught instanceof ApiError && caught\.status === 409/);
   assert.match(chatPanel, /event\.metaKey \|\| event\.ctrlKey \|\| pendingSendRef\.current \|\| fixtureMode/);
   assert.match(localServer, /body\.delivery === "steer"/);
   assert.match(localServer, /await client\.steer\(input\.content\);/);
-  assert.match(chatPanel, /setQueuedSend\(\(current\) => \(current \? `\$\{current\}\\n\$\{content\}` : content\)\);/);
-  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
+  assert.match(chatPanel, /const next = queueSync\.append\(content\);/);
+  assert.match(chatPanel, /if \(queueSync\.applyEvent\(data\)\) publishQueue\(\);/);
+  assert.match(chatPanel, /\/queue`, \{\s*method: "PUT",/);
+  // Cancel is ordered after any queue write still in flight, so a late write
+  // cannot re-queue a cancelled message, and its echo is ignored meanwhile.
+  assert.match(chatPanel, /const cancel = queueWritesRef\.current\.catch\(\(\) => undefined\)\s*\.then\(\(\) => api<\{ revision: number \}>\(path, \{ method: "DELETE" \}\)\);/);
+  assert.match(chatPanel, /const \{ content, needsDelete \} = queueSync\.cancel\(\);/);
+  assert.match(chatPanel, /addressedWorkFolderIds: addressedFolderIds\(next, mentionFolders\)/);
+  assert.match(chatPanel, /if \(data\.type === "queued_message"\)/);
+  // A window never sends the message itself while its own queue writes or Cancel are unanswered.
+  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| queueUnsettled \|\| lifecycleView !== "active"\) return;/);
+  // A Stop from any surface holds the queued message; only an unheld one is sent.
+  assert.match(localServer, /if \(queued && settledStatus === "aborted"\) \{[\s\S]{0,200}held: true/);
+  assert.match(localServer, /\} else if \(queued && !queued\.held\) void sendQueuedMessage/);
   assert.match(chatPanel, /className="queued-send-row"/);
   assert.match(chatPanel, /aria-label="Cancel queued message"/);
   assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
@@ -255,7 +270,7 @@ test("provider interruptions stay visible and the configured model is disclosed 
 });
 
 test("a new turn clears the prior idle stream snapshot before running becomes visible", () => {
-  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
+  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string[^)]*\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
   assert.match(sendMessage, /cancelStreamingFlush\(\);\s*\n\s*setStreamingAssistant\(""\);/);
   assert.ok(sendMessage.indexOf('setStreamingAssistant("");') < sendMessage.indexOf("setRunning(true);"));
   assert.match(chatPanel, /typeof data\.text === "string" && data\.running === true/);

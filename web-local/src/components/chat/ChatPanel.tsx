@@ -45,7 +45,8 @@ import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, WorkFolderIconGlyph } from "../chrome/common";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
-import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
+import { QueuedMessageSync } from "../../lib/queued-message-sync";
+import { ChatMessageRow, MarkdownMessage, continueInterruptedTurnMessage, copyMarkdownToClipboard } from "./messages";
 import { showToast } from "../../ui/feedback";
 
 const emptyFixtureTreeEntries: TreeEntry[] = [];
@@ -178,6 +179,26 @@ export function ChatPanel({
   // visible, cancellable bubble and it sends when the turn settles. Further
   // Enters append to it; Stop and cancel return it to the composer.
   const [queuedSend, setQueuedSend] = useState<string | null>(null);
+  // True once the app holds the queued message (every window shows it and the
+  // app sends it when the turn ends); false while it is only this window's.
+  const [queuedOnServer, setQueuedOnServer] = useState(false);
+  // A Stop held the app's queued message: it waits for the person, unsent.
+  const [queuedHeld, setQueuedHeld] = useState(false);
+  // The queue's truth for event handlers lives in queueSync, written at once;
+  // React state only mirrors it (lib/queued-message-sync.ts).
+  const queueSync = useRef(new QueuedMessageSync()).current;
+  // True while this window's queue writes or Cancel are unanswered: the app may
+  // already own the message, so this window must not send it itself.
+  const [queueUnsettled, setQueueUnsettled] = useState(false);
+  const publishQueue = () => {
+    setQueuedSend(queueSync.content);
+    setQueuedOnServer(queueSync.onServer);
+    setQueuedHeld(queueSync.held);
+    setQueueUnsettled(queueSync.unsettled);
+  };
+  // Queue writes go out one after another, and Cancel goes after the last of
+  // them, so a write still in flight can never re-queue a cancelled message.
+  const queueWritesRef = useRef<Promise<unknown>>(Promise.resolve());
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [settlementPending, setSettlementPending] = useState(false);
@@ -564,6 +585,8 @@ export function ChatPanel({
     let openedOnce = false;
     const turnStateGate = createChatTurnStateGate();
     eventStreamReadyConversationIdRef.current = null;
+    // Queue numbers belong to one Chat's stream; a new Chat starts from its own.
+    queueSync.resetRevision();
     const source = createEventSource(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/events`);
     source.onopen = () => {
       eventStreamReadyConversationIdRef.current = conversationId;
@@ -706,6 +729,16 @@ export function ChatPanel({
         }
       }
       if (data.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: data.requests ?? [] });
+      if (data.type === "queued_message") {
+        // The app's copy wins; an empty one clears only a message the app held,
+        // never one this window is still holding for a turn not yet accepted.
+        if (data.sentContextPaths?.length) {
+          // Those files went out with the queued message; later messages do not repeat them.
+          const sent = new Set(data.sentContextPaths);
+          setContextAttachments((current) => current.filter((attachment) => !sent.has(attachment.sourcePath)));
+        }
+        if (queueSync.applyEvent(data)) publishQueue();
+      }
       // A proposal installs inside the proposing turn; the Chat surfaces the
       // settled receipt (added, or failed with a retry), never a review.
       if (data.type === "restricted_app_proposal" && data.proposal?.workFolderId === workFolder.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
@@ -1225,8 +1258,10 @@ export function ChatPanel({
     }
   }
 
-  async function sendMessage(contentOverride?: string) {
+  async function sendMessage(contentOverride?: string, options: { withoutAttachments?: boolean } = {}) {
     const content = (contentOverride ?? draft).trim();
+    // Continue sends only its own words: files staged for the person's draft stay staged.
+    const attachmentsForSend = options.withoutAttachments ? [] : contextAttachments;
     if (!content || running) return;
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
@@ -1246,7 +1281,7 @@ export function ChatPanel({
     const now = Date.now();
     const requestId = clientTurnIdentity("request");
     const userMessageId = clientTurnIdentity("message");
-    const sentAttachments = contextAttachments.map((attachment) => ({ kind: "file" as const, target: attachment.sourcePath, name: attachment.sourceFileName }));
+    const sentAttachments = attachmentsForSend.map((attachment) => ({ kind: "file" as const, target: attachment.sourcePath, name: attachment.sourceFileName }));
     const localUserMessage: ChatMessage = {
       id: userMessageId,
       role: "user",
@@ -1258,7 +1293,7 @@ export function ChatPanel({
     scrollMessagesToBottom("auto");
     if (fixtureMode) {
       const fixtureConversation = conversation ?? { id: "fixture-chat", title: "New Chat", updatedAt: new Date(now).toISOString() };
-      setContextAttachments([]);
+      if (!options.withoutAttachments) setContextAttachments([]);
       setConversation(fixtureConversation);
       onConversationActivated?.(fixtureConversation);
       commitConversations((current) => current.some((item) => item.id === fixtureConversation.id) ? current : [fixtureConversation, ...current]);
@@ -1301,7 +1336,7 @@ export function ChatPanel({
         requestId,
         userMessageId,
         localUserMessage,
-        contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
+        contextPaths: attachmentsForSend.map((attachment) => attachment.sourcePath),
         transientConversation: transientConversationIdsRef.current.has(activeConversation.id),
         draftStorageKey: sentDraftStorageKey,
         ...(addressedWorkFolderIds.length ? { addressedWorkFolderIds } : {}),
@@ -1359,7 +1394,7 @@ export function ChatPanel({
         // The turn settled before the message could reach it: send it as the
         // next message instead, which the queued-send effect does the moment
         // `running` clears.
-        setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+        queueFollowUp(content);
         return;
       }
       setError(errorText(caught));
@@ -1433,17 +1468,64 @@ export function ChatPanel({
 
   // The queued draft fires through the ordinary send path the moment the
   // turn settles; the Enter that queued it was the explicit act.
+  // A message the app holds is sent by the app when the turn ends; only one
+  // this window still holds (its turn was not accepted yet) is sent from here.
   useEffect(() => {
-    if (running || workState.work?.canStop || !queuedSend || lifecycleView !== "active") return;
+    if (running || workState.work?.canStop || !queuedSend || queuedOnServer || queueUnsettled || lifecycleView !== "active") return;
     const content = queuedSend;
-    setQueuedSend(null);
+    queueSync.clear();
+    publishQueue();
     void sendMessage(content);
-  }, [running, queuedSend, lifecycleView, workState.work?.canStop]);
+  }, [running, queuedSend, queuedOnServer, queueUnsettled, lifecycleView, workState.work?.canStop]);
+
+  // One stable Continue handler, so a message row re-renders only when Continue appears or goes.
+  const sendMessageRef = useRef(sendMessage);
+  sendMessageRef.current = sendMessage;
+  const continueInterruptedTurn = useCallback(() => {
+    void sendMessageRef.current(continueInterruptedTurnMessage, { withoutAttachments: true });
+  }, []);
+
+  /** Adds to the Chat's queued message and hands it to the app while a turn runs. */
+  function queueFollowUp(content: string) {
+    const next = queueSync.append(content);
+    publishQueue();
+    if (!conversation || fixtureMode || pendingSendRef.current) return;
+    const conversationId = conversation.id;
+    const body = {
+      content: next,
+      contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
+      addressedWorkFolderIds: addressedFolderIds(next, mentionFolders),
+    };
+    queueSync.writeStarted();
+    setQueueUnsettled(true);
+    const write = queueWritesRef.current.catch(() => undefined)
+      .then(() => api<{ queued: { content: string }; revision: number }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/queue`, { method: "PUT", body }));
+    queueWritesRef.current = write;
+    void write.then((result) => {
+      // The text stays this window's newest; the app now holds a copy of it.
+      queueSync.writeSettled(result.revision ?? 0);
+      publishQueue();
+    }, (caught) => {
+      queueSync.writeSettled();
+      publishQueue();
+      // 409: the turn already ended, so this window sends it (the effect above).
+      if (!(caught instanceof ApiError && caught.status === 409)) setError(errorText(caught));
+    });
+  }
 
   function returnQueuedSendToComposer() {
-    if (!queuedSend) return;
-    const content = queuedSend;
-    setQueuedSend(null);
+    const { content, needsDelete } = queueSync.cancel();
+    if (!content) return;
+    publishQueue();
+    if (needsDelete && conversation && !fixtureMode) {
+      const path = `/api/work-folders/${workFolder.id}/conversations/${conversation.id}/queue`;
+      const cancel = queueWritesRef.current.catch(() => undefined)
+        .then(() => api<{ revision: number }>(path, { method: "DELETE" }));
+      queueWritesRef.current = cancel;
+      void cancel.then((result) => queueSync.cancelSettled(result.revision ?? 0), () => queueSync.cancelSettled()).then(publishQueue);
+    } else if (needsDelete) {
+      queueSync.cancelSettled();
+    }
     setDraft((current) => (current.trim() ? `${content}\n${current}` : content));
     window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
   }
@@ -1767,6 +1849,10 @@ export function ChatPanel({
           {messages.map((message) => {
             const isLatestAssistantAtRest = message.role === "assistant" && message.id === latestAssistantMessageId && !running && !settlementPending && !streamingAssistant;
             const showRuntimePreview = isLatestAssistantAtRest && hasVisibleRuntimePreview;
+            // Continue is offered only where it means something: the Chat's last
+            // message, interrupted, with nothing running or queued behind it.
+            const canContinue = isLatestAssistantAtRest && !!message.interruption && message.id === messages[messages.length - 1]?.id
+              && !requestBusy && !queuedSend && lifecycleView === "active";
             return (
               <ChatMessageRow
                 message={message}
@@ -1780,6 +1866,7 @@ export function ChatPanel({
                 onOpenWorkFolderFile={onOpenWorkFolderFile}
                 resolveWorkFolderPathLinks={resolveWorkFolderPathLinks}
                 onCopyMessage={copyMessage}
+                onContinue={canContinue ? continueInterruptedTurn : undefined}
                 key={message.id}
               />
             );
@@ -1804,7 +1891,10 @@ export function ChatPanel({
           ) : null}
           {queuedSend ? (
             <div className="queued-send-row">
-              <div className="queued-send-bubble">{queuedSend}</div>
+              <div className="queued-send-bubble">
+                {queuedSend}
+                {queuedHeld ? <span className="queued-send-held">Not sent: the work was stopped.</span> : null}
+              </div>
               <button type="button" className="queued-send-cancel" aria-label="Cancel queued message" title="Cancel" onClick={returnQueuedSendToComposer}>
                 <X size={13} />
               </button>
@@ -1990,7 +2080,7 @@ export function ChatPanel({
                   if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode || addressedFolderIds(content, mentionFolders).length) {
                     // ⌘/Ctrl+Enter holds the draft for after this turn; a turn
                     // that has not been accepted yet cannot be steered either.
-                    setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+                    queueFollowUp(content);
                     setDraft("");
                     scrollMessagesToBottom("auto");
                     return;

@@ -788,6 +788,8 @@ interface LocalApiState {
   activeTurnIdsByKey: Map<string, string>;
   /** Mid-turn steering messages already appended, keyed by client key + request id, for idempotent retries. */
   steeredMessages: Map<string, ChatMessage>;
+  /** A steer still being delivered, so a concurrent retry with its request id waits for it instead of steering twice. */
+  steeringInFlight: Map<string, Promise<ChatMessage>>;
   turnCheckpointWriter: TurnCheckpointWriter;
   clients: Map<string, PiConversationClient>;
   runningTurns: Set<string>;
@@ -798,6 +800,25 @@ interface LocalApiState {
   cancelledTurnTasks: Set<string>;
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
+  /**
+   * Idle Chats being summarized ahead of time (2026-10-27). Deliberately not in
+   * `compactingConversations`: a background summary never refuses the person.
+   * Anything that needs the Chat's Pi session cancels it first.
+   */
+  backgroundCompactions: Map<string, BackgroundCompaction>;
+  /**
+   * One queued message per Chat, held by the app rather than a window, so
+   * every window shows it and it outlives the window that queued it
+   * (2026-10-27). It is sent when the running turn ends, unless that turn was
+   * stopped. It lives in the running app only: quitting drops it.
+   */
+  queuedMessages: Map<string, QueuedChatMessage>;
+  /**
+   * Each queue change gets a higher number, kept per Chat after the message
+   * leaves, so a window can tell a stale echo from the newest change.
+   */
+  queueRevisions: Map<string, number>;
+  lastQueueRevision: number;
   capabilityMutations: Set<string>;
   /** Turn clients whose work-folder changed under them; rebuilt when their turn settles. */
   clientsToRefresh: Set<string>;
@@ -1104,6 +1125,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     chatEventLogs: new Map(),
     activeTurnIdsByKey: new Map(),
     steeredMessages: new Map(),
+    steeringInFlight: new Map(),
     turnCheckpointWriter: new TurnCheckpointWriter({
       activeTask: (key) => state.activeTurnIdsByKey.get(key),
       activeTasks: () => state.activeTurnIdsByKey,
@@ -1121,6 +1143,10 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     cancelledTurnTasks: new Set(),
     settledTurns: new Map(),
     compactingConversations: new Set(),
+    backgroundCompactions: new Map(),
+    queuedMessages: new Map(),
+    queueRevisions: new Map(),
+    lastQueueRevision: 0,
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
     imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
@@ -1462,6 +1488,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.requestSettleChain.catch(() => undefined);
       // So may any other acceptance already past the flag (acceptConversationTurn).
       await Promise.allSettled([...state.turnAcceptances]);
+      await Promise.allSettled([...state.backgroundCompactions.keys()].map((key) => yieldBackgroundCompaction(state, key)));
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
       await shutdownIncludedToolHost(workFoldAgentRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
@@ -3363,6 +3390,23 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     openChatStream(state, createLocalEventSink(res), eventsMatch[1], eventsMatch[2], req.headers["last-event-id"]);
     return;
   }
+  const queueMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/queue$/);
+  if (queueMatch && (method === "PUT" || method === "DELETE")) {
+    const workFolder = await getWorkFolder(queueMatch[1]);
+    if (!(await readConversationSummary(workFolder.workFolderRoot, queueMatch[2]))) throw notFound("Conversation not found.");
+    if (method === "DELETE") {
+      sendJson(res, cancelQueuedMessage(state, workFolder.id, queueMatch[2]));
+      return;
+    }
+    const body = await readJsonBody<{ content?: string; contextPaths?: string[]; addressedWorkFolderIds?: unknown }>(state, req);
+    const content = body.content?.trim();
+    if (!content) throw badRequest("Message content is required.");
+    const contextPaths = normalizeContextPaths(workFolder.workFolderRoot, body.contextPaths);
+    // Workers the message addresses with @ travel with it, as on the ordinary message route.
+    const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFolder.id);
+    sendJson(res, queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths, addressedWorkFolderIds }));
+    return;
+  }
   const messagesPostMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/messages$/);
   if (method === "POST" && messagesPostMatch) {
     const workFolder = await getWorkFolder(messagesPostMatch[1]);
@@ -3433,6 +3477,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!(await readConversation(workFolder.workFolderRoot, compactMatch[2])).length) throw notFound("Conversation not found.");
     const key = clientKey(workFolder.id, compactMatch[2]);
     const body = await readJsonBody<{ customInstructions?: string }>(state, req);
+    await yieldBackgroundCompaction(state, key);
     assertNoCapabilityMutationForTurn(state, workFolder.id);
     if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current agent turn to finish.");
     if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
@@ -3506,9 +3551,25 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       requestId?: unknown;
       userMessageId?: unknown;
       addressedWorkFolderIds?: unknown;
+      delivery?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
+    if (body.delivery !== undefined && body.delivery !== "steer") throw badRequest("Message delivery must be \"steer\" when present.");
+    if (body.delivery === "steer") {
+      // The menu-bar panel and the agent panel reach a running turn the way a work-folder Chat does (2026-10-27).
+      const steerConversationId = boundedOptionalId(body.conversationId, "conversationId");
+      if (!steerConversationId) throw badRequest("Steering needs the conversationId of the running Chat.");
+      if (Array.isArray(body.attachments) && body.attachments.length) throw badRequest("Attachments cannot be added to a running turn.");
+      const scope = workFoldAgentScopeForRoutes(state);
+      const steered = await steerConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, steerConversationId, {
+        content,
+        requestId: optionalTurnIdentity(body.requestId, "requestId"),
+        userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
+      });
+      sendJson(res, { accepted: true, delivery: "steer", conversationId: steerConversationId, message: steered.message, taskId: steered.taskId, replayed: steered.replayed }, 202);
+      return;
+    }
     const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFoldAgentScopeId);
     const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
     if (rawAttachments.length > maxWorkFoldAgentAttachments) {
@@ -4108,6 +4169,7 @@ async function admitConversationTurn(
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string; attachments?: ChatMessageAttachmentRef[] }; taskId: string; replayed: boolean }> {
   const turnKey = clientKey(workFolder.id, conversationId);
+  await yieldBackgroundCompaction(state, turnKey);
   const fileAttachments = workFolder.id === workFoldAgentScopeId ? [] : contextPathAttachments(input.contextPaths);
   const attachmentFields = fileAttachments.length ? { attachments: fileAttachments } : {};
   const existing = await readConversationSummary(workFolder.workFolderRoot, conversationId);
@@ -4483,6 +4545,27 @@ async function steerConversationTurn(
   const replayKey = `${key}\u0000${requestId}`;
   const prior = state.steeredMessages.get(replayKey);
   if (prior) return { message: prior, taskId, replayed: true };
+  const inFlight = state.steeringInFlight.get(replayKey);
+  if (inFlight) return { message: await inFlight, taskId, replayed: true };
+  const delivery = deliverSteer(state, workFolder, conversationId, client, taskId, requestId, replayKey, input);
+  state.steeringInFlight.set(replayKey, delivery);
+  try {
+    return { message: await delivery, taskId, replayed: false };
+  } finally {
+    state.steeringInFlight.delete(replayKey);
+  }
+}
+
+async function deliverSteer(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  conversationId: string,
+  client: PiConversationClient,
+  taskId: string,
+  requestId: string,
+  replayKey: string,
+  input: { content: string; userMessageId?: string },
+): Promise<ChatMessage> {
   const message: ChatMessage = {
     id: turnIdentity(input.userMessageId ?? `message-${randomUUID()}`, "user message id"),
     role: "user",
@@ -4509,7 +4592,7 @@ async function steerConversationTurn(
     conversationId,
     message: "Your message will reach the agent after its current step.",
   });
-  return { message, taskId, replayed: false };
+  return message;
 }
 
 const maxRememberedSteeredMessages = 500;
@@ -5681,7 +5764,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true },
+            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true, steer: true },
             extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
@@ -5701,7 +5784,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               };
             })),
             truncated: selected.length < conversations.length,
-            capabilities: { sharedPages: true, filePreview: true, appViews: true },
+            capabilities: { sharedPages: true, filePreview: true, appViews: true, steer: true },
           };
         }
         case "management.transcript": {
@@ -5781,10 +5864,27 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           return { deleted };
         }
         case "management.send": {
-          assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments"]);
+          assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments", "delivery"]);
           assertWorkFoldAgentReadyForRoutes(state);
           const content = remoteContent(input.content);
           const scope = workFoldAgentScopeForRoutes(state);
+          if (input.delivery !== undefined && input.delivery !== "steer") throw badRequest("Message delivery must be \"steer\" when present.");
+          if (input.delivery === "steer") {
+            // A paired browser reaches the running turn it is watching, like the desktop (2026-10-27).
+            if (input.conversationId === undefined || input.newConversation !== undefined || input.attachments !== undefined) {
+              throw badRequest("Steering takes the running Chat's conversationId and text only.");
+            }
+            const steerConversationId = remoteStableId(input.conversationId, "conversation id", 160);
+            // The same ownership rule as management.stop: a browser steers only work it started.
+            const latest = state.requests.latestForConversation(steerConversationId);
+            if (!latest) throw httpError(409, "No turn is running in this Chat; send the message normally.");
+            assertRemoteWorkOwner(state, latest, principal);
+            const steered = await steerConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, steerConversationId, {
+              content,
+              requestId: `remote-steer-${createHash("sha256").update(`${principal.browserId}\u0000${principal.grantId}\u0000${principal.requestId}`).digest("hex")}`,
+            });
+            return { accepted: true, delivery: "steer", conversationId: steerConversationId, message: remoteChatMessage(steered.message), taskId: steered.taskId };
+          }
           const conversationIdInput = input.conversationId === undefined
             ? null
             : remoteStableId(input.conversationId, "conversation id", 160);
@@ -9270,6 +9370,8 @@ async function deleteWorkFoldAgentConversation(
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const root = workFoldAgentRoot();
   const key = clientKey(workFoldAgentScopeId, conversationId);
+  await yieldBackgroundCompaction(state, key);
+  changeQueuedMessage(state, key, null);
   assertWorkFoldAgentConversationMutable(state, conversationId);
   // This reservation uses the same conflict fence as compaction because a
   // transcript move must not race a new turn, rename, or real compaction.
@@ -9331,6 +9433,8 @@ async function deleteWorkFolderConversation(
   context: { receiptId: string | null },
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const key = clientKey(workFolder.id, conversationId);
+  await yieldBackgroundCompaction(state, key);
+  changeQueuedMessage(state, key, null);
   if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current turn to finish.");
   if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   // The same conflict fence compaction uses: a transcript move must not race
@@ -11505,6 +11609,7 @@ async function copyConversation(
   sourceConversationId: string,
   title?: string,
 ): Promise<{ conversation: ConversationSummary; copiedMessages: number }> {
+  await yieldBackgroundCompaction(state, clientKey(workFolder.id, sourceConversationId));
   const summary = await readConversationSummary(workFolder.workFolderRoot, sourceConversationId);
   if (!summary) throw new WorkFoldCliError("notFound", "Conversation not found.");
   if (state.compactingConversations.has(clientKey(workFolder.id, sourceConversationId))) {
@@ -12537,6 +12642,8 @@ async function runAgentTurn(
   let client: PiConversationClient | null = null;
   let promptStarted = false;
   let settledStatus: SettledTurnRecord["status"] = "succeeded";
+  // Quitting mid-turn is recorded like a crash (interrupted), never as a Stop the person asked for.
+  let closedByApp = false;
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
   let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
@@ -12677,6 +12784,7 @@ async function runAgentTurn(
       capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
     }
     const cancelled = isPiTurnCancelledError(error);
+    closedByApp = cancelled && !state.cancelledTurnTasks.has(taskId) && !state.acceptingTurns;
     if (promptStarted) {
       promptStarted = false;
       afterCheckpoint = await captureTurnCheckpointSafe(state, workFolderId, workFolderRoot, conversationId, "post_turn");
@@ -12687,11 +12795,15 @@ async function runAgentTurn(
     if (!cancelled) {
       console.warn(`Turn failed in ${workFolderId}/${conversationId}: ${providerCreditFailureDetail(error) ?? errorMessage(error)}`);
     }
-    const publicDetail = cancelled
-      ? "The agent was stopped before it completed this response."
-      : assistantFailurePublicDetail(error);
+    const publicDetail = closedByApp
+      ? appClosedTurnDetail
+      : cancelled
+        ? "The agent was stopped before it completed this response."
+        : assistantFailurePublicDetail(error);
     const workTrail = capturedWorkTrail;
-    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedContent = closedByApp
+      ? durable?.assistantText.trim() || appClosedTurnDetail
+      : assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
     const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
@@ -12703,7 +12815,7 @@ async function runAgentTurn(
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
       ...(workTrail.length ? { workTrail } : {}),
       interruption: {
-        reason: cancelled ? "cancelled" as const : assistantFailureReason(error),
+        reason: closedByApp ? "app_interrupted" as const : cancelled ? "cancelled" as const : assistantFailureReason(error),
         message: publicDetail,
         retryAttempts: error instanceof PiTurnFailure ? error.retryAttempts : 0,
         provider: error instanceof PiTurnFailure ? error.provider : null,
@@ -12718,8 +12830,8 @@ async function runAgentTurn(
     } catch (preservationError) {
       console.error(`Could not preserve an interrupted Worker result: ${errorMessage(preservationError)}`);
     }
-    const message = assistantTurnFailureMessage(error, failureResultPreserved);
-    settledStatus = cancelled ? "aborted" : "failed";
+    const message = closedByApp ? appClosedTurnDetail : assistantTurnFailureMessage(error, failureResultPreserved);
+    settledStatus = cancelled && !closedByApp ? "aborted" : "failed";
     settledError = message;
     // A provider failure settles the Pi session cleanly after its bounded retry
     // path. Keep that live session so the next user message can continue from
@@ -12738,7 +12850,7 @@ async function runAgentTurn(
     // the turn journal as their receipt (docs/receipts-not-gates.md, F22).
     const turnUsage = client?.getTurnUsage() ?? null;
     await state.turnStore.settle(taskId, {
-      status: settledStatus,
+      status: closedByApp ? "interrupted" : settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       assistantText: durableText,
@@ -12753,7 +12865,7 @@ async function runAgentTurn(
     // task-scoped record, so a waiter or the overview reads a current request
     // state on the next tick (F25).
     await state.requests.settleTurn(taskId, {
-      status: settledStatus,
+      status: closedByApp ? "interrupted" : settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       ...(turnUsage ? { usage: turnUsage } : {}),
@@ -12782,6 +12894,16 @@ async function runAgentTurn(
       : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The turn did not finish." });
     broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
+    // A Stop, from any surface, holds the queued message: it stays for the
+    // person to take back and no later turn's end sends it.
+    const queued = state.queuedMessages.get(key);
+    if (queued && settledStatus === "aborted") {
+      if (!queued.held) {
+        changeQueuedMessage(state, key, { ...queued, held: true });
+        broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+      }
+    } else if (queued && !queued.held) void sendQueuedMessage(state, workFolderId, workFolderRoot, conversationId, queued);
+    else if (settledStatus === "succeeded") scheduleBackgroundCompaction(state, workFolderId, workFolderRoot, conversationId);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the work-fold agent one continuation turn. Fire-and-forget
     // with its own catch, the way activeTurnPromises are: a settle never
@@ -12804,6 +12926,170 @@ function resolveTurnRequestId(state: LocalApiState, taskId: string): string {
     ?? state.turnStore.get(taskId)?.requestId
     ?? taskId;
 }
+
+interface QueuedChatMessage {
+  content: string;
+  /** Files attached in the composer, for a work-folder Chat. */
+  contextPaths: string[];
+  /** Workers the message addresses with @. */
+  addressedWorkFolderIds: string[];
+  updatedAt: string;
+  /** Set by a Stop: kept for the person to take back, never sent. A new queue write arms it again. */
+  held?: true;
+}
+
+/** Every change to a Chat's queued message goes through here and gets the next number. */
+function changeQueuedMessage(state: LocalApiState, key: string, next: QueuedChatMessage | null): number {
+  state.lastQueueRevision += 1;
+  state.queueRevisions.set(key, state.lastQueueRevision);
+  if (next) state.queuedMessages.set(key, next);
+  else state.queuedMessages.delete(key);
+  return state.lastQueueRevision;
+}
+
+function queuedMessageEvent(state: LocalApiState, workFolderId: string, conversationId: string, sent?: QueuedChatMessage) {
+  const key = clientKey(workFolderId, conversationId);
+  const queued = state.queuedMessages.get(key);
+  return {
+    type: "queued_message" as const,
+    conversationId,
+    revision: state.queueRevisions.get(key) ?? 0,
+    queued: queued ? { content: queued.content, updatedAt: queued.updatedAt, ...(queued.held ? { held: true } : {}) } : null,
+    // The files that went out with a sent queued message, so windows unstage them.
+    ...(sent ? { sentContextPaths: sent.contextPaths } : {}),
+  };
+}
+
+/**
+ * Replaces a Chat's queued message while its turn runs. A Chat with no running
+ * turn is refused (409) so the caller sends the message now instead.
+ */
+function queueChatMessage(
+  state: LocalApiState,
+  workFolderId: string,
+  conversationId: string,
+  input: { content: string; contextPaths: string[]; addressedWorkFolderIds: string[] },
+): { queued: { content: string; updatedAt: string }; revision: number } {
+  const key = clientKey(workFolderId, conversationId);
+  if (!state.runningTurns.has(key)) throw httpError(409, "No turn is running in this Chat; send the message now.");
+  const queued: QueuedChatMessage = { ...input, updatedAt: new Date().toISOString() };
+  const revision = changeQueuedMessage(state, key, queued);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  return { queued: { content: queued.content, updatedAt: queued.updatedAt }, revision };
+}
+
+/** Removes a Chat's queued message and returns it, so it can go back to a composer. */
+function cancelQueuedMessage(state: LocalApiState, workFolderId: string, conversationId: string): { queued: { content: string; updatedAt: string } | null; revision: number } {
+  const key = clientKey(workFolderId, conversationId);
+  const queued = state.queuedMessages.get(key);
+  if (!queued) return { queued: null, revision: state.queueRevisions.get(key) ?? 0 };
+  const revision = changeQueuedMessage(state, key, null);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  return { queued: { content: queued.content, updatedAt: queued.updatedAt }, revision };
+}
+
+/**
+ * Sends a Chat's queued message as an ordinary new turn once the turn it
+ * waited on has ended. If the Chat cannot take it yet (another turn started
+ * first), it stays queued for the next turn's end.
+ */
+async function sendQueuedMessage(state: LocalApiState, workFolderId: string, workFolderRoot: string, conversationId: string, queued: QueuedChatMessage): Promise<void> {
+  const key = clientKey(workFolderId, conversationId);
+  if (!state.acceptingTurns || state.queuedMessages.get(key) !== queued) return;
+  // Leaves the queue as it becomes the Chat's message, so no window shows both.
+  changeQueuedMessage(state, key, null);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId, queued));
+  try {
+    const agentScope = workFolderId === workFoldAgentScopeId;
+    await acceptConversationTurn(state, { id: workFolderId, workFolderRoot }, conversationId, {
+      content: queued.content,
+      contextPaths: agentScope ? [] : queued.contextPaths,
+      actorKind: agentScope ? "renderer" : "assistant",
+      ...(agentScope ? { workFoldAgentAttachments: [] } : {}),
+      ...(queued.addressedWorkFolderIds.length ? { addressedWorkFolderIds: queued.addressedWorkFolderIds } : {}),
+    });
+  } catch (error) {
+    console.warn(`A queued message stays queued: ${errorMessage(error)}`);
+    if (!state.queuedMessages.has(key)) {
+      changeQueuedMessage(state, key, queued);
+      broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+    }
+  }
+}
+
+interface BackgroundCompaction {
+  timer: NodeJS.Timeout | null;
+  /** Present while the summary is being written. */
+  run: { client: PiConversationClient; done: Promise<void> } | null;
+  /** Set when something that needs the Chat cancelled it; that is not a failure. */
+  yielded: boolean;
+}
+
+/** How long a Chat stays idle after a reply before it is summarized ahead of time. */
+function backgroundCompactionIdleMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number(env.WORKFOLD_PI_BACKGROUND_COMPACTION_IDLE_MS);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 10_000;
+}
+
+/**
+ * Summarizes an idle Chat in the background once it nears Pi's own automatic
+ * compaction point, so the next turn does not wait on that summary (Pi
+ * Durable's background compaction, 2026-10-27). It runs as its own kernel
+ * compaction task, only on a client that already exists, and only after the
+ * Chat has been quiet for a moment; anything that needs the Chat first calls
+ * yieldBackgroundCompaction. A failed or cancelled summary changes nothing:
+ * Pi still compacts mid-turn when it must.
+ */
+function scheduleBackgroundCompaction(state: LocalApiState, workFolderId: string, workFolderRoot: string, conversationId: string): void {
+  const key = clientKey(workFolderId, conversationId);
+  const pending = state.backgroundCompactions.get(key);
+  if (pending?.run) return;
+  if (pending?.timer) clearTimeout(pending.timer);
+  const entry: BackgroundCompaction = { timer: null, run: null, yielded: false };
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    const client = state.clients.get(key);
+    if (!client || !state.acceptingTurns || state.runningTurns.has(key) || state.compactingConversations.has(key)
+      || state.capabilityMutations.size > 0 || !client.backgroundCompactionDue()) {
+      if (state.backgroundCompactions.get(key) === entry) state.backgroundCompactions.delete(key);
+      return;
+    }
+    const task = state.kernel.startTask({
+      kind: "compaction",
+      workFolderId,
+      conversationId,
+      actor: { kind: "system", cwd: workFolderRoot, workFolderId, conversationId },
+    });
+    const done = client.compact(undefined, { quiet: true })
+      .catch((error: unknown) => {
+        if (!entry.yielded) console.warn(`A background Chat summary did not finish: ${errorMessage(error)}`);
+      })
+      .finally(() => {
+        state.kernel.finishTask(task.id);
+        if (state.backgroundCompactions.get(key) === entry) state.backgroundCompactions.delete(key);
+      });
+    entry.run = { client, done };
+  }, backgroundCompactionIdleMs());
+  entry.timer.unref?.();
+  state.backgroundCompactions.set(key, entry);
+}
+
+/** Cancels a Chat's pending or running background summary and waits for it to stop. */
+async function yieldBackgroundCompaction(state: LocalApiState, key: string): Promise<void> {
+  const entry = state.backgroundCompactions.get(key);
+  if (!entry) return;
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = null;
+  if (!entry.run) {
+    state.backgroundCompactions.delete(key);
+    return;
+  }
+  entry.yielded = true;
+  entry.run.client.abortCompaction();
+  await entry.run.done;
+}
+
+const appClosedTurnDetail = "work-fold closed before this turn finished. It was not run again because completed tools may already have changed something.";
 
 async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
   const records = state.turnStore.list().sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
@@ -12845,7 +13131,7 @@ async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
       if (settled) rememberDurableSettledTurn(state, settled);
       continue;
     }
-    const detail = "work-fold closed before this turn finished. It was not run again because completed tools may already have changed something.";
+    const detail = appClosedTurnDetail;
     const recoveredMessage: ChatMessage = {
       id: randomUUID(),
       role: "assistant",
@@ -15556,6 +15842,8 @@ function openChatStream(
   }, snapshotId > 0 ? snapshotId : undefined);
   // Older consumers retain their original handshake alongside the richer view.
   writeSseData(res, turnStateEvent(conversationId, running, turnId ?? log.turnId ?? null), snapshotId > 0 ? snapshotId : undefined);
+  // Current state, like turn_state: it carries the snapshot's cursor.
+  writeSseData(res, queuedMessageEvent(state, workFolderId, conversationId), snapshotId > 0 ? snapshotId : undefined);
   const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);
