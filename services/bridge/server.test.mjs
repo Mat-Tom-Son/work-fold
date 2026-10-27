@@ -300,7 +300,7 @@ test("chat deletion state transition removes only the settled chat and its draft
   assert.deepEqual(removeDeletedChat(state, "chat-b"), { nextConversationId: "chat-c" });
 });
 
-test("the running control replaces Send inside the composer", async () => {
+test("the running control replaces Send inside the composer until there is text to steer with", async () => {
   const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
   const applicationStyles = await readFile(new URL("./public/app.css", import.meta.url), "utf8");
   const topBar = applicationSource.match(/<header class="top-bar">[\s\S]*?<\/header>/)?.[0] ?? "";
@@ -309,7 +309,10 @@ test("the running control replaces Send inside the composer", async () => {
   assert.match(composer, /class="send-button"[\s\S]*?id="stop-task" class="send-button stop-button"/);
   assert.match(applicationStyles, /\.send-button\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(applicationStyles, /\.stop-button\s*\{/);
-  assert.match(applicationSource, /selectedTaskRunning[\s\S]{0,180}if \(!content[\s\S]{0,180}selectedTaskRunning\) return/);
+  // A running Chat takes a message only as steering, and only when the desktop offers it.
+  assert.match(applicationSource, /if \(selectedTaskRunning\) \{\s*if \(state\.steerAvailable && state\.contextName === "chat" && !state\.uploads\.length\) await steerPrompt\(input, content\);\s*return;/);
+  assert.match(applicationSource, /remote\("management\.send", \{ content, conversationId, delivery: "steer" \}\)/);
+  assert.match(applicationSource, /button\.hidden = running && !\(steerable && input\.value\.trim\(\)\);/);
 });
 
 test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {

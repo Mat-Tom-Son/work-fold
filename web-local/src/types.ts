@@ -947,7 +947,7 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message";
   conversationId: string;
   running?: boolean;
   turnId?: string | null;
@@ -971,6 +971,8 @@ export interface ChatStreamEvent {
   requests?: ExtensionUiRequest[];
   proposal?: RestrictedAppProposal;
   editorMode?: "replace" | "append";
+  /** The Chat's queued message, held by the app for every window (2026-10-27). */
+  queued?: { content: string; updatedAt: string } | null;
 }
 
 export interface BootstrapResponse { workFolders: WorkFolderSummary[]; agent: AgentStatus; appearance?: WorkFolderAppearanceState }

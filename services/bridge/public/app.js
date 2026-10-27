@@ -95,6 +95,8 @@ const state = {
   deleteSaving: false,
   conversationsLoaded: false,
   filePreviewAvailable: false,
+  // The desktop says it can take a message into a running turn (2026-10-27).
+  steerAvailable: false,
   sharedPagesAvailable: false,
   workFolderApps: new Map(),
   transcriptLoading: false,
@@ -130,6 +132,7 @@ function initializeSharedPages() {
 function updateCapabilities(capabilities) {
   if (!capabilities) return;
   state.filePreviewAvailable = capabilities.filePreview === true;
+  state.steerAvailable = capabilities.steer === true;
   const available = capabilities.sharedPages === true;
   if (state.sharedPagesAvailable !== available) {
     state.sharedPagesAvailable = available;
@@ -1287,7 +1290,13 @@ async function sendPrompt() {
   const input = document.querySelector("#prompt");
   const content = input.value.trim();
   const selectedTaskRunning = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
-  if (!content || state.sending || state.renameSaving || state.deleteSaving || selectedTaskRunning) return;
+  if (!content || state.sending || state.renameSaving || state.deleteSaving) return;
+  // A message sent while this browser's work runs reaches it after its
+  // current step, as on the desktop; otherwise a running Chat takes nothing.
+  if (selectedTaskRunning) {
+    if (state.steerAvailable && state.contextName === "chat" && !state.uploads.length) await steerPrompt(input, content);
+    return;
+  }
   cancelChatRename({ restoreFocus: false });
   state.sending = true;
   state.liveAssistantText = "";
@@ -1355,6 +1364,35 @@ async function sendPrompt() {
       state.uploads = sentUploads;
       renderMessages();
     }
+    state.banner = errorText(error);
+    renderBanner();
+  } finally {
+    state.sending = false;
+    syncComposer();
+    input.focus({ preventScroll: true });
+  }
+}
+
+async function steerPrompt(input, content) {
+  const conversationId = state.selectedConversationId;
+  const draftKey = currentComposerDraftKey();
+  state.sending = true;
+  state.banner = "";
+  const pendingId = `pending-${crypto.randomUUID()}`;
+  state.messages = [...state.messages, { id: pendingId, role: "user", content, pending: true }];
+  state.composerDrafts.delete(draftKey);
+  persistDrafts();
+  input.value = "";
+  syncComposer();
+  renderMessages();
+  try {
+    await remote("management.send", { content, conversationId, delivery: "steer" });
+    await loadConversations({ preferredConversationId: conversationId });
+  } catch (error) {
+    // Nothing reached the turn: the text returns to the composer.
+    state.messages = state.messages.filter((message) => message.id !== pendingId);
+    input.value = input.value.trim() ? `${content}\n${input.value}` : content;
+    renderMessages();
     state.banner = errorText(error);
     renderBanner();
   } finally {
@@ -1460,12 +1498,15 @@ function syncComposer() {
   input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
   const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
-  button.hidden = running;
+  // While work runs, Send appears beside Stop once there is text to steer with.
+  const steerable = running && state.steerAvailable && state.contextName === "chat" && !state.uploads.length;
+  button.hidden = running && !(steerable && input.value.trim());
   stop.hidden = !running || state.contextName !== "chat";
-  button.disabled = state.sending || state.renameSaving || state.deleteSaving || unavailable || running || !input.value.trim();
+  button.disabled = state.sending || state.renameSaving || state.deleteSaving || unavailable || (running && !steerable) || !input.value.trim();
   button.dataset.sending = String(state.sending);
-  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : "Send message");
-  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : "Send message";
+  const sendLabel = steerable ? "Send to the running work" : "Send message";
+  button.setAttribute("aria-label", state.sending ? "Sending message" : unavailable ? "Desktop offline" : sendLabel);
+  button.title = state.sending ? "Sending…" : unavailable ? "Desktop offline" : sendLabel;
   input.setAttribute("aria-busy", String(state.sending));
   for (const newChatButton of document.querySelectorAll("#new-chat")) {
     // New chat stays reachable from every other screen while a new chat is

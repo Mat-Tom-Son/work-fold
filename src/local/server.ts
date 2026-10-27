@@ -804,6 +804,13 @@ interface LocalApiState {
    * Anything that needs the Chat's Pi session cancels it first.
    */
   backgroundCompactions: Map<string, BackgroundCompaction>;
+  /**
+   * One queued message per Chat, held by the app rather than a window, so
+   * every window shows it and it outlives the window that queued it
+   * (2026-10-27). It is sent when the running turn ends, unless that turn was
+   * stopped. It lives in the running app only: quitting drops it.
+   */
+  queuedMessages: Map<string, QueuedChatMessage>;
   capabilityMutations: Set<string>;
   /** Turn clients whose work-folder changed under them; rebuilt when their turn settles. */
   clientsToRefresh: Set<string>;
@@ -1128,6 +1135,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     settledTurns: new Map(),
     compactingConversations: new Set(),
     backgroundCompactions: new Map(),
+    queuedMessages: new Map(),
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
     imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
@@ -3371,6 +3379,21 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     openChatStream(state, createLocalEventSink(res), eventsMatch[1], eventsMatch[2], req.headers["last-event-id"]);
     return;
   }
+  const queueMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/queue$/);
+  if (queueMatch && (method === "PUT" || method === "DELETE")) {
+    const workFolder = await getWorkFolder(queueMatch[1]);
+    if (!(await readConversationSummary(workFolder.workFolderRoot, queueMatch[2]))) throw notFound("Conversation not found.");
+    if (method === "DELETE") {
+      sendJson(res, { queued: cancelQueuedMessage(state, workFolder.id, queueMatch[2]) });
+      return;
+    }
+    const body = await readJsonBody<{ content?: string; contextPaths?: string[] }>(state, req);
+    const content = body.content?.trim();
+    if (!content) throw badRequest("Message content is required.");
+    const contextPaths = normalizeContextPaths(workFolder.workFolderRoot, body.contextPaths);
+    sendJson(res, { queued: queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths }) });
+    return;
+  }
   const messagesPostMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/messages$/);
   if (method === "POST" && messagesPostMatch) {
     const workFolder = await getWorkFolder(messagesPostMatch[1]);
@@ -3515,9 +3538,25 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       requestId?: unknown;
       userMessageId?: unknown;
       addressedWorkFolderIds?: unknown;
+      delivery?: unknown;
     }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
+    if (body.delivery !== undefined && body.delivery !== "steer") throw badRequest("Message delivery must be \"steer\" when present.");
+    if (body.delivery === "steer") {
+      // The menu-bar panel and the agent panel reach a running turn the way a work-folder Chat does (2026-10-27).
+      const steerConversationId = boundedOptionalId(body.conversationId, "conversationId");
+      if (!steerConversationId) throw badRequest("Steering needs the conversationId of the running Chat.");
+      if (Array.isArray(body.attachments) && body.attachments.length) throw badRequest("Attachments cannot be added to a running turn.");
+      const scope = workFoldAgentScopeForRoutes(state);
+      const steered = await steerConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, steerConversationId, {
+        content,
+        requestId: optionalTurnIdentity(body.requestId, "requestId"),
+        userMessageId: optionalTurnIdentity(body.userMessageId, "userMessageId"),
+      });
+      sendJson(res, { accepted: true, delivery: "steer", conversationId: steerConversationId, message: steered.message, taskId: steered.taskId, replayed: steered.replayed }, 202);
+      return;
+    }
     const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFoldAgentScopeId);
     const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
     if (rawAttachments.length > maxWorkFoldAgentAttachments) {
@@ -5691,7 +5730,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true },
+            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true, steer: true },
             extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
@@ -5711,7 +5750,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               };
             })),
             truncated: selected.length < conversations.length,
-            capabilities: { sharedPages: true, filePreview: true, appViews: true },
+            capabilities: { sharedPages: true, filePreview: true, appViews: true, steer: true },
           };
         }
         case "management.transcript": {
@@ -5791,10 +5830,27 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
           return { deleted };
         }
         case "management.send": {
-          assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments"]);
+          assertRemoteKeys(input, ["content", "conversationId", "newConversation", "attachments", "delivery"]);
           assertWorkFoldAgentReadyForRoutes(state);
           const content = remoteContent(input.content);
           const scope = workFoldAgentScopeForRoutes(state);
+          if (input.delivery !== undefined && input.delivery !== "steer") throw badRequest("Message delivery must be \"steer\" when present.");
+          if (input.delivery === "steer") {
+            // A paired browser reaches the running turn it is watching, like the desktop (2026-10-27).
+            if (input.conversationId === undefined || input.newConversation !== undefined || input.attachments !== undefined) {
+              throw badRequest("Steering takes the running Chat's conversationId and text only.");
+            }
+            const steerConversationId = remoteStableId(input.conversationId, "conversation id", 160);
+            // The same ownership rule as management.stop: a browser steers only work it started.
+            const latest = state.requests.latestForConversation(steerConversationId);
+            if (!latest) throw httpError(409, "No turn is running in this Chat; send the message normally.");
+            assertRemoteWorkOwner(state, latest, principal);
+            const steered = await steerConversationTurn(state, { id: scope.id, workFolderRoot: scope.rootPath }, steerConversationId, {
+              content,
+              requestId: `remote-steer-${createHash("sha256").update(`${principal.browserId}\u0000${principal.grantId}\u0000${principal.requestId}`).digest("hex")}`,
+            });
+            return { accepted: true, delivery: "steer", conversationId: steerConversationId, message: remoteChatMessage(steered.message), taskId: steered.taskId };
+          }
           const conversationIdInput = input.conversationId === undefined
             ? null
             : remoteStableId(input.conversationId, "conversation id", 160);
@@ -9281,6 +9337,7 @@ async function deleteWorkFoldAgentConversation(
   const root = workFoldAgentRoot();
   const key = clientKey(workFoldAgentScopeId, conversationId);
   await yieldBackgroundCompaction(state, key);
+  state.queuedMessages.delete(key);
   assertWorkFoldAgentConversationMutable(state, conversationId);
   // This reservation uses the same conflict fence as compaction because a
   // transcript move must not race a new turn, rename, or real compaction.
@@ -9343,6 +9400,7 @@ async function deleteWorkFolderConversation(
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const key = clientKey(workFolder.id, conversationId);
   await yieldBackgroundCompaction(state, key);
+  state.queuedMessages.delete(key);
   if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current turn to finish.");
   if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   // The same conflict fence compaction uses: a transcript move must not race
@@ -12802,7 +12860,10 @@ async function runAgentTurn(
       : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The turn did not finish." });
     broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
-    if (settledStatus === "succeeded") scheduleBackgroundCompaction(state, workFolderId, workFolderRoot, conversationId);
+    // A stopped turn keeps its queued message for the person to take back.
+    const queued = settledStatus === "aborted" ? null : state.queuedMessages.get(key);
+    if (queued) void sendQueuedMessage(state, workFolderId, workFolderRoot, conversationId, queued);
+    else if (settledStatus === "succeeded") scheduleBackgroundCompaction(state, workFolderId, workFolderRoot, conversationId);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the work-fold agent one continuation turn. Fire-and-forget
     // with its own catch, the way activeTurnPromises are: a settle never
@@ -12824,6 +12885,74 @@ function resolveTurnRequestId(state: LocalApiState, taskId: string): string {
   return state.requests.byTaskId(taskId)?.requestId
     ?? state.turnStore.get(taskId)?.requestId
     ?? taskId;
+}
+
+interface QueuedChatMessage {
+  content: string;
+  /** Files attached in the composer, for a work-folder Chat. */
+  contextPaths: string[];
+  updatedAt: string;
+}
+
+function queuedMessageEvent(state: LocalApiState, workFolderId: string, conversationId: string) {
+  const queued = state.queuedMessages.get(clientKey(workFolderId, conversationId));
+  return { type: "queued_message" as const, conversationId, queued: queued ? { content: queued.content, updatedAt: queued.updatedAt } : null };
+}
+
+/**
+ * Replaces a Chat's queued message while its turn runs. A Chat with no running
+ * turn is refused (409) so the caller sends the message now instead.
+ */
+function queueChatMessage(
+  state: LocalApiState,
+  workFolderId: string,
+  conversationId: string,
+  input: { content: string; contextPaths: string[] },
+): { content: string; updatedAt: string } {
+  const key = clientKey(workFolderId, conversationId);
+  if (!state.runningTurns.has(key)) throw httpError(409, "No turn is running in this Chat; send the message now.");
+  const queued: QueuedChatMessage = { ...input, updatedAt: new Date().toISOString() };
+  state.queuedMessages.set(key, queued);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  return { content: queued.content, updatedAt: queued.updatedAt };
+}
+
+/** Removes a Chat's queued message and returns it, so it can go back to a composer. */
+function cancelQueuedMessage(state: LocalApiState, workFolderId: string, conversationId: string): { content: string; updatedAt: string } | null {
+  const key = clientKey(workFolderId, conversationId);
+  const queued = state.queuedMessages.get(key);
+  if (!queued) return null;
+  state.queuedMessages.delete(key);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  return { content: queued.content, updatedAt: queued.updatedAt };
+}
+
+/**
+ * Sends a Chat's queued message as an ordinary new turn once the turn it
+ * waited on has ended. If the Chat cannot take it yet (another turn started
+ * first), it stays queued for the next turn's end.
+ */
+async function sendQueuedMessage(state: LocalApiState, workFolderId: string, workFolderRoot: string, conversationId: string, queued: QueuedChatMessage): Promise<void> {
+  const key = clientKey(workFolderId, conversationId);
+  if (!state.acceptingTurns || state.queuedMessages.get(key) !== queued) return;
+  // Leaves the queue as it becomes the Chat's message, so no window shows both.
+  state.queuedMessages.delete(key);
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  try {
+    const agentScope = workFolderId === workFoldAgentScopeId;
+    await acceptConversationTurn(state, { id: workFolderId, workFolderRoot }, conversationId, {
+      content: queued.content,
+      contextPaths: agentScope ? [] : queued.contextPaths,
+      actorKind: agentScope ? "renderer" : "assistant",
+      ...(agentScope ? { workFoldAgentAttachments: [] } : {}),
+    });
+  } catch (error) {
+    console.warn(`A queued message stays queued: ${errorMessage(error)}`);
+    if (!state.queuedMessages.has(key)) {
+      state.queuedMessages.set(key, queued);
+      broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+    }
+  }
 }
 
 interface BackgroundCompaction {
@@ -15651,6 +15780,7 @@ function openChatStream(
   }, snapshotId > 0 ? snapshotId : undefined);
   // Older consumers retain their original handshake alongside the richer view.
   writeSseData(res, turnStateEvent(conversationId, running, turnId ?? log.turnId ?? null), snapshotId > 0 ? snapshotId : undefined);
+  writeSseData(res, queuedMessageEvent(state, workFolderId, conversationId));
   const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);

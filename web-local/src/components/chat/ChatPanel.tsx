@@ -178,6 +178,13 @@ export function ChatPanel({
   // visible, cancellable bubble and it sends when the turn settles. Further
   // Enters append to it; Stop and cancel return it to the composer.
   const [queuedSend, setQueuedSend] = useState<string | null>(null);
+  // True once the app holds the queued message (every window shows it and the
+  // app sends it when the turn ends); false while it is only this window's.
+  const [queuedOnServer, setQueuedOnServer] = useState(false);
+  const queuedSendRef = useRef<string | null>(null);
+  queuedSendRef.current = queuedSend;
+  const queuedOnServerRef = useRef(false);
+  queuedOnServerRef.current = queuedOnServer;
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [settlementPending, setSettlementPending] = useState(false);
@@ -706,6 +713,17 @@ export function ChatPanel({
         }
       }
       if (data.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: data.requests ?? [] });
+      if (data.type === "queued_message") {
+        // The app's copy wins; an empty one clears only a message the app held,
+        // never one this window is still holding for a turn not yet accepted.
+        if (data.queued) {
+          setQueuedSend(data.queued.content);
+          setQueuedOnServer(true);
+        } else if (queuedOnServerRef.current) {
+          setQueuedSend(null);
+          setQueuedOnServer(false);
+        }
+      }
       // A proposal installs inside the proposing turn; the Chat surfaces the
       // settled receipt (added, or failed with a retry), never a review.
       if (data.type === "restricted_app_proposal" && data.proposal?.workFolderId === workFolder.id && data.proposal.conversationId === conversationId && observeAppProposal(data.proposal)) {
@@ -1359,7 +1377,7 @@ export function ChatPanel({
         // The turn settled before the message could reach it: send it as the
         // next message instead, which the queued-send effect does the moment
         // `running` clears.
-        setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+        queueFollowUp(content);
         return;
       }
       setError(errorText(caught));
@@ -1433,17 +1451,39 @@ export function ChatPanel({
 
   // The queued draft fires through the ordinary send path the moment the
   // turn settles; the Enter that queued it was the explicit act.
+  // A message the app holds is sent by the app when the turn ends; only one
+  // this window still holds (its turn was not accepted yet) is sent from here.
   useEffect(() => {
-    if (running || workState.work?.canStop || !queuedSend || lifecycleView !== "active") return;
+    if (running || workState.work?.canStop || !queuedSend || queuedOnServer || lifecycleView !== "active") return;
     const content = queuedSend;
     setQueuedSend(null);
     void sendMessage(content);
-  }, [running, queuedSend, lifecycleView, workState.work?.canStop]);
+  }, [running, queuedSend, queuedOnServer, lifecycleView, workState.work?.canStop]);
+
+  /** Adds to the Chat's queued message and hands it to the app while a turn runs. */
+  function queueFollowUp(content: string) {
+    const next = queuedSendRef.current ? `${queuedSendRef.current}\n${content}` : content;
+    queuedSendRef.current = next;
+    setQueuedSend(next);
+    if (!conversation || fixtureMode || pendingSendRef.current) return;
+    const conversationId = conversation.id;
+    void api<{ queued: { content: string } }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/queue`, {
+      method: "PUT",
+      body: { content: next, contextPaths: contextAttachments.map((attachment) => attachment.sourcePath) },
+    }).then(() => setQueuedOnServer(true)).catch((caught) => {
+      // 409: the turn already ended, so this window sends it (the effect above).
+      if (!(caught instanceof ApiError && caught.status === 409)) setError(errorText(caught));
+    });
+  }
 
   function returnQueuedSendToComposer() {
     if (!queuedSend) return;
     const content = queuedSend;
     setQueuedSend(null);
+    if (queuedOnServer && conversation) {
+      setQueuedOnServer(false);
+      void api(`/api/work-folders/${workFolder.id}/conversations/${conversation.id}/queue`, { method: "DELETE" }).catch(() => undefined);
+    }
     setDraft((current) => (current.trim() ? `${content}\n${current}` : content));
     window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
   }
@@ -1995,7 +2035,7 @@ export function ChatPanel({
                   if (event.metaKey || event.ctrlKey || pendingSendRef.current || fixtureMode || addressedFolderIds(content, mentionFolders).length) {
                     // ⌘/Ctrl+Enter holds the draft for after this turn; a turn
                     // that has not been accepted yet cannot be steered either.
-                    setQueuedSend((current) => (current ? `${current}\n${content}` : content));
+                    queueFollowUp(content);
                     setDraft("");
                     scrollMessagesToBottom("auto");
                     return;
