@@ -106,7 +106,8 @@ const state = {
   lastResumeAt: 0,
   watchToken: null,
   watchOperationId: null,
-  watchUnsupported: false,
+  // A failed live watch is retried after a pause instead of being given up for the page.
+  watchRetryAt: 0,
   liveActivity: "",
   liveAssistantText: "",
   liveAssistantTextTruncated: false,
@@ -580,6 +581,61 @@ function onPopState() {
 // once in the DOM: from 860px up it is the left column (expanded or collapsed
 // to an icon rail), and below that the same markup is the drawer behind ☰.
 
+// Page-wide listeners outlive any one render: renderApplication runs again
+// after every sign-in, so these are installed once rather than stacked.
+let documentListenersInstalled = false;
+function installDocumentListeners() {
+  if (documentListenersInstalled) return;
+  documentListenersInstalled = true;
+  // A window that grows past the breakpoint leaves no drawer behind, and the
+  // composer re-measures for the width it now has.
+  phoneQuery.addEventListener("change", () => {
+    if (!phoneQuery.matches) closeDrawer({ restoreFocus: false });
+    syncSidebarChrome();
+    syncComposer();
+  });
+  document.addEventListener("click", (event) => {
+    closeAccountMenus();
+    if (!event.target.closest?.(".chat-menu-shell")) closeChatMenu();
+    if (!event.target.closest?.(".shared-pages-shell")) sharedPages?.close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && state.drawerOpen) return trapDrawerFocus(event);
+    if (event.key !== "Escape") return;
+    if (document.querySelector("#chat-menu")?.hidden === false) {
+      event.preventDefault();
+      closeChatMenu({ restoreFocus: true });
+      return;
+    }
+    if (document.querySelector("#shared-pages-popup")?.hidden === false) {
+      event.preventDefault();
+      sharedPages?.close({ restoreFocus: true });
+      return;
+    }
+    const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
+    if (openMenu) {
+      closeAccountMenus();
+      document.querySelector(`[data-account-toggle="${openMenu.id}"]`)?.focus();
+      return;
+    }
+    if (state.drawerOpen) {
+      event.preventDefault();
+      closeDrawer();
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      // A backgrounded phone tab may never come back: park the draft.
+      saveComposerDraft();
+      persistDrafts();
+      return;
+    }
+    // iOS kills background event streams and throttles timers; returning to
+    // the app refreshes immediately instead of waiting out the next tick.
+    resumeLiveConnection();
+  });
+}
+
 function renderApplication() {
   // A rebuilt shell starts from no context so the next showContext call
   // re-toggles every section even when the name is unchanged (session reboot
@@ -732,13 +788,7 @@ function renderApplication() {
   });
   document.querySelector("#menu-button")?.addEventListener("click", () => openDrawer());
   document.querySelector("#drawer-scrim")?.addEventListener("click", () => closeDrawer());
-  // A window that grows past the breakpoint leaves no drawer behind, and the
-  // composer re-measures for the width it now has.
-  phoneQuery.addEventListener("change", () => {
-    if (!phoneQuery.matches) closeDrawer({ restoreFocus: false });
-    syncSidebarChrome();
-    syncComposer();
-  });
+  installDocumentListeners();
   document.querySelector("#chats")?.addEventListener("click", (event) => {
     const chat = event.target.closest?.("[data-chat-id]");
     if (!chat) return;
@@ -772,46 +822,6 @@ function renderApplication() {
   for (const button of document.querySelectorAll("[data-logout]")) {
     button.addEventListener("click", () => void logout());
   }
-  document.addEventListener("click", (event) => {
-    closeAccountMenus();
-    if (!event.target.closest?.(".chat-menu-shell")) closeChatMenu();
-    if (!event.target.closest?.(".shared-pages-shell")) sharedPages?.close();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Tab" && state.drawerOpen) return trapDrawerFocus(event);
-    if (event.key !== "Escape") return;
-    if (document.querySelector("#chat-menu")?.hidden === false) {
-      event.preventDefault();
-      closeChatMenu({ restoreFocus: true });
-      return;
-    }
-    if (document.querySelector("#shared-pages-popup")?.hidden === false) {
-      event.preventDefault();
-      sharedPages?.close({ restoreFocus: true });
-      return;
-    }
-    const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
-    if (openMenu) {
-      closeAccountMenus();
-      document.querySelector(`[data-account-toggle="${openMenu.id}"]`)?.focus();
-      return;
-    }
-    if (state.drawerOpen) {
-      event.preventDefault();
-      closeDrawer();
-    }
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      // A backgrounded phone tab may never come back: park the draft.
-      saveComposerDraft();
-      persistDrafts();
-      return;
-    }
-    // iOS kills background event streams and throttles timers; returning to
-    // the app refreshes immediately instead of waiting out the next tick.
-    resumeLiveConnection();
-  });
   document.querySelector("#chat-options")?.addEventListener("click", () => {
     const menu = document.querySelector("#chat-menu");
     const open = menu.hidden;
@@ -1191,7 +1201,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
     const latest = summary?.latestRequest;
     const active = summary?.state === "running" || summaryPhase === "working" || summaryPhase === "handed_off";
     if (active && latest?.canStop === true && typeof latest.taskId === "string") {
-      state.activeTasks.set(conversationId, { taskId: latest.taskId, conversationId });
+      state.activeTasks.set(conversationId, { taskId: latest.taskId, conversationId, phase: summaryPhase ?? "working" });
     } else {
       state.activeTasks.delete(conversationId);
     }
@@ -1234,7 +1244,7 @@ async function refreshConversation({ loadTranscript = true } = {}) {
 // never advertise it, so the client simply keeps polling. -------------------
 
 function ensureConversationWatch() {
-  if (fixtureName || state.watchUnsupported || state.sessionRebooting) return;
+  if (fixtureName || Date.now() < state.watchRetryAt || state.sessionRebooting) return;
   if (!state.session?.desktopOnline || Date.now() < state.rateLimitedUntil) return;
   if (state.summary?.capabilities?.watch !== true) return;
   const conversationId = state.startingNewChat ? null : state.selectedConversationId;
@@ -1265,8 +1275,8 @@ function ensureConversationWatch() {
     state.watchToken = null;
     state.watchOperationId = null;
     state.liveActivity = "";
-    // Fail quiet and stay on polling for this page; a reload re-tries.
-    state.watchUnsupported = true;
+    // Fail quiet and stay on polling for a while, then try live streaming again.
+    state.watchRetryAt = Date.now() + 30_000;
   });
 }
 
@@ -1289,12 +1299,16 @@ function conversationRefreshIsCurrent(refreshVersion, conversationId) {
 async function sendPrompt() {
   const input = document.querySelector("#prompt");
   const content = input.value.trim();
-  const selectedTaskRunning = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
   if (!content || state.sending || state.renameSaving || state.deleteSaving) return;
   // A message sent while this browser's work runs reaches it after its
-  // current step, as on the desktop; otherwise a running Chat takes nothing.
-  if (selectedTaskRunning) {
-    if (state.steerAvailable && state.contextName === "chat" && !state.uploads.length) await steerPrompt(input, content);
+  // current step, as on the desktop; when it cannot, the person is told why.
+  if (openChatRunning()) {
+    const blocked = steerBlockedReason();
+    if (!blocked) await steerPrompt(input, content);
+    else {
+      state.banner = blocked;
+      renderBanner();
+    }
     return;
   }
   cancelChatRename({ restoreFocus: false });
@@ -1308,6 +1322,7 @@ async function sendPrompt() {
   const toExistingConversation = !sentFromNewChat && !state.startingNewChat && Boolean(state.selectedConversationId);
   let pendingId = null;
   let sentUploads = [];
+  const uploadsAtSend = state.uploads;
   try {
     const attachments = await serializeUploads();
     // The New chat screen's composer always starts a new request — the same
@@ -1344,13 +1359,16 @@ async function sendPrompt() {
     if (result.taskId) state.activeTasks.set(result.conversationId, {
       taskId: result.taskId,
       conversationId: result.conversationId,
+      phase: "working",
     });
     else state.activeTasks.delete(result.conversationId);
     if (!toExistingConversation) {
       state.composerDrafts.delete(sentDraftKey);
       persistDrafts();
-      input.value = "";
-      state.uploads = [];
+      // Only what was sent leaves the composer; anything typed or attached
+      // while the message was on its way stays for the next one.
+      if (input.value.trim() === content) input.value = "";
+      state.uploads = state.uploads.filter((file) => !uploadsAtSend.includes(file));
       syncComposer();
     }
     if (sentFromNewChat) showContext("chat");
@@ -1371,6 +1389,25 @@ async function sendPrompt() {
     syncComposer();
     input.focus({ preventScroll: true });
   }
+}
+
+/** The open Chat has running work. The New chat screen always starts something new. */
+function openChatRunning() {
+  return state.contextName === "chat" && !state.startingNewChat
+    && Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+}
+
+/**
+ * Why a message cannot reach the open Chat's running work, or "" when it can:
+ * steering reaches only the agent's own turn while it is working (not while
+ * only other Workers are), from a desktop that offers it, without files.
+ */
+function steerBlockedReason() {
+  if (!openChatRunning()) return "";
+  if (!state.steerAvailable) return "Your desktop can take this message once the current work finishes. Update work-fold to add to running work.";
+  if (state.activeTasks.get(state.selectedConversationId)?.phase !== "working") return "Other Workers are still on this. Send your message when they finish, or press Stop.";
+  if (state.uploads.length) return "Files go with your next message, once this work finishes.";
+  return "";
 }
 
 async function steerPrompt(input, content) {
@@ -1497,11 +1534,14 @@ function syncComposer() {
   input.style.height = "auto";
   input.style.height = `${Math.min(Math.max(input.scrollHeight, minimumHeight), 180)}px`;
   const unavailable = !state.session?.desktopOnline;
-  const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
+  const running = openChatRunning();
   // While work runs, Send appears beside Stop once there is text to steer with.
-  const steerable = running && state.steerAvailable && state.contextName === "chat" && !state.uploads.length;
+  const steerable = running && !steerBlockedReason();
   button.hidden = running && !(steerable && input.value.trim());
-  stop.hidden = !running || state.contextName !== "chat";
+  stop.hidden = !running;
+  // Both buttons showing: Stop moves left of Send so neither covers the other.
+  input.closest(".composer-field")?.toggleAttribute("data-steering", running && !button.hidden);
+  input.placeholder = running && state.steerAvailable ? "Add to the running work" : "Message work-fold agent";
   button.disabled = state.sending || state.renameSaving || state.deleteSaving || unavailable || (running && !steerable) || !input.value.trim();
   button.dataset.sending = String(state.sending);
   const sendLabel = steerable ? "Send to the running work" : "Send message";
@@ -1638,12 +1678,8 @@ function renderConversationChrome() {
   if (renameForm) renameForm.hidden = !editing;
   if (renameInput) renameInput.disabled = state.renameSaving || state.deleteSaving;
   for (const button of renameForm?.querySelectorAll("button") ?? []) button.disabled = state.renameSaving || state.deleteSaving;
-  if (prompt) prompt.placeholder = "Message work-fold agent";
-  const stop = document.querySelector("#stop-task");
-  const send = document.querySelector(".send-button:not(.stop-button)");
-  const running = Boolean(state.selectedConversationId && state.activeTasks.has(state.selectedConversationId));
-  if (stop) stop.hidden = !running || state.contextName !== "chat";
-  if (send) send.hidden = running;
+  // The composer's buttons and placeholder follow one rule, in syncComposer.
+  syncComposer();
 }
 
 function beginChatRename() {

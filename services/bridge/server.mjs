@@ -136,7 +136,8 @@ export async function startBridgeServer({
     }
   });
   server.headersTimeout = 15_000;
-  server.requestTimeout = 30_000;
+  // A full 8 MB attachment set is about 12 MB of JSON; slow uplinks need time.
+  server.requestTimeout = 180_000;
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: maximumDeviceMessageBytes });
   state.webSocketServer = webSocketServer;
   server.on("upgrade", (request, socket, head) => {
@@ -344,6 +345,8 @@ async function handleRequest(state, request, response) {
     const { token, session } = await requireBrowserSession(state, request, account);
     await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
     await state.database.deleteSession(token);
+    // A signed-out tab stops receiving this browser's live events.
+    closeSseClients(state, session.browserGrantId);
     response.setHeader("set-cookie", clearSessionCookie(state, request));
     return writeJson(response, 200, { signedOut: true }, method, state, request);
   }
@@ -451,6 +454,10 @@ async function handleRequest(state, request, response) {
     const account = await requireDevice(state, request);
     const body = await readJsonBody(request, maximumJsonBodyBytes);
     const updated = await state.database.updateAccount(account.id, body);
+    // A new password or address signs every browser out; their live event streams end with their sessions.
+    if (body && (body.password !== undefined || body.slug !== undefined)) {
+      for (const grant of await state.database.listGrants(account.id)) closeSseClients(state, grant.id);
+    }
     return writeJson(response, 200, deviceAccountView(state, updated), method, state, request);
   }
 
@@ -622,7 +629,14 @@ async function handleDeviceMessage(state, connection, raw) {
     if (!isCurrentDeviceConnection(state, connection)) return;
     if (!currentAccount) throw new Error("Remote access is no longer registered.");
     connection.account = currentAccount;
-    const decision = await state.database.decidePairing(currentAccount, message);
+    // A dialog answered after its pairing stopped waiting (it expired, the
+    // browser asked again, or a reconnect showed it twice) is an ordinary
+    // late answer, not a protocol fault: the desktop treats any protocol
+    // error as terminal and would stop reconnecting.
+    const decision = await state.database.decidePairing(currentAccount, message).catch((error) => {
+      if (error instanceof BridgeDatabaseError && error.code === "not_found") return { status: "expired" };
+      throw error;
+    });
     if (!isCurrentDeviceConnection(state, connection)) return;
     sendDevice(connection.socket, { type: "pairing.settled", pairingId: message.pairingId, ...decision });
     return;
@@ -639,6 +653,11 @@ async function handleDeviceMessage(state, connection, raw) {
     const events = state.operationEvents.get(operation.id)?.events ?? [];
     const previousSequence = events.at(-1)?.envelope?.header?.sequence ?? 0;
     if (!Number.isInteger(envelope.header.sequence) || envelope.header.sequence <= previousSequence) {
+      // A desktop that recovers a still-running operation re-sends the exact
+      // result it already sent. That repeat is dropped, never relayed twice;
+      // any other non-increasing envelope is still a protocol error.
+      const relayed = events.find((event) => event.envelope?.header?.sequence === envelope.header.sequence);
+      if (relayed && JSON.stringify(relayed.envelope) === JSON.stringify(envelope)) return;
       throw new Error("Response event sequence must increase.");
     }
     let transitioned;
@@ -1693,7 +1712,13 @@ async function readJsonBody(request, maximumBytes) {
 }
 
 async function servePublicFile(state, request, pathname, response, method) {
-  const requested = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    throw httpError(400, "Malformed request path.");
+  }
+  const requested = pathname === "/" ? "index.html" : decoded.replace(/^\/+/, "");
   const candidate = resolve(publicDir, requested);
   if (candidate !== publicDir && !candidate.startsWith(`${publicDir}${sep}`)) throw httpError(404, "Not found.");
   // Origin isolation is bidirectional: the management origin never serves the
@@ -1723,8 +1748,16 @@ async function servePublicFile(state, request, pathname, response, method) {
 
 async function latestMacDownload(state) {
   if (state.latestMacDownload?.expiresAt > Date.now()) return state.latestMacDownload.url;
+  // Concurrent requests share one lookup, and a failed lookup is remembered
+  // briefly, so callers cannot spend the GitHub quota or pile up on a slow API.
+  state.latestMacDownloadLookup ??= resolveLatestMacDownload(state).finally(() => { state.latestMacDownloadLookup = null; });
+  return state.latestMacDownloadLookup;
+}
+
+async function resolveLatestMacDownload(state) {
   try {
     const response = await state.releaseFetcher(macReleaseApiUrl, {
+      signal: AbortSignal.timeout(5_000),
       headers: {
         accept: "application/vnd.github+json",
         "user-agent": "work-fold-bridge",
@@ -1742,6 +1775,7 @@ async function latestMacDownload(state) {
     return url.href;
   } catch (error) {
     console.warn(`work-fold could not resolve the latest macOS download: ${publicErrorMessage(error)}`);
+    state.latestMacDownload = { url: macReleaseFallbackUrl, expiresAt: Date.now() + 60_000 };
     return macReleaseFallbackUrl;
   }
 }
