@@ -58,3 +58,41 @@ test("newer changes from the app still reach a quiet window", () => {
   assert.equal(sync.applyEvent({ revision: 10, queued: null }), false);
   assert.equal(sync.content, "Waiting for my turn to be accepted");
 });
+
+test("an app change that lands while this window's write is in flight is applied once the write is answered", () => {
+  // The app accepts the queue (1), then sends it when the turn ends (2), and
+  // both events arrive before this window's write is answered.
+  const sent = new QueuedMessageSync();
+  sent.writeStarted();
+  sent.append("Then list the archive.");
+  assert.equal(sent.unsettled, true, "the window must not send it itself meanwhile");
+  sent.applyEvent({ revision: 1, queued: { content: "Then list the archive." } });
+  sent.applyEvent({ revision: 2, queued: null });
+  assert.equal(sent.content, "Then list the archive.", "nothing changes while the write is in flight");
+  assert.equal(sent.writeSettled(1), true);
+  assert.equal(sent.content, null, "the app sent it, so the window forgets it and never sends it again");
+  assert.equal(sent.unsettled, false);
+
+  // A Stop holds it in the same interval: the held note still appears.
+  const held = new QueuedMessageSync();
+  held.writeStarted();
+  held.append("Not after a stop.");
+  held.applyEvent({ revision: 1, queued: { content: "Not after a stop." } });
+  held.applyEvent({ revision: 2, queued: { content: "Not after a stop.", held: true } });
+  held.writeSettled(1);
+  assert.equal(held.content, "Not after a stop.");
+  assert.equal(held.held, true);
+  assert.equal(held.onServer, true);
+
+  // A Cancel that lands after the app sent the message also ends with nothing queued.
+  const cancelled = new QueuedMessageSync();
+  cancelled.writeStarted();
+  cancelled.append("Too late to cancel.");
+  cancelled.cancel();
+  cancelled.applyEvent({ revision: 1, queued: { content: "Too late to cancel." } });
+  cancelled.applyEvent({ revision: 2, queued: null });
+  cancelled.writeSettled(1);
+  cancelled.cancelSettled(2);
+  assert.equal(cancelled.content, null);
+  assert.equal(cancelled.unsettled, false);
+});

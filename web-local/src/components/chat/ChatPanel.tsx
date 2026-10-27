@@ -187,10 +187,14 @@ export function ChatPanel({
   // The queue's truth for event handlers lives in queueSync, written at once;
   // React state only mirrors it (lib/queued-message-sync.ts).
   const queueSync = useRef(new QueuedMessageSync()).current;
+  // True while this window's queue writes or Cancel are unanswered: the app may
+  // already own the message, so this window must not send it itself.
+  const [queueUnsettled, setQueueUnsettled] = useState(false);
   const publishQueue = () => {
     setQueuedSend(queueSync.content);
     setQueuedOnServer(queueSync.onServer);
     setQueuedHeld(queueSync.held);
+    setQueueUnsettled(queueSync.unsettled);
   };
   // Queue writes go out one after another, and Cancel goes after the last of
   // them, so a write still in flight can never re-queue a cancelled message.
@@ -1467,12 +1471,12 @@ export function ChatPanel({
   // A message the app holds is sent by the app when the turn ends; only one
   // this window still holds (its turn was not accepted yet) is sent from here.
   useEffect(() => {
-    if (running || workState.work?.canStop || !queuedSend || queuedOnServer || lifecycleView !== "active") return;
+    if (running || workState.work?.canStop || !queuedSend || queuedOnServer || queueUnsettled || lifecycleView !== "active") return;
     const content = queuedSend;
     queueSync.clear();
     publishQueue();
     void sendMessage(content);
-  }, [running, queuedSend, queuedOnServer, lifecycleView, workState.work?.canStop]);
+  }, [running, queuedSend, queuedOnServer, queueUnsettled, lifecycleView, workState.work?.canStop]);
 
   // One stable Continue handler, so a message row re-renders only when Continue appears or goes.
   const sendMessageRef = useRef(sendMessage);
@@ -1493,6 +1497,7 @@ export function ChatPanel({
       addressedWorkFolderIds: addressedFolderIds(next, mentionFolders),
     };
     queueSync.writeStarted();
+    setQueueUnsettled(true);
     const write = queueWritesRef.current.catch(() => undefined)
       .then(() => api<{ queued: { content: string }; revision: number }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/queue`, { method: "PUT", body }));
     queueWritesRef.current = write;
@@ -1502,6 +1507,7 @@ export function ChatPanel({
       publishQueue();
     }, (caught) => {
       queueSync.writeSettled();
+      publishQueue();
       // 409: the turn already ended, so this window sends it (the effect above).
       if (!(caught instanceof ApiError && caught.status === 409)) setError(errorText(caught));
     });
@@ -1516,7 +1522,7 @@ export function ChatPanel({
       const cancel = queueWritesRef.current.catch(() => undefined)
         .then(() => api<{ revision: number }>(path, { method: "DELETE" }));
       queueWritesRef.current = cancel;
-      void cancel.then((result) => queueSync.cancelSettled(result.revision ?? 0), () => queueSync.cancelSettled());
+      void cancel.then((result) => queueSync.cancelSettled(result.revision ?? 0), () => queueSync.cancelSettled()).then(publishQueue);
     } else if (needsDelete) {
       queueSync.cancelSettled();
     }

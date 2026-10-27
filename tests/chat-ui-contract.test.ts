@@ -51,7 +51,8 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(chatPanel, /const \{ content, needsDelete \} = queueSync\.cancel\(\);/);
   assert.match(chatPanel, /addressedWorkFolderIds: addressedFolderIds\(next, mentionFolders\)/);
   assert.match(chatPanel, /if \(data\.type === "queued_message"\)/);
-  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| lifecycleView !== "active"\) return;/);
+  // A window never sends the message itself while its own queue writes or Cancel are unanswered.
+  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| queueUnsettled \|\| lifecycleView !== "active"\) return;/);
   // A Stop from any surface holds the queued message; only an unheld one is sent.
   assert.match(localServer, /if \(queued && settledStatus === "aborted"\) \{[\s\S]{0,200}held: true/);
   assert.match(localServer, /\} else if \(queued && !queued\.held\) void sendQueuedMessage/);
