@@ -5585,6 +5585,14 @@ to {
   overflow-wrap: anywhere;
 }
 
+.queued-send-held {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  white-space: normal;
+}
+
 .queued-send-cancel {
   flex: none;
   display: grid;

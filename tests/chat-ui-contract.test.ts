@@ -44,10 +44,17 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(localServer, /await client\.steer\(input\.content\);/);
   assert.match(chatPanel, /const next = queuedSendRef\.current \? `\$\{queuedSendRef\.current\}\\n\$\{content\}` : content;/);
   assert.match(chatPanel, /\/queue`, \{\s*method: "PUT",/);
-  assert.match(chatPanel, /\/queue`, \{ method: "DELETE" \}/);
+  // Cancel is ordered after any queue write still in flight, so a late write
+  // cannot re-queue a cancelled message, and its echo is ignored meanwhile.
+  assert.match(chatPanel, /const cancel = queueWritesRef\.current\.catch\(\(\) => undefined\)\.then\(\(\) => api\(path, \{ method: "DELETE" \}\)\);/);
+  assert.match(chatPanel, /if \(\(queuedOnServer \|\| queueWritesInFlightRef\.current > 0\) && conversation && !fixtureMode\)/);
+  assert.match(chatPanel, /if \(!queueCancellingRef\.current\) setQueuedOnServer\(true\);/);
+  assert.match(chatPanel, /addressedWorkFolderIds: addressedFolderIds\(next, mentionFolders\)/);
   assert.match(chatPanel, /if \(data\.type === "queued_message"\)/);
   assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| lifecycleView !== "active"\) return;/);
-  assert.match(localServer, /const queued = settledStatus === "aborted" \? null : state\.queuedMessages\.get\(key\);/);
+  // A Stop from any surface holds the queued message; only an unheld one is sent.
+  assert.match(localServer, /if \(queued && settledStatus === "aborted"\) \{[\s\S]{0,200}held: true/);
+  assert.match(localServer, /\} else if \(queued && !queued\.held\) void sendQueuedMessage/);
   assert.match(chatPanel, /className="queued-send-row"/);
   assert.match(chatPanel, /aria-label="Cancel queued message"/);
   assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
@@ -262,7 +269,7 @@ test("provider interruptions stay visible and the configured model is disclosed 
 });
 
 test("a new turn clears the prior idle stream snapshot before running becomes visible", () => {
-  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
+  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string[^)]*\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
   assert.match(sendMessage, /cancelStreamingFlush\(\);\s*\n\s*setStreamingAssistant\(""\);/);
   assert.ok(sendMessage.indexOf('setStreamingAssistant("");') < sendMessage.indexOf("setRunning(true);"));
   assert.match(chatPanel, /typeof data\.text === "string" && data\.running === true/);

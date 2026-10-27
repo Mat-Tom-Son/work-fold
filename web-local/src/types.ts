@@ -972,7 +972,9 @@ export interface ChatStreamEvent {
   proposal?: RestrictedAppProposal;
   editorMode?: "replace" | "append";
   /** The Chat's queued message, held by the app for every window (2026-10-27). */
-  queued?: { content: string; updatedAt: string } | null;
+  queued?: { content: string; updatedAt: string; held?: boolean } | null;
+  /** Files that went out with a sent queued message. */
+  sentContextPaths?: string[];
 }
 
 export interface BootstrapResponse { workFolders: WorkFolderSummary[]; agent: AgentStatus; appearance?: WorkFolderAppearanceState }

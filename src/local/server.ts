@@ -3390,11 +3390,13 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       sendJson(res, { queued: cancelQueuedMessage(state, workFolder.id, queueMatch[2]) });
       return;
     }
-    const body = await readJsonBody<{ content?: string; contextPaths?: string[] }>(state, req);
+    const body = await readJsonBody<{ content?: string; contextPaths?: string[]; addressedWorkFolderIds?: unknown }>(state, req);
     const content = body.content?.trim();
     if (!content) throw badRequest("Message content is required.");
     const contextPaths = normalizeContextPaths(workFolder.workFolderRoot, body.contextPaths);
-    sendJson(res, { queued: queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths }) });
+    // Workers the message addresses with @ travel with it, as on the ordinary message route.
+    const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFolder.id);
+    sendJson(res, { queued: queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths, addressedWorkFolderIds }) });
     return;
   }
   const messagesPostMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/messages$/);
@@ -12884,9 +12886,15 @@ async function runAgentTurn(
       : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The turn did not finish." });
     broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
-    // A stopped turn keeps its queued message for the person to take back.
-    const queued = settledStatus === "aborted" ? null : state.queuedMessages.get(key);
-    if (queued) void sendQueuedMessage(state, workFolderId, workFolderRoot, conversationId, queued);
+    // A Stop, from any surface, holds the queued message: it stays for the
+    // person to take back and no later turn's end sends it.
+    const queued = state.queuedMessages.get(key);
+    if (queued && settledStatus === "aborted") {
+      if (!queued.held) {
+        state.queuedMessages.set(key, { ...queued, held: true });
+        broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+      }
+    } else if (queued && !queued.held) void sendQueuedMessage(state, workFolderId, workFolderRoot, conversationId, queued);
     else if (settledStatus === "succeeded") scheduleBackgroundCompaction(state, workFolderId, workFolderRoot, conversationId);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the work-fold agent one continuation turn. Fire-and-forget
@@ -12915,12 +12923,22 @@ interface QueuedChatMessage {
   content: string;
   /** Files attached in the composer, for a work-folder Chat. */
   contextPaths: string[];
+  /** Workers the message addresses with @. */
+  addressedWorkFolderIds: string[];
   updatedAt: string;
+  /** Set by a Stop: kept for the person to take back, never sent. A new queue write arms it again. */
+  held?: true;
 }
 
-function queuedMessageEvent(state: LocalApiState, workFolderId: string, conversationId: string) {
+function queuedMessageEvent(state: LocalApiState, workFolderId: string, conversationId: string, sent?: QueuedChatMessage) {
   const queued = state.queuedMessages.get(clientKey(workFolderId, conversationId));
-  return { type: "queued_message" as const, conversationId, queued: queued ? { content: queued.content, updatedAt: queued.updatedAt } : null };
+  return {
+    type: "queued_message" as const,
+    conversationId,
+    queued: queued ? { content: queued.content, updatedAt: queued.updatedAt, ...(queued.held ? { held: true } : {}) } : null,
+    // The files that went out with a sent queued message, so windows unstage them.
+    ...(sent ? { sentContextPaths: sent.contextPaths } : {}),
+  };
 }
 
 /**
@@ -12931,7 +12949,7 @@ function queueChatMessage(
   state: LocalApiState,
   workFolderId: string,
   conversationId: string,
-  input: { content: string; contextPaths: string[] },
+  input: { content: string; contextPaths: string[]; addressedWorkFolderIds: string[] },
 ): { content: string; updatedAt: string } {
   const key = clientKey(workFolderId, conversationId);
   if (!state.runningTurns.has(key)) throw httpError(409, "No turn is running in this Chat; send the message now.");
@@ -12961,7 +12979,7 @@ async function sendQueuedMessage(state: LocalApiState, workFolderId: string, wor
   if (!state.acceptingTurns || state.queuedMessages.get(key) !== queued) return;
   // Leaves the queue as it becomes the Chat's message, so no window shows both.
   state.queuedMessages.delete(key);
-  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
+  broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId, queued));
   try {
     const agentScope = workFolderId === workFoldAgentScopeId;
     await acceptConversationTurn(state, { id: workFolderId, workFolderRoot }, conversationId, {
@@ -12969,6 +12987,7 @@ async function sendQueuedMessage(state: LocalApiState, workFolderId: string, wor
       contextPaths: agentScope ? [] : queued.contextPaths,
       actorKind: agentScope ? "renderer" : "assistant",
       ...(agentScope ? { workFoldAgentAttachments: [] } : {}),
+      ...(queued.addressedWorkFolderIds.length ? { addressedWorkFolderIds: queued.addressedWorkFolderIds } : {}),
     });
   } catch (error) {
     console.warn(`A queued message stays queued: ${errorMessage(error)}`);

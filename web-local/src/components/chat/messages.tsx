@@ -163,7 +163,8 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.workFolderRoot === next.workFolderRoot
     && previous.onOpenWorkFolderFile === next.onOpenWorkFolderFile
     && previous.resolveWorkFolderPathLinks === next.resolveWorkFolderPathLinks
-    && previous.onCopyMessage === next.onCopyMessage;
+    && previous.onCopyMessage === next.onCopyMessage
+    && previous.onContinue === next.onContinue;
 }
 
 /** The files that went out with a message, drawn like the composer's chips; each opens its file. */

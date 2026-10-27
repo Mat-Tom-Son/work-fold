@@ -122,9 +122,10 @@ test("a queued message is held by the app, replaced as it grows, and sent when t
   assert.deepEqual((await call(h.api, idlePath, { method: "DELETE" })).body, { queued: null }, "an idle Chat holds nothing");
 });
 
-test("Stop keeps the queued message for the person instead of sending it", { timeout: 60_000 }, async (t) => {
+test("Stop holds the queued message for the person, and no later turn sends it", { timeout: 60_000 }, async (t) => {
   const h = await startHarness(t);
   h.reply("Never finished.", { held: true });
+  h.reply("Answer to the unrelated message.");
   const { workFolder } = await h.api.actFacade.createWorkFolder({ name: "Stopped" });
   const sent = await h.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "Start." });
   await waitFor(() => h.requests.length === 1, "the held turn");
@@ -134,9 +135,35 @@ test("Stop keeps the queued message for the person instead of sending it", { tim
   assert.equal((await call(h.api, `/api/work-folders/${workFolder.id}/conversations/${sent.conversationId}/abort`, { method: "POST" })).status, 200);
   await waitFor(async () => (await h.api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: sent.taskId })).task.state === "aborted", "the stop");
   await new Promise((resolve) => setTimeout(resolve, 200));
+  const afterStop = (await transcript(h.api, workFolder.id, sent.conversationId)).filter((message) => message.role === "user");
+  assert.deepEqual(afterStop.map((message) => message.content), ["Start."], "nothing was sent after the stop");
+
+  // The Stop came from another surface, so no window took the draft back. A
+  // later, unrelated turn ending must not send it either.
+  const unrelated = await h.api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: sent.conversationId, content: "Something else." });
+  await waitFor(async () => (await h.api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: unrelated.taskId })).task.state === "succeeded", "the unrelated turn");
+  await new Promise((resolve) => setTimeout(resolve, 200));
   const users = (await transcript(h.api, workFolder.id, sent.conversationId)).filter((message) => message.role === "user");
-  assert.deepEqual(users.map((message) => message.content), ["Start."], "nothing was sent after the stop");
+  assert.deepEqual(users.map((message) => message.content), ["Start.", "Something else."], "the held message never ran");
   assert.deepEqual((await call(h.api, queuePath, { method: "DELETE" })).body.queued?.content, "Not after a stop.", "Cancel hands it back");
+});
+
+test("a queued message keeps the Workers it addresses with @", { timeout: 60_000 }, async (t) => {
+  const h = await startHarness(t);
+  h.reply("First.", { held: true });
+  h.reply("Asked the Worker.");
+  const { workFolder } = await h.api.actFacade.createWorkFolder({ name: "Home" });
+  const { workFolder: research } = await h.api.actFacade.createWorkFolder({ name: "Research" });
+  const sent = await h.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "Start." });
+  await waitFor(() => h.requests.length === 1, "the held turn");
+  const queued = await call(h.api, `/api/work-folders/${workFolder.id}/conversations/${sent.conversationId}/queue`, {
+    method: "PUT",
+    body: { content: "Then ask @Research for sources.", addressedWorkFolderIds: [research.id] },
+  });
+  assert.equal(queued.status, 200);
+  h.release();
+  await waitFor(() => h.requests.length === 2, "the queued turn");
+  assert.ok(JSON.stringify(h.requests[1]).includes(research.id), "the addressed Worker's id reaches the model with the message");
 });
 
 test("the work-fold agent's running turn takes a steering message from the panel and from the browser that started it", { timeout: 60_000 }, async (t) => {
