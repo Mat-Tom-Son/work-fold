@@ -973,6 +973,8 @@ export interface ChatStreamEvent {
   editorMode?: "replace" | "append";
   /** The Chat's queued message, held by the app for every window (2026-10-27). */
   queued?: { content: string; updatedAt: string; held?: boolean } | null;
+  /** The app's number for this queue change; a higher one is newer. */
+  revision?: number;
   /** Files that went out with a sent queued message. */
   sentContextPaths?: string[];
 }

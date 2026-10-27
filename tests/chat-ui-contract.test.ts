@@ -42,13 +42,13 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(chatPanel, /event\.metaKey \|\| event\.ctrlKey \|\| pendingSendRef\.current \|\| fixtureMode/);
   assert.match(localServer, /body\.delivery === "steer"/);
   assert.match(localServer, /await client\.steer\(input\.content\);/);
-  assert.match(chatPanel, /const next = queuedSendRef\.current \? `\$\{queuedSendRef\.current\}\\n\$\{content\}` : content;/);
+  assert.match(chatPanel, /const next = queueSync\.append\(content\);/);
+  assert.match(chatPanel, /if \(queueSync\.applyEvent\(data\)\) publishQueue\(\);/);
   assert.match(chatPanel, /\/queue`, \{\s*method: "PUT",/);
   // Cancel is ordered after any queue write still in flight, so a late write
   // cannot re-queue a cancelled message, and its echo is ignored meanwhile.
-  assert.match(chatPanel, /const cancel = queueWritesRef\.current\.catch\(\(\) => undefined\)\.then\(\(\) => api\(path, \{ method: "DELETE" \}\)\);/);
-  assert.match(chatPanel, /if \(\(queuedOnServer \|\| queueWritesInFlightRef\.current > 0\) && conversation && !fixtureMode\)/);
-  assert.match(chatPanel, /if \(!queueCancellingRef\.current\) setQueuedOnServer\(true\);/);
+  assert.match(chatPanel, /const cancel = queueWritesRef\.current\.catch\(\(\) => undefined\)\s*\.then\(\(\) => api<\{ revision: number \}>\(path, \{ method: "DELETE" \}\)\);/);
+  assert.match(chatPanel, /const \{ content, needsDelete \} = queueSync\.cancel\(\);/);
   assert.match(chatPanel, /addressedWorkFolderIds: addressedFolderIds\(next, mentionFolders\)/);
   assert.match(chatPanel, /if \(data\.type === "queued_message"\)/);
   assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| lifecycleView !== "active"\) return;/);

@@ -106,9 +106,11 @@ test("a queued message is held by the app, replaced as it grows, and sent when t
   await waitFor(() => h.requests.length === 1, "the held turn");
   const queuePath = `/api/work-folders/${workFolder.id}/conversations/${sent.conversationId}/queue`;
 
-  assert.equal((await call(h.api, queuePath, { method: "PUT", body: { content: "Then this." } })).status, 200);
+  const first = await call(h.api, queuePath, { method: "PUT", body: { content: "Then this." } });
+  assert.equal(first.status, 200);
   const grown = await call(h.api, queuePath, { method: "PUT", body: { content: "Then this.\nAnd that." } });
   assert.equal(grown.body.queued.content, "Then this.\nAnd that.", "the window's latest draft replaces the app's copy");
+  assert.ok(grown.body.revision > first.body.revision, "every queue change gets a higher number");
 
   h.release();
   await waitFor(async () => (await transcript(h.api, workFolder.id, sent.conversationId)).some((message) => message.role === "assistant" && message.content === "Second answer."), "the queued message's turn");
@@ -119,7 +121,7 @@ test("a queued message is held by the app, replaced as it grows, and sent when t
   const idle = await h.api.actFacade.createConversation({ workFolder: workFolder.id });
   const idlePath = `/api/work-folders/${workFolder.id}/conversations/${idle.conversation.id}/queue`;
   assert.equal((await call(h.api, idlePath, { method: "PUT", body: { content: "Now." } })).status, 409, "an idle Chat sends instead");
-  assert.deepEqual((await call(h.api, idlePath, { method: "DELETE" })).body, { queued: null }, "an idle Chat holds nothing");
+  assert.equal((await call(h.api, idlePath, { method: "DELETE" })).body.queued, null, "an idle Chat holds nothing");
 });
 
 test("Stop holds the queued message for the person, and no later turn sends it", { timeout: 60_000 }, async (t) => {

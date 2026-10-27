@@ -45,6 +45,7 @@ import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, WorkFolderIconGlyph } from "../chrome/common";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
+import { QueuedMessageSync } from "../../lib/queued-message-sync";
 import { ChatMessageRow, MarkdownMessage, continueInterruptedTurnMessage, copyMarkdownToClipboard } from "./messages";
 import { showToast } from "../../ui/feedback";
 
@@ -181,17 +182,19 @@ export function ChatPanel({
   // True once the app holds the queued message (every window shows it and the
   // app sends it when the turn ends); false while it is only this window's.
   const [queuedOnServer, setQueuedOnServer] = useState(false);
-  const queuedSendRef = useRef<string | null>(null);
-  queuedSendRef.current = queuedSend;
-  const queuedOnServerRef = useRef(false);
-  queuedOnServerRef.current = queuedOnServer;
   // A Stop held the app's queued message: it waits for the person, unsent.
   const [queuedHeld, setQueuedHeld] = useState(false);
+  // The queue's truth for event handlers lives in queueSync, written at once;
+  // React state only mirrors it (lib/queued-message-sync.ts).
+  const queueSync = useRef(new QueuedMessageSync()).current;
+  const publishQueue = () => {
+    setQueuedSend(queueSync.content);
+    setQueuedOnServer(queueSync.onServer);
+    setQueuedHeld(queueSync.held);
+  };
   // Queue writes go out one after another, and Cancel goes after the last of
   // them, so a write still in flight can never re-queue a cancelled message.
   const queueWritesRef = useRef<Promise<unknown>>(Promise.resolve());
-  const queueWritesInFlightRef = useRef(0);
-  const queueCancellingRef = useRef(false);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false);
   const [settlementPending, setSettlementPending] = useState(false);
@@ -578,6 +581,8 @@ export function ChatPanel({
     let openedOnce = false;
     const turnStateGate = createChatTurnStateGate();
     eventStreamReadyConversationIdRef.current = null;
+    // Queue numbers belong to one Chat's stream; a new Chat starts from its own.
+    queueSync.resetRevision();
     const source = createEventSource(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/events`);
     source.onopen = () => {
       eventStreamReadyConversationIdRef.current = conversationId;
@@ -728,17 +733,7 @@ export function ChatPanel({
           const sent = new Set(data.sentContextPaths);
           setContextAttachments((current) => current.filter((attachment) => !sent.has(attachment.sourcePath)));
         }
-        if (data.queued) {
-          if (!queueCancellingRef.current) {
-            setQueuedSend(data.queued.content);
-            setQueuedOnServer(true);
-            setQueuedHeld(data.queued.held === true);
-          }
-        } else if (queuedOnServerRef.current) {
-          setQueuedSend(null);
-          setQueuedOnServer(false);
-          setQueuedHeld(false);
-        }
+        if (queueSync.applyEvent(data)) publishQueue();
       }
       // A proposal installs inside the proposing turn; the Chat surfaces the
       // settled receipt (added, or failed with a retry), never a review.
@@ -1474,7 +1469,8 @@ export function ChatPanel({
   useEffect(() => {
     if (running || workState.work?.canStop || !queuedSend || queuedOnServer || lifecycleView !== "active") return;
     const content = queuedSend;
-    setQueuedSend(null);
+    queueSync.clear();
+    publishQueue();
     void sendMessage(content);
   }, [running, queuedSend, queuedOnServer, lifecycleView, workState.work?.canStop]);
 
@@ -1487,10 +1483,8 @@ export function ChatPanel({
 
   /** Adds to the Chat's queued message and hands it to the app while a turn runs. */
   function queueFollowUp(content: string) {
-    const next = queuedSendRef.current ? `${queuedSendRef.current}\n${content}` : content;
-    queuedSendRef.current = next;
-    setQueuedSend(next);
-    setQueuedHeld(false);
+    const next = queueSync.append(content);
+    publishQueue();
     if (!conversation || fixtureMode || pendingSendRef.current) return;
     const conversationId = conversation.id;
     const body = {
@@ -1498,33 +1492,33 @@ export function ChatPanel({
       contextPaths: contextAttachments.map((attachment) => attachment.sourcePath),
       addressedWorkFolderIds: addressedFolderIds(next, mentionFolders),
     };
-    queueCancellingRef.current = false;
-    queueWritesInFlightRef.current += 1;
+    queueSync.writeStarted();
     const write = queueWritesRef.current.catch(() => undefined)
-      .then(() => api<{ queued: { content: string } }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/queue`, { method: "PUT", body }));
+      .then(() => api<{ queued: { content: string }; revision: number }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}/queue`, { method: "PUT", body }));
     queueWritesRef.current = write;
-    void write.then(() => {
-      if (!queueCancellingRef.current) setQueuedOnServer(true);
-    }).catch((caught) => {
+    void write.then((result) => {
+      // The text stays this window's newest; the app now holds a copy of it.
+      queueSync.writeSettled(result.revision ?? 0);
+      publishQueue();
+    }, (caught) => {
+      queueSync.writeSettled();
       // 409: the turn already ended, so this window sends it (the effect above).
       if (!(caught instanceof ApiError && caught.status === 409)) setError(errorText(caught));
-    }).finally(() => { queueWritesInFlightRef.current -= 1; });
+    });
   }
 
   function returnQueuedSendToComposer() {
-    if (!queuedSend) return;
-    const content = queuedSend;
-    setQueuedSend(null);
-    setQueuedHeld(false);
-    if ((queuedOnServer || queueWritesInFlightRef.current > 0) && conversation && !fixtureMode) {
-      setQueuedOnServer(false);
-      queueCancellingRef.current = true;
+    const { content, needsDelete } = queueSync.cancel();
+    if (!content) return;
+    publishQueue();
+    if (needsDelete && conversation && !fixtureMode) {
       const path = `/api/work-folders/${workFolder.id}/conversations/${conversation.id}/queue`;
-      const cancel = queueWritesRef.current.catch(() => undefined).then(() => api(path, { method: "DELETE" }));
+      const cancel = queueWritesRef.current.catch(() => undefined)
+        .then(() => api<{ revision: number }>(path, { method: "DELETE" }));
       queueWritesRef.current = cancel;
-      void cancel.catch(() => undefined).finally(() => {
-        if (queueWritesRef.current === cancel) queueCancellingRef.current = false;
-      });
+      void cancel.then((result) => queueSync.cancelSettled(result.revision ?? 0), () => queueSync.cancelSettled());
+    } else if (needsDelete) {
+      queueSync.cancelSettled();
     }
     setDraft((current) => (current.trim() ? `${content}\n${current}` : content));
     window.requestAnimationFrame(() => composerTextareaRef.current?.focus());

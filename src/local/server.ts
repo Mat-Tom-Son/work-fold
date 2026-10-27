@@ -813,6 +813,12 @@ interface LocalApiState {
    * stopped. It lives in the running app only: quitting drops it.
    */
   queuedMessages: Map<string, QueuedChatMessage>;
+  /**
+   * Each queue change gets a higher number, kept per Chat after the message
+   * leaves, so a window can tell a stale echo from the newest change.
+   */
+  queueRevisions: Map<string, number>;
+  lastQueueRevision: number;
   capabilityMutations: Set<string>;
   /** Turn clients whose work-folder changed under them; rebuilt when their turn settles. */
   clientsToRefresh: Set<string>;
@@ -1139,6 +1145,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     compactingConversations: new Set(),
     backgroundCompactions: new Map(),
     queuedMessages: new Map(),
+    queueRevisions: new Map(),
+    lastQueueRevision: 0,
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
     imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
@@ -3387,7 +3395,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const workFolder = await getWorkFolder(queueMatch[1]);
     if (!(await readConversationSummary(workFolder.workFolderRoot, queueMatch[2]))) throw notFound("Conversation not found.");
     if (method === "DELETE") {
-      sendJson(res, { queued: cancelQueuedMessage(state, workFolder.id, queueMatch[2]) });
+      sendJson(res, cancelQueuedMessage(state, workFolder.id, queueMatch[2]));
       return;
     }
     const body = await readJsonBody<{ content?: string; contextPaths?: string[]; addressedWorkFolderIds?: unknown }>(state, req);
@@ -3396,7 +3404,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     const contextPaths = normalizeContextPaths(workFolder.workFolderRoot, body.contextPaths);
     // Workers the message addresses with @ travel with it, as on the ordinary message route.
     const addressedWorkFolderIds = await normalizeAddressedWorkFolderIds(body.addressedWorkFolderIds, workFolder.id);
-    sendJson(res, { queued: queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths, addressedWorkFolderIds }) });
+    sendJson(res, queueChatMessage(state, workFolder.id, queueMatch[2], { content, contextPaths, addressedWorkFolderIds }));
     return;
   }
   const messagesPostMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/conversations\/([^/]+)\/messages$/);
@@ -9363,7 +9371,7 @@ async function deleteWorkFoldAgentConversation(
   const root = workFoldAgentRoot();
   const key = clientKey(workFoldAgentScopeId, conversationId);
   await yieldBackgroundCompaction(state, key);
-  state.queuedMessages.delete(key);
+  changeQueuedMessage(state, key, null);
   assertWorkFoldAgentConversationMutable(state, conversationId);
   // This reservation uses the same conflict fence as compaction because a
   // transcript move must not race a new turn, rename, or real compaction.
@@ -9426,7 +9434,7 @@ async function deleteWorkFolderConversation(
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const key = clientKey(workFolder.id, conversationId);
   await yieldBackgroundCompaction(state, key);
-  state.queuedMessages.delete(key);
+  changeQueuedMessage(state, key, null);
   if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current turn to finish.");
   if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   // The same conflict fence compaction uses: a transcript move must not race
@@ -12891,7 +12899,7 @@ async function runAgentTurn(
     const queued = state.queuedMessages.get(key);
     if (queued && settledStatus === "aborted") {
       if (!queued.held) {
-        state.queuedMessages.set(key, { ...queued, held: true });
+        changeQueuedMessage(state, key, { ...queued, held: true });
         broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
       }
     } else if (queued && !queued.held) void sendQueuedMessage(state, workFolderId, workFolderRoot, conversationId, queued);
@@ -12930,11 +12938,22 @@ interface QueuedChatMessage {
   held?: true;
 }
 
+/** Every change to a Chat's queued message goes through here and gets the next number. */
+function changeQueuedMessage(state: LocalApiState, key: string, next: QueuedChatMessage | null): number {
+  state.lastQueueRevision += 1;
+  state.queueRevisions.set(key, state.lastQueueRevision);
+  if (next) state.queuedMessages.set(key, next);
+  else state.queuedMessages.delete(key);
+  return state.lastQueueRevision;
+}
+
 function queuedMessageEvent(state: LocalApiState, workFolderId: string, conversationId: string, sent?: QueuedChatMessage) {
-  const queued = state.queuedMessages.get(clientKey(workFolderId, conversationId));
+  const key = clientKey(workFolderId, conversationId);
+  const queued = state.queuedMessages.get(key);
   return {
     type: "queued_message" as const,
     conversationId,
+    revision: state.queueRevisions.get(key) ?? 0,
     queued: queued ? { content: queued.content, updatedAt: queued.updatedAt, ...(queued.held ? { held: true } : {}) } : null,
     // The files that went out with a sent queued message, so windows unstage them.
     ...(sent ? { sentContextPaths: sent.contextPaths } : {}),
@@ -12950,23 +12969,23 @@ function queueChatMessage(
   workFolderId: string,
   conversationId: string,
   input: { content: string; contextPaths: string[]; addressedWorkFolderIds: string[] },
-): { content: string; updatedAt: string } {
+): { queued: { content: string; updatedAt: string }; revision: number } {
   const key = clientKey(workFolderId, conversationId);
   if (!state.runningTurns.has(key)) throw httpError(409, "No turn is running in this Chat; send the message now.");
   const queued: QueuedChatMessage = { ...input, updatedAt: new Date().toISOString() };
-  state.queuedMessages.set(key, queued);
+  const revision = changeQueuedMessage(state, key, queued);
   broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
-  return { content: queued.content, updatedAt: queued.updatedAt };
+  return { queued: { content: queued.content, updatedAt: queued.updatedAt }, revision };
 }
 
 /** Removes a Chat's queued message and returns it, so it can go back to a composer. */
-function cancelQueuedMessage(state: LocalApiState, workFolderId: string, conversationId: string): { content: string; updatedAt: string } | null {
+function cancelQueuedMessage(state: LocalApiState, workFolderId: string, conversationId: string): { queued: { content: string; updatedAt: string } | null; revision: number } {
   const key = clientKey(workFolderId, conversationId);
   const queued = state.queuedMessages.get(key);
-  if (!queued) return null;
-  state.queuedMessages.delete(key);
+  if (!queued) return { queued: null, revision: state.queueRevisions.get(key) ?? 0 };
+  const revision = changeQueuedMessage(state, key, null);
   broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
-  return { content: queued.content, updatedAt: queued.updatedAt };
+  return { queued: { content: queued.content, updatedAt: queued.updatedAt }, revision };
 }
 
 /**
@@ -12978,7 +12997,7 @@ async function sendQueuedMessage(state: LocalApiState, workFolderId: string, wor
   const key = clientKey(workFolderId, conversationId);
   if (!state.acceptingTurns || state.queuedMessages.get(key) !== queued) return;
   // Leaves the queue as it becomes the Chat's message, so no window shows both.
-  state.queuedMessages.delete(key);
+  changeQueuedMessage(state, key, null);
   broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId, queued));
   try {
     const agentScope = workFolderId === workFoldAgentScopeId;
@@ -12992,7 +13011,7 @@ async function sendQueuedMessage(state: LocalApiState, workFolderId: string, wor
   } catch (error) {
     console.warn(`A queued message stays queued: ${errorMessage(error)}`);
     if (!state.queuedMessages.has(key)) {
-      state.queuedMessages.set(key, queued);
+      changeQueuedMessage(state, key, queued);
       broadcast(state, streamKey(workFolderId, conversationId), queuedMessageEvent(state, workFolderId, conversationId));
     }
   }
