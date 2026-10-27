@@ -45,7 +45,7 @@ import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, WorkFolderIconGlyph } from "../chrome/common";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
-import { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } from "./messages";
+import { ChatMessageRow, MarkdownMessage, continueInterruptedTurnMessage, copyMarkdownToClipboard } from "./messages";
 import { showToast } from "../../ui/feedback";
 
 const emptyFixtureTreeEntries: TreeEntry[] = [];
@@ -1767,6 +1767,10 @@ export function ChatPanel({
           {messages.map((message) => {
             const isLatestAssistantAtRest = message.role === "assistant" && message.id === latestAssistantMessageId && !running && !settlementPending && !streamingAssistant;
             const showRuntimePreview = isLatestAssistantAtRest && hasVisibleRuntimePreview;
+            // Continue is offered only where it means something: the Chat's last
+            // message, interrupted, with nothing running or queued behind it.
+            const canContinue = isLatestAssistantAtRest && !!message.interruption && message.id === messages[messages.length - 1]?.id
+              && !requestBusy && !queuedSend && lifecycleView === "active";
             return (
               <ChatMessageRow
                 message={message}
@@ -1780,6 +1784,7 @@ export function ChatPanel({
                 onOpenWorkFolderFile={onOpenWorkFolderFile}
                 resolveWorkFolderPathLinks={resolveWorkFolderPathLinks}
                 onCopyMessage={copyMessage}
+                onContinue={canContinue ? () => void sendMessage(continueInterruptedTurnMessage) : undefined}
                 key={message.id}
               />
             );

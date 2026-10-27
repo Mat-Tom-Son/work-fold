@@ -951,7 +951,8 @@ body:has(> #root > .desktop-chrome-shell) {
   background: color-mix(in srgb, var(--ui-accent) 22%, transparent);
 }
 
-.turn-interruption--setup .ui-control {
+.turn-interruption--setup .ui-control,
+.turn-interruption-continue {
   justify-self: start;
   margin-top: 6px;
 }

@@ -71,6 +71,7 @@ import {
   workFolderTurnIdentityLines,
   type WorkFoldTurnIdentity,
 } from "./turn-identity.js";
+import { interruptedToolResultsExtension } from "./interrupted-tool-results.js";
 import { createBackgroundJobTools, type BackgroundJobToolHost } from "./job-tools.js";
 import { createBrowserTools } from "./browser-tools.js";
 import type { BrowserToolHost } from "../../shared/browser.js";
@@ -1853,7 +1854,7 @@ function findPreferredModel(runtime: ResolvedPiRuntime) {
   return model && runtime.modelRuntime.hasConfiguredAuth(model.provider) ? model : undefined;
 }
 
-/** Included resources for a Chat session, plus the hook that restates a turn's ids after compaction. */
+/** Included resources for a Chat session, plus the hooks that restate a turn's ids after compaction and keep interrupted tool calls honest. */
 async function sessionResourceOptions(
   cwd: string,
   runtime: ResolvedPiRuntime,
@@ -1868,6 +1869,7 @@ async function sessionResourceOptions(
       ...included.extensionFactories,
       { name: "work_fold_turn_identity", builtin: true, factory: turnIdentityAfterCompactionExtension(turnIdentity) },
       { name: "work_fold_progress", builtin: true, factory: recovery.extension },
+      { name: "work_fold_interrupted_tools", builtin: true, factory: interruptedToolResultsExtension() },
     ],
   };
 }

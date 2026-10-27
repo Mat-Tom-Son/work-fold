@@ -37,6 +37,8 @@ interface ChatMessageRowProps {
   onOpenWorkFolderFile?: (path: string) => void;
   resolveWorkFolderPathLinks?: WorkFolderPathLinkResolver;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
+  /** Present only on the Chat's last message while nothing runs: an interrupted reply can be continued. */
+  onContinue?: () => void;
 }
 
 export const ChatMessageRow = memo(function ChatMessageRow({
@@ -51,6 +53,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   onOpenWorkFolderFile,
   resolveWorkFolderPathLinks,
   onCopyMessage,
+  onContinue,
 }: ChatMessageRowProps) {
   const [workFolderLinkVersion, setWorkFolderLinkVersion] = useState(0);
   const workFolderLinkCacheKey = `${workFolderId}:${message.id}`;
@@ -107,7 +110,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
         /> : null}
         {generatedImages.length ? <GeneratedImages images={generatedImages} workFolderId={workFolderId} onOpenWorkFolderFile={onOpenWorkFolderFile} /> : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
-        {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} /> : null}
+        {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} onContinue={onContinue} /> : null}
       </div>
       <footer className="message-footer">
         <span className="message-footer-meta">
@@ -219,7 +222,15 @@ export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
   );
 }
 
-function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessage["interruption"]> }) {
+/** The message a Continue click sends: the person's own words, shown in the Chat like any message. */
+export const continueInterruptedTurnMessage = "Continue where you left off.";
+
+function ContinueButton({ onContinue }: { onContinue?: () => void }) {
+  if (!onContinue) return null;
+  return <button className="ui-control turn-interruption-continue" type="button" onClick={onContinue}>Continue</button>;
+}
+
+function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullable<ChatMessage["interruption"]>; onContinue?: () => void }) {
   if (interruption.reason === "setup_error") {
     return (
       <section className="turn-interruption turn-interruption--setup" role="status" aria-label="Worker setup needed">
@@ -234,6 +245,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
       <section className="turn-interruption" role="status" aria-label="Failed Worker response">
         <strong>Request stopped</strong>
         <span>work-fold saved this result with your Chat. You can try again whenever you’re ready.</span>
+        <ContinueButton onContinue={onContinue} />
       </section>
     );
   }
@@ -250,6 +262,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
       <section className="turn-interruption" role="status" aria-label="Worker response interrupted by app close">
         <strong>App interrupted this response</strong>
         <span>work-fold saved the partial response and did not rerun the turn because tools may already have changed something.</span>
+        <ContinueButton onContinue={onContinue} />
       </section>
     );
   }
@@ -260,6 +273,7 @@ function InterruptedTurn({ interruption }: { interruption: NonNullable<ChatMessa
     <section className="turn-interruption" role="status" aria-label="Interrupted Worker response">
       <strong>Response interrupted</strong>
       <span>work-fold preserved the partial response. {retryText}</span>
+      <ContinueButton onContinue={onContinue} />
     </section>
   );
 }

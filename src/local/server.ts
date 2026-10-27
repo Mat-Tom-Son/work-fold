@@ -12537,6 +12537,8 @@ async function runAgentTurn(
   let client: PiConversationClient | null = null;
   let promptStarted = false;
   let settledStatus: SettledTurnRecord["status"] = "succeeded";
+  // Quitting mid-turn is recorded like a crash (interrupted), never as a Stop the person asked for.
+  let closedByApp = false;
   let settledMessageId: string | undefined;
   let settledError: string | undefined;
   let capturedWorkTrail: ReturnType<PiConversationClient["getTurnWorkTrail"]> = [];
@@ -12677,6 +12679,7 @@ async function runAgentTurn(
       capturedWorkTrail = client?.getTurnWorkTrail() ?? [];
     }
     const cancelled = isPiTurnCancelledError(error);
+    closedByApp = cancelled && !state.cancelledTurnTasks.has(taskId) && !state.acceptingTurns;
     if (promptStarted) {
       promptStarted = false;
       afterCheckpoint = await captureTurnCheckpointSafe(state, workFolderId, workFolderRoot, conversationId, "post_turn");
@@ -12687,11 +12690,15 @@ async function runAgentTurn(
     if (!cancelled) {
       console.warn(`Turn failed in ${workFolderId}/${conversationId}: ${providerCreditFailureDetail(error) ?? errorMessage(error)}`);
     }
-    const publicDetail = cancelled
-      ? "The agent was stopped before it completed this response."
-      : assistantFailurePublicDetail(error);
+    const publicDetail = closedByApp
+      ? appClosedTurnDetail
+      : cancelled
+        ? "The agent was stopped before it completed this response."
+        : assistantFailurePublicDetail(error);
     const workTrail = capturedWorkTrail;
-    const interruptedContent = assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
+    const interruptedContent = closedByApp
+      ? durable?.assistantText.trim() || appClosedTurnDetail
+      : assistantFailureTranscriptContent(error, durable?.assistantText ?? "", cancelled);
     const interruptedPresentation = parseAssistantPresentation(capturedPresentation, interruptedContent);
     const interruptedMessage = {
       id: randomUUID(),
@@ -12703,7 +12710,7 @@ async function runAgentTurn(
       ...(durable?.requestId ? { requestId: durable.requestId } : {}),
       ...(workTrail.length ? { workTrail } : {}),
       interruption: {
-        reason: cancelled ? "cancelled" as const : assistantFailureReason(error),
+        reason: closedByApp ? "app_interrupted" as const : cancelled ? "cancelled" as const : assistantFailureReason(error),
         message: publicDetail,
         retryAttempts: error instanceof PiTurnFailure ? error.retryAttempts : 0,
         provider: error instanceof PiTurnFailure ? error.provider : null,
@@ -12718,8 +12725,8 @@ async function runAgentTurn(
     } catch (preservationError) {
       console.error(`Could not preserve an interrupted Worker result: ${errorMessage(preservationError)}`);
     }
-    const message = assistantTurnFailureMessage(error, failureResultPreserved);
-    settledStatus = cancelled ? "aborted" : "failed";
+    const message = closedByApp ? appClosedTurnDetail : assistantTurnFailureMessage(error, failureResultPreserved);
+    settledStatus = cancelled && !closedByApp ? "aborted" : "failed";
     settledError = message;
     // A provider failure settles the Pi session cleanly after its bounded retry
     // path. Keep that live session so the next user message can continue from
@@ -12738,7 +12745,7 @@ async function runAgentTurn(
     // the turn journal as their receipt (docs/receipts-not-gates.md, F22).
     const turnUsage = client?.getTurnUsage() ?? null;
     await state.turnStore.settle(taskId, {
-      status: settledStatus,
+      status: closedByApp ? "interrupted" : settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       assistantText: durableText,
@@ -12753,7 +12760,7 @@ async function runAgentTurn(
     // task-scoped record, so a waiter or the overview reads a current request
     // state on the next tick (F25).
     await state.requests.settleTurn(taskId, {
-      status: settledStatus,
+      status: closedByApp ? "interrupted" : settledStatus,
       ...(settledMessageId ? { messageId: settledMessageId } : {}),
       ...(settledError ? { error: settledError } : {}),
       ...(turnUsage ? { usage: turnUsage } : {}),
@@ -12805,6 +12812,8 @@ function resolveTurnRequestId(state: LocalApiState, taskId: string): string {
     ?? taskId;
 }
 
+const appClosedTurnDetail = "work-fold closed before this turn finished. It was not run again because completed tools may already have changed something.";
+
 async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
   const records = state.turnStore.list().sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
   for (const record of records.filter((candidate) => candidate.status !== "accepted" && candidate.status !== "running").slice(-maxSettledTurnRecords)) {
@@ -12845,7 +12854,7 @@ async function recoverDurableTurnState(state: LocalApiState): Promise<void> {
       if (settled) rememberDurableSettledTurn(state, settled);
       continue;
     }
-    const detail = "work-fold closed before this turn finished. It was not run again because completed tools may already have changed something.";
+    const detail = appClosedTurnDetail;
     const recoveredMessage: ChatMessage = {
       id: randomUUID(),
       role: "assistant",
