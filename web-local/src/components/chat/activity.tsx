@@ -18,6 +18,7 @@ import {
 
 import { collectWorkFolderPathCandidates, workFolderPathCandidate } from "../../lib/work-folder-path-links";
 import { safeExternalHref } from "../../lib/api";
+import { rehypeSingleLineBreaks } from "../../lib/markdown-line-breaks";
 import type { AgentActivityPhase, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 
@@ -169,7 +170,7 @@ function TextStep({ entry, rendered }: { entry: RuntimePreviewEntry; rendered?: 
     <div className={`work-step progress${isActivePhase(entry.phase) ? " active" : ""}`}>
       <FluentGlyph icon={Chat20Regular} size={16} filled={false} className="work-step-icon" />
       <div className="work-step-body work-step-progress">
-        {rendered ?? <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+        {rendered ?? <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]} components={{
           a: ({ href, children }) => { const safe = safeExternalHref(href); return safe ? <a href={safe} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>; },
           img: ({ alt }) => <span>{alt ?? ""}</span>,
         }}>{entry.text}</ReactMarkdown>}
@@ -217,6 +218,7 @@ function ThoughtStep({
           <div className={`work-step-thought${live ? " live" : ""}`}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm, repairReasoningMarkdownArtifacts]}
+              rehypePlugins={[rehypeSingleLineBreaks]}
               components={{
                 a: ({ children }) => <>{children}</>,
                 img: ({ alt }) => <span>{alt ?? ""}</span>,
@@ -266,6 +268,28 @@ function useWorkFolderPathLinks(
     };
   }, [key, resolver, skip]);
   return override ?? links;
+}
+
+/** A work-folder file a turn changed: "saved" when a write tool wrote it whole, else "edited". */
+export interface TurnChangedFile {
+  path: string;
+  change: "saved" | "edited";
+}
+
+/** The work-folder files a turn's write and edit tools changed, in the order first changed. */
+export function turnChangedFiles(steps: RuntimePreviewEntry[], workFolderRoot: string | undefined): TurnChangedFile[] {
+  const files = new Map<string, TurnChangedFile>();
+  for (const entry of steps) {
+    if (entry.kind !== "tool" || entry.phase === "error") continue;
+    const key = toolKey(entry);
+    if (key !== "write" && key !== "edit") continue;
+    const path = entry.detail?.trim() ? workFolderRelativeToolPath(entry.detail, workFolderRoot) : null;
+    if (!path) continue;
+    const known = files.get(path);
+    if (!known) files.set(path, { path, change: key === "write" ? "saved" : "edited" });
+    else if (key === "write") known.change = "saved";
+  }
+  return [...files.values()];
 }
 
 function toolPathCandidates(steps: RuntimePreviewEntry[], workFolderRoot: string | undefined): string[] {

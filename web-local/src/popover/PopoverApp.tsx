@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { groupChatsByRecency } from "../lib/chat-recency";
+import { rehypeSingleLineBreaks } from "../lib/markdown-line-breaks";
 import { subscribeControlEvents } from "../lib/control-events";
 import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders, mentionNames } from "../lib/folder-mentions";
 import { folderTreeRows } from "../lib/folder-nesting";
@@ -1108,7 +1109,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
               {message.role === "assistant" && message.kind !== "assistant_continuation" ? <RuntimeContextPreview entries={savedWorkTrailPreviews(message as ChatMessage)} renderText={renderStepText} /> : null}
               <div className="popover-message-body">
                 {message.kind === "assistant_continuation" ? "Continuing with the results from delegated work." : message.role === "assistant"
-                  ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  ? <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{message.content}</ReactMarkdown>
                   : message.content}
               </div>
             </article>
@@ -1119,7 +1120,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           {streamingAssistant ? (
             <article className="popover-message assistant streaming" aria-label="work-fold is replying">
               <div className="popover-message-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingAssistant}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{streamingAssistant}</ReactMarkdown>
               </div>
             </article>
           ) : null}
@@ -1270,7 +1271,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
 
 /** Progress notes inside the steps render with the same Markdown as replies. */
 function renderStepText(text: string) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{text}</ReactMarkdown>;
 }
 
 function chatDateLabel(value: string): string {

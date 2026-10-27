@@ -3501,10 +3501,11 @@ to {
   white-space: nowrap;
 }
 
+/* Titles are regular weight so the open Chat's semi-bold title stands out (2026-10-27). */
 .chat-work-folder-row-title {
   color: #667085;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.25;
 }
 
@@ -3531,7 +3532,7 @@ to {
 
 .chat-work-folder-row-shell.active .chat-work-folder-row-title {
   color: #3e4c60;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .chat-work-folder-row-shell.active .chat-work-folder-row-time {
@@ -4629,6 +4630,26 @@ to {
 .file-name {
   flex: 1 1 auto;
   max-width: 100%;
+}
+
+.file-name.has-extension {
+  display: flex;
+}
+
+.file-name-stem {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-name-extension {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted, #66707c);
+}
+
+.file-row.selected .file-name-extension {
+  color: inherit;
+  opacity: .72;
 }
 
 .file-name mark {
@@ -6261,7 +6282,7 @@ button.context-chip.message-attachment:focus-visible {
   bottom: calc(100% + 9px);
   z-index: 8;
   width: min(560px, 100%);
-  max-height: min(360px, 48vh);
+  max-height: min(360px, 48vh, var(--composer-menu-available-height, 100vh));
   overflow: auto;
   padding: 6px;
   color: #253044;
@@ -6458,7 +6479,7 @@ button.context-chip.message-attachment:focus-visible {
 .composer-model-menu {
   width: 280px;
   max-width: calc(100vw - 32px);
-  max-height: min(460px, 64vh);
+  max-height: min(460px, 64vh, var(--composer-menu-available-height, 100vh));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -6585,43 +6606,6 @@ button.context-chip.message-attachment:focus-visible {
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-}
-
-.composer-thinking-control {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 0;
-  pointer-events: auto;
-}
-
-.composer-thinking-trigger:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.composer-thinking-trigger > span:first-child {
-  display: inline;
-  width: auto;
-  height: auto;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-
-.composer-thinking-menu {
-  width: 148px;
-  max-height: min(320px, 44vh);
-}
-
-.composer-thinking-menu > button {
-  display: block;
-  padding: 8px 10px;
-}
-
-.composer-thinking-menu > button .composer-command-name {
-  font-family: inherit;
-  font-size: 0.7rem;
-  font-weight: 700;
 }
 
 .conversation-context-meter svg {
@@ -19765,19 +19749,102 @@ to {
   border-color: transparent;
 }
 
+/* Over a picture, the name and its arrow share one frosted pill: legible on
+   any image without a text shadow, and plainly the switcher (2026-10-27). */
+
+.app-shell .work-folder-pane-title-pill {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 14px;
+  border-radius: 999px;
+  color: #1c2530;
+  background: rgb(255 255 255 / .82);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
+  transition: background-color 150ms var(--work-fold-ease-smooth);
+}
+
+.app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
+.app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
+  background: rgb(255 255 255 / .94);
+}
+
+:root[data-theme="dark"] .app-shell .work-folder-pane-title-pill {
+  color: #f1f4f6;
+  background: rgb(22 26 30 / .74);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
+}
+
+:root[data-theme="dark"] .app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
+:root[data-theme="dark"] .app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
+  background: rgb(22 26 30 / .88);
+}
+
 :root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-current-lockup strong {
   background: transparent;
   padding: 0;
-  color: #fff;
-  text-shadow: 0 1px 8px rgb(0 0 0 / .65);
-  font-size: 19px;
-  font-weight: 600;
+  color: inherit;
+  text-shadow: none;
 }
 
-:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-switch-caret {
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill .work-folder-pane-switch-caret {
+  position: static;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: inherit;
   background: transparent;
-  color: #fff;
-  filter: drop-shadow(0 1px 3px rgb(0 0 0 / .45));
+  opacity: .72;
+  transform: none;
+  filter: none;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image.switcher-open .work-folder-pane-title-pill .work-folder-pane-switch-caret {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+
+/* While the list below scrolls, the banner gives its height back to the list. */
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap {
+  transition: height 180ms var(--work-fold-ease-smooth), flex-basis 180ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+  transition: filter 150ms, height 180ms var(--work-fold-ease-smooth), min-height 180ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap.slim {
+  --work-folder-identity-header-height: 52px;
+  --work-folder-identity-title-size: 15px;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .professional-pane-header.has-breadcrumb > .work-folder-pane-switch-trigger {
+  padding-top: 0;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-breadcrumb {
+  display: none;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-title-pill {
+  padding-block: 2px;
+}
+
+:root[data-appearance-motion="reduce"] .app-shell .work-folder-layout .work-folder-pane-header-wrap,
+:root[data-appearance-motion="reduce"] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap,
+  :root[data-theme] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+    transition: none;
+  }
 }
 
 .work-folder-pane-banner-image.has-banner-preset .work-folder-pane-banner-scrim {
@@ -20473,11 +20540,23 @@ to {
   border: 0;
 }
 
+/* The previews show the header's frosted name pill over the picture. */
+
 .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-copy strong {
-  background: transparent;
-  padding: 0;
-  color: white;
-  text-shadow: 0 1px 8px rgb(0 0 0 / .65);
+  padding: 4px 14px;
+  border-radius: 999px;
+  color: #1c2530;
+  background: rgb(255 255 255 / .82);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
+  text-shadow: none;
+}
+
+.work-folder-appearance-preview.preview-dark.has-banner-image .work-folder-appearance-preview-copy strong {
+  color: #f1f4f6;
+  background: rgb(22 26 30 / .74);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
 }
 
 .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-image > span {
@@ -20894,6 +20973,447 @@ to {
 
 :root[data-theme] .app-shell .composer-capability-bar {
   border: 0;
+}
+
+/* The composer starts one line tall and grows with the draft. Its bar keeps
+   what you add (attach, Commands) on the left and how the Worker runs (model
+   and reasoning) beside Send on the right (2026-10-27). */
+
+:root[data-theme] .app-shell .composer-input-shell {
+  min-height: 0;
+}
+
+:root[data-theme] .app-shell .composer-input-shell textarea {
+  min-height: 0;
+  padding: 13px 16px 6px;
+}
+
+:root[data-theme] .app-shell .composer-capability-bar {
+  padding: 0 8px 8px;
+  gap: 4px;
+}
+
+.composer-capability-spacer {
+  flex: 1 1 auto;
+}
+
+:root[data-theme] .app-shell .composer-capability-bar .send-button {
+  position: static;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-left: 2px;
+  pointer-events: auto;
+}
+
+.composer-attach-control {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.composer-attach-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--ui-border-strong, var(--ui-border));
+  border-radius: 999px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  transition: background-color 110ms, color 110ms;
+}
+
+.composer-attach-trigger:is(:hover, .active) {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.composer-attach-trigger.active {
+  border-color: var(--work-folder-accent-border-state, var(--ui-accent));
+}
+
+.composer-attach-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.composer-command-menu.composer-attach-menu {
+  width: 300px;
+  max-width: calc(100vw - 32px);
+}
+
+.composer-command-menu.composer-attach-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+}
+
+.composer-attach-option-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--work-folder-accent-glyph, var(--ui-text-muted));
+  background: var(--ui-surface-subtle);
+}
+
+.composer-attach-option-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer-attach-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.composer-attach-option-copy strong {
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attach-option-copy small {
+  color: var(--ui-text-muted);
+  font-size: 0.72rem;
+}
+
+.composer-command-menu.composer-attach-picker {
+  width: 380px;
+  max-height: min(420px, 60vh, var(--composer-menu-available-height, 100vh));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.composer-attach-search {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 4px 6px 0;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text-muted);
+}
+
+.composer-attach-back {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+}
+
+.composer-attach-back:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.composer-attach-search-icon {
+  flex: 0 0 auto;
+}
+
+.composer-attach-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  outline: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+:root[data-theme] .app-shell .composer-attach-search input:focus-visible {
+  outline: 0;
+}
+
+.composer-attach-options {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: grid;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.composer-attach-options button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.composer-attach-options button[aria-selected="true"] {
+  color: var(--ui-text-muted);
+}
+
+.composer-attach-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attach-file-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: 0.72rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The files a reply wrote or edited close the reply as one bounded list, each
+   row opening its file (2026-10-27). */
+
+.turn-files {
+  margin: 14px 0 2px;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-surface);
+}
+
+.turn-files li + li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.turn-files button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  transition: background-color 110ms;
+}
+
+.turn-files button:hover {
+  background: var(--ui-surface-hover);
+}
+
+.turn-file-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.turn-file-name,
+.turn-file-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-file-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.turn-file-detail {
+  color: var(--ui-text-muted);
+  font-size: 0.76rem;
+}
+
+.turn-file-open {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border: 1px solid var(--ui-border-strong, var(--ui-border));
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.turn-files button.turn-files-more {
+  justify-content: center;
+  padding: 8px 12px;
+  color: var(--ui-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* A new Chat starts with its composer under the greeting and the work-folder's
+   recent Chats below; the first message settles it at the bottom (2026-10-27). */
+
+.chat-panel.is-start {
+  grid-template-rows: auto minmax(0, 1fr) auto minmax(min-content, 1.25fr);
+}
+
+.chat-panel.is-start .chat-empty-state {
+  margin: auto 0 0;
+  padding-bottom: 12px;
+}
+
+.chat-recent {
+  width: calc(100% - 28px);
+  max-width: var(--work-fold-chat-measure, 760px);
+  align-self: start;
+  justify-self: center;
+  padding: 18px 0 24px;
+}
+
+.chat-recent h2 {
+  margin: 0 0 8px 4px;
+  color: var(--ui-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.chat-recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.chat-recent li + li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.chat-recent button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  transition: background-color 110ms;
+}
+
+.chat-recent button:hover {
+  background: var(--ui-surface-hover);
+}
+
+.chat-recent-icon {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+}
+
+.chat-recent-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-recent-time {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The model chip carries the reasoning level, and its menu opens toward the
+   composer's middle from the right side. */
+
+.composer-model-control .composer-model-menu {
+  left: auto;
+  right: 0;
+}
+
+:is(.composer-model-control, .composer-attach-control)[data-menu-placement="below"] .composer-command-menu {
+  top: calc(100% + 9px);
+  bottom: auto;
+}
+
+.composer-model-reasoning {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-weight: 600;
+}
+
+.composer-model-control .composer-model-caret {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-left: -2px;
+  color: var(--ui-text-muted);
+  transform: none;
+}
+
+.composer-reasoning {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.composer-reasoning-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 4px 6px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--ui-surface-subtle);
+}
+
+.composer-reasoning-levels button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell .composer-reasoning-levels button.active,
+:root[data-theme] .app-shell .composer-reasoning-levels button.active:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .14);
 }
 
 :root[data-theme] .app-shell .send-button {
@@ -21352,7 +21872,13 @@ to {
 
 /* Higher contrast keeps banner titles readable over arbitrary image pixels. */
 
-:root[data-appearance-contrast="more"] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-current-lockup strong,
+:root[data-appearance-contrast="more"] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill {
+  color: #fff;
+  background: #17212e;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 :root[data-appearance-contrast="more"] .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-copy strong {
   padding: 2px 8px;
   background: #17212e;
