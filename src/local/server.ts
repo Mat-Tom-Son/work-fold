@@ -15804,7 +15804,8 @@ function openChatStream(
   }, snapshotId > 0 ? snapshotId : undefined);
   // Older consumers retain their original handshake alongside the richer view.
   writeSseData(res, turnStateEvent(conversationId, running, turnId ?? log.turnId ?? null), snapshotId > 0 ? snapshotId : undefined);
-  writeSseData(res, queuedMessageEvent(state, workFolderId, conversationId));
+  // Current state, like turn_state: it carries the snapshot's cursor.
+  writeSseData(res, queuedMessageEvent(state, workFolderId, conversationId), snapshotId > 0 ? snapshotId : undefined);
   const streams = state.chatStreams.get(key) ?? new Set<LocalEventSink>();
   streams.add(res);
   state.chatStreams.set(key, streams);
