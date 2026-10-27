@@ -503,12 +503,35 @@ export class PiConversationClient extends EventEmitter {
     return true;
   }
 
-  async compact(customInstructions?: string): Promise<void> {
+  async compact(customInstructions?: string, options: { quiet?: boolean } = {}): Promise<void> {
     if (this.promptInFlight) throw new Error("Wait for the current turn to finish before compacting this Chat.");
     this.assertNativePromptSettled();
     const session = await this.ensureSession();
-    this.emitEvent({ type: "status", message: "Compacting conversation context." });
+    if (!options.quiet) this.emitEvent({ type: "status", message: "Compacting conversation context." });
     await this.modelCall.run({ purpose: "compaction" }, () => session.compact(customInstructions));
+  }
+
+  /**
+   * Whether this idle Chat has grown close enough to Pi's own automatic
+   * compaction point that summarizing it now, in the background, saves the
+   * next turn from waiting on it (Pi Durable's background compaction,
+   * 2026-10-27). Never true while a turn runs, before a session exists, or
+   * when the person turned Pi's automatic compaction off.
+   */
+  backgroundCompactionDue(ratio = backgroundCompactionRatio): boolean {
+    const session = this.runtimeHost?.session;
+    const settings = this.resolvedRuntime?.settingsManager;
+    if (!session || !settings || this.promptInFlight || session.isCompacting) return false;
+    if (!settings.getCompactionEnabled()) return false;
+    const usage = session.getContextUsage();
+    if (!usage || usage.tokens === null || usage.contextWindow <= 0) return false;
+    const autoPoint = usage.contextWindow - settings.getCompactionReserveTokens(session.model);
+    return autoPoint > 0 && usage.tokens >= autoPoint * ratio;
+  }
+
+  /** Cancels a compaction in progress; the Chat keeps its uncompacted context. */
+  abortCompaction(): void {
+    this.runtimeHost?.session.abortCompaction();
   }
 
   async reloadResources(): Promise<PiResourceCatalog> {
@@ -732,6 +755,8 @@ export class PiConversationClient extends EventEmitter {
 
   async stop(): Promise<void> {
     for (const run of this.helperRuns) run.controller.abort();
+    // A background Chat summary must not keep writing to a session being torn down.
+    this.runtimeHost?.session.abortCompaction();
     const preserveActiveTurnTrail = this.promptInFlight;
     this.authController?.abort();
     this.runtimeGeneration += 1;
@@ -2286,6 +2311,12 @@ function compactText(value: string): string {
 function piHeartbeatMs(): number {
   return positiveNumber(process.env.WORKFOLD_PI_HEARTBEAT_MS ?? process.env.PI_HEARTBEAT_MS, 30_000);
 }
+
+/**
+ * An idle Chat is summarized in the background once its context reaches this
+ * share of the point where Pi would compact it mid-turn anyway.
+ */
+export const backgroundCompactionRatio = 0.8;
 
 /**
  * Wall-clock cap on one agent turn. Disabled by default: a native Pi

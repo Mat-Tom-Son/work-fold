@@ -798,6 +798,12 @@ interface LocalApiState {
   cancelledTurnTasks: Set<string>;
   settledTurns: Map<string, SettledTurnRecord>;
   compactingConversations: Set<string>;
+  /**
+   * Idle Chats being summarized ahead of time (2026-10-27). Deliberately not in
+   * `compactingConversations`: a background summary never refuses the person.
+   * Anything that needs the Chat's Pi session cancels it first.
+   */
+  backgroundCompactions: Map<string, BackgroundCompaction>;
   capabilityMutations: Set<string>;
   /** Turn clients whose work-folder changed under them; rebuilt when their turn settles. */
   clientsToRefresh: Set<string>;
@@ -1121,6 +1127,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     cancelledTurnTasks: new Set(),
     settledTurns: new Map(),
     compactingConversations: new Set(),
+    backgroundCompactions: new Map(),
     capabilityMutations: new Set(),
     clientsToRefresh: new Set(),
     imageModelPreference: new ImageModelPreference(imageModelPreferencePath(workFoldStateRoot())),
@@ -1462,6 +1469,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await state.requestSettleChain.catch(() => undefined);
       // So may any other acceptance already past the flag (acceptConversationTurn).
       await Promise.allSettled([...state.turnAcceptances]);
+      await Promise.allSettled([...state.backgroundCompactions.keys()].map((key) => yieldBackgroundCompaction(state, key)));
       await Promise.allSettled([...state.clients.values()].map((client) => client.stop()));
       await Promise.allSettled([...state.activeTurnPromises]);
       await shutdownIncludedToolHost(workFoldAgentRoot(), state.runtimeProvider).catch((error) => console.warn("Computer helper shutdown:", errorMessage(error)));
@@ -3433,6 +3441,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     if (!(await readConversation(workFolder.workFolderRoot, compactMatch[2])).length) throw notFound("Conversation not found.");
     const key = clientKey(workFolder.id, compactMatch[2]);
     const body = await readJsonBody<{ customInstructions?: string }>(state, req);
+    await yieldBackgroundCompaction(state, key);
     assertNoCapabilityMutationForTurn(state, workFolder.id);
     if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current agent turn to finish.");
     if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
@@ -4108,6 +4117,7 @@ async function admitConversationTurn(
   },
 ): Promise<{ message: { id: string; role: "user"; content: string; createdAt: string; attachments?: ChatMessageAttachmentRef[] }; taskId: string; replayed: boolean }> {
   const turnKey = clientKey(workFolder.id, conversationId);
+  await yieldBackgroundCompaction(state, turnKey);
   const fileAttachments = workFolder.id === workFoldAgentScopeId ? [] : contextPathAttachments(input.contextPaths);
   const attachmentFields = fileAttachments.length ? { attachments: fileAttachments } : {};
   const existing = await readConversationSummary(workFolder.workFolderRoot, conversationId);
@@ -9270,6 +9280,7 @@ async function deleteWorkFoldAgentConversation(
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const root = workFoldAgentRoot();
   const key = clientKey(workFoldAgentScopeId, conversationId);
+  await yieldBackgroundCompaction(state, key);
   assertWorkFoldAgentConversationMutable(state, conversationId);
   // This reservation uses the same conflict fence as compaction because a
   // transcript move must not race a new turn, rename, or real compaction.
@@ -9331,6 +9342,7 @@ async function deleteWorkFolderConversation(
   context: { receiptId: string | null },
 ): Promise<{ conversationId: string; recentlyDeleted: { entryId: string; restoreBy: string } }> {
   const key = clientKey(workFolder.id, conversationId);
+  await yieldBackgroundCompaction(state, key);
   if (state.runningTurns.has(key)) throw httpError(409, "Wait for the current turn to finish.");
   if (state.compactingConversations.has(key)) throw httpError(409, "Wait for the current Chat compaction to finish.");
   // The same conflict fence compaction uses: a transcript move must not race
@@ -11505,6 +11517,7 @@ async function copyConversation(
   sourceConversationId: string,
   title?: string,
 ): Promise<{ conversation: ConversationSummary; copiedMessages: number }> {
+  await yieldBackgroundCompaction(state, clientKey(workFolder.id, sourceConversationId));
   const summary = await readConversationSummary(workFolder.workFolderRoot, sourceConversationId);
   if (!summary) throw new WorkFoldCliError("notFound", "Conversation not found.");
   if (state.compactingConversations.has(clientKey(workFolder.id, sourceConversationId))) {
@@ -12789,6 +12802,7 @@ async function runAgentTurn(
       : { type: "error", conversationId, turnId: taskId, message: settledError ?? "The turn did not finish." });
     broadcast(state, key, turnStateEvent(conversationId, false, taskId));
     changeTurnCount(state, -1);
+    if (settledStatus === "succeeded") scheduleBackgroundCompaction(state, workFolderId, workFolderRoot, conversationId);
     // F28: once this turn's own settlement is fully visible, the request
     // graph above it may owe the work-fold agent one continuation turn. Fire-and-forget
     // with its own catch, the way activeTurnPromises are: a settle never
@@ -12810,6 +12824,78 @@ function resolveTurnRequestId(state: LocalApiState, taskId: string): string {
   return state.requests.byTaskId(taskId)?.requestId
     ?? state.turnStore.get(taskId)?.requestId
     ?? taskId;
+}
+
+interface BackgroundCompaction {
+  timer: NodeJS.Timeout | null;
+  /** Present while the summary is being written. */
+  run: { client: PiConversationClient; done: Promise<void> } | null;
+  /** Set when something that needs the Chat cancelled it; that is not a failure. */
+  yielded: boolean;
+}
+
+/** How long a Chat stays idle after a reply before it is summarized ahead of time. */
+function backgroundCompactionIdleMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number(env.WORKFOLD_PI_BACKGROUND_COMPACTION_IDLE_MS);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 10_000;
+}
+
+/**
+ * Summarizes an idle Chat in the background once it nears Pi's own automatic
+ * compaction point, so the next turn does not wait on that summary (Pi
+ * Durable's background compaction, 2026-10-27). It runs as its own kernel
+ * compaction task, only on a client that already exists, and only after the
+ * Chat has been quiet for a moment; anything that needs the Chat first calls
+ * yieldBackgroundCompaction. A failed or cancelled summary changes nothing:
+ * Pi still compacts mid-turn when it must.
+ */
+function scheduleBackgroundCompaction(state: LocalApiState, workFolderId: string, workFolderRoot: string, conversationId: string): void {
+  const key = clientKey(workFolderId, conversationId);
+  const pending = state.backgroundCompactions.get(key);
+  if (pending?.run) return;
+  if (pending?.timer) clearTimeout(pending.timer);
+  const entry: BackgroundCompaction = { timer: null, run: null, yielded: false };
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    const client = state.clients.get(key);
+    if (!client || !state.acceptingTurns || state.runningTurns.has(key) || state.compactingConversations.has(key)
+      || state.capabilityMutations.size > 0 || !client.backgroundCompactionDue()) {
+      if (state.backgroundCompactions.get(key) === entry) state.backgroundCompactions.delete(key);
+      return;
+    }
+    const task = state.kernel.startTask({
+      kind: "compaction",
+      workFolderId,
+      conversationId,
+      actor: { kind: "system", cwd: workFolderRoot, workFolderId, conversationId },
+    });
+    const done = client.compact(undefined, { quiet: true })
+      .catch((error: unknown) => {
+        if (!entry.yielded) console.warn(`A background Chat summary did not finish: ${errorMessage(error)}`);
+      })
+      .finally(() => {
+        state.kernel.finishTask(task.id);
+        if (state.backgroundCompactions.get(key) === entry) state.backgroundCompactions.delete(key);
+      });
+    entry.run = { client, done };
+  }, backgroundCompactionIdleMs());
+  entry.timer.unref?.();
+  state.backgroundCompactions.set(key, entry);
+}
+
+/** Cancels a Chat's pending or running background summary and waits for it to stop. */
+async function yieldBackgroundCompaction(state: LocalApiState, key: string): Promise<void> {
+  const entry = state.backgroundCompactions.get(key);
+  if (!entry) return;
+  if (entry.timer) clearTimeout(entry.timer);
+  entry.timer = null;
+  if (!entry.run) {
+    state.backgroundCompactions.delete(key);
+    return;
+  }
+  entry.yielded = true;
+  entry.run.client.abortCompaction();
+  await entry.run.done;
 }
 
 const appClosedTurnDetail = "work-fold closed before this turn finished. It was not run again because completed tools may already have changed something.";

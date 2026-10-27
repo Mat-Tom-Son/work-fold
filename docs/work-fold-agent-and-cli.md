@@ -150,7 +150,7 @@ The current snapshot version is `1` and exposes four read models:
 | `work-fold.tasks` | Running `assistant_turn` and `compaction` records, optionally scoped to one work-folder. |
 | `work-fold.capabilities` | Pi's authoritative capability catalog plus packages, project authorization, mutation eligibility, provenance, and diagnostics for one work-folder. |
 
-The local API and the desktop CLI share one kernel instance. Agent turns and Chat compactions register a task when work is accepted and finish it in success and failure cleanup paths. Capability mutations remain blocked while affected work is active, so a catalog reload cannot silently terminate a background turn.
+The local API and the desktop CLI share one kernel instance. Agent turns and Chat compactions register a task when work is accepted and finish it in success and failure cleanup paths. An idle Chat whose context has passed 80% of the point where Pi would compact it mid-turn is summarized in the background about ten seconds after its reply, as a `compaction` task with a `system` actor; it runs only when Pi's automatic compaction is on, never refuses the person, and is cancelled by a new message, a manual compaction, Make a Copy, deletion, or quit, after which Pi still compacts mid-turn if it must (2026-10-27). Pi's own mid-turn compaction stays inside its turn's task. Capability mutations remain blocked while affected work is active, so a catalog reload cannot silently terminate a background turn.
 
 Capability snapshots are projections of Pi's native catalog. They do not create a second full-trust registry, activate inactive tools, bypass the work-folder registry, or install anything.
 
