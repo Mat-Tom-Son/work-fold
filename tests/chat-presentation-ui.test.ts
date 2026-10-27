@@ -13,7 +13,7 @@ const hook = registerHooks({
   resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:presentation-icons", shortCircuit: true } : next(specifier, context); },
   load(url, context, next) { return url === "test:presentation-icons" ? { format: "module", source: iconNames.map((name) => `export const ${name}=${name === "bundleIcon" ? "(filled)=>filled" : "()=>null"};`).join("\n"), shortCircuit: true } : next(url, context); },
 });
-const { ChatMessageRow, copyMarkdownToClipboard } = await import("../web-local/src/components/chat/messages.js");
+const { ChatMessageRow, MarkdownMessage, copyMarkdownToClipboard } = await import("../web-local/src/components/chat/messages.js");
 const { RuntimeContextPreview } = await import("../web-local/src/components/chat/activity.js");
 hook.deregister();
 
@@ -117,4 +117,12 @@ test("a request an app made says which app asked instead of looking like the per
   assert.doesNotMatch(own, /message-sender/);
   // A marker without a title (an older or damaged log) renders as before.
   assert.match(row({ ...base, source: "app" }), /<article class="message user settled">/);
+});
+
+test("a Markdown hard line break is one line, not a break plus a blank line", () => {
+  // Chat paragraphs keep newlines visible, so the newline that follows each
+  // `<br>` used to draw a second, empty line under every quoted line.
+  const html = renderToStaticMarkup(createElement(MarkdownMessage, { content: "> “Peter.”  \n> “Where ARE you?”  \n> “Here.”\n\nAfter.\nSoft break." }));
+  assert.match(html, /<blockquote>\s*<p>“Peter\.”<br\/>“Where ARE you\?”<br\/>“Here\.”<\/p>\s*<\/blockquote>/);
+  assert.match(html, /<p>After\.\nSoft break\.<\/p>/, "a soft break keeps its newline");
 });

@@ -6,13 +6,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
-import { ArrowDown20Regular, ArrowUp20Regular } from "@fluentui/react-icons";
+import { Add16Regular, ArrowDown20Regular, ArrowUp20Regular, Chat16Regular, ChevronDown16Regular, ChevronLeft16Regular, Desktop20Regular, Search16Regular } from "@fluentui/react-icons";
 import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
 
 import { chatDraftDebounceMs, genericChatEmptyGreetings, workFolderPathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureConversationSummary } from "../../fixtures/shared";
 import { ApiError, api, createEventSource, errorText, isTransientNetworkError, rawErrorMessage } from "../../lib/api";
 import { requestConnectAi } from "../../lib/connect-ai";
+import { conversationLifecycleView } from "../../lib/chat-lifecycle";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
 import { displayModelLabel } from "../../lib/model-display";
@@ -24,6 +25,7 @@ import {
   chatDraftStorageKey,
   clearStoredChatDraft,
   clearStoredPendingChatSend,
+  formatChatListTime,
   latestTranscriptTime,
   modelConversationTitle,
   readStoredChatDraft,
@@ -43,6 +45,7 @@ import type { WorkRequestView } from "../../../../src/shared/request-presentatio
 import { ExtensionQuestions } from "./ExtensionQuestions";
 import { AttachmentChip } from "./AttachmentChip";
 import { Banner, FluentGlyph, WorkFolderIconGlyph } from "../chrome/common";
+import { FileTypeIcon } from "../tree/FileTree";
 import { RuntimeContextPreview } from "./activity";
 import { composerCommandQuery, composerCommandValue, matchingComposerCommands } from "./command-menu";
 import { QueuedMessageSync } from "../../lib/queued-message-sync";
@@ -124,6 +127,7 @@ export function ChatPanel({
   onRestrictedAppInstalled,
   onRestrictedAppProposalRequested,
   onOpenModelSettings,
+  onOpenConversation,
   fixtureMode = false,
   fixtureConversations,
   fixtureTreeEntries = emptyFixtureTreeEntries,
@@ -151,6 +155,8 @@ export function ChatPanel({
   onRestrictedAppInstalled?: (app: RestrictedAppInstalled) => void;
   onRestrictedAppProposalRequested?: () => void;
   onOpenModelSettings?: () => void;
+  /** Opens one of this work-folder's Chats, as its row in Chats does. */
+  onOpenConversation?: (conversation: ConversationSummary) => void;
   fixtureMode?: boolean;
   fixtureConversations?: WorkFolderFixtureConversation[];
   fixtureTreeEntries?: TreeEntry[];
@@ -336,6 +342,17 @@ export function ChatPanel({
     onSaved: handleComposerModelSaved,
     onOpenModelSettings,
   };
+  // Reasoning shares the model's chip and menu. It applies to this Chat once
+  // the Chat exists, and to new Chats before then.
+  const reasoningState = conversationRuntime ?? composerState;
+  const composerReasoning: ComposerReasoning | undefined = reasoningState && (reasoningState.thinkingLevels?.length ?? 0) > 1
+    ? {
+      level: reasoningState.thinkingLevel,
+      levels: reasoningState.thinkingLevels ?? [],
+      forThisChat: Boolean(conversationRuntime),
+      onChange: (level) => changeThinkingLevel(conversationRuntime ? conversation?.id ?? null : null, level),
+    }
+    : undefined;
   runningRef.current = running;
   messagesRef.current = messages;
   conversationIdRef.current = conversation?.id ?? null;
@@ -1145,6 +1162,15 @@ export function ChatPanel({
     || entry.phase === "streaming"
   ));
   const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasVisibleRuntimePreview || running;
+  // A new Chat puts the composer under its greeting, with the work-folder's
+  // recent Chats below, until the first message is sent (2026-10-27).
+  const startLayout = !hasTranscript && !conversation && !targetConversationId && lifecycleView === "active";
+  const recentChats = useMemo(() => startLayout
+    ? conversations
+      .filter((item) => conversationLifecycleView(item) === "active")
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 3)
+    : [], [conversations, startLayout]);
 
   async function loadConversationRuntime(conversationId: string): Promise<ConversationRuntime | null> {
     try {
@@ -1837,7 +1863,7 @@ export function ChatPanel({
 
   return (
     <section
-      className="panel chat-panel"
+      className={startLayout ? "panel chat-panel is-start" : "panel chat-panel"}
     >
       <div className={error ? "chat-top-chrome" : "chat-top-chrome empty"}>
         <div className="chat-top-notice">
@@ -2010,7 +2036,7 @@ export function ChatPanel({
             aria-expanded={mentionMenuOpen}
             aria-controls={mentionMenuOpen ? mentionMenuId : undefined}
             aria-activedescendant={mentionMenuOpen ? `${mentionMenuId}-${activeMentionIndex}` : undefined}
-            rows={2}
+            rows={1}
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
@@ -2096,7 +2122,19 @@ export function ChatPanel({
             }}
             placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message Worker"}
           />
+          {/* What you add sits on the left; how the Worker runs and Send sit on
+              the right (2026-10-27). */}
           <div className="composer-capability-bar">
+            <ComposerAttachMenu
+              workFolderId={workFolder.id}
+              workFolderName={workFolder.name}
+              identity={workFolderIdentity}
+              fixtureMode={fixtureMode}
+              fixtureTreeEntries={fixtureTreeEntries}
+              attachedPaths={contextAttachments.map((attachment) => attachment.sourcePath)}
+              onAttachPath={(path) => void attachContextPath(path)}
+              onUploadFiles={onUploadDroppedFiles ? (transfer) => void attachDroppedNativeFiles(transfer) : undefined}
+            />
             <button
               className={commandMenuOpen ? "composer-command-trigger active" : "composer-command-trigger"}
               type="button"
@@ -2107,34 +2145,27 @@ export function ChatPanel({
               <span aria-hidden="true">/</span>
               <span>Commands</span>
             </button>
+            <span className="composer-capability-spacer" />
             {modelStatus?.configured && conversationRuntime
-              ? <ConversationContextMeter runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} />
+              ? <ConversationContextMeter runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
               : modelStatus?.configured && composerState?.model
-                ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} />
+                ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
                 : modelStatus && !modelStatus.configured
                   ? <button className="composer-connect-ai" type="button" onClick={() => requestConnectAi()} title="Connect an AI provider so this Worker can start">Connect AI</button>
                   : null}
-            {modelStatus?.configured && (conversationRuntime ?? composerState)
-              ? (
-                <ThinkingLevelControl
-                  state={conversationRuntime ?? composerState!}
-                  disabled={running}
-                  onChange={(level) => changeThinkingLevel(conversationRuntime ? conversation?.id ?? null : null, level)}
-                />
-              )
-              : null}
+            {running || requestBusy ? (
+              <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Worker" title="Stop Worker">
+                <Square size={14} />
+              </button>
+            ) : (
+              <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send message">
+                <FluentGlyph icon={ArrowUp20Regular} size={17} />
+              </button>
+            )}
           </div>
-          {running || requestBusy ? (
-            <button className="send-button stop-send-button" type="button" onClick={() => void abortTurn()} aria-label="Stop Worker" title="Stop Worker">
-              <Square size={15} />
-            </button>
-          ) : (
-            <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send message">
-              <FluentGlyph icon={ArrowUp20Regular} size={18} />
-            </button>
-          )}
         </div>
       </form>
+      {startLayout && recentChats.length && onOpenConversation ? <ChatRecentChats chats={recentChats} onOpen={onOpenConversation} /> : null}
       {appProposal ? <RestrictedAppAddedNotice proposal={appProposal} busy={appProposalBusy} onOpen={appProposal.installedApp && onRestrictedAppInstalled ? () => { onRestrictedAppInstalled(appProposal.installedApp!); setAppProposal(null); } : undefined} onRetry={() => void retryAppProposal()} onDismiss={() => void dismissAppProposal()} /> : null}
     </section>
   );
@@ -2185,7 +2216,7 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
   );
 }
 
-function ConversationContextMeter({ runtime, status, workFolderName, picker }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps }) {
+function ConversationContextMeter({ runtime, status, workFolderName, picker, reasoning }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
@@ -2203,6 +2234,7 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker }: {
   return (
     <ComposerModelPicker
       {...picker}
+      reasoning={reasoning}
       className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
       ariaLabel={`Change the model saved for ${workFolderName}. ${title}`}
       title={`${title} · Change the model saved for ${workFolderName}`}
@@ -2216,65 +2248,6 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker }: {
         <span className="conversation-context-value">{`${Math.round(percent)}% of context`}</span>
       ) : null}
     </ComposerModelPicker>
-  );
-}
-
-function ThinkingLevelControl({
-  state,
-  disabled,
-  onChange,
-}: {
-  state: Pick<ConversationRuntime, "thinkingLevel" | "thinkingLevels">;
-  disabled: boolean;
-  onChange: (level: string) => void | Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const levels = state.thinkingLevels ?? [];
-  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
-  useEffect(() => {
-    if (disabled) setOpen(false);
-  }, [disabled]);
-  // A model without adjustable thinking offers nothing to choose.
-  if (levels.length < 2) return null;
-  const title = `Reasoning level for this Chat: ${thinkingLevelLabel(state.thinkingLevel)}`;
-  return (
-    <div className="composer-thinking-control" ref={containerRef}>
-      <button
-        ref={triggerRef}
-        className={open ? "composer-command-trigger composer-thinking-trigger active" : "composer-command-trigger composer-thinking-trigger"}
-        type="button"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={title}
-        title={disabled ? "Reasoning level changes apply between turns" : title}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className="composer-thinking-label">{thinkingLevelLabel(state.thinkingLevel)}</span>
-      </button>
-      {open ? (
-        <div className="composer-command-menu composer-thinking-menu" role="listbox" aria-label="Reasoning level">
-          <div className="composer-command-menu-heading"><span>Reasoning</span></div>
-          {levels.map((level) => (
-            <button
-              key={level}
-              type="button"
-              role="option"
-              aria-selected={level === state.thinkingLevel}
-              className={level === state.thinkingLevel ? "active" : undefined}
-              onClick={() => {
-                setOpen(false);
-                if (level !== state.thinkingLevel) void onChange(level);
-              }}
-            >
-              <span className="composer-command-name">{thinkingLevelLabel(level)}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -2330,6 +2303,15 @@ type ComposerModelPickerProps = {
   onOpenModelSettings?: () => void;
 };
 
+/** The reasoning choice shown beside the model; present only when the model offers a choice. */
+type ComposerReasoning = {
+  level: string;
+  levels: string[];
+  /** True once the Chat exists: the choice changes this Chat, not new ones. */
+  forThisChat: boolean;
+  onChange: (level: string) => void | Promise<void>;
+};
+
 type ComposerModelList = { workFolderId: string; revision: number; models: AgentModel[]; status: AgentStatus };
 
 // One lazily read model list per work-folder, reused across Chat tabs until the
@@ -2345,11 +2327,12 @@ function ComposerModelPicker({
   shownModel,
   onSaved,
   onOpenModelSettings,
+  reasoning,
   className,
   ariaLabel,
   title,
   children,
-}: ComposerModelPickerProps & { className: string; ariaLabel: string; title: string; children: React.ReactNode }) {
+}: ComposerModelPickerProps & { reasoning?: ComposerReasoning; className: string; ariaLabel: string; title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [list, setList] = useState<ComposerModelList | null>(() => composerModelLists.get(workFolderId) ?? null);
   const [loading, setLoading] = useState(false);
@@ -2494,8 +2477,8 @@ function ComposerModelPicker({
         aria-disabled={disabled || undefined}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-label={ariaLabel}
-        title={disabled ? "Model changes apply between turns" : title}
+        aria-label={reasoning ? `${ariaLabel}. Reasoning: ${thinkingLevelLabel(reasoning.level)}` : ariaLabel}
+        title={disabled ? "Model and reasoning changes apply between turns" : reasoning ? `${title} · Reasoning: ${thinkingLevelLabel(reasoning.level)}` : title}
         onClick={() => { if (!disabled) setOpen((current) => !current); }}
         onKeyDown={(event) => {
           if (disabled || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
@@ -2506,6 +2489,8 @@ function ComposerModelPicker({
         }}
       >
         {children}
+        {reasoning ? <span className="composer-model-reasoning">{thinkingLevelLabel(reasoning.level)}</span> : null}
+        <ChevronDown16Regular className="composer-model-caret" aria-hidden="true" />
       </button>
       {open ? (
         <div className="composer-command-menu composer-model-menu" id={menuId}>
@@ -2558,6 +2543,31 @@ function ComposerModelPicker({
             <div className="composer-model-status" role="status">No connected models</div>
           ) : null}
           {error ? <div className="composer-model-error" role="alert">{error}</div> : null}
+          {reasoning ? (
+            <div className="composer-reasoning">
+              <div className="composer-command-menu-heading" id={`${menuId}-reasoning`}>
+                <span>{reasoning.forThisChat ? "Reasoning for this Chat" : "Reasoning"}</span>
+              </div>
+              <div className="composer-reasoning-levels" role="radiogroup" aria-labelledby={`${menuId}-reasoning`}>
+                {reasoning.levels.map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    role="radio"
+                    aria-checked={level === reasoning.level}
+                    className={level === reasoning.level ? "active" : undefined}
+                    onClick={() => {
+                      setOpen(false);
+                      triggerRef.current?.focus({ preventScroll: true });
+                      if (level !== reasoning.level) void reasoning.onChange(level);
+                    }}
+                  >
+                    {thinkingLevelLabel(level)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <button
             className="composer-model-settings"
             type="button"
@@ -2574,11 +2584,12 @@ function ComposerModelPicker({
   );
 }
 
-function ConfiguredModel({ model, workFolderName, picker }: { model: NonNullable<ComposerState["model"]>; workFolderName: string; picker: ComposerModelPickerProps }) {
+function ConfiguredModel({ model, workFolderName, picker, reasoning }: { model: NonNullable<ComposerState["model"]>; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
   const label = model.name || displayModelLabel(model.provider, model.id);
   return (
     <ComposerModelPicker
       {...picker}
+      reasoning={reasoning}
       className="conversation-context-meter configured"
       ariaLabel={`Change the model saved for ${workFolderName}. Selected model: ${label}`}
       title={`Selected model for new Chats: ${label} · Change the model saved for ${workFolderName}`}
@@ -2588,6 +2599,226 @@ function ConfiguredModel({ model, workFolderName, picker }: { model: NonNullable
       </svg>
       <span className="conversation-context-model">{label}</span>
     </ComposerModelPicker>
+  );
+}
+
+/** How deep the attach picker reads a work-folder, the same depth Files searches. */
+const attachPickerTreeDepth = 6;
+const attachPickerVisibleLimit = 60;
+
+type AttachPickerFile = { path: string; name: string; folder: string; updatedAt: number };
+
+/** Files a person can attach, without other work-folders nested inside this one. */
+function attachPickerFiles(entries: TreeEntry[], output: AttachPickerFile[] = []): AttachPickerFile[] {
+  for (const entry of entries) {
+    if (entry.nestedFolder || entry.ignored) continue;
+    if (entry.kind === "folder") {
+      attachPickerFiles(entry.children ?? [], output);
+      continue;
+    }
+    const slash = entry.path.lastIndexOf("/");
+    output.push({
+      path: entry.path,
+      name: entry.name,
+      folder: slash > 0 ? entry.path.slice(0, slash) : "",
+      updatedAt: entry.updatedAt ? Date.parse(entry.updatedAt) || 0 : 0,
+    });
+  }
+  return output;
+}
+
+/**
+ * The composer's + button (2026-10-27): attach files from this work-folder,
+ * or copy files from the computer into its Dropped folder and attach them,
+ * the same explicit act as dropping them on the composer.
+ */
+function ComposerAttachMenu({
+  workFolderId,
+  workFolderName,
+  identity,
+  fixtureMode,
+  fixtureTreeEntries,
+  attachedPaths,
+  onAttachPath,
+  onUploadFiles,
+}: {
+  workFolderId: string;
+  workFolderName: string;
+  identity: WorkFolderIdentity;
+  fixtureMode: boolean;
+  fixtureTreeEntries: TreeEntry[];
+  attachedPaths: string[];
+  onAttachPath: (path: string) => void;
+  onUploadFiles?: (transfer: DataTransfer) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"choose" | "files">("choose");
+  const [query, setQuery] = useState("");
+  const [files, setFiles] = useState<AttachPickerFile[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const menuId = useId();
+  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
+  useEffect(() => {
+    if (open) return;
+    setView("choose");
+    setQuery("");
+    setError(null);
+  }, [open]);
+  useEffect(() => { setFiles(null); }, [workFolderId]);
+  useEffect(() => {
+    if (!open || view !== "files" || files) return;
+    if (fixtureMode) {
+      setFiles(attachPickerFiles(fixtureTreeEntries));
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ maxDepth: String(attachPickerTreeDepth) });
+    void api<{ tree: TreeEntry[] }>(`/api/work-folders/${workFolderId}/tree?${params}`, { signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setFiles(attachPickerFiles(result.tree)); })
+      .catch((caught) => { if (!controller.signal.aborted) setError(errorText(caught)); });
+    return () => controller.abort();
+  }, [open, view, files, fixtureMode, fixtureTreeEntries, workFolderId]);
+
+  const matches = useMemo(() => {
+    if (!files) return [];
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return [...files].sort((a, b) => b.updatedAt - a.updatedAt || a.path.localeCompare(b.path));
+    return files
+      .filter((file) => file.path.toLocaleLowerCase().includes(needle))
+      .sort((a, b) => Number(!a.name.toLocaleLowerCase().includes(needle)) - Number(!b.name.toLocaleLowerCase().includes(needle)) || a.path.localeCompare(b.path));
+  }, [files, query]);
+  const visible = matches.slice(0, attachPickerVisibleLimit);
+  const attached = new Set(attachedPaths);
+
+  function attach(path: string): void {
+    setOpen(false);
+    triggerRef.current?.focus({ preventScroll: true });
+    if (!attached.has(path)) onAttachPath(path);
+  }
+
+  function focusOption(edge: "start" | "end"): void {
+    const options = optionsRef.current?.querySelectorAll<HTMLButtonElement>("button");
+    options?.[edge === "end" ? options.length - 1 : 0]?.focus({ preventScroll: true });
+  }
+
+  return (
+    <div className="composer-attach-control" ref={containerRef}>
+      <button
+        ref={triggerRef}
+        className={open ? "composer-attach-trigger active" : "composer-attach-trigger"}
+        type="button"
+        aria-label="Attach files"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        title="Attach files"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Add16Regular aria-hidden="true" />
+      </button>
+      {onUploadFiles ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          tabIndex={-1}
+          onChange={(event) => {
+            const chosen = Array.from(event.currentTarget.files ?? []);
+            event.currentTarget.value = "";
+            if (!chosen.length) return;
+            const transfer = new DataTransfer();
+            chosen.forEach((file) => transfer.items.add(file));
+            onUploadFiles(transfer);
+          }}
+        />
+      ) : null}
+      {open && view === "choose" ? (
+        <div className="composer-command-menu composer-attach-menu" id={menuId} role="menu" aria-label="Attach files">
+          <button type="button" role="menuitem" autoFocus onClick={() => setView("files")}>
+            <span className="composer-attach-option-icon" style={workFolderIdentityStyle(identity)}><WorkFolderIconGlyph icon={identity.Icon} size={18} /></span>
+            <span className="composer-attach-option-copy">
+              <strong>From {workFolderName}</strong>
+              <small>Pick files in this work-folder</small>
+            </span>
+          </button>
+          {onUploadFiles ? (
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); fileInputRef.current?.click(); }}>
+              <span className="composer-attach-option-icon"><Desktop20Regular aria-hidden="true" /></span>
+              <span className="composer-attach-option-copy">
+                <strong>From This Computer</strong>
+                <small>Copies them into the Dropped folder</small>
+              </span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {open && view === "files" ? (
+        <div className="composer-command-menu composer-attach-menu composer-attach-picker" id={menuId} role="dialog" aria-label={`Attach from ${workFolderName}`}>
+          <div className="composer-attach-search">
+            <button type="button" className="composer-attach-back" aria-label="Back" title="Back" onClick={() => setView("choose")}>
+              <ChevronLeft16Regular aria-hidden="true" />
+            </button>
+            <Search16Regular className="composer-attach-search-icon" aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              placeholder={`Search ${workFolderName}`}
+              aria-label={`Search ${workFolderName}`}
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  // The composer is a form; Enter here attaches, never sends.
+                  event.preventDefault();
+                  if (visible[0]) attach(visible[0].path);
+                  return;
+                }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  focusOption(event.key === "ArrowUp" ? "end" : "start");
+                }
+              }}
+            />
+          </div>
+          {error ? <div className="composer-model-error" role="alert">{error}</div>
+            : !files ? <div className="composer-model-status" role="status">Loading files</div>
+              : !visible.length ? <div className="composer-model-status" role="status">{query.trim() ? "No matching files" : "No files yet"}</div>
+                : (
+                  <div
+                    className="composer-attach-options"
+                    role="listbox"
+                    aria-label={`Files in ${workFolderName}`}
+                    ref={optionsRef}
+                    onKeyDown={(event) => {
+                      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+                      const options = Array.from(optionsRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+                      const next = nextMenuItemIndex(options.indexOf(document.activeElement as HTMLButtonElement), options.length, event.key as MenuNavigationKey);
+                      if (next === null) return;
+                      event.preventDefault();
+                      options[next]?.focus({ preventScroll: true });
+                      options[next]?.scrollIntoView({ block: "nearest" });
+                    }}
+                  >
+                    {visible.map((file) => (
+                      <button key={file.path} type="button" role="option" aria-selected={attached.has(file.path)} title={file.path} onClick={() => attach(file.path)}>
+                        <FileTypeIcon path={file.path} />
+                        <span className="composer-attach-file-name">{file.name}</span>
+                        {file.folder ? <span className="composer-attach-file-folder">{file.folder}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                )}
+          {matches.length > visible.length ? <div className="composer-model-status">Type to narrow {matches.length.toLocaleString()} files</div> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -2623,6 +2854,27 @@ function ChatEmptyState({
         <span>{workFolder.name}</span>
       </span>
     </div>
+  );
+}
+
+/** Up to three of this work-folder's Chats, newest first, on a new Chat's start screen. */
+function ChatRecentChats({ chats, onOpen }: { chats: ConversationSummary[]; onOpen: (conversation: ConversationSummary) => void }) {
+  const headingId = useId();
+  return (
+    <section className="chat-recent" aria-labelledby={headingId}>
+      <h2 id={headingId}>Recent Chats</h2>
+      <ul>
+        {chats.map((chat) => (
+          <li key={chat.id}>
+            <button type="button" onClick={() => onOpen(chat)}>
+              <Chat16Regular className="chat-recent-icon" aria-hidden="true" />
+              <span className="chat-recent-title">{chat.title}</span>
+              <time className="chat-recent-time" dateTime={chat.updatedAt}>{formatChatListTime(chat.updatedAt)}</time>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

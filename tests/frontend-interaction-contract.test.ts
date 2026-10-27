@@ -204,7 +204,7 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
   // check-attention dot still in place beside it.
   assert.match(fileTree, /sharedPaths\?: ReadonlySet<string>;/);
   assert.match(fileTree, /const shared = entry\.kind === "file" && sharedPaths\.has\(entry\.path\);/);
-  assert.match(fileTree, /<HighlightedFileName name=\{entry\.name\} query=\{searchQuery\} \/>\{shared \? <SharedPageGlyph className="file-shared-marker" \/> : null\}<\/>/);
+  assert.match(fileTree, /<HighlightedFileName name=\{entry\.name\} query=\{searchQuery\} file \/>\{shared \? <SharedPageGlyph className="file-shared-marker" \/> : null\}<\/>/);
   assert.match(fileTree, /\{checkAttention \? <span className="file-check-attention-marker" aria-hidden="true" \/> : null\}/);
   assert.match(fileTree, /sharedPaths=\{sharedPaths\}/, "nested folders keep the mark");
   assert.match(fileTree, /aria-label=\{rowLabel\}/);

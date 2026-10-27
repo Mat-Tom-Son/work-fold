@@ -306,16 +306,20 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   // Thinking is text-only and calls the real per-conversation endpoint. The
   // control appears only when the current model reports an actual choice.
   assert.doesNotMatch(chatPanel, /Brain(?:Circuit)?\d+(?:Filled|Regular)/);
-  assert.match(chatPanel, /if \(levels\.length < 2\) return null;/);
+  assert.match(chatPanel, /reasoningState && \(reasoningState\.thinkingLevels\?\.length \?\? 0\) > 1/);
   assert.match(chatPanel, /\/conversations\/\$\{conversationId\}\/thinking/);
   assert.match(chatPanel, /body: \{ level \}/);
   assert.match(chatPanel, /setConversationRuntime\(result\.runtime\)/);
-  assert.match(chatPanel, /className="composer-thinking-label">\{thinkingLevelLabel\(state\.thinkingLevel\)\}/);
+  // Reasoning shares the model chip and its menu (2026-10-27).
+  assert.match(chatPanel, /className="composer-model-reasoning">\{thinkingLevelLabel\(reasoning\.level\)\}/);
+  assert.match(chatPanel, /role="radiogroup" aria-labelledby=\{`\$\{menuId\}-reasoning`\}/);
+  assert.match(chatPanel, /reasoning\.forThisChat \? "Reasoning for this Chat" : "Reasoning"/);
+  assert.doesNotMatch(chatPanel, /ThinkingLevelControl/);
   assert.match(chatPanel, /conversationRuntime \?\? composerState/);
   assert.match(chatPanel, /"\/api\/agent\/thinking"/);
   assert.match(chatPanel, /body: \{ scope: "work-folder", workFolderId: workFolder\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
-  assert.match(styles, /\.composer-thinking-trigger > span:first-child \{[\s\S]*?font: inherit;/);
+  assert.match(styles, /\.composer-reasoning-levels button \{[\s\S]*?font: inherit;/);
   assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 700;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });

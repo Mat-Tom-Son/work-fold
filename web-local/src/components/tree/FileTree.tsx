@@ -271,7 +271,7 @@ export function FileTree({
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
               ) : (
-                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} />{shared ? <SharedPageGlyph className="file-shared-marker" /> : null}</>
+                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file />{shared ? <SharedPageGlyph className="file-shared-marker" /> : null}</>
               )}
               {checkAttention ? <span className="file-check-attention-marker" aria-hidden="true" /> : null}
             </button>
@@ -328,11 +328,36 @@ function FolderLoadingRow() {
   return <div className="file-children"><div className="folder-loading-row delayed-loading" aria-live="polite"><Loader2 className="spin" size={14} /><span>Loading folder</span></div></div>;
 }
 
-function HighlightedFileName({ name, query }: { name: string; query: string }) {
+function HighlightedFileName({ name, query, file = false }: { name: string; query: string; file?: boolean }) {
   const trimmed = query.trim();
   const matchIndex = trimmed ? name.toLocaleLowerCase().indexOf(trimmed.toLocaleLowerCase()) : -1;
-  if (matchIndex < 0) return <span className="file-name">{name}</span>;
-  return <span className="file-name">{name.slice(0, matchIndex)}<mark>{name.slice(matchIndex, matchIndex + trimmed.length)}</mark>{name.slice(matchIndex + trimmed.length)}</span>;
+  const match = matchIndex < 0 ? null : { start: matchIndex, end: matchIndex + trimmed.length };
+  const extension = file ? fileNameExtension(name) : "";
+  if (!extension) return <span className="file-name">{highlightedText(name, 0, match)}</span>;
+  // A long name truncates before its extension, which stays visible in a
+  // quieter color (2026-10-27).
+  const stemLength = name.length - extension.length;
+  return (
+    <span className="file-name has-extension">
+      <span className="file-name-stem">{highlightedText(name.slice(0, stemLength), 0, match)}</span>
+      <span className="file-name-extension">{highlightedText(extension, stemLength, match)}</span>
+    </span>
+  );
+}
+
+/** A file's extension with its dot, when a name comes before it: ".txt", but nothing for ".gitignore". */
+function fileNameExtension(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot) : "";
+}
+
+/** `text` starts at `offset` in the whole name; the part inside the search match is marked. */
+function highlightedText(text: string, offset: number, match: { start: number; end: number } | null): React.ReactNode {
+  if (!match) return text;
+  const start = Math.max(match.start - offset, 0);
+  const end = Math.min(match.end - offset, text.length);
+  if (start >= end) return text;
+  return <>{text.slice(0, start)}<mark>{text.slice(start, end)}</mark>{text.slice(end)}</>;
 }
 
 export function FileTypeIcon({ path }: { path: string }) { return <FileTreeIconFrame iconSpec={fileTreeFileIcon(path)} />; }

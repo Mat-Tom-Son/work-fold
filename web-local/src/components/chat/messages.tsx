@@ -10,11 +10,12 @@ import { requestConnectAi } from "../../lib/connect-ai";
 import { formatDateTime } from "../../lib/format";
 import { resolveMessageImageSource } from "../../lib/message-images";
 import { assistantTurnView, savedWorkTrailPreviews } from "../../lib/chat-work-trail";
+import { rehypeSingleLineBreaks } from "../../lib/markdown-line-breaks";
 import { collectWorkFolderPathCandidates, findWorkFolderPathMentions, workFolderPathCandidate } from "../../lib/work-folder-path-links";
 import type { ChatMessage, ChatMessageLanding, RuntimePreviewEntry } from "../../types";
 import { FluentGlyph } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
-import { RuntimeContextPreview, type WorkFolderPathLinkResolver } from "./activity";
+import { RuntimeContextPreview, turnChangedFiles, type TurnChangedFile, type WorkFolderPathLinkResolver } from "./activity";
 import { GeneratedImages, turnGeneratedImages } from "./GeneratedImages";
 
 export type { WorkFolderPathLinkResolver };
@@ -66,6 +67,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     : savedRuntimePreviews;
   const turnView = assistantTurnView(message.content, message.role === "assistant" ? message.assistantPresentation : undefined, visibleRuntimePreviews);
   const generatedImages = message.role === "assistant" ? turnGeneratedImages(visibleRuntimePreviews) : [];
+  const changedFiles = message.role === "assistant" && onOpenWorkFolderFile && resolveWorkFolderPathLinks
+    ? turnChangedFiles(visibleRuntimePreviews, workFolderRoot)
+    : [];
 
   useEffect(() => {
     if (message.role !== "assistant" || !resolveWorkFolderPathLinks || !onOpenWorkFolderFile) return;
@@ -109,6 +113,9 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           key={workFolderLinkVersion}
         /> : null}
         {generatedImages.length ? <GeneratedImages images={generatedImages} workFolderId={workFolderId} onOpenWorkFolderFile={onOpenWorkFolderFile} /> : null}
+        {changedFiles.length && onOpenWorkFolderFile && resolveWorkFolderPathLinks
+          ? <TurnFiles files={changedFiles} resolveWorkFolderPathLinks={resolveWorkFolderPathLinks} onOpenWorkFolderFile={onOpenWorkFolderFile} />
+          : null}
         {message.role === "assistant" && showLanding && message.landing ? <TurnLanding landing={message.landing} /> : null}
         {message.role === "assistant" && message.interruption ? <InterruptedTurn interruption={message.interruption} onContinue={onContinue} /> : null}
       </div>
@@ -165,6 +172,62 @@ function areChatMessageRowPropsEqual(previous: ChatMessageRowProps, next: ChatMe
     && previous.resolveWorkFolderPathLinks === next.resolveWorkFolderPathLinks
     && previous.onCopyMessage === next.onCopyMessage
     && previous.onContinue === next.onContinue;
+}
+
+/** How many changed files a reply lists before "Show all". */
+const turnFilesShownAtFirst = 5;
+
+/**
+ * The files a reply wrote or edited, listed at its end so the result is one
+ * click away (2026-10-27). A file that no longer exists is left out.
+ */
+function TurnFiles({ files, resolveWorkFolderPathLinks, onOpenWorkFolderFile }: {
+  files: TurnChangedFile[];
+  resolveWorkFolderPathLinks: WorkFolderPathLinkResolver;
+  onOpenWorkFolderFile: (path: string) => void;
+}) {
+  const key = files.map((file) => file.path).join("\n");
+  const [existing, setExisting] = useState<Map<string, string> | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void resolveWorkFolderPathLinks(key.split("\n"))
+      .then((resolved) => { if (!cancelled) setExisting(resolved); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [key, resolveWorkFolderPathLinks]);
+  if (!existing) return null;
+  const present = files.flatMap((file) => {
+    const path = existing.get(file.path);
+    return path ? [{ ...file, path }] : [];
+  });
+  if (!present.length) return null;
+  const shown = showAll ? present : present.slice(0, turnFilesShownAtFirst);
+  return (
+    <ul className="turn-files" aria-label="Files from this reply">
+      {shown.map((file) => {
+        const slash = file.path.lastIndexOf("/");
+        const folder = slash > 0 ? file.path.slice(0, slash) : "";
+        return (
+          <li key={file.path}>
+            <button type="button" onClick={() => onOpenWorkFolderFile(file.path)} title={file.path}>
+              <FileTypeIcon path={file.path} />
+              <span className="turn-file-copy">
+                <span className="turn-file-name">{slash >= 0 ? file.path.slice(slash + 1) : file.path}</span>
+                <span className="turn-file-detail">{file.change === "saved" ? "Saved" : "Edited"}{folder ? ` · ${folder}` : ""}</span>
+              </span>
+              <span className="turn-file-open" aria-hidden="true">Open</span>
+            </button>
+          </li>
+        );
+      })}
+      {present.length > shown.length ? (
+        <li>
+          <button className="turn-files-more" type="button" onClick={() => setShowAll(true)}>Show all {present.length} files</button>
+        </li>
+      ) : null}
+    </ul>
+  );
 }
 
 /** The files that went out with a message, drawn like the composer's chips; each opens its file. */
@@ -293,6 +356,7 @@ export function MarkdownMessage({
     <div className="message-body">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSingleLineBreaks]}
         components={{
           p: ({ children }) => <p>{linkChildren(children)}</p>,
           li: ({ children }) => <li>{linkChildren(children)}</li>,
