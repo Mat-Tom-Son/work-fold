@@ -407,17 +407,6 @@ export class BridgeDatabase {
     return result.rows[0] ? csrfToken : null;
   }
 
-  // Kept as a compatibility alias while callers move to the issuance name.
-  // Unlike the old implementation, repeated calls do not invalidate tabs.
-  async rotateSessionCsrf(token) {
-    return this.issueSessionCsrf(token);
-  }
-
-  async revokeSessions(accountId) {
-    const result = await this.#pool.query("DELETE FROM bridge_sessions WHERE account_id = $1", [accountId]);
-    return result.rowCount;
-  }
-
   async bindSessionToBrowser(token, { browserId, signature }) {
     const session = await this.session(token, { touch: false });
     if (!session) throw new BridgeDatabaseError("unauthorized", "Sign in to continue.");

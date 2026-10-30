@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { connect } from "node:net";
 import test from "node:test";
 
 import { newDb } from "pg-mem";
@@ -204,6 +205,54 @@ test("serves the web client and healthy no-store API responses", async (context)
   const rejected = await fetch(baseUrl, { method: "POST" });
   assert.equal(rejected.status, 405);
   assert.equal(rejected.headers.get("allow"), "GET, HEAD");
+});
+
+test("a malformed Host header still routes, and the health 405 keeps the security headers", async (context) => {
+  const service = await testService(context);
+  const malformed = await rawHttpRequest(service.port, "GET /health HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n");
+  assert.equal(malformed.status, 200, "routing never parses the Host header");
+
+  const notAllowed = await rawHttpRequest(service.port, "POST /health HTTP/1.1\r\nHost: www.work-fold.test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+  assert.equal(notAllowed.status, 405);
+  assert.equal(notAllowed.headers.get("allow"), "GET, HEAD");
+  assert.match(notAllowed.headers.get("strict-transport-security") ?? "", /max-age=/);
+});
+
+test("a device upgrade reset during its account lookup does not take the bridge down", async (context) => {
+  const service = await testService(context);
+  const authenticateDevice = service.database.authenticateDevice.bind(service.database);
+  let lookupStarted;
+  const started = new Promise((resolve) => { lookupStarted = resolve; });
+  let releaseLookup;
+  const released = new Promise((resolve) => { releaseLookup = resolve; });
+  service.database.authenticateDevice = async (token) => {
+    lookupStarted();
+    await released;
+    return authenticateDevice(token);
+  };
+
+  const client = connect(service.port, "127.0.0.1");
+  client.on("error", () => undefined);
+  await new Promise((resolve) => client.once("connect", resolve));
+  client.write([
+    "GET /api/device/connect HTTP/1.1",
+    "Host: 127.0.0.1",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    "Sec-WebSocket-Version: 13",
+    `Authorization: Bearer ${"x".repeat(40)}`,
+    "",
+    "",
+  ].join("\r\n"));
+  await started;
+  client.resetAndDestroy();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  releaseLookup();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const health = await fetch(`http://127.0.0.1:${service.port}/health`);
+  assert.equal(health.status, 200);
 });
 
 test("fixture previews render canned state and stay inert against the real API", async (context) => {
@@ -2280,6 +2329,26 @@ async function jsonRequest(url, { method = "GET", headers = {}, body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { response, body: await response.json() };
+}
+
+/** A hand-written HTTP/1.1 request, for headers `fetch` will not send. */
+function rawHttpRequest(port, text) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1", () => socket.write(text));
+    const chunks = [];
+    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("error", reject);
+    socket.on("end", () => {
+      const [head] = Buffer.concat(chunks).toString("latin1").split("\r\n\r\n", 1);
+      const [statusLine, ...lines] = head.split("\r\n");
+      const headers = new Headers();
+      for (const line of lines) {
+        const index = line.indexOf(":");
+        if (index > 0) headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+      }
+      resolve({ status: Number(statusLine.split(" ")[1]), headers });
+    });
+  });
 }
 
 function cookieFrom(response) {
