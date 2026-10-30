@@ -48,14 +48,14 @@
  */
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import {
   workFoldRequestContinuationsDefaultEnabled,
   workFoldRequestLimits,
 } from "../../shared/work-fold-limits.js";
-import { directorySyncUnsupported, type WorkFoldDurableTurnRecord, type WorkFoldDurableTurnUsage } from "../agent/turn-store.js";
+import { syncDirectory, writeFileAtomic, type WorkFoldDurableTurnRecord, type WorkFoldDurableTurnUsage } from "../agent/turn-store.js";
 import { maxWorkFoldAgentAttachments, type WorkFoldAgentAttachmentRef } from "../work-fold-agent-attachments.js";
 import type { RestrictedAppJsonSchema } from "../agent/restricted-app-manifest.js";
 import {
@@ -1347,11 +1347,12 @@ export class WorkFoldRequestStore {
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index]!.trim();
       if (!line) continue;
-      const isLastNonEmpty = lines.slice(index + 1).every((candidate) => !candidate.trim());
       try {
         JSON.parse(line);
       } catch {
-        if (isLastNonEmpty) break;
+        // Only a torn final line is an interrupted append; checking that
+        // here, not for every line, keeps loading linear in the journal.
+        if (lines.slice(index + 1).every((candidate) => !candidate.trim())) break;
         if (countDamaged) this.#damaged += 1;
         continue;
       }
@@ -1541,37 +1542,6 @@ async function loadSettings(path: string): Promise<{ settings: RequestSettingsFi
     };
   } catch {
     return { settings: fallback, existed: true, damaged: true };
-  }
-}
-
-/** Temp file, fsync, rename; 0o600 like the other machine-local stores. */
-async function writeFileAtomic(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  const handle = await open(temporary, "w", 0o600);
-  try {
-    await handle.writeFile(content, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-  try {
-    await rename(temporary, path);
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw error;
-  }
-  await syncDirectory(dirname(path));
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  let directory: Awaited<ReturnType<typeof open>> | null = null;
-  try {
-    directory = await open(path, "r");
-    await directory.sync();
-  } catch (error) {
-    if (!directorySyncUnsupported(error)) throw error;
-  } finally {
-    await directory?.close().catch(() => undefined);
   }
 }
 

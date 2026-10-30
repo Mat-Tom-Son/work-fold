@@ -2819,14 +2819,6 @@ export class PrivateHostedAppService {
     return this.#durableSnapshot(this.#stateRevision);
   }
 
-  #preflightCurrentMutation(checkpoint: Readonly<Record<string, unknown>>): void {
-    try { this.#durableSnapshot(this.#stateRevision + 1); }
-    catch (error) {
-      this.#restoreDurableState(checkpoint);
-      throw error;
-    }
-  }
-
   #commitOrRestore(checkpoint: Readonly<Record<string, unknown>>): void {
     const expectedRevision = this.#stateRevision;
     const nextRevision = expectedRevision + 1;

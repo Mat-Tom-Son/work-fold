@@ -10,7 +10,6 @@ import type { CredentialStore } from "@earendil-works/pi-ai";
 import { createPersistentPiAuthStorage } from "./auth-storage.js";
 
 export type IncludedMcpScope = "global" | "project";
-export type IncludedMcpDefinition = McpServerConfig;
 export interface IncludedMcpPaths { agentDir: string; cwd?: string; mcpCredentialBackend?: NonNullable<ConstructorParameters<typeof McpOAuthCredentialStore>[0]>; }
 export interface IncludedMcpSelection { scope: IncludedMcpScope; name: string; expectedRevision?: string; }
 export interface IncludedMcpServer extends IncludedMcpSelection {
@@ -170,7 +169,7 @@ export function createIncludedMcpSetup(options: IncludedMcpSetupOptions) {
       return results;
     },
     async probe(selection: IncludedMcpSelection, { signal }: { signal?: AbortSignal } = {}): Promise<IncludedMcpProbe> {
-      const { path, entry, definition } = await selected(selection);
+      const { entry, definition } = await selected(selection);
       const empty = { checkedAt: new Date().toISOString(), tools: 0, resources: 0, prompts: 0 };
       if (definition.enabled === false) return { ...empty, state: "setup_required", detail: "Enable this service to check its connection." };
       const store = await credentials; assertOpen();

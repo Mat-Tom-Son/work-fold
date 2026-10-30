@@ -330,6 +330,37 @@ test("a host refusal before spawn records the job failed and runs nothing", asyn
   await assert.rejects(readFile(marker));
 });
 
+test("a journal failure after the process starts stops it, records it failed, and releases its slot", async (t) => {
+  const h = await harness(t, { runningLimit: 1 });
+  const update = h.store.update.bind(h.store);
+  let failRunningWrite = true;
+  h.store.update = (jobId, mutate) => {
+    if (!failRunningWrite) return update(jobId, mutate);
+    failRunningWrite = false;
+    return Promise.reject(new Error("The job journal could not be written."));
+  };
+  const job = await start(h, "sleep 30");
+  assert.equal(job.state, "failed");
+  assert.equal(job.error, "The job journal could not be written.");
+  assert.equal(h.service.isLive(job.jobId), false);
+  assert.equal(h.service.runningCount(), 0, "the slot is released, not held by an unsupervised process");
+  assert.deepEqual(h.settled.map((settled) => settled.jobId), [job.jobId], "the host settles it exactly once");
+  const next = await start(h, "echo slot-reused");
+  assert.equal((await h.service.wait(next.jobId, { seconds: 10 })).outcome, "ended");
+});
+
+test("a wait longer than a timer can hold still waits", async (t) => {
+  const h = await harness(t);
+  const job = await start(h, "sleep 30");
+  const controller = new AbortController();
+  const waiting = h.service.wait(job.jobId, { seconds: 30 * 24 * 60 * 60, signal: controller.signal });
+  const early = await Promise.race([waiting, new Promise<null>((resolve) => setTimeout(() => resolve(null), 200))]);
+  assert.equal(early, null, "a delay past Node's timer range must not fire at once");
+  controller.abort();
+  assert.equal((await waiting).outcome, "aborted");
+  await h.service.stop(job.jobId, "agent");
+});
+
 test("a Stop that lands while a job is starting stops it as soon as it runs", async (t) => {
   let stopped = false;
   const h = await harness(t, { ports: {

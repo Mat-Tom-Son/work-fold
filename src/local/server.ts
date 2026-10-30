@@ -31,8 +31,9 @@ import {
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createReadStream, existsSync, watch } from "node:fs";
-import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 import JSZip from "jszip";
@@ -202,7 +203,6 @@ import { workFolderOperationsGuideForScope } from "./agent/work-folder-operation
 import { buildWorkFolderTurnContext, workFolderTurnHistory, workFolderTurnParentHandle, type PiWorkFolderTurnContext } from "./agent/work-folder-turn-context.js";
 import type {
   WorkFoldRemoteFacade,
-  WorkFoldRemoteOperation,
   WorkFoldRemotePrincipal,
   WorkFoldRemoteWatchProgress,
   WorkFoldRemoteTreeResult,
@@ -359,7 +359,6 @@ import type {
   WorkFoldActAppPresentation,
   WorkFoldActAppProposalRef,
   WorkFoldActAppReleaseRef,
-  WorkFoldActAttachmentDisposition,
   WorkFoldActChatLifecycleState,
   WorkFoldActChatMessage,
   WorkFoldActChatState,
@@ -368,7 +367,6 @@ import type {
   WorkFoldActFacade,
   WorkFoldActFileVersionRef,
   WorkFoldActAgentRequest,
-  WorkFoldActPublicationRef,
   WorkFoldActQuestionRef,
   WorkFoldActRequestDetail,
   WorkFoldActJobRef,
@@ -376,9 +374,7 @@ import type {
   WorkFoldActRequestResult,
   WorkFoldActRequestSummary,
   WorkFoldActWaitingRef,
-  WorkFoldActAutomationDetail,
   WorkFoldActAutomationReceipt,
-  WorkFoldActAutomationStepView,
   WorkFoldActAutomationSummary,
   WorkFoldActAutomationTriggerRef,
   WorkFoldActWorkFolderRef,
@@ -392,7 +388,6 @@ import {
   loadLocalEnvironmentFile,
 } from "./server-dev-options.js";
 import { isAlwaysHiddenWorkFolderEntry, isWorkFolderIgnored, readWorkFolderIgnoreState, setWorkFolderIgnoreState } from "./work-folder-ignore.js";
-import { containsReservedWorkFolderPathSegment } from "./work-folder-path-policy.js";
 import { canonicalWorkFolderWatchRoot } from "./work-folder-watch.js";
 import {
   beginWorkFolderRemoval,
@@ -429,7 +424,6 @@ import {
   type WorkFolderRemovalIo,
   type WorkFolderRemovalResult,
   type WorkFolderSummary,
-  type TreeEntry,
 } from "./work-folder.js";
 
 export interface LocalFolderGrantProvider {
@@ -15870,6 +15864,9 @@ function openChatStream(
   });
 }
 
+/** How long one file-event stream reuses its read of the ignore rules. */
+const fileEventIgnoreStateReuseMs = 1_000;
+
 async function openWorkFolderFileStream(
   state: LocalApiState,
   res: LocalEventSink,
@@ -15881,6 +15878,19 @@ async function openWorkFolderFileStream(
   const sendEvent = (event: unknown) => {
     res.send(event);
   };
+  // A build or a Git command can report thousands of changes a second. They
+  // share one read of the ignore rules for a moment instead of each reading
+  // the rules file again; a failed read is not reused.
+  let ignoreRead: { at: number; state: ReturnType<typeof readWorkFolderIgnoreState> } | null = null;
+  const currentIgnoreState = () => {
+    const now = Date.now();
+    if (!ignoreRead || now - ignoreRead.at > fileEventIgnoreStateReuseMs) {
+      const read = { at: now, state: readWorkFolderIgnoreState(workFolderRoot) };
+      read.state.catch(() => { if (ignoreRead === read) ignoreRead = null; });
+      ignoreRead = read;
+    }
+    return ignoreRead.state;
+  };
   const onChange = (eventType: string, fileName: string | Buffer | null) => {
     const rawName = Buffer.isBuffer(fileName) ? fileName.toString("utf8") : fileName ?? "";
     if (!rawName) {
@@ -15889,7 +15899,7 @@ async function openWorkFolderFileStream(
     }
     const path = rawName.replace(/\\/g, "/").replace(/^\/+/, "");
     if (!path || isAlwaysHiddenWorkFolderEntry(basename(path))) return;
-    void readWorkFolderIgnoreState(workFolderRoot).then((ignoreState) => {
+    void currentIgnoreState().then((ignoreState) => {
       if (res.closed) return;
       if (isWorkFolderIgnored(path, ignoreState.patterns)) return;
       try { resolveWorkFolderPath(workFolderRoot, path); } catch { return; }
@@ -15934,12 +15944,14 @@ async function sendWorkFolderRawFile(res: ServerResponse, workFolderRoot: string
     "content-length": info.size,
     "content-disposition": "inline",
   });
-  await new Promise<void>((resolvePromise, reject) => {
-    const stream = createReadStream(path);
-    stream.on("error", reject);
-    stream.on("end", resolvePromise);
-    stream.pipe(res);
-  });
+  if (!info.size) {
+    res.end();
+    return;
+  }
+  // A preview that changes aborts its fetch. pipeline() destroys the read
+  // stream when the response closes, so an abandoned read never keeps the file
+  // open, and the read stops at the length already promised to the client.
+  await pipeline(createReadStream(path, { end: info.size - 1 }), res);
 }
 
 /**

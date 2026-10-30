@@ -874,10 +874,6 @@ function cleanProviderId(value: string): string {
   return provider;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** Translate native Pi auth interactions onto the trusted setup bridge. */
 export function piAuthInteraction(hooks: PiOAuthHooks): AuthInteraction {
   const notifications = new AbortController();

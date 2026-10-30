@@ -108,6 +108,8 @@ interface LiveJob {
   timeoutTimer: NodeJS.Timeout | null;
   killTimer: NodeJS.Timeout | null;
   skipHistory: boolean;
+  /** Set when recording the start failed after the process began; #finish records the job as failed. */
+  startFailure: string | null;
   /** The process group has drained; the job stays here through History and host settlement. */
   exited: boolean;
   events: EventEmitter;
@@ -241,6 +243,15 @@ export class WorkFoldJobService {
       await mkdir(this.store.outputDirectory(accepted.jobId), { recursive: true, mode: 0o700 });
       return await this.#spawn(accepted, input.shell ?? {}, releaseStarting);
     } catch (error) {
+      const live = this.#live.get(accepted.jobId);
+      if (live) {
+        // The process started before the failure, so #finish owns its
+        // settlement: stop it and wait, rather than leave it running with its
+        // slot and kernel task held.
+        live.startFailure ??= boundJobError(errorMessage(error));
+        this.#signalStop(live);
+        return await live.settled;
+      }
       const failed = await this.store.update(accepted.jobId, (record) => ({
         ...record,
         state: "failed",
@@ -272,6 +283,7 @@ export class WorkFoldJobService {
       timeoutTimer: null,
       killTimer: null,
       skipHistory: false,
+      startFailure: null,
       exited: false,
       events: new EventEmitter(),
       settled,
@@ -359,6 +371,10 @@ export class WorkFoldJobService {
         await new Promise(done => setTimeout(done, 10));
       }
     }
+    // Settlement is wired before the journal write below, which can fail: once
+    // the process is live, its exit always releases the slot and finishes the
+    // kernel task. A terminal record keeps the running write from undoing it.
+    void exited.then((exit) => this.#finish(live, exit));
     const startedAt = this.#now().toISOString();
     const processStartedAt = await processStartTime(child.pid);
     const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
@@ -369,11 +385,10 @@ export class WorkFoldJobService {
       processStartedAt,
       ...terminal,
     });
-    if (accepted.timeoutSeconds !== null) {
+    if (accepted.timeoutSeconds !== null && !live.exited) {
       live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
       live.timeoutTimer.unref();
     }
-    void exited.then((exit) => this.#finish(live, exit));
     if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
     return { ...running, output: writer.counters };
   }
@@ -391,6 +406,8 @@ export class WorkFoldJobService {
       }
     }
     live.exited = true;
+    // A timeout armed while this settlement was starting must not fire later.
+    if (live.timeoutTimer) clearTimeout(live.timeoutTimer);
     // Output still in the pipes arrives before stdio closes. A descendant that
     // kept a pipe open must not hold the job open, so wait only briefly.
     await Promise.race([
@@ -406,7 +423,7 @@ export class WorkFoldJobService {
     const signalNumber = exit.signal ? osConstants.signals[exit.signal] ?? 0 : 0;
     const exitCode = exit.code ?? (exit.signal ? 128 + signalNumber : null);
     const cause = live.stopCause;
-    const state = cause === "timeout" ? "timed_out" : cause === "quit" ? "interrupted" : cause ? "stopped" : "exited";
+    const state = live.startFailure ? "failed" : cause === "timeout" ? "timed_out" : cause === "quit" ? "interrupted" : cause ? "stopped" : "exited";
     const isAgentScope = (record: WorkFoldJobRecord) => record.workFolderId === undefined;
     let ended = await this.store.update(live.jobId, (record) => ({
       ...record,
@@ -415,7 +432,7 @@ export class WorkFoldJobService {
       exitCode,
       signal: exit.signal ?? null,
       stoppedBy: cause,
-      error: cause === "quit" ? "work-fold closed before this job finished." : record.error,
+      error: live.startFailure ?? (cause === "quit" ? "work-fold closed before this job finished." : record.error),
       output: counters,
       history: live.skipHistory
         ? { status: "unavailable", reason: "work-fold was closing." }
@@ -555,7 +572,8 @@ export class WorkFoldJobService {
         finish({ outcome: "ended", job: record });
       };
       const onAbort = () => finish({ outcome: "aborted", job: this.require(jobId) });
-      const timer = setTimeout(() => finish({ outcome: "timed_out", job: this.require(jobId) }), Math.max(0, options.seconds) * 1000);
+      // Node fires a longer delay at once, so a very long wait is capped at the largest one it keeps.
+      const timer = setTimeout(() => finish({ outcome: "timed_out", job: this.require(jobId) }), Math.min(2_147_483_647, Math.max(0, options.seconds) * 1000));
       live.events.on("data", onData);
       live.events.on("settled", onSettled);
       if (options.signal?.aborted) {

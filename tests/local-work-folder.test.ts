@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { chmod, mkdtemp, mkdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
@@ -10,6 +10,7 @@ import {
   configureWorkFoldStateRoot,
   workFolderManifestFile,
   workFolderRegistryFile,
+  workFolderStateDir,
 } from "../src/local/state-paths.js";
 import {
   beginWorkFolderRemoval,
@@ -18,6 +19,7 @@ import {
   createWorkFolderFolder,
   createWorkFolderTextFile,
   finalizeWorkFolderRemoval,
+  getWorkFolder,
   listWorkFolders,
   listPendingWorkFolderRemovals,
   markWorkFolderRemovalAppStateRemoved,
@@ -31,7 +33,7 @@ import {
   writeUploadedFiles,
   writeWorkFolderTextFile,
 } from "../src/local/work-folder.js";
-import { setWorkFolderIgnoreState } from "../src/local/work-folder-ignore.js";
+import { readWorkFolderIgnoreState, setWorkFolderIgnoreState } from "../src/local/work-folder-ignore.js";
 
 let sandbox = "";
 let stateRoot = "";
@@ -769,3 +771,38 @@ test("a pending managed deletion cannot gain a newly registered nested work-fold
 function countTreeEntries(entries: Awaited<ReturnType<typeof scanWorkFolderTree>>["entries"]): number {
   return entries.reduce((total, entry) => total + 1 + countTreeEntries(entry.children ?? []), 0);
 }
+
+test("looking up one work-folder refreshes only its own manifest and keeps the listing's filters", async () => {
+  const looked = await createManagedWorkFolder("Looked up", contentRoot);
+  const other = await createManagedWorkFolder("Left alone", contentRoot);
+  await rm(workFolderManifestFile(looked.workFolderRoot));
+  await rm(workFolderManifestFile(other.workFolderRoot));
+
+  assert.equal((await getWorkFolder(looked.id)).id, looked.id);
+  assert.equal(existsSync(workFolderManifestFile(looked.workFolderRoot)), true, "the looked-up work-folder's manifest is refreshed");
+  assert.equal(existsSync(workFolderManifestFile(other.workFolderRoot)), false, "a lookup never touches another work-folder");
+
+  const moved = `${other.workFolderRoot}-moved`;
+  await rename(other.workFolderRoot, moved);
+  try {
+    await assert.rejects(getWorkFolder(other.id), (error: unknown) => (error as { statusCode?: number }).statusCode === 404);
+    assert.equal((await listWorkFolders()).some((item) => item.id === other.id), false);
+  } finally {
+    await rename(moved, other.workFolderRoot);
+  }
+  assert.equal((await getWorkFolder(other.id)).id, other.id);
+});
+
+test("ignore rule changes in flight each land, and the rules file is replaced whole", async () => {
+  const workFolder = await createManagedWorkFolder("Ignore rules", contentRoot);
+  const names = Array.from({ length: 8 }, (_, index) => `item-${index}.txt`);
+  await Promise.all(names.map((name) => writeFile(join(workFolder.workFolderRoot, name), name, "utf8")));
+
+  await Promise.all(names.map((name) => setWorkFolderIgnoreState(workFolder.workFolderRoot, [name], true)));
+  assert.deepEqual((await readWorkFolderIgnoreState(workFolder.workFolderRoot)).patterns, [...names].sort());
+  const stateFiles = await readdir(workFolderStateDir(workFolder.workFolderRoot));
+  assert.equal(stateFiles.some((name) => name.endsWith(".tmp")), false, "no temporary rules file is left behind");
+
+  await setWorkFolderIgnoreState(workFolder.workFolderRoot, [names[0]!], false);
+  assert.equal((await readWorkFolderIgnoreState(workFolder.workFolderRoot)).patterns.includes(names[0]!), false);
+});

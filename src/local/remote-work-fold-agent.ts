@@ -75,11 +75,6 @@ export interface WorkFoldRemoteFacade {
   revokeGrantAuthority?(grantId?: string): Promise<void>;
 }
 
-export interface WorkFoldRemoteWorkFolderRef {
-  id: string;
-  name: string;
-}
-
 export interface WorkFoldRemoteTreeResult {
   tree: Array<Pick<TreeEntry, "name" | "path" | "kind" | "sizeBytes" | "updatedAt" | "hasChildren">>;
   truncated: boolean;
