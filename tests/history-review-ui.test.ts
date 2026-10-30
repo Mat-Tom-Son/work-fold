@@ -67,3 +67,25 @@ test('a restore point lists only what changed since then, in plain words, with C
  assert.ok(compare.closest('li')!.querySelector('.history-file-comparison'),'the comparison opens under its own file');
  assert.equal(compare.textContent,'Hide');
 });
+
+test('restore point tabs opened together read History in turn instead of refusing each other', async t=>{
+ const dom=await createDomHarness();const original=globalThis.fetch;
+ t.after(async()=>{await dom.cleanup();globalThis.fetch=original;});
+ let active=false;let overlaps=0;
+ globalThis.fetch=async(input)=>{
+  const url=String(input);
+  if(active){overlaps++;return Response.json({error:'Wait for the current History or work-folder registration operation to finish.'},{status:409});}
+  active=true;
+  try{
+   await new Promise(r=>setTimeout(r,10));
+   const id=url.match(/checkpoints\/([^/]+)\/preview$/)?.[1];
+   return id?Response.json({preview:{checkpointId:id,scope:'full',restoreFiles:[],removePaths:[],moves:[],excludedPaths:[],uncoveredPaths:[],conflicts:[]}})
+    :Response.json({checkpoints:['one','two','three'].map(id=>({checkpointId:id,label:'After turn',createdAt:'2026-10-08T23:00:00Z',fileCount:1,reason:'post_turn'}))});
+  }finally{active=false;}
+ };
+ const pane=(selectedCheckpointId?:string)=>createElement(HistoryPane,{key:selectedCheckpointId??'list',workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId,onError(message){assert.fail(message??'History error');}});
+ await dom.render(createElement('div',null,pane(),pane('one'),pane('two'),pane('three')));
+ await dom.waitFor(()=>dom.container.querySelectorAll('.history-review-status:not([role])').length===3);
+ assert.equal(overlaps,0);
+ assert.equal(dom.container.querySelector('[role="alert"]'),null);
+});

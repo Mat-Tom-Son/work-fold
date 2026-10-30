@@ -399,6 +399,11 @@ interface HistoryRestorePreview {
   conflicts: string[];
 }
 
+// Every History pane, the list and each open restore point tab, reads in turn:
+// the host lets one History read run at a time, so tabs restored together
+// would otherwise refuse each other.
+let historyInspections = Promise.resolve();
+
 export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
   workFolder: WorkFolderSummary;
   fixtureItems?: WorkFolderCheckpoint[];
@@ -415,7 +420,6 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   const [previewRevision, setPreviewRevision] = useState(0);
   const [previewError, setPreviewError] = useState("");
   const [comparisonPath, setComparisonPath] = useState("");
-  const inspectionQueue = useRef(Promise.resolve());
   useEffect(() => { setComparisonPath(""); }, [workFolder.id, selectedCheckpointId]);
 
   useEffect(() => {
@@ -425,7 +429,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (!fixtureItems) {
       // Both reads hold the host's History operation fence. Finish listing
       // before opening the preview instead of racing our own initial reads.
-      const inspect = inspectionQueue.current.then(async () => {
+      const inspect = historyInspections.then(async () => {
         if (cancelled) return;
         const listed = await api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`);
         if (cancelled) return;
@@ -437,7 +441,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
       });
       // An obsolete read still drains before a newer effect starts, including
       // development Strict Mode replay and a rapidly changed restore point.
-      inspectionQueue.current = inspect.catch(() => undefined);
+      historyInspections = inspect.catch(() => undefined);
       void inspect.catch((error) => {
         if (cancelled) return;
         if (selectedCheckpointId) setPreviewError(errorText(error));
