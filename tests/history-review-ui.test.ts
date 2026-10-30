@@ -89,3 +89,52 @@ test('restore point tabs opened together read History in turn instead of refusin
  assert.equal(overlaps,0);
  assert.equal(dom.container.querySelector('[role="alert"]'),null);
 });
+
+function pending<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
+const changedPreview=(checkpointId:string)=>({checkpointId,scope:'full',restoreFiles:['note.txt'],removePaths:[],moves:[],excludedPaths:[],uncoveredPaths:[],conflicts:[]});
+const busyError=()=>Response.json({error:'Wait for the current History or work-folder registration operation to finish.'},{status:409});
+
+for(const [action,button] of [['Compare','.history-change-row button'],['Restore','.history-review-header .ui-control--primary']] as const){
+ test(`${action} waits its turn behind another restore point tab's History read`, async t=>{
+  const dom=await createDomHarness();const original=globalThis.fetch;
+  const held=pending<void>();let reading=false;let secondStarted=false;const refused:string[]=[];
+  t.after(async()=>{held.resolve();await dom.cleanup();globalThis.fetch=original;});
+  globalThis.fetch=async(input)=>{
+   const url=String(input);
+   if(reading){refused.push(url);return busyError();}
+   if(url.endsWith('/two/preview')){reading=true;secondStarted=true;await held.promise;reading=false;return Response.json({preview:changedPreview('two')});}
+   if(url.endsWith('/one/preview'))return Response.json({preview:changedPreview('one')});
+   if(url.includes('/history/diff?'))return Response.json({error:'not needed'},{status:404});
+   return Response.json({checkpoints:['one','two'].map(id=>({checkpointId:id,label:id,createdAt:'2026-10-30T12:00:00Z',fileCount:1,reason:'manual'}))});
+  };
+  const pane=(id:string)=>createElement(HistoryPane,{key:id,workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:id,onError(){}});
+  await dom.render(createElement('div',null,pane('one'),pane('two')));
+  await dom.waitFor(()=>secondStarted&&!!dom.container.querySelector(button));
+  await dom.act(async()=>{dom.container.querySelector<HTMLButtonElement>(button)!.click();});
+  await dom.settle();
+  assert.deepEqual(refused,[]);
+  assert.equal(dom.container.querySelector('[role="alert"]'),null);
+ });
+}
+
+test('a busy work-folder never holds up History in another work-folder', async t=>{
+ const dom=await createDomHarness();const original=globalThis.fetch;
+ const held=pending<void>();let firstStarted=false;let otherReads=0;
+ t.after(async()=>{held.resolve();await dom.cleanup();globalThis.fetch=original;});
+ globalThis.fetch=async(input)=>{
+  const url=String(input);
+  if(url.includes('/work-folders/other/'))otherReads++;
+  if(url.endsWith('/preview')){
+   if(url.includes('/work-folders/disposable/')){firstStarted=true;await held.promise;}
+   return Response.json({preview:changedPreview('one')});
+  }
+  return Response.json({checkpoints:[{checkpointId:'one',label:'One',createdAt:'2026-10-30T12:00:00Z',fileCount:1,reason:'manual'}]});
+ };
+ const pane=(id:string)=>createElement(HistoryPane,{key:id,workFolder:{id,name:id} as never,selectedCheckpointId:'one',onError(){}});
+ await dom.render(createElement('div',null,pane('disposable')));
+ await dom.waitFor(()=>firstStarted);
+ await dom.render(createElement('div',null,pane('disposable'),pane('other')));
+ await dom.waitFor(()=>dom.container.textContent?.includes('1 file changed since then')===true);
+ assert.equal(otherReads,2,'the other work-folder lists and previews while the first is still reading');
+});
+

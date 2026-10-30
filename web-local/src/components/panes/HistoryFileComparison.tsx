@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HistoryFileComparison as Comparison, HistoryFileObservation, HistoryFileReason } from "../../../../src/shared/history-review";
 import { api, errorText } from "../../lib/api";
+import { queueHistoryRequest } from "../../lib/history-queue";
 import { formatBytes, formatDateTime } from "../../lib/format";
 
 const reasons: Record<HistoryFileReason, string> = {
@@ -37,7 +38,7 @@ export function HistoryFileComparison({ workFolderId, path, fromCheckpointId, to
     const controller = new AbortController();
     setResult(null); setError("");
     const query = new URLSearchParams({ path, fromCheckpointId, ...(toCheckpointId ? { toCheckpointId } : {}) });
-    void api<{ comparison: Comparison }>(`/api/work-folders/${workFolderId}/history/diff?${query}`, { signal: controller.signal }).then(({ comparison }) => {
+    void queueHistoryRequest(workFolderId, () => api<{ comparison: Comparison }>(`/api/work-folders/${workFolderId}/history/diff?${query}`, { signal: controller.signal })).then(({ comparison }) => {
       if (cancelled) return;
       if (comparison.path !== path || comparison.before.checkpointId !== fromCheckpointId ||
         (toCheckpointId ? comparison.after.checkpointId !== toCheckpointId : comparison.after.source !== "current")) {

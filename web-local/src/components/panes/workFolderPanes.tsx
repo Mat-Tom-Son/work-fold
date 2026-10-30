@@ -24,6 +24,7 @@ import {
   Search16Regular,
 } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
+import { queueHistoryRequest } from "../../lib/history-queue";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { descendantFolders, folderTreeRows } from "../../lib/folder-nesting";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
@@ -399,11 +400,6 @@ interface HistoryRestorePreview {
   conflicts: string[];
 }
 
-// Every History pane, the list and each open restore point tab, reads in turn:
-// the host lets one History read run at a time, so tabs restored together
-// would otherwise refuse each other.
-let historyInspections = Promise.resolve();
-
 export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
   workFolder: WorkFolderSummary;
   fixtureItems?: WorkFolderCheckpoint[];
@@ -427,22 +423,18 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     setPreview(null); setPreviewError("");
     if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
     if (!fixtureItems) {
-      // Both reads hold the host's History operation fence. Finish listing
-      // before opening the preview instead of racing our own initial reads.
-      const inspect = historyInspections.then(async () => {
-        if (cancelled) return;
-        const listed = await api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`);
-        if (cancelled) return;
+      // An obsolete effect skips its reads; one already sent still finishes
+      // before the next starts (development Strict Mode replay, a quickly
+      // changed restore point).
+      const read = <T,>(path: string) => queueHistoryRequest(workFolder.id, async () => cancelled ? null : api<T>(path));
+      void (async () => {
+        const listed = await read<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`);
+        if (!listed || cancelled) return;
         setItems(listed.checkpoints);
-        if (selectedCheckpointId) {
-          const result = await api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${selectedCheckpointId}/preview`);
-          if (!cancelled) setPreview(result.preview);
-        }
-      });
-      // An obsolete read still drains before a newer effect starts, including
-      // development Strict Mode replay and a rapidly changed restore point.
-      historyInspections = inspect.catch(() => undefined);
-      void inspect.catch((error) => {
+        if (!selectedCheckpointId) return;
+        const result = await read<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${selectedCheckpointId}/preview`);
+        if (result && !cancelled) setPreview(result.preview);
+      })().catch((error) => {
         if (cancelled) return;
         if (selectedCheckpointId) setPreviewError(errorText(error));
         else onError(errorText(error));
@@ -454,7 +446,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   useEffect(() => { setNotice(""); }, [workFolder.id, fixtureItems]);
 
   async function load() {
-    try { setItems((await api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`)).checkpoints); }
+    try { setItems((await queueHistoryRequest(workFolder.id, () => api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`))).checkpoints); }
     catch (caught) { onError(errorText(caught)); }
   }
 
@@ -462,7 +454,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (fixtureItems) return;
     setBusy(true);
     try {
-      const result = await api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
+      const result = await queueHistoryRequest(workFolder.id, () => api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } }));
       setNotice(result.created ? "Restore point saved." : "Current files already match the latest restore point.");
       await load();
     }
@@ -475,7 +467,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (selectedCheckpointId !== item.checkpointId && onOpen) { onOpen(item); return; }
     let reviewed: HistoryRestorePreview;
     try {
-      reviewed = (await api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/preview`)).preview;
+      reviewed = (await queueHistoryRequest(workFolder.id, () => api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/preview`))).preview;
       setPreview(reviewed);
     } catch (error) { setPreviewError(errorText(error)); return; }
     if (reviewed.conflicts.length) return;
@@ -488,7 +480,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (!confirmed) return;
     setBusy(true);
     try {
-      await api(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} });
+      await queueHistoryRequest(workFolder.id, () => api(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} }));
       await load(); setPreviewRevision((value) => value + 1);
       setComparisonPath("");
       showToast({ text: "Restored. Your previous files are saved in History.", tone: "success" });

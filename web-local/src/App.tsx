@@ -59,6 +59,7 @@ import { useWorkFolderTree } from "./hooks/useWorkFolderTree";
 import { useWorkFolderChecks } from "./hooks/useWorkFolderChecks";
 import { useFolderAutomations } from "./hooks/useFolderAutomations";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
+import { queueHistoryRequest } from "./lib/history-queue";
 import { chatActivityKey, conversationLifecycleView, resolveChatSnoozePresets } from "./lib/chat-lifecycle";
 import { appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
@@ -1575,7 +1576,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   async function saveRestorePoint() {
     if (fixture) return;
     try {
-      const result = await api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
+      const result = await queueHistoryRequest(workFolder.id, () => api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } }));
       setHistoryRefreshRequest((current) => current + 1);
       setActiveMode("history");
       showToast(result.created
