@@ -1263,8 +1263,12 @@ export function ChatPanel({
     // does (docs/act-ledger.md): the kernel compaction task and the capability
     // fence, not a turn. A Chat not created yet has nothing to compact.
     const compactCommand = /^\/compact(?:\s+([\s\S]*))?$/i.exec(content);
-    if (compactCommand && conversation && !fixtureMode) {
+    if (compactCommand && !fixtureMode) {
       if (contentOverride === undefined) setDraft("");
+      if (!conversation) {
+        showToast({ text: "This Chat has no working context to compact yet.", tone: "info" });
+        return;
+      }
       void compactConversation(compactCommand[1]?.trim() || undefined, contentOverride === undefined ? content : undefined);
       return;
     }
