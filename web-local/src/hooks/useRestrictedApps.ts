@@ -69,9 +69,11 @@ export function useRestrictedApps({
     const registered = registeredIdsRef.current;
     if (registered) {
       for (const id of requestVersionsRef.current.keys()) if (!registered.has(id)) requestVersionsRef.current.delete(id);
-      setAppsByWorkFolder((current) => Object.fromEntries(Object.entries(current).filter(([id]) => registered.has(id))));
-      setKnownWorkFolderIds((current) => new Set([...current].filter((id) => registered.has(id))));
-      setLoadingWorkFolderIds((current) => new Set([...current].filter((id) => registered.has(id))));
+      setAppsByWorkFolder((current) => Object.keys(current).every((id) => registered.has(id))
+        ? current
+        : Object.fromEntries(Object.entries(current).filter(([id]) => registered.has(id))));
+      setKnownWorkFolderIds((current) => keepRegistered(current, registered));
+      setLoadingWorkFolderIds((current) => keepRegistered(current, registered));
     }
     for (const id of new Set([...requestVersionsRef.current.keys(), activeWorkFolderId])) void refresh(id);
   }, [activeWorkFolderId, workFolders, fixtureApps, fixtureMode, refresh]);
@@ -143,4 +145,9 @@ export function useRestrictedApps({
     upsertApp,
     removeApp,
   };
+}
+
+/** The same set when every id is still registered, so a registry read alone causes no re-render. */
+function keepRegistered(ids: Set<string>, registered: ReadonlySet<string>): Set<string> {
+  return [...ids].every((id) => registered.has(id)) ? ids : new Set([...ids].filter((id) => registered.has(id)));
 }

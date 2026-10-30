@@ -99,10 +99,6 @@
   text-align: center;
 }
 .popover-loading-brand { --work-fold-lockup-mark: 64px; flex-direction: column; gap: 12px; }
-.popover-loading-brand .work-fold-wordmark-art {
-  height: auto;
-  width: calc(var(--work-fold-lockup-mark) * 0.96);
-}
 :scope.popover-loading p { margin: 0; }
 
 .agent-banner {
@@ -183,33 +179,7 @@
 /* Conversation details expand in place. */
 .agent-section { display: flex; flex-direction: column; }
 .agent-section-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.agent-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 30px;
-  padding: 6px 2px;
-  border: none;
-  border-top: 1px solid var(--pop-border);
-  border-radius: 0;
-  background: none;
-  color: var(--pop-text-muted);
-  font-size: 11.5px;
-  font-weight: 650;
-  text-align: left;
-  cursor: pointer;
-}
-.agent-strip:hover { color: var(--pop-text); background: var(--pop-surface-2); }
-.agent-strip-chevron { width: 12px; height: 12px; stroke-width: 2; flex: none; transition: transform 120ms ease; }
-.agent-strip[aria-expanded="true"] .agent-strip-chevron { transform: rotate(90deg); }
-@media (prefers-reduced-motion: reduce) {
-  .agent-strip-chevron { transition: none; }
-}
 
-.agent-drawer { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
-.agent-drawer:focus { outline: none; }
 /* The active request gets one quiet live line, leaving the popover to the Chat. */
 .agent-tail { padding: 5px 4px 0; }
 /* An inline narrator entry inside the conversation (handed-off trail or

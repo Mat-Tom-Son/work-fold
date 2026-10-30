@@ -27,6 +27,7 @@ test("MCP Turn off/on pins the displayed revision, preserves errors until refres
   await dom.render(createElement(IncludedMcpSetup, { workFolderId: "work-folder-fixture", enabled: true }));
   await dom.waitFor(() => dom.container.textContent?.includes("Turn Off") === true);
   assert.match(dom.container.textContent!, /No saved sign-in/);
+  assert.match(dom.container.textContent!, /This work-folder only/, "the scope uses the same words as Skills & Extensions");
   assert.doesNotMatch(dom.container.textContent!, /Sign-in required|Sign in required/);
   await dom.act(() => button("Turn Off").click());
   await dom.waitFor(() => dom.container.textContent?.includes("Turned Off") === true);

@@ -108,7 +108,6 @@ const fixtureChats: WorkFoldAgentChat[] = [
 ];
 
 const activePhases = new Set(["working", "handed_off"]);
-const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
 const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "agent";
@@ -218,6 +217,14 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   } : null);
   const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
+  // The transcript mounts only after the first availability read (and again
+  // if the agent becomes available later), so its observers follow the
+  // element rather than the first render.
+  const [transcriptElement, setTranscriptElement] = useState<HTMLElement | null>(null);
+  const attachTranscript = useCallback((node: HTMLElement | null) => {
+    transcriptRef.current = node;
+    setTranscriptElement(node);
+  }, []);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
   const [transcriptPinned, setTranscriptPinnedState] = useState(true);
@@ -570,7 +577,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   // Size changes that come from outside the chat state follow too: a resized
   // panel or window, a growing composer, a loaded image, or an opened step.
   useEffect(() => {
-    const transcript = transcriptRef.current;
+    const transcript = transcriptElement;
     if (!transcript) return;
     let frame: number | null = null;
     const stick = () => {
@@ -590,7 +597,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       transcript.removeEventListener("toggle", stick, true);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [transcriptElement]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no running work hiding the composer — and focus has not landed
@@ -1088,7 +1095,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
         <section
           className="popover-transcript"
           id="popover-conversation"
-          ref={transcriptRef}
+          ref={attachTranscript}
           aria-label="work-fold agent chat" aria-live="polite"
           tabIndex={-1}
           onScroll={(event) => {

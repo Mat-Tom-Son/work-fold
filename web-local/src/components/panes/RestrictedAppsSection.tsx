@@ -21,6 +21,7 @@ import {
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { ApiError, errorText } from "../../lib/api";
 import { downloadAppData } from "../../lib/app-data-download";
+import { formatBytes } from "../../lib/format";
 import {
   restrictedAppAutomationOutcomeLabel,
 } from "../../lib/restricted-app-automation";
@@ -881,7 +882,6 @@ function appAutomationRunToast(automation: RestrictedAppAutomation, run: Restric
 }
 
 function shortDigest(digest: string): string { return `${digest.slice(0, 12)}…${digest.slice(-8)}`; }
-function formatBytes(bytes: number): string { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
 function formatTimestamp(value: string): string { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString(); }
 
 function fixtureAppAutomationRun(app: RestrictedAppInstalled, automation: RestrictedAppAutomation): { app: RestrictedAppInstalled; run: RestrictedAppAutomationRunReceipt } {

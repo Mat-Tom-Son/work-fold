@@ -184,6 +184,11 @@ export function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: 
   const startedAtRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const closedRef = useRef(false);
+  // The host re-renders whenever any toast arrives or leaves. Reading the
+  // latest props through a ref keeps this toast's timer from restarting
+  // then — including while it is paused under the pointer.
+  const latestRef = useRef({ toast, onDismiss });
+  latestRef.current = { toast, onDismiss };
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
@@ -194,9 +199,9 @@ export function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: 
     if (closedRef.current) return;
     closedRef.current = true;
     clearTimer();
-    toast.onClose?.(reason);
-    onDismiss();
-  }, [clearTimer, onDismiss, toast]);
+    latestRef.current.toast.onClose?.(reason);
+    latestRef.current.onDismiss();
+  }, [clearTimer]);
 
   const startTimer = useCallback(() => {
     clearTimer();

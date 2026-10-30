@@ -27,7 +27,7 @@ export interface AppTypographyPreference {
   textSize: AppTextSize;
 }
 
-import type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
+import type { WorkFolderSummary } from "../../src/shared/work-folder-summary";
 export type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
 
 export interface WorkFolderCustomization {

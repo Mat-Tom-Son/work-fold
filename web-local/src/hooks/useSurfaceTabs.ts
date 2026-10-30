@@ -543,7 +543,10 @@ function restoreStoredSurfaceTabsForWorkFolders(state: SurfaceTabsState, workFol
 function filterSurfaceTabsToWorkFolders(tabs: WorkFolderSurfaceTab[], workFolders: WorkFolderSummary[]): WorkFolderSurfaceTab[] {
   const workFolderIds = new Set(workFolders.map((item) => item.id));
   // Browser tabs belong to no work-folder, so removing one never closes them.
-  return tabs.filter((tab) => tab.workFolderId === null || workFolderIds.has(tab.workFolderId));
+  const kept = tabs.filter((tab) => tab.workFolderId === null || workFolderIds.has(tab.workFolderId));
+  // Every registry read (each window focus) passes a new list; keeping the
+  // same array when nothing closed avoids a re-render and a saved-tabs write.
+  return kept.length === tabs.length ? tabs : kept;
 }
 
 function normalizeActiveSurfaceTab(state: SurfaceTabsState): SurfaceTabsState {

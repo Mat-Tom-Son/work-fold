@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Settings24Regular } from "@fluentui/react-icons";
-import { AlertTriangle, CirclePlus, Download, FolderOpen, Loader2, Search, X } from "lucide-react";
+import { AlertTriangle, CirclePlus, Download, Loader2, Search, X } from "lucide-react";
 import {
   accentIdentityFromHex,
   normalizeWorkFolderAppearanceCustomization,
@@ -8,7 +8,7 @@ import {
   type WorkFolderAppearanceState,
 } from "../../src/shared/work-folder-appearance";
 
-import { productName, workFolderCustomizationStorageKey, workFolderPathDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
+import { workFolderCustomizationStorageKey, workFolderPathDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
 import { copyToClipboard } from "./lib/clipboard";
 import { deleteFolderConfirm } from "./ui-contract";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
@@ -16,7 +16,7 @@ import { ChatPanel } from "./components/chat/ChatPanel";
 import { WorkFolderSurfaceTabBar } from "./components/chat/WorkFolderSurfaceTabBar";
 import { BrowserTabPanel, type BrowserTabWorker } from "./components/browser/BrowserTabPanel";
 import { WorkFoldLoadingState } from "./components/brand/WorkFoldBrand";
-import { Banner, CenteredState, EmptyInline, WorkFolderIconGlyph } from "./components/chrome/common";
+import { CenteredState, WorkFolderIconGlyph } from "./components/chrome/common";
 import { DesktopTitleBar } from "./components/chrome/DesktopTitleBar";
 import { CommandPaletteHost, type CommandPaletteCommand } from "./components/modals/CommandPaletteHost";
 import { CreateWorkFolderModal } from "./components/modals/CreateWorkFolderModal";
@@ -33,7 +33,6 @@ import { onConnectAiRequested, requestConnectAi } from "./lib/connect-ai";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
-import { CapabilitiesPane } from "./components/panes/CapabilitiesPane";
 import { WorkFolderAutomationsPane } from "./components/panes/WorkFolderAutomationsPane";
 import { WorkFolderAutomationsNavigator } from "./components/panes/WorkFolderAutomationsNavigator";
 import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView } from "./components/panes/ExtensionSurface";
@@ -83,7 +82,7 @@ import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAnc
 import type { MentionFolderOption } from "./components/chat/FolderMentionMenu";
 import { mentionNames } from "./lib/folder-mentions";
 import { removeWorkFolderConfirmText, surfacePanelDomId, surfaceTabDomId, workFolderHeaderSourceBadgeLabel } from "./lib/work-folder-ui";
-import type { AgentCatalog, AgentExtensionSurface, AgentStatus, AppTheme, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderCustomization, WorkFolderCustomizationMap, WorkFolderCustomizationPatch, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AgentStatus, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderCustomization, WorkFolderCustomizationMap, WorkFolderCustomizationPatch, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
 import { workFolderIconOptions } from "./work-folder-icons";
 
@@ -973,12 +972,14 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     appearanceWriteQueueRef.current = appearanceWriteQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        const result = customization && Object.keys(customization).length
-          ? await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, {
+        if (customization && Object.keys(customization).length) {
+          await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, {
             method: "PUT",
             body: { customization },
-          })
-          : await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, { method: "DELETE" });
+          });
+        } else {
+          await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, { method: "DELETE" });
+        }
       })
       .catch((caught) => {
         if (appearanceStorageWarningShownRef.current) return;

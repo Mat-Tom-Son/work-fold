@@ -8,7 +8,6 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,7 +24,6 @@ import {
   Open16Regular,
   PlugConnected20Regular,
   Search20Regular,
-  ShieldCheckmark16Regular,
   ShieldCheckmark20Regular,
 } from "@fluentui/react-icons";
 

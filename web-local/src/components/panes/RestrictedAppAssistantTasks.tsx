@@ -22,6 +22,9 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
   const [detail, setDetail] = useState<RestrictedAppTaskDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed list read clears on the next successful poll; an action's error
+  // stays until the next action.
+  const [readError, setReadError] = useState<string | null>(null);
   useEffect(() => {
     if (disabled) return;
     let alive = true;
@@ -29,8 +32,8 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
     async function refresh() {
       if (!alive || loading || document.visibilityState === "hidden") return;
       loading = true;
-      try { const next = await listRestrictedAppAssistantTasks(app); if (alive) setTasks(next); }
-      catch (caught) { if (alive) setError(errorText(caught)); }
+      try { const next = await listRestrictedAppAssistantTasks(app); if (alive) { setTasks(next); setReadError(null); } }
+      catch (caught) { if (alive) setReadError(errorText(caught)); }
       finally { loading = false; }
     }
     void refresh();
@@ -67,10 +70,11 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
     finally { setBusy(false); }
   }
   const unavailable = disabled || busy;
-  if (!tasks.length && !error) return null;
+  const shownError = error ?? readError;
+  if (!tasks.length && !shownError) return null;
   return <section className="restricted-app-connections restricted-app-assistant-tasks" aria-label="Worker Requests">
     <div className="restricted-app-connections-heading"><h3>Worker Requests</h3></div>
-    {error ? <p role="alert">{error}</p> : null}
+    {shownError ? <p role="alert">{shownError}</p> : null}
     {tasks.map((task) => <article className="restricted-app-destination-card" key={task.id} tabIndex={-1}>
       <div className="restricted-app-task-heading"><strong>{task.title}</strong><span className="professional-status-badge">{restrictedAppAssistantTaskStatusLabel(task)}</span></div>
       {task.result ? <div className="restricted-app-task-result">

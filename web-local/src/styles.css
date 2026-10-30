@@ -167,9 +167,7 @@ button {
 .context-menu,
 .context-chip,
 .chat-work-folder-heading,
-.message-footer,
-.file-status-badges,
-.file-status-badge {
+.message-footer {
   user-select: none;
 }
 
@@ -1551,35 +1549,6 @@ body:has(> #root > .desktop-chrome-shell) {
   color: rgba(255, 255, 255, 0.78);
 }
 
-.saved-secret-card {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid #b8e3d3;
-  border-radius: 8px;
-  color: #0f5b46;
-  background: #f0fbf6;
-}
-
-.saved-secret-card div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.saved-secret-card span {
-  min-width: 0;
-  overflow: hidden;
-  color: #667085;
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .tool-card:hover {
   outline: none;
   border-color: #9fb5d6;
@@ -1591,16 +1560,6 @@ body:has(> #root > .desktop-chrome-shell) {
   border-color: #9fb5d6;
   background: #eef4fb;
   box-shadow: 0 0 0 2px rgba(53, 81, 150, 0.1);
-}
-
-.tool-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.tool-grid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .tool-card {
@@ -1632,32 +1591,6 @@ body:has(> #root > .desktop-chrome-shell) {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-.tool-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
-
-.tool-card-meta span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  color: #475467;
-  background: #eef2f6;
-  font-size: 0.72rem;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.tool-card .tool-card-meta {
-  align-self: end;
-  max-height: 49px;
-  overflow: hidden;
 }
 
 .markdown-preview {
@@ -4659,79 +4592,6 @@ to {
   border-radius: 3px;
 }
 
-.file-status-badges {
-  justify-self: end;
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-}
-
-.file-status-badge {
-  flex: 0 1 auto;
-  max-width: 82px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 5px;
-  border: 1px solid #dde3ea;
-  border-radius: 4px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.file-status-badge.change {
-  color: #8a4b12;
-  background: #fff7ed;
-  border-color: #f2d4b6;
-}
-
-.file-status-badge.change.created {
-  color: #1f6b4d;
-  background: #eef8f2;
-  border-color: #cfe8da;
-}
-
-.file-status-badge.change.deleted {
-  color: #2457a6;
-  background: #eef4ff;
-  border-color: #d6e4fb;
-}
-
-/* Deliverable folders whose last check failed. The direct badge is a click
-   target (opens the review record); ancestor rollups are passive. */
-
-.file-status-badge.review {
-  color: var(--readiness-fail-fg);
-  background: var(--readiness-fail-bg);
-  border-color: var(--readiness-fail-border);
-}
-
-.file-status-badge.review:not(.rollup) {
-  cursor: pointer;
-}
-
-.file-row:hover .file-status-badge.review:not(.rollup),
-.file-status-badge.review:not(.rollup):hover {
-  text-decoration: underline;
-}
-
-.file-status-badge.change.remote_deleted {
-  color: #9f1f1f;
-  background: #fff2f2;
-  border-color: #f0c4c4;
-}
-
-.file-status-badge.ignored {
-  color: #5b6678;
-  background: #f2f4f7;
-  border-color: #d9dee7;
-}
-
 .file-icon {
   width: 22px;
   height: 22px;
@@ -4834,21 +4694,6 @@ to {
 
 .chat-top-notice:empty {
   visibility: hidden;
-}
-
-.chat-floating-actions {
-  position: relative;
-  order: 0;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 0;
-  margin-right: auto;
-}
-
-.chat-floating-actions:empty {
-  display: none;
 }
 
 .chat-top-notice .banner {
@@ -6717,75 +6562,6 @@ button.context-chip.message-attachment:focus-visible {
   background: #b42318;
 }
 
-/* work-folder status bar: anchored footer of the files pane. Sections (review
-   status, cloud sync) share one visual system; no floating cards. */
-
-.status-bar-section {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 3px 10px 3px;
-}
-
-.status-bar-section.open {
-  padding-bottom: 10px;
-}
-
-.status-bar-section + .status-bar-section {
-  border-top: 1px solid #e8edf3;
-}
-
-.status-bar-dot {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
-/* The body caps overall height; the list is the single scroll container so
-   the toolbar and the selection strip always stay visible. */
-
-.file-details-review {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  background: #f8fafc;
-  border: 1px solid #e3e8ee;
-  border-radius: 8px;
-}
-
-.file-details-review-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.file-details-review-copy strong {
-  font-size: 0.82rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-details-review-verdict {
-  font-size: 0.76rem;
-  font-weight: 600;
-}
-
-.file-details-review-pass {
-  color: var(--readiness-pass-fg);
-}
-
-.file-details-review-fail {
-  color: var(--readiness-fail-fg);
-}
-
-.file-details-review-muted {
-  color: var(--readiness-muted-fg);
-}
-
 .publish-review-backdrop {
   position: fixed;
   inset: 0;
@@ -7030,9 +6806,7 @@ to {
 .app-shell[data-theme="dark"] .muted,
 .app-shell[data-theme="dark"] .modal-title p,
 .app-shell[data-theme="dark"] .settings-section-heading span,
-.app-shell[data-theme="dark"] .saved-secret-card span,
 .app-shell[data-theme="dark"] .tool-card span,
-.app-shell[data-theme="dark"] .tool-card-meta span,
 .app-shell[data-theme="dark"] .work-folder-tab span,
 .app-shell[data-theme="dark"] .work-folder-pane-current-copy > span,
 .app-shell[data-theme="dark"] .work-folder-pane-current-copy small,
@@ -7072,28 +6846,6 @@ to {
 
 .app-shell[data-theme="dark"] .surface-tab-work-folder-menu {
   border-color: rgba(148, 163, 184, 0.24);
-}
-
-.app-shell[data-theme="dark"] .status-bar-section + .status-bar-section {
-  border-top-color: rgba(148, 163, 184, 0.16);
-}
-
-.app-shell[data-theme="dark"] .file-details-review {
-  background: rgba(15, 23, 42, 0.6);
-  border-color: rgba(148, 163, 184, 0.2);
-}
-
-.app-shell[data-theme="dark"] .file-details-review-copy strong {
-  color: #e5edf7;
-}
-
-/* Outrank the generic dark badge rule so the review badge keeps its fail
-   tones (the readiness variables already carry the dark values). */
-
-.app-shell[data-theme="dark"] .file-status-badge.review {
-  color: var(--readiness-fail-fg);
-  background: var(--readiness-fail-bg);
-  border-color: var(--readiness-fail-border);
 }
 
 .app-shell[data-theme="dark"] .create-work-folder-modal,
@@ -7418,12 +7170,6 @@ to {
   border-color: rgba(148, 163, 184, 0.28);
 }
 
-.app-shell[data-theme="dark"] .saved-secret-card {
-  color: #86efac;
-  background: rgba(22, 101, 52, 0.28);
-  border-color: rgba(74, 222, 128, 0.28);
-}
-
 .app-shell[data-theme="dark"] .theme-segmented-control button.active {
   border-color: rgba(96, 165, 250, 0.38);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -7478,8 +7224,7 @@ to {
 }
 
 .app-shell[data-theme="dark"] .banner,
-.app-shell[data-theme="dark"] .publish-review-alert.error,
-.app-shell[data-theme="dark"] .file-status-badge.change.remote_deleted {
+.app-shell[data-theme="dark"] .publish-review-alert.error {
   color: #fecaca;
   background: rgba(127, 29, 29, 0.24);
   border-color: rgba(248, 113, 113, 0.28);
@@ -7487,15 +7232,13 @@ to {
 
 .app-shell[data-theme="dark"] .banner.info,
 .app-shell[data-theme="dark"] .publish-review-alert.info,
-.app-shell[data-theme="dark"] .file-upload-progress,
-.app-shell[data-theme="dark"] .file-status-badge.change.deleted {
+.app-shell[data-theme="dark"] .file-upload-progress {
   color: #bfdbfe;
   background: rgba(30, 64, 175, 0.22);
   border-color: rgba(96, 165, 250, 0.26);
 }
 
-.app-shell[data-theme="dark"] .context-chip.path_only_reference,
-.app-shell[data-theme="dark"] .file-status-badge.change {
+.app-shell[data-theme="dark"] .context-chip.path_only_reference {
   color: #fde68a;
   background: rgba(113, 63, 18, 0.22);
   border-color: rgba(251, 191, 36, 0.28);
@@ -7603,8 +7346,7 @@ to {
     0 14px 30px rgba(0, 0, 0, 0.24);
 }
 
-.app-shell[data-theme="dark"] .tool-card,
-.app-shell[data-theme="dark"] .tool-card-meta span {
+.app-shell[data-theme="dark"] .tool-card {
   background: rgba(30, 41, 59, 0.68);
   border-color: rgba(148, 163, 184, 0.18);
 }
@@ -7827,19 +7569,6 @@ to {
 
 .app-shell[data-theme="dark"] .file-icon-glyph-dark {
   display: block;
-}
-
-.app-shell[data-theme="dark"] .file-status-badge,
-.app-shell[data-theme="dark"] .file-status-badge.ignored {
-  color: #94a3b8;
-  background: rgba(30, 41, 59, 0.8);
-  border-color: rgba(148, 163, 184, 0.18);
-}
-
-.app-shell[data-theme="dark"] .file-status-badge.change.created {
-  color: #86efac;
-  background: rgba(22, 101, 52, 0.28);
-  border-color: rgba(74, 222, 128, 0.22);
 }
 
 .app-shell[data-theme="dark"] .file-name mark {
@@ -8354,15 +8083,6 @@ to {
   align-items: stretch;
   flex-direction: column;
 }
-
-.saved-secret-card {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.saved-secret-card .ui-control {
-  grid-column: 1 / -1;
-}
-
 }
 
 @media (max-width: 480px) {
@@ -8384,14 +8104,6 @@ to {
 .file-row {
   gap: 5px;
   padding-inline: 4px;
-}
-
-.file-status-badges {
-  max-width: 52px;
-}
-
-.file-status-badge {
-  max-width: 52px;
 }
 }
 
@@ -8552,13 +8264,6 @@ to {
 
 .file-history-copy small {
   font-size: 11.5px;
-  color: var(--readiness-muted-fg);
-}
-
-.file-history-footnote {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
   color: var(--readiness-muted-fg);
 }
 
@@ -9135,11 +8840,6 @@ to {
   height: 1px;
   margin: 5px 7px;
   background: #e5e9ef;
-}
-
-.file-status-badge.ignored {
-  margin-left: auto;
-  font-size: 0.62rem;
 }
 
 @media (max-width: 700px) {
@@ -11423,25 +11123,11 @@ textarea:focus-visible,
 }
 
 .professional-setup .ai-models-section-heading p,
-.professional-setup .ai-models-connection-row p,
-.professional-setup .ai-models-provider-note {
+.professional-setup .ai-models-connection-row p {
   margin: 0;
   color: var(--ui-text-muted);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.professional-setup .ai-models-form-fields {
-  display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.3fr);
-  gap: 14px;
-  min-width: 0;
-}
-
-.professional-setup .ai-models-form-fields > .professional-field > .professional-field-label {
-  display: flex;
-  align-items: center;
-  min-height: 20px;
 }
 
 .professional-setup .ai-models-form-actions {
@@ -11628,10 +11314,6 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
-.professional-setup .ai-models-provider-note {
-  margin-top: 10px;
-}
-
 .professional-setup .ai-models-external-change {
   display: flex;
   flex-wrap: wrap;
@@ -11647,10 +11329,6 @@ textarea:focus-visible,
 }
 
 @container (max-width: 460px) {
-
-.professional-setup .ai-models-form-fields {
-  grid-template-columns: minmax(0, 1fr);
-}
 
 .professional-setup .ai-models-provider-actions {
   grid-template-columns: minmax(0, 1fr);
@@ -11677,14 +11355,6 @@ textarea:focus-visible,
   color: var(--ui-text);
   font-size: 13px;
   font-weight: 600;
-}
-
-.professional-setup .ai-model-field-heading {
-  min-height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .professional-setup .ai-models-refresh {
@@ -12573,49 +12243,6 @@ textarea:focus-visible,
   line-height: 1.5;
 }
 
-.capabilities-trust-status {
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 3px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-}
-
-.capabilities-trust-status > svg {
-  color: var(--ui-accent);
-}
-
-.capabilities-trust-status > button {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 0;
-  color: var(--ui-text-muted);
-  background: transparent;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-}
-
-.capabilities-trust-status > button:hover:not(:disabled) {
-  color: var(--ui-text);
-  text-decoration: underline;
-}
-
-.capabilities-trust-status > button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.capabilities-scope-groups {
-  min-width: 0;
-  display: grid;
-  gap: 24px;
-}
-
 .capabilities-scope-group {
   min-width: 0;
   display: grid;
@@ -12844,35 +12471,6 @@ textarea:focus-visible,
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.capabilities-result-heading h2 {
-  margin: 0;
-  color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.capabilities-result-heading p {
-  color: var(--ui-text-muted);
-  font-size: 12px;
-}
-
-.capabilities-inline-trust {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  color: var(--ui-text-muted);
-  background: var(--ui-surface-subtle);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  font-size: 12px;
-}
-
-.capabilities-inline-trust > svg {
-  color: var(--ui-accent);
-}
-
 .capabilities-add-options {
   display: grid;
   gap: 8px;
@@ -12932,41 +12530,6 @@ textarea:focus-visible,
   padding: 0 2px;
   color: var(--ui-text-muted);
   font-size: 11px;
-}
-
-.capabilities-result-heading {
-  min-width: 0;
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 2px 0;
-}
-
-.capabilities-result-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.capabilities-result-heading > span {
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  text-align: right;
-}
-
-.capabilities-result-heading > a {
-  font-size: 11px;
-  text-align: right;
-}
-
-.capabilities-result-heading > a {
-  color: var(--ui-accent);
-  text-decoration: none;
-}
-
-.capabilities-result-heading > a:hover {
-  text-decoration: underline;
 }
 
 .capabilities-resource-list,
@@ -13074,23 +12637,10 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
 }
 
-.capabilities-resource-actions {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-}
-
 .professional-status-badge.error {
   color: var(--ui-danger);
   background: color-mix(in srgb, var(--ui-danger) 8%, var(--ui-surface));
   border-color: color-mix(in srgb, var(--ui-danger) 30%, var(--ui-border));
-}
-
-.capabilities-package-details {
-  min-width: 0;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
 }
 
 .capabilities-management-section {
@@ -13128,29 +12678,6 @@ textarea:focus-visible,
   gap: 8px;
 }
 
-.capabilities-package-details > summary {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.capabilities-management-heading {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.capabilities-management-heading > div:first-child,
 .capabilities-packages > summary > span,
 .capabilities-core-tools > summary > span {
   min-width: 0;
@@ -13159,14 +12686,6 @@ textarea:focus-visible,
   gap: 8px;
 }
 
-.capabilities-management-heading h3 {
-  margin: 0;
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.capabilities-management-heading > span,
 .capabilities-packages > summary > small,
 .capabilities-core-tools > summary > small {
   color: var(--ui-text-subtle);
@@ -13251,14 +12770,6 @@ textarea:focus-visible,
   gap: 8px;
   padding: 0 8px 8px;
   border-top: 1px solid var(--ui-border);
-}
-
-.capabilities-core-tools-copy {
-  margin: 0;
-  padding: 10px 4px 2px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .capabilities-core-tool-list {
@@ -13653,26 +13164,9 @@ textarea:focus-visible,
   grid-template-columns: 32px minmax(0, 1fr);
 }
 
-.capabilities-add-option > .ui-control,
-.capabilities-resource-actions {
+.capabilities-add-option > .ui-control {
   grid-column: 2;
   justify-self: start;
-}
-
-.capabilities-resource-actions {
-  justify-items: start;
-  grid-template-columns: auto auto;
-  align-items: center;
-}
-
-.capabilities-result-heading {
-  align-items: start;
-  flex-direction: column;
-}
-
-.capabilities-result-heading > span,
-.capabilities-result-heading > a {
-  text-align: left;
 }
 
 .capabilities-package-row {
@@ -13714,16 +13208,6 @@ textarea:focus-visible,
   height: 28px;
 }
 
-.capabilities-inline-trust {
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: start;
-}
-
-.capabilities-inline-trust > .ui-control {
-  grid-column: 2;
-  justify-self: start;
-}
-
 .capabilities-add-option {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -13732,18 +13216,8 @@ textarea:focus-visible,
   display: none;
 }
 
-.capabilities-add-option > .ui-control,
-.capabilities-resource-actions {
+.capabilities-add-option > .ui-control {
   grid-column: 1;
-}
-
-.capabilities-segmented-filter {
-  width: 100%;
-}
-
-.capabilities-segmented-filter {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 }
 
@@ -14525,14 +13999,6 @@ textarea:focus-visible,
   color: var(--ui-text-muted);
   font-size: 12px;
   line-height: 1.35;
-}
-
-.extension-surface-pane-footnote {
-  margin: auto 4px 0;
-  padding-top: 20px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .extension-surface-canvas {
@@ -19695,8 +19161,7 @@ to {
   padding-top: 0;
 }
 
-:root[data-theme] .app-shell .local-files-panel input,
-:root[data-theme] .app-shell .chat-search-field input {
+:root[data-theme] .app-shell .local-files-panel input {
   border-color: transparent;
   background: color-mix(in srgb,var(--ui-canvas) 70%,var(--ui-surface));
   border-radius: 6px;
@@ -19873,7 +19338,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-row:not(.selected),.chat-work-folder-row-shell:not(.active),.history-entry:not(.selected),.capabilities-resource-row,.automation-list-row:not(.selected),.settings-window .settings-tab:not(.active)):hover {
+:root[data-theme] .app-shell :is(.file-row:not(.selected),.chat-work-folder-row-shell:not(.active),.history-entry:not(.selected),.automation-list-row:not(.selected),.settings-window .settings-tab:not(.active)):hover {
   background: var(--ui-surface-hover);
 }
 
@@ -19947,7 +19412,7 @@ to {
   font-weight: 500;
 }
 
-:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.model-catalog-menu,.ai-model-menu,.work-folder-icon-picker) {
+:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.work-folder-icon-picker) {
   border: 0;
   border-radius: 8px;
   background: var(--ui-surface);
@@ -20199,7 +19664,7 @@ to {
   padding-top: 24px;
 }
 
-:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.ai-model-section,.remote-browser-list,.remote-browser-row,.publication-list,.publication-row,.settings-app-folder) {
+:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.remote-browser-list,.remote-browser-row,.publication-list,.publication-row) {
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -20268,14 +19733,10 @@ to {
   letter-spacing: -.025em;
 }
 
-:root[data-theme] .app-shell :is(.capabilities-panel,.capabilities-resource-row,.capabilities-scope-group,.capabilities-scope-empty,.capabilities-discover-result,.capabilities-resource-list) {
+:root[data-theme] .app-shell :is(.capabilities-panel,.capabilities-scope-group,.capabilities-scope-empty,.capabilities-resource-list) {
   border: 0;
   box-shadow: none;
   background: transparent;
-}
-
-:root[data-theme] .app-shell .capabilities-resource-row:hover {
-  background: var(--ui-surface-hover);
 }
 
 :root[data-theme] .app-shell .capabilities-included-tile {
@@ -20522,7 +19983,7 @@ to {
   box-shadow: none;
 }
 
-:is(.modal-title,.file-history-heading) {
+.modal-title {
   border: 0;
 }
 
@@ -20797,8 +20258,7 @@ to {
 }
 
 :root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.work-folder-rail-button:not(.active):not([aria-current="page"]),.work-folder-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-work-folder-row-actions,.message-copy-button,
-  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
-  .work-folder-header-menu button,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):hover:not(:disabled) {
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):hover:not(:disabled) {
   background: var(--ui-control-hover,var(--ui-surface-hover));
   color: var(--ui-control-foreground,var(--ui-text));
   box-shadow: none;
@@ -20812,8 +20272,7 @@ to {
 }
 
 :root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.work-folder-rail-button:not(.active):not([aria-current="page"]),.work-folder-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-work-folder-row-actions,.message-copy-button,
-  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
-  .work-folder-header-menu button,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):active:not(:disabled) {
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):active:not(:disabled) {
   background: var(--ui-control-pressed);
 }
 
@@ -20851,7 +20310,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) {
+:root[data-theme] .app-shell .file-tree-search {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -20864,16 +20323,16 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search):hover {
+:root[data-theme] .app-shell .file-tree-search:hover {
   background: var(--ui-surface-hover);
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search):focus-within {
+:root[data-theme] .app-shell .file-tree-search:focus-within {
   outline: 2px solid var(--ui-focus, var(--ui-accent));
   outline-offset: 0;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) input {
+:root[data-theme] .app-shell .file-tree-search input {
   flex: 1;
   min-width: 0;
   width: 100%;
@@ -20887,7 +20346,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) input:focus-visible {
+:root[data-theme] .app-shell .file-tree-search input:focus-visible {
   outline: 0;
 }
 
