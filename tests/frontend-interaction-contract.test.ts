@@ -164,8 +164,8 @@ test("a file tab shares on the click and holds the link in a popover", async () 
     read("web-local/src/components/panes/FileSharePopover.tsx"),
     read("web-local/src/components/tree/FileContextMenu.tsx"),
   ]);
-  // Share sits after Open with, only for the file types a page can be.
-  assert.match(pane, /Open with<\/button> : null\}\n\s*\{isShareablePath\(path\) \? <FileShareControl /);
+  // Share sits after Attach to Chat and before Open, only for the file types a page can be.
+  assert.match(pane, /Attach to Chat<\/span><\/button>\n\s*\{isShareablePath\(path\) \? <FileShareControl [^\n]*\n\s*<button className="ui-control ui-control--primary/);
   // One click shares through the Settings route with the file name as title;
   // no confirmation, a plain toast, then the link.
   assert.match(popover, /"\/api\/settings\/publications\/share"/);
@@ -193,6 +193,29 @@ test("a file tab shares on the click and holds the link in a popover", async () 
   assert.match(menu, /isShareablePath\(entry\.path\)/);
   assert.match(app, /onShare=\{shareFile\} shareWorkFolderId=\{workFolder\.id\}/);
   assert.match(app, /onOpenSettings=\{openSharingSettings\}/);
+});
+
+test("a file tab's header is a labeled toolbar with Copy for text and a More menu", async () => {
+  const [pane, styles] = await Promise.all([
+    read("web-local/src/components/panes/FileDetailsPane.tsx"),
+    read("web-local/src/styles.css"),
+  ]);
+  // Copy appears only for a text preview and takes the whole file: a
+  // truncated preview reads the rest through the raw-file route, and Markdown
+  // copies as formatted text with its source as the plain text.
+  assert.match(pane, /const copyable = preview\?\.kind === "text" && Boolean\(preview\.content\);/);
+  assert.match(pane, /preview\.truncated \? await \(await workFolderRawFileBlob\(workFolder\.id, path\)\)\.text\(\) : preview\.content/);
+  assert.match(pane, /if \(markdown\) await copyMarkdownToClipboard\(text\);\n\s*else await copyToClipboard\(\{ text \}\);/);
+  assert.match(pane, /showToast\(\{ text: `Couldn't copy \$\{fileName\}\. \$\{errorText\(caught\)\}`, tone: "error" \}\)/);
+  // The everyday actions keep their words; the rest are named items in More,
+  // never a row of unlabeled icons.
+  assert.match(pane, /<span className="file-details-action-label">Attach to Chat<\/span>/);
+  assert.doesNotMatch(pane, /className="ui-control ui-control--icon" type="button" title=\{revealLabel\}/);
+  for (const item of ["Open with", "Copy File Path", "Version History", "Rename"]) assert.match(pane, new RegExp(`label: "${item}"`));
+  assert.match(pane, /aria-haspopup="menu" aria-expanded=\{open\}/);
+  assert.match(pane, /className="context-menu file-details-menu" role="menu"/);
+  // Narrow tabs drop the words before they wrap the row.
+  assert.match(styles, /@container file-details \(max-width: 560px\) \{\n\n\.file-details-action-label \{\n  display: none;/);
 });
 
 test("a shared file carries a quiet mark in Files and on its tab", async () => {

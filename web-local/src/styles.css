@@ -5893,63 +5893,73 @@ button.context-chip.message-attachment:focus-visible {
   container-type: inline-size;
 }
 
-/* One row: what the file is on the left, what you can do with it on the right. */
+/* A toolbar across the top of the tab: what the file is on the left, the
+   everyday actions with their words on the right, and the rest in More. */
 
 .file-details-header {
   flex: 0 0 auto;
   min-width: 0;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px 16px;
-  padding-bottom: 14px;
+  gap: 8px 16px;
+  padding: 10px 16px 10px 24px;
+  border-bottom: 1px solid #e5e9ef;
 }
 
 .file-details-identity {
   flex: 1 1 auto;
   min-width: 0;
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .file-details-icon {
-  width: 34px;
-  height: 34px;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
 }
 
 .file-details-icon .file-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
 }
 
 .file-details-title {
   min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.file-details-title h2,
+.file-details-title p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .file-details-title h2 {
-  margin: 0;
   color: #101828;
-  font-size: 1.08rem;
-  font-weight: 700;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .file-details-title p {
-  margin: 3px 0 0;
   color: #667085;
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
-.file-details-meta-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.file-details-meta-line svg {
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .file-details-actions {
@@ -5968,7 +5978,23 @@ button.context-chip.message-attachment:focus-visible {
   white-space: nowrap;
 }
 
-@container file-details (max-width: 720px) {
+.file-details-more {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Narrower tabs keep every action but drop the words from Copy and Attach
+   to Chat (their tooltips and accessible names stay); a very narrow tab
+   puts the actions on their own row. */
+
+@container file-details (max-width: 560px) {
+
+.file-details-action-label {
+  display: none;
+}
+}
+
+@container file-details (max-width: 420px) {
 
 .file-details-header {
   flex-wrap: wrap;
@@ -5976,10 +6002,6 @@ button.context-chip.message-attachment:focus-visible {
 
 .file-details-identity {
   flex-basis: 100%;
-}
-
-.file-details-actions {
-  flex-wrap: wrap;
 }
 }
 
@@ -21050,49 +21072,43 @@ to {
 :root[data-theme] .app-shell .surface-tabs[data-reordering="dragging"] * {
   cursor: grabbing;
 }
-/* File metadata, actions and document share one gutter. Reading preferences apply here too. */
+/* The header is a toolbar across the top of the tab, and the file below it
+   scrolls on its own under the same gutter. Reading preferences apply here too. */
 
 :root[data-theme] .app-shell .file-details-pane {
-  gap: 20px;
-  padding: 22px 28px 28px;
+  --file-details-gutter: 28px;
+  gap: 0;
+  padding: 0;
 }
 
 :root[data-theme] .app-shell .file-details-header {
-  padding: 0;
+  padding: 10px 16px 10px var(--file-details-gutter);
   border: 0;
-  gap: 12px 20px;
-}
-
-:root[data-theme] .app-shell .file-details-identity {
-  grid-template-columns: 24px minmax(0,1fr);
-  gap: 12px;
+  border-bottom: 1px solid var(--ui-border);
 }
 
 :root[data-theme] .app-shell .file-details-icon {
-  width: 24px;
-  height: 24px;
   border: 0;
   background: transparent;
 }
 
 :root[data-theme] .app-shell .file-details-title h2 {
-  margin: 0 0 4px;
-  font-size: 1.2rem;
-  font-weight: 600;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  color: var(--ui-text);
 }
 
 :root[data-theme] .app-shell .file-details-title p {
-  margin: 0;
-  font-size: .8rem;
   color: var(--ui-text-muted);
-  line-height: 1.5;
 }
 
-:root[data-theme] .app-shell .file-details-actions {
-  flex-wrap: wrap;
-  gap: 6px;
+:root[data-theme] .app-shell .file-details-copy[data-state="copied"] {
+  color: var(--ui-success);
+}
+
+:root[data-theme] .app-shell .file-details-more .context-menu.file-details-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
 }
 
 :root[data-theme] .app-shell .file-preview {
@@ -21104,14 +21120,14 @@ to {
 }
 
 :root[data-theme] .app-shell .file-preview-document {
-  padding: 0;
+  padding: 0 var(--file-details-gutter);
   background: transparent;
 }
 
 :root[data-theme] .app-shell .file-preview-markdown {
   max-width: var(--work-fold-chat-measure,760px);
   margin: 0;
-  padding: 12px 0 32px;
+  padding: 20px 0 32px;
   font-family: var(--work-fold-reading-font);
   font-size: var(--work-fold-reading-size,15px);
   line-height: var(--work-fold-reading-leading,1.65);
@@ -21138,20 +21154,29 @@ to {
 }
 
 :root[data-theme] .app-shell .file-preview-text {
-  padding: 16px 0;
+  padding: 16px var(--file-details-gutter);
   color: var(--ui-text);
   background: transparent;
   font-family: var(--work-fold-monospace-font);
 }
 
 :root[data-theme] .app-shell .file-preview-truncated {
+  padding: 8px var(--file-details-gutter);
   color: var(--ui-text-muted);
   background: var(--ui-surface-subtle);
   border: 0;
 }
 
+:root[data-theme] .app-shell .file-preview-document .file-preview-truncated {
+  max-width: var(--work-fold-chat-measure,760px);
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  border-radius: var(--ui-radius-sm);
+}
+
 :root[data-theme] .app-shell .file-preview-media {
   min-height: 320px;
+  margin: 20px var(--file-details-gutter) var(--file-details-gutter);
   background: var(--ui-surface-subtle);
   border-radius: var(--ui-radius-md);
 }
@@ -21203,7 +21228,7 @@ to {
 @media(max-width:700px) {
 
 :root[data-theme] .app-shell .file-details-pane {
-  padding: 18px;
+  --file-details-gutter: 18px;
 }
 
 :root[data-theme] .app-shell .history-review {
