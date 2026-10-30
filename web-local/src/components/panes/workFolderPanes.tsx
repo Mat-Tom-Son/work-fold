@@ -577,7 +577,9 @@ function restorePointChanges(preview: HistoryRestorePreview): RestorePointChange
   return [
     ...preview.restoreFiles.map((path): RestorePointChange => ({ kind: "Changed", path })),
     ...preview.removePaths.map((path): RestorePointChange => ({ kind: "Added", path })),
-    ...preview.moves.map((move): RestorePointChange => ({ kind: "Moved", path: move.toPath, detail: `from ${move.fromPath}` })),
+    // The host describes a move the way restoring undoes it, from where the
+    // file is now back to where it was, so the change since then runs the other way.
+    ...preview.moves.map((move): RestorePointChange => ({ kind: "Moved", path: move.fromPath, detail: `from ${move.toPath}` })),
   ];
 }
 

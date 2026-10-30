@@ -57,6 +57,7 @@ test('a restore point lists only what changed since then, in plain words, with C
  assert.match(dom.container.querySelector('h1')!.textContent!,/Saved by you/);
  const rows=[...dom.container.querySelectorAll('.history-change-row')].map(row=>`${row.querySelector('strong')!.textContent} ${row.querySelector('.history-change-kind')!.textContent}`);
  assert.deepEqual(rows,['Hiccup.md Changed','Old map.md Added','notes.md Moved']);
+ assert.equal(dom.container.querySelectorAll('.history-change-row small')[2]!.textContent,'from Notes/notes.md','restoring moves Drafts/notes.md back, so it was moved from Notes');
  assert.doesNotMatch(dom.container.textContent!,/Restored|captured|\.work-fold|\.pi\b/,'no past-tense label, jargon, or folders History never covers');
  assert.equal(dom.container.querySelector('.history-review-note')!.textContent,'Restoring leaves these alone: Video/walk.mov');
  assert.equal(dom.container.querySelector('input'),null,'no free-text file box');
@@ -138,3 +139,15 @@ test('a busy work-folder never holds up History in another work-folder', async t
  assert.equal(otherReads,2,'the other work-folder lists and previews while the first is still reading');
 });
 
+test('a renamed file shows its new name, moved from its old one', async t=>{
+ const dom=await createDomHarness();const original=globalThis.fetch;
+ t.after(async()=>{await dom.cleanup();globalThis.fetch=original;});
+ globalThis.fetch=async(input)=>String(input).endsWith('/preview')
+  ?Response.json({preview:{...changedPreview('rename'),scope:'targeted',restoreFiles:[],moves:[{fromPath:'new-name.txt',toPath:'old-name.txt'}]}})
+  :Response.json({checkpoints:[{checkpointId:'rename',label:'Before renaming old-name.txt',createdAt:'2026-10-30T12:00:00Z',fileCount:0,reason:'pre_rename'}]});
+ await dom.render(createElement(HistoryPane,{workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:'rename',onError(){}}));
+ await dom.waitFor(()=>!!dom.container.querySelector('.history-change-row'));
+ const row=dom.container.querySelector('.history-change-row')!;
+ assert.equal(row.querySelector('strong')!.textContent,'new-name.txt');
+ assert.equal(row.querySelector('small')!.textContent,'from old-name.txt');
+});
