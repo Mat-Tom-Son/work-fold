@@ -126,6 +126,13 @@ export class WorkFoldAgentPopover {
     this.#flushStaged();
   }
 
+  /** Pushes a host notification to the loaded popover; a window not yet loaded reads current state itself. */
+  send(channel: string, payload: unknown): void {
+    const window = this.#window;
+    if (!this.#loaded || !window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(channel, payload);
+  }
+
   destroy(): void {
     this.#destroyed = true;
     const window = this.#window;

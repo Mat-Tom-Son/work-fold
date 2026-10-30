@@ -1,26 +1,33 @@
-import { useEffect, useState } from "react";
-import { AppWindow, CirclePlus, ExternalLink, FolderOpen, History, Loader2, PencilLine } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { AppWindow, Check, CirclePlus, Copy, ExternalLink, FolderOpen, History, Loader2, MoreHorizontal, PencilLine } from "lucide-react";
 import { api, errorText } from "../../lib/api";
-import { workFolderRawFileObjectUrl } from "../../lib/raw-file";
+import { copyToClipboard } from "../../lib/clipboard";
+import { workFolderRawFileBlob, workFolderRawFileObjectUrl } from "../../lib/raw-file";
 import { nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
 import { formatBytes, formatDateTime } from "../../lib/format";
+import { workFolderEntryNativePath } from "../../lib/platform";
 import { fileExtension } from "../../lib/tree";
 import type { TreeEntry, WorkFolderSummary } from "../../types";
+import { showToast } from "../../ui/feedback";
 import { EmptyInline } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
-import { MarkdownMessage } from "../chat/messages";
+import { copyMarkdownToClipboard, MarkdownMessage } from "../chat/messages";
 import { isShareablePath } from "../../lib/page-sharing";
 import { FileShareControl } from "./FileSharePopover";
 
 // Chromium's PDF viewer: no toolbar, no thumbnail pane, fit to width.
 const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";
+const copiedFeedbackMs = 1_600;
+
+type FileMenuItem = { key: string; label: string; icon: ReactNode; run: () => void | Promise<void>; separatorBefore?: boolean };
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
+export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
   workFolder: WorkFolderSummary;
   path: string;
   entry: TreeEntry | null;
+  active?: boolean;
   fixtureMode?: boolean;
   canOpenWith?: boolean;
   onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
@@ -40,6 +47,9 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
   // Which file content the preview reflects: work-folder, path, and modified time.
   // A new modified time refreshes the preview in place; a new path clears it.
   const [contentKey, setContentKey] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">("idle");
+  const copiedTimerRef = useRef<number | null>(null);
+  const copyRequestRef = useRef<AbortController | null>(null);
   const fileKey = `${workFolder.id}\0${path}`;
   const [shownFileKey, setShownFileKey] = useState(fileKey);
   if (shownFileKey !== fileKey) {
@@ -47,7 +57,17 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
     setPreview(undefined);
     setObjectUrl(null);
     setContentKey(null);
+    setCopyState("idle");
   }
+  useEffect(() => {
+    if (!active) setCopyState("idle");
+    return () => {
+      copyRequestRef.current?.abort();
+      copyRequestRef.current = null;
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = null;
+    };
+  }, [fileKey, active]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setMissing(false); setInfo(null);
@@ -102,6 +122,50 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
   ].filter(Boolean).join(" · ");
   const markdown = [".md", ".markdown"].includes(fileExtension(path));
   const revealLabel = revealInFileManagerLabel();
+  // Read current bytes even while the preview is refreshing. Markdown copies like a Chat
+  // reply, as formatted text with the Markdown source as its plain text.
+  const copyable = preview?.kind === "text";
+  async function copyContents() {
+    if (!active || !copyable || copyRequestRef.current) return;
+    const controller = new AbortController();
+    copyRequestRef.current = controller;
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = null;
+    setCopyState("copying");
+    try {
+      const text = await (await workFolderRawFileBlob(workFolder.id, path, controller.signal)).text();
+      if (controller.signal.aborted) return;
+      if (markdown) await copyMarkdownToClipboard(text);
+      else await copyToClipboard({ text });
+      if (controller.signal.aborted) return;
+      setCopyState("copied");
+      copiedTimerRef.current = window.setTimeout(() => { copiedTimerRef.current = null; setCopyState("idle"); }, copiedFeedbackMs);
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setCopyState("idle");
+      showToast({ text: `Couldn't copy ${fileName}. ${errorText(caught)}`, tone: "error" });
+    } finally {
+      if (copyRequestRef.current === controller) copyRequestRef.current = null;
+    }
+  }
+  async function copyPath() {
+    try {
+      await copyToClipboard({ text: workFolderEntryNativePath(workFolder.workFolderRoot, path) });
+      showToast({ text: "Path copied", tone: "success" });
+    } catch (caught) {
+      showToast({ text: `Couldn't copy the path. ${errorText(caught)}`, tone: "error" });
+    }
+  }
+  const copyLabel = copyState === "copied" ? "Copied" : "Copy";
+  // The everyday actions keep their words in the header; the rest live in
+  // one More menu instead of a row of unlabeled icons.
+  const moreItems: FileMenuItem[] = [
+    ...(canOpenWith ? [{ key: "open-with", label: "Open with", icon: <AppWindow size={15} />, run: () => onOpenLocal(path, "open-with") }] : []),
+    ...(openLabel.text !== revealLabel ? [{ key: "reveal", label: revealLabel, icon: <FolderOpen size={15} />, run: () => onOpenLocal(path, "reveal") }] : []),
+    { key: "copy-path", label: "Copy File Path", icon: <Copy size={15} />, run: copyPath },
+    { key: "history", label: "Version History", icon: <History size={15} />, run: () => onShowVersionHistory(path) },
+    ...(onRename ? [{ key: "rename", label: "Rename", icon: <PencilLine size={15} />, run: () => onRename(path), separatorBefore: true }] : []),
+  ];
   if (missing) return <section className="file-details-pane file-details-empty"><EmptyInline text="This file is no longer in the work-folder" /></section>;
   return (
     <section className="file-details-pane" aria-label={`File details for ${fileName}`}>
@@ -110,19 +174,17 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
           <span className="file-details-icon" aria-hidden="true"><FileTypeIcon path={path} /></span>
           <div className="file-details-title">
             <h2 title={path}>{fileName}</h2>
-            <p className="file-details-meta-line">
+            <p className="file-details-meta-line" title={metaLine || undefined}>
               {loading && !info && !entry ? <><Loader2 className="spin" size={12} />Loading</> : metaLine}
             </p>
           </div>
         </div>
         <div className="file-details-actions">
-          <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
-          {canOpenWith ? <button className="ui-control compact no-margin" type="button" onClick={() => void onOpenLocal(path, "open-with")}><AppWindow size={14} />Open with</button> : null}
+          {copyable ? <button className="ui-control compact no-margin file-details-copy" type="button" title={copyState === "copied" ? "Copied" : "Copy contents"} aria-label={copyState === "copied" ? "Copied" : "Copy contents"} aria-busy={copyState === "copying"} data-state={copyState} onClick={() => void copyContents()}>{copyState === "copied" ? <Check size={14} /> : <Copy size={14} />}<span className="file-details-action-label">{copyLabel}</span></button> : null}
+          <button className="ui-control compact no-margin" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={14} /><span className="file-details-action-label">Attach to Chat</span></button>
           {isShareablePath(path) ? <FileShareControl workFolderId={workFolder.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
-          <button className="ui-control ui-control--icon" type="button" title={revealLabel} aria-label={revealLabel} onClick={() => void onOpenLocal(path, "reveal")}><FolderOpen size={15} /></button>
-          <button className="ui-control ui-control--icon" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={15} /></button>
-          <button className="ui-control ui-control--icon" type="button" title="Version History" aria-label="Version History" onClick={() => onShowVersionHistory(path)}><History size={15} /></button>
-          {onRename ? <button className="ui-control ui-control--icon" type="button" title="Rename" aria-label="Rename" onClick={() => onRename(path)}><PencilLine size={15} /></button> : null}
+          <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
+          <FileMoreMenu key={fileKey} items={moreItems} />
         </div>
       </header>
       {preview?.kind === "text" && preview.content ? (
@@ -147,6 +209,59 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
         <div className="file-preview file-preview-none" aria-hidden="true"><FileTypeIcon path={path} /></div>
       ) : null}
     </section>
+  );
+}
+
+/** The header's More button and its menu, keyboard-driven like the Files right-click menu. */
+function FileMoreMenu({ items }: { items: FileMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    function onPointerDown(event: PointerEvent) {
+      if (event.target instanceof Node && anchorRef.current?.contains(event.target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [open]);
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const menuItems = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const index = Math.max(0, menuItems.findIndex((item) => item === document.activeElement));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      menuItems[(index + (event.key === "ArrowDown" ? 1 : -1) + menuItems.length) % menuItems.length]?.focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      menuItems[event.key === "Home" ? 0 : menuItems.length - 1]?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      buttonRef.current?.focus();
+    } else if (event.key === "Tab") {
+      setOpen(false);
+    }
+  }
+  return (
+    <span className="file-details-more" ref={anchorRef}>
+      <button ref={buttonRef} className="ui-control ui-control--icon" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={16} /></button>
+      {open ? (
+        <div ref={menuRef} className="context-menu file-details-menu" role="menu" aria-label="More actions" onKeyDown={handleKeyDown}>
+          {items.map((item) => (
+            <Fragment key={item.key}>
+              {item.separatorBefore ? <div className="context-menu-separator" role="separator" /> : null}
+              <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setOpen(false); void item.run(); }}>{item.icon}{item.label}</button>
+            </Fragment>
+          ))}
+        </div>
+      ) : null}
+    </span>
   );
 }
 

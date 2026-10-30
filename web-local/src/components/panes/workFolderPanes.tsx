@@ -5,32 +5,25 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import {
   ArrowSync16Regular,
-  ArrowUpload16Regular,
   Chat16Regular,
   Checkmark12Regular,
   Checkmark16Regular,
   ChevronRight16Regular,
   Clock16Regular,
-  Copy16Regular,
   Delete16Regular,
   Dismiss16Regular,
-  Folder16Regular,
-  Folder20Regular,
-  FolderAdd16Regular,
   FolderAdd20Regular,
   FolderOpen20Regular,
-  History16Regular,
   History20Regular,
   MoreHorizontal16Regular,
   Search16Regular,
 } from "@fluentui/react-icons";
-import { api, apiForm, errorText } from "../../lib/api";
+import { api, errorText } from "../../lib/api";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { descendantFolders, folderTreeRows } from "../../lib/folder-nesting";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
@@ -39,16 +32,12 @@ import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { workFolderIdentityStyle } from "../../lib/work-folder-identity";
 import type {
   ChatActivityStatus,
-  ChatLifecycleView,
   ConversationSummary,
-  TreeEntry,
   WorkFolderCheckpoint,
   WorkFolderCustomizationMap,
   WorkFolderSummary,
 } from "../../types";
 import { WorkFolderIconGlyph } from "../chrome/common";
-import { FileTypeIcon } from "../tree/FileTree";
-import { TextInputModal } from "../modals/TextInputModal";
 import { requestConfirm, showToast } from "../../ui/feedback";
 import { ChatContentSearch } from "./ChatContentSearch";
 
@@ -585,10 +574,4 @@ function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; d
   );
 }
 
-function LoadingRow({ label }: { label: string }) {
-  return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />{label}</div>;
-}
-
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
-function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }
-function filterTree(entries: TreeEntry[], query: string): TreeEntry[] { return entries.flatMap((entry) => { const children = entry.children ? filterTree(entry.children, query) : []; return entry.name.toLocaleLowerCase().includes(query) || children.length ? [{ ...entry, children }] : []; }); }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Checkmark16Regular } from "@fluentui/react-icons";
 
 import { api, errorText } from "../../lib/api";
+import { formatBytes } from "../../lib/format";
 import { recentlyDeletedSettings } from "../../ui-contract";
 
 /**
@@ -72,15 +73,9 @@ const uncoveredLabels: Record<"too_large" | "unreadable" | "symbolic_link" | "ex
 };
 
 export function formatDeletedSize(bytes: number, approximate?: boolean): string {
-  const units = ["bytes", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  const rounded = unit === 0 ? String(Math.round(value)) : value.toFixed(1);
-  return `${approximate ? "at least " : ""}${rounded} ${units[unit]}`;
+  // A deleted work-folder can pass a gigabyte, which the shared formatter does not show.
+  const size = bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : formatBytes(Math.round(bytes));
+  return `${approximate ? "at least " : ""}${size}`;
 }
 
 /** What the item was and where it came from, such as "Chat from Notes" or "Everywhere Skill". */

@@ -29,6 +29,7 @@ import {
   type AppReleaseLimits,
   type AppReleasePresentation,
 } from "./app-platform-release.js";
+import { syncDirectory } from "./turn-store.js";
 
 export const localAppReleaseStoreFileName = "release.json" as const;
 /**
@@ -1081,24 +1082,6 @@ async function readBounded(handle: FileHandle, maximumBytes: number): Promise<Bu
     chunks.push(bytesRead === chunk.byteLength ? chunk : chunk.subarray(0, bytesRead));
   }
   return Buffer.concat(chunks, position);
-}
-
-async function syncDirectory(directory: string): Promise<void> {
-  let handle: FileHandle | null = null;
-  try {
-    handle = await open(directory, "r");
-    await handle.sync();
-  } catch (error) {
-    if (!directorySyncUnsupported(error)) throw error;
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
-}
-
-function directorySyncUnsupported(error: unknown): boolean {
-  if (!isNodeError(error)) return false;
-  if (["EINVAL", "ENOTSUP", "EISDIR", "EBADF"].includes(error.code ?? "")) return true;
-  return process.platform === "win32" && ["EPERM", "EACCES"].includes(error.code ?? "");
 }
 
 async function pathInfo(path: string): Promise<Awaited<ReturnType<typeof lstat>> | null> {

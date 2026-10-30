@@ -141,6 +141,10 @@ export async function startBridgeServer({
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: maximumDeviceMessageBytes });
   state.webSocketServer = webSocketServer;
   server.on("upgrade", (request, socket, head) => {
+    // Node drops its own socket error listener before emitting `upgrade`, and
+    // the device lookup below awaits the database. A reset in that gap would
+    // otherwise be an unhandled 'error' event that ends the process.
+    socket.on("error", () => socket.destroy());
     void handleUpgrade(state, request, socket, head).catch(() => socket.destroy());
   });
   const heartbeat = setInterval(() => heartbeatDevices(state), 15_000);
@@ -201,6 +205,10 @@ function createState({ database, baseDomain, publicEnrollment, trustProxy, relea
     operationEvents: new Map(),
     operationEventBytes: 0,
     rateLimits: new Map(),
+    // Public viewer traffic has its own buckets, so a crowd of viewer
+    // addresses can never exhaust the management plane's device, pairing,
+    // and operation limits.
+    viewerRateLimits: new Map(),
     loginRateLimits: new Map(),
     loginRateLimitMaximumBuckets: protection.maximumIpBuckets,
     loginAttemptsPerIp: protection.attemptsPerIp,
@@ -239,7 +247,7 @@ function bridgeMetricGauges(state) {
 }
 
 async function handleRequest(state, request, response) {
-  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  const url = requestUrl(request);
   const method = request.method || "GET";
 
   // The pages-* labels are the publishing ladder's viewer plane. They are
@@ -249,7 +257,7 @@ async function handleRequest(state, request, response) {
   if (viewerPlaneHost(state, request) !== null) return handleViewerRequest(state, request, response, url, method);
 
   if (url.pathname === "/health") {
-    if (method !== "GET" && method !== "HEAD") return methodNotAllowed(response, "GET, HEAD");
+    if (method !== "GET" && method !== "HEAD") return methodNotAllowed(response, "GET, HEAD", state, request);
     return writeJson(response, 200, { ok: true, service: "work-fold-bridge", status: "ready" }, method, state, request);
   }
 
@@ -541,7 +549,7 @@ async function handleRequest(state, request, response) {
 }
 
 async function handleUpgrade(state, request, socket, head) {
-  const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  const url = requestUrl(request);
   if (viewerPlaneHost(state, request) !== null) return rejectUpgrade(socket, 404, "Not found");
   if (url.pathname !== "/api/device/connect") return rejectUpgrade(socket, 404, "Not found");
   try {
@@ -1098,7 +1106,7 @@ async function handleViewerPageRequest(state, request, response, publicationId) 
   const account = slug && !isReservedViewerSlug(slug) ? await state.database.accountBySlug(slug) : null;
   if (!account) return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
   try {
-    enforceRateLimit(state.rateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     return writeViewerJson(response, 429, { state: "resting" }, state, request);
@@ -1114,7 +1122,7 @@ async function handleViewerPageRequest(state, request, response, publicationId) 
     return writeViewerJson(response, 200, { state: "resting" }, state, request);
   }
   try {
-    enforceRateLimit(state.rateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     notifyPublicationResting(state, account.id, publication.id, "serve-rate");
@@ -1127,7 +1135,7 @@ async function handleViewerPageRequest(state, request, response, publicationId) 
     return writeViewerJson(response, offline.state === "nothing-here" ? 404 : 200, offline, state, request);
   }
   try {
-    enforceRateLimit(state.rateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     return writeViewerJson(response, 429, { state: "resting" }, state, request);
@@ -1175,7 +1183,7 @@ async function handleViewerAppRequest(state, request, response, publicationId, c
   const account = slug && !isReservedViewerSlug(slug) ? await state.database.accountBySlug(slug) : null;
   if (!account) return writeViewerJson(response, 404, { state: "nothing-here" }, state, request);
   try {
-    enforceRateLimit(state.rateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-ip:${account.id}:${clientIp(state, request)}`, viewerRequestsPerIpPerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     return writeViewerJson(response, 429, { state: "resting" }, state, request);
@@ -1188,7 +1196,7 @@ async function handleViewerAppRequest(state, request, response, publicationId, c
     return writeViewerJson(response, 200, { state: "resting" }, state, request);
   }
   try {
-    enforceRateLimit(state.rateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-serve:${publication.id}`, publication.serveRatePerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     notifyPublicationResting(state, account.id, publication.id, "serve-rate");
@@ -1198,7 +1206,7 @@ async function handleViewerAppRequest(state, request, response, publicationId, c
   const device = state.devices.get(account.id);
   if (!device) return writeViewerJson(response, 200, { state: "asleep" }, state, request);
   try {
-    enforceRateLimit(state.rateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-dispatch:${account.id}`, viewerFetchDispatchPerAccountPerMinute, 60_000);
   } catch {
     state.metrics.recordViewerBudgetExhaustion();
     return writeViewerJson(response, 429, { state: "resting" }, state, request);
@@ -1246,7 +1254,7 @@ function notifyPublicationResting(state, accountId, publicationId, reason) {
   const device = state.devices.get(accountId);
   if (!device) return;
   try {
-    enforceRateLimit(state.rateLimits, `viewer-resting-notice:${publicationId}`, 1, 60_000);
+    enforceRateLimit(state.viewerRateLimits, `viewer-resting-notice:${publicationId}`, 1, 60_000);
   } catch {
     return;
   }
@@ -1423,6 +1431,17 @@ function viewerSecurityHeaders(state, request) {
   };
 }
 
+// Routing reads only the path and query; the host is resolved separately by
+// requestHostname. A fixed base keeps a malformed Host header from turning
+// into a 500 before any route runs.
+function requestUrl(request) {
+  try {
+    return new URL(request.url || "/", "http://localhost");
+  } catch {
+    throw httpError(400, "Malformed request path.");
+  }
+}
+
 function requestHostname(state, request) {
   const forwarded = state.trustProxy ? String(request.headers["x-forwarded-host"] || "").split(",")[0].trim() : "";
   const raw = forwarded || String(request.headers.host || "");
@@ -1585,6 +1604,7 @@ function rememberOperationEvent(state, operationId, event) {
 function pruneTransientState(state) {
   const now = Date.now();
   for (const [key, record] of state.rateLimits) if (record.resetAt <= now) state.rateLimits.delete(key);
+  for (const [key, record] of state.viewerRateLimits) if (record.resetAt <= now) state.viewerRateLimits.delete(key);
   for (const [key, record] of state.loginRateLimits) if (record.resetAt <= now) state.loginRateLimits.delete(key);
   for (const [operationId, record] of state.operationEvents) {
     if (record.expiresAt > now) continue;

@@ -193,6 +193,28 @@ review, one outcome on repeated submission, recovered receipts, a 320×568
 layout, and focus restoration. This is an inert browser UI fixture; the service,
 encrypted transport and real Electron worker are tested separately.
 
+Three more probes run the same way, each refusing any page but its own:
+
+- [`scripts/probes/agent-result-links.probe.js`](../scripts/probes/agent-result-links.probe.js)
+  uses the inert `?fixture=chat` page. It opens a reported deliverable and an
+  app result link from a Chat at phone width, checks that each names its own
+  work-folder and that the app discloses an updated installation, and checks
+  that focus returns after each dialog closes.
+- [`scripts/probes/paired-app-result.probe.js`](../scripts/probes/paired-app-result.probe.js)
+  needs a paired local QA browser (`?slug=paired-apps-qa`) with one
+  already-reviewed order. It reads the real desktop worker's result, retries the
+  same request to show one effect under an unchanged request id, and checks the
+  app stays inside its phone-width dialog.
+- [`scripts/probes/paired-offline.probe.js`](../scripts/probes/paired-offline.probe.js)
+  uses the same paired browser. Start it, then quit the QA desktop normally: it
+  checks that the app reports the desktop offline, clears its frame, and sends
+  no new operations during the offline window.
+
+[`scripts/probes/browser-session-recovery.probe.js`](../scripts/probes/browser-session-recovery.probe.js)
+covers sign-in recovery rather than apps: against any local bridge page it
+stubs inconsistent authentication responses and checks the browser returns to
+**Sign in** once instead of looping.
+
 Paired desktop/browser acceptance verified an actual worker write, exact
 review, same-request retry, native data parity, restart recovery and offline
 containment. The real-model multi-work-folder journey independently verified native

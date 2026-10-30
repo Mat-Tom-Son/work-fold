@@ -84,6 +84,14 @@ The proposal kind is `work-fold.check-proposal`, the declaration kind is
 `work-fold.check`, the initial built-in sensor is `work-fold.file-presence`,
 and the checked-in proposal helper uses the `.work-fold-check.json` suffix.
 
+That helper is `npm run --silent work-fold:checks -- <command>`. Its
+`create-file-presence --title <text> --file <work-folder-relative-path>` command
+(repeat `--file`; optional `--expect present|absent`, `--severity
+info|warning|error`, `--name`, `--out`, `--force`, `--json`) writes one inert
+`work-fold.file-presence` proposal, and `validate <proposal-file> [--json]`
+checks an existing one. It never enables or runs a Check; review the file, then
+use `checks propose` or `checks enable` with an explicit `--work-folder`.
+
 Portable writes and machine-local authority updates must be atomic as one
 logical enable operation: a failure may leave an inert declaration, but must
 never leave undeclared or digest-mismatched authority. Unsupported future

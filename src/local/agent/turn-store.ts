@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { open } from "node:fs/promises";
-import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseTurnFileChanges, type WorkFoldTurnFileChanges } from "./turn-file-changes.js";
 
@@ -318,7 +318,30 @@ export class WorkFoldTurnReplayConflictError extends Error {
   }
 }
 
-async function syncDirectory(path: string): Promise<void> {
+/**
+ * Temp file, fsync, rename, then the directory; 0o600 like the other
+ * machine-local stores. A failure at any step removes the temp file.
+ */
+export async function writeFileAtomic(path: string, content: string): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    const handle = await open(temporary, "w", 0o600);
+    try {
+      await handle.writeFile(content, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
+  await syncDirectory(dirname(path));
+}
+
+/** fsyncs a directory, tolerating only the platforms that cannot. */
+export async function syncDirectory(path: string): Promise<void> {
   let directory: Awaited<ReturnType<typeof open>> | null = null;
   try {
     directory = await open(path, "r");

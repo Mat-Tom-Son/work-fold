@@ -263,18 +263,22 @@ export function ChatPanel({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [active, conversation?.id, lifecycleView]);
-  // Cmd/Ctrl+. stops the running turn from anywhere in the active Chat.
+  // Cmd/Ctrl+. stops the running turn from anywhere in the active Chat. The
+  // listener calls the latest abortTurn: a first send creates the Chat while
+  // the turn is already running, and an older closure would not know it.
+  const abortTurnRef = useRef(abortTurn);
+  abortTurnRef.current = abortTurn;
   useEffect(() => {
     if (!active || (!running && !workState.work?.canStop)) return;
     function stopKeydown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === ".") {
         event.preventDefault();
-        void abortTurn();
+        void abortTurnRef.current();
       }
     }
     window.addEventListener("keydown", stopKeydown);
     return () => window.removeEventListener("keydown", stopKeydown);
-  }, [active, running, workState.work?.canStop, workState.work?.requestId]);
+  }, [active, running, workState.work?.canStop]);
   const [userPinnedToBottom, setUserPinnedToBottom] = useState(true);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -773,7 +777,7 @@ export function ChatPanel({
       if (data.type === "error") {
         flushStreamingText();
         finishThinkingPreview();
-        setError(data.message ?? "Agent error");
+        setError(data.message ?? "The Worker stopped because of an error.");
         runningRef.current = false;
         setRunning(false);
         void loadMessages(conversationId, false, { settleStreamingTurn: true })
@@ -1068,42 +1072,6 @@ export function ChatPanel({
     }
   }
 
-  async function newConversation() {
-    clearTurnSettlement();
-    if (fixtureMode) {
-      cancelScriptPlayback();
-      setConversation(null);
-      commitConversations((fixtureConversations ?? []).map(fixtureConversationSummary));
-      setMessages([]);
-      setDraft("");
-      setRunning(false);
-      setError(null);
-      setStreamingAssistant("");
-      clearRuntimePreviews();
-      setContextAttachments([]);
-      onConversationActivated?.(null);
-      return;
-    }
-    setRunning(false);
-    setError(null);
-    setStreamingAssistant("");
-    clearRuntimePreviews();
-    resetTurnArtifactTracking();
-    setContextAttachments([]);
-    userPinnedToBottomRef.current = true;
-    setUserPinnedToBottom(true);
-    const result = await api<{ conversation: ConversationSummary }>(`/api/work-folders/${workFolder.id}/conversations`, {
-      method: "POST",
-      idempotent: true,
-      body: { conversationId: clientTurnIdentity("chat") },
-    });
-    transientConversationIdsRef.current.add(result.conversation.id);
-    setConversation(result.conversation);
-    onConversationActivated?.(result.conversation);
-    setMessages([]);
-    scrollMessagesToBottom("auto");
-  }
-
   async function switchConversation(selected: ConversationSummary) {
     if (fixtureMode) return;
     clearTurnSettlement();
@@ -1291,6 +1259,19 @@ export function ChatPanel({
     if (!content || running) return;
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
+    // A typed `/compact` takes this Chat's compaction route, as `chat compact`
+    // does (docs/act-ledger.md): the kernel compaction task and the capability
+    // fence, not a turn. A Chat not created yet has nothing to compact.
+    const compactCommand = /^\/compact(?:\s+([\s\S]*))?$/i.exec(content);
+    if (compactCommand && !fixtureMode) {
+      if (contentOverride === undefined) setDraft("");
+      if (!conversation) {
+        showToast({ text: "This Chat has no working context to compact yet.", tone: "info" });
+        return;
+      }
+      void compactConversation(compactCommand[1]?.trim() || undefined, contentOverride === undefined ? content : undefined);
+      return;
+    }
     clearTurnSettlement();
     resetTurnArtifactTracking();
     beginTurnArtifactTracking();
@@ -1593,17 +1574,23 @@ export function ChatPanel({
     }
   }
 
-  async function compactConversation() {
+  async function compactConversation(customInstructions?: string, typedCommand?: string) {
     if (running || fixtureMode || !conversation) return;
     setRunning(true);
     setError(null);
     try {
-      await api<{ compacted: boolean }>(`/api/work-folders/${workFolder.id}/conversations/${conversation.id}/compact`, { method: "POST" });
+      await api<{ compacted: boolean }>(`/api/work-folders/${workFolder.id}/conversations/${conversation.id}/compact`, {
+        method: "POST",
+        ...(customInstructions ? { body: { customInstructions } } : {}),
+      });
       setRunning(false);
+      showToast({ text: "Compacted this Chat's working context.", tone: "success" });
       setConversationRuntime(await loadConversationRuntime(conversation.id));
     } catch (compactError) {
       setRunning(false);
       setError(errorText(compactError));
+      // Put the command back only into an empty composer, as a failed send does.
+      if (typedCommand) setDraft((current) => (current.trim() ? current : typedCommand));
     }
   }
 

@@ -157,22 +157,29 @@ const maxPreviewBytes = 2 * 1024 * 1024;
 const treeScanConcurrency = 64;
 
 export async function listWorkFolders(): Promise<WorkFolderSummary[]> {
-  const registry = await readRegistry();
+  const workFolders = listedWorkFolders(await readRegistry());
+  await Promise.all(workFolders.map(refreshPortableManifest));
+  return workFolders;
+}
+
+/** Registered work-folders a listing shows: not being removed, present on disk, and (when linked) clear of app state. */
+function listedWorkFolders(registry: WorkFolderRegistry, workFolderId?: string): WorkFolderSummary[] {
   const removingIds = new Set(registry.pendingRemovals.map((intent) => intent.workFolderId));
-  const workFolders = registry.workFolders
+  return registry.workFolders
+    .filter((workFolder) => workFolderId === undefined || workFolder.id === workFolderId)
     .filter((workFolder) => !removingIds.has(workFolder.id))
     .filter((workFolder) => existsSync(workFolder.workFolderRoot))
     .filter((workFolder) => workFolder.location.storage !== "linked" || linkedWorkFolderStateSeparated(workFolder.workFolderRoot))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  await Promise.all(workFolders.map(async (workFolder) => {
-    try {
-      await writePortableManifest(workFolder);
-    } catch {
-      // A previously linked folder can become read-only or temporarily unavailable.
-      // Registry-backed listing must remain usable; the next successful mutation retries.
-    }
-  }));
-  return workFolders;
+}
+
+async function refreshPortableManifest(workFolder: WorkFolderSummary): Promise<void> {
+  try {
+    await writePortableManifest(workFolder);
+  } catch {
+    // A previously linked folder can become read-only or temporarily unavailable.
+    // Registry-backed listing must remain usable; the next successful mutation retries.
+  }
 }
 
 export async function createManagedWorkFolder(name: string, baseDir = managedWorkFolderRoot()): Promise<WorkFolderSummary> {
@@ -244,11 +251,16 @@ export async function registerLinkedWorkFolder(workFolderRoot: string, providerH
   });
 }
 
+/**
+ * The lookup nearly every request makes. It applies listWorkFolders()'s
+ * filters to this one work-folder and refreshes only its manifest, rather
+ * than reading and rewriting every registered work-folder's manifest.
+ */
 export async function getWorkFolder(workFolderId: string): Promise<WorkFolderSummary> {
   assertId(workFolderId);
-  const workFolder = (await listWorkFolders()).find((item) => item.id === workFolderId);
+  const [workFolder] = listedWorkFolders(await readRegistry(), workFolderId);
   if (!workFolder) throw notFound("work-folder not found.");
-  if (workFolder.location.storage === "linked") assertLinkedWorkFolderStateSeparation(workFolder.workFolderRoot);
+  await refreshPortableManifest(workFolder);
   return workFolder;
 }
 

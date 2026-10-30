@@ -89,6 +89,7 @@ import {
   type RestrictedAppDataBackup,
   type RestrictedAppStorageOwner,
 } from "./agent/restricted-app-storage.js";
+import { writeFileAtomic } from "./agent/turn-store.js";
 
 export const WORKFOLD_RECENTLY_DELETED_DEFAULT_RETENTION_DAYS = workFoldRecentlyDeletedDefaultRetentionDays;
 export const WORKFOLD_RECENTLY_DELETED_MIN_RETENTION_DAYS = workFoldRecentlyDeletedMinRetentionDays;
@@ -1799,25 +1800,6 @@ async function loadSettings(path: string, defaultRetentionDays: number): Promise
     throw new WorkFoldRecentlyDeletedError("STORE_DAMAGED", `The ${RECENTLY_DELETED} settings at ${path} are not a valid record. Nothing is guessed from a damaged file.`);
   }
   return { version: 1, retentionDays: record.retentionDays!, lastPurgeAt: record.lastPurgeAt ?? null };
-}
-
-/** Temp file, fsync, rename; 0o600 like the other machine-local stores. */
-async function writeFileAtomic(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    const handle = await open(temporary, "w", 0o600);
-    try {
-      await handle.writeFile(content, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    await rename(temporary, path);
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw error;
-  }
-  await syncDirectory(dirname(path));
 }
 
 /** Best-effort durability for a copied tree: fsync every regular file and directory, never following links. */

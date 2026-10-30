@@ -123,9 +123,6 @@ export interface PiResourceCatalog {
   diagnostics: PiCatalogDiagnostic[];
 }
 
-/** Compatibility name retained for the local API while its UI migrates. */
-export type AgentSkillCatalog = PiResourceCatalog;
-
 /**
  * Loads the same native Pi resources an actual chat session will use. Project
  * packages/extensions/skills are included only when project trust resolves.

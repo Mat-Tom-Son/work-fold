@@ -5,6 +5,7 @@ import { workFoldModelContextLimits } from "../../../../src/shared/work-fold-lim
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
+import { formatBytes } from "../../lib/format";
 
 interface InspectorProps {
   workFolderId?: string;
@@ -250,7 +251,6 @@ function HighlightedJson({ text, matches, queryLength }: { text: string; matches
   let end = 0;
   return <>{matches.map((start) => { const before = text.slice(end, start); end = start + queryLength; return <span key={start}>{before}<mark>{text.slice(start, end)}</mark></span>; })}{text.slice(end)}</>;
 }
-function formatBytes(bytes: number): string { return bytes >= 1024 * 1024 ? `${Math.round(bytes / (1024 * 1024))} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`; }
 function purposeLabel(purpose: string): string { return ({ assistant: "Chat turn", chat: "Chat", title: "Chat title", check: "Check", app_inference: "App inference", compaction: "Context compaction" } as Record<string, string>)[purpose] ?? purpose.replace(/[_-]/g, " "); }
 function statusLabel(status: ModelContextInspectionSummary["status"]): string { return status === "response_received" ? "Response started" : status === "dispatch_error" ? "Dispatch error" : "Captured"; }
 function requestLabel(record: ModelContextInspectionSummary): string { return `${new Date(record.createdAt).toLocaleTimeString()} · ${purposeLabel(record.owner.purpose)} · ${record.model}`; }

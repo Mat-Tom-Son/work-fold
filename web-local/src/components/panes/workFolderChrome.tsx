@@ -529,8 +529,13 @@ function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance,
   onManageWorkFolders: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  // Focus enters once, on open: the header re-renders while the menu is up,
+  // and arrow-key navigation must not snap back to the first item.
   useEffect(() => {
-    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    const frame = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       if (menuRef.current?.contains(event.target as Node)) return;
       event.preventDefault();

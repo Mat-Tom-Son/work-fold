@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -86,9 +86,16 @@ const captureStreamHashBytes = 8 * 1024 * 1024;
 
 export async function storeWorkFolderBlob(workFolderRoot: string, bytes: Buffer): Promise<StoredBlobRef> {
   const root = ensureHistoryRoot(workFolderRoot);
+  const stored = await writeWorkFolderBlob(root, bytes);
+  await ensureHistoryMeta(root);
+  return stored;
+}
+
+/** Stores bytes by hash; the caller ensures the History metadata once. */
+async function writeWorkFolderBlob(root: string, bytes: Buffer): Promise<StoredBlobRef> {
   const hashSha256 = sha256(bytes);
   const blobPath = workFolderBlobPath(root, hashSha256);
-  if (!existsSync(blobPath)) {
+  if (!await pathExists(blobPath)) {
     await mkdir(dirname(blobPath), { recursive: true });
     const stagingPath = `${blobPath}.tmp-${randomUUID().slice(0, 8)}`;
     await writeFile(stagingPath, bytes);
@@ -96,10 +103,9 @@ export async function storeWorkFolderBlob(workFolderRoot: string, bytes: Buffer)
       await rename(stagingPath, blobPath);
     } catch (error) {
       await rm(stagingPath, { force: true }).catch(() => undefined);
-      if (!existsSync(blobPath)) throw error;
+      if (!await pathExists(blobPath)) throw error;
     }
   }
-  await ensureHistoryMeta(root);
   return { hashSha256, sizeBytes: bytes.byteLength };
 }
 
@@ -112,14 +118,11 @@ export async function storeWorkFolderBlob(workFolderRoot: string, bytes: Buffer)
  */
 async function storeWorkFolderBlobFromFile(root: string, absolutePath: string, sizeBytes: number): Promise<StoredBlobRef> {
   if (sizeBytes < captureStreamHashBytes) {
-    return storeWorkFolderBlob(root, await readFile(absolutePath));
+    return writeWorkFolderBlob(root, await readFile(absolutePath));
   }
   const hashSha256 = await sha256File(absolutePath);
   const blobPath = workFolderBlobPath(root, hashSha256);
-  if (existsSync(blobPath)) {
-    await ensureHistoryMeta(root);
-    return { hashSha256, sizeBytes };
-  }
+  if (await pathExists(blobPath)) return { hashSha256, sizeBytes };
   await mkdir(dirname(blobPath), { recursive: true });
   const stagingPath = `${blobPath}.tmp-${randomUUID().slice(0, 8)}`;
   try {
@@ -127,7 +130,7 @@ async function storeWorkFolderBlobFromFile(root: string, absolutePath: string, s
     const stagedHash = await sha256File(stagingPath);
     const stagedInfo = await stat(stagingPath);
     const finalPath = workFolderBlobPath(root, stagedHash);
-    if (existsSync(finalPath)) {
+    if (await pathExists(finalPath)) {
       await rm(stagingPath, { force: true });
     } else {
       await mkdir(dirname(finalPath), { recursive: true });
@@ -135,10 +138,9 @@ async function storeWorkFolderBlobFromFile(root: string, absolutePath: string, s
         await rename(stagingPath, finalPath);
       } catch (error) {
         await rm(stagingPath, { force: true }).catch(() => undefined);
-        if (!existsSync(finalPath)) throw error;
+        if (!await pathExists(finalPath)) throw error;
       }
     }
-    await ensureHistoryMeta(root);
     return { hashSha256: stagedHash, sizeBytes: stagedInfo.size };
   } catch (error) {
     await rm(stagingPath, { force: true }).catch(() => undefined);
@@ -463,6 +465,8 @@ async function capturePaths(root: string, requestedPaths: string[], policy: Hist
     }
   };
   await Promise.all(Array.from({ length: Math.min(captureHashConcurrency, pendingFiles.length) }, () => worker()));
+  // Once per capture that stored content, not once per file.
+  if (persistBlobs && files.size) await ensureHistoryMeta(root);
 
   return {
     directories: [...directories].sort((left, right) => left.localeCompare(right)),
@@ -707,6 +711,10 @@ function workFolderBlobPath(root: string, hashSha256: string): string {
 
 function checkpointsDir(root: string): string {
   return join(workFolderHistoryRoot(root), "checkpoints");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  return access(path).then(() => true, () => false);
 }
 
 async function ensureHistoryMeta(root: string): Promise<void> {

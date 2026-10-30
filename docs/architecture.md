@@ -47,7 +47,7 @@ The persistent work-folder-header menu establishes the active root-folder entity
 
 There is no Library: the desktop surface went on 2026-09-25 and the CLI `library` family and its routes on 2026-10-10.
 
-Provider, model, and authentication configuration for the Pi-powered agent lives under **Settings → Agents**.
+Provider, model, and authentication configuration for the Pi-powered agent lives under **Settings → AI Models**.
 
 The concepts have deliberately different scopes and trust levels. Ordinary files are passive. Skills influence how the agent works and may include scripts. Extensions execute code or reach other systems and therefore require stronger, explicit trust. Combining them in one management surface does not collapse those differences: type, provenance, scope, load state, diagnostics, and package contents remain visible. Making something available does not silently activate it or add it to a chat's context.
 

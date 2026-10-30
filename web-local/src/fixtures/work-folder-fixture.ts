@@ -1,4 +1,4 @@
-import type { AgentExtensionSurface, AgentStatus, ConversationSummary, TreeEntry, WorkFolderCheckpoint, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../types";
+import type { AgentExtensionSurface, AgentStatus, TreeEntry, WorkFolderCheckpoint, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../types";
 import type { SharedPageView } from "../lib/page-sharing";
 import { automationTriggerSummary, type FolderAutomationView } from "../../../src/shared/automation-presentation";
 

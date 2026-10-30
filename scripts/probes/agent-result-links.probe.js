@@ -1,6 +1,6 @@
 // Inert, local browser fixture. Domain tests separately prove receipt/History provenance.
 async (page) => {
-  if (page.url() !== 'http://127.0.0.1:4319/?fixture=chat') throw new Error('Expected the isolated fold fixture');
+  if (page.url() !== 'http://127.0.0.1:4319/?fixture=chat') throw new Error('Expected the isolated chat fixture');
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.locator('[data-chat-id="chat-2"]').click();

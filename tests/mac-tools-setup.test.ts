@@ -151,6 +151,22 @@ test("Allow asks macOS, watches for the person's OK, and restarts the helper onc
   assert.match(document.body.textContent!, /Your Worker can see the screen/);
 });
 
+test("a failed status read clears once the next read succeeds", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  let failing = true;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => failing
+    ? Response.json({ error: "The local service restarted." }, { status: 503 })
+    : Response.json({ tools: [{ id: "computer", state: "setup_required", detail: "", checkedAt: "" }] })) as typeof fetch;
+  t.after(() => { globalThis.fetch = original; });
+  await dom.render(createElement(IncludedComputerSetup, { enabled: true }));
+  await dom.waitFor(() => Boolean(document.querySelector(".included-tool-error")));
+  failing = false;
+  await dom.act(() => { window.dispatchEvent(new Event("focus")); });
+  await dom.waitFor(() => !document.querySelector(".included-tool-error"));
+});
+
 test("first run offers Chrome and Computer Control when the app includes them", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());

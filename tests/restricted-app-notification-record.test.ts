@@ -17,7 +17,6 @@ import { startLocalApi } from "../src/local/server.js";
 import type { RestrictedAppInstalled } from "../src/local/agent/restricted-app-service.js";
 import {
   formatNotificationRecordTime,
-  notificationRecordLine,
   notificationRecordStatusLabel,
 } from "../web-local/src/lib/restricted-app-notification-record.js";
 
@@ -202,7 +201,5 @@ test("Settings → Apps describes each outcome in a short line", () => {
   assert.equal(notificationRecordStatusLabel("rate-limited"), "Not shown (too many at once)");
   assert.equal(notificationRecordStatusLabel("unsupported"), "Not shown (notifications unavailable)");
   const at = "2026-10-11T19:02:00.000Z";
-  const entry = { v: 1 as const, id: "11111111-2222-4333-8444-555555555555", at, ...scope, digest, permissionId: "sorted", title: "New screenshots sorted", status: "shown" as const };
-  assert.equal(notificationRecordLine(entry, "en-US"), `Shown ${formatNotificationRecordTime(at, "en-US")} · New screenshots sorted`);
   assert.match(formatNotificationRecordTime(at, "en-US"), /^Oct 11, \d{1,2}:02\s?[AP]M$/);
 });

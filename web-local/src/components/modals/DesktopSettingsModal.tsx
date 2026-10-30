@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type * as React from "react";
 import { LayoutPanelLeft } from "lucide-react";
 import { GlobeCode } from "../chrome/GlobeCodeIcon";
@@ -20,6 +20,7 @@ import {
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { api, errorText } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
+import { formatBytes } from "../../lib/format";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, DesktopUpdateStatus, WorkFolderSummary } from "../../types";
 import { publicationsSettings, remoteAccessSettings } from "../../ui-contract";
@@ -408,6 +409,7 @@ function RemoteAccessPane() {
   );
 }
 
+/** The daily byte budget is set in MiB (Settings → Shared Pages), so it is shown in binary units. */
 function formatPublicationBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes % (1024 * 1024 * 1024) === 0 ? 0 : 1)} GiB`;
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MiB`;
@@ -562,7 +564,7 @@ function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMod
   const countersLine = (publication: SharedPageView): string => {
     const counters = publication.counters;
     if (!counters) return "Not served from this desktop yet";
-    return `Served ${counters.served} time${counters.served === 1 ? "" : "s"} · ${formatPublicationBytes(counters.servedBytes)} · last ${new Date(counters.lastServedAt).toLocaleString()}`;
+    return `Served ${counters.served} time${counters.served === 1 ? "" : "s"} · ${formatBytes(counters.servedBytes)} · last ${new Date(counters.lastServedAt).toLocaleString()}`;
   };
 
   return (
