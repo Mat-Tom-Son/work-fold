@@ -349,48 +349,61 @@ export class WorkFoldJobService {
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     child.once("error", () => undefined);
-    let terminal: Partial<WorkFoldJobRecord> = {};
-    if (accepted.interactive) {
-      const deadline = Date.now() + 2_000;
-      while (Date.now() < deadline) {
-        const pid = Number((await readFile(join(this.store.outputDirectory(accepted.jobId), "terminal.pid"), "utf8").catch(() => "")).trim());
-        if (Number.isInteger(pid) && pid > 1) {
-          // Expect's forkpty child leads its own session/process group. Keep
-          // it stoppable even if ps cannot observe a very short-lived shell.
-          live.terminalGroupId = pid;
-          terminal = { terminalPid: pid, terminalGroupId: pid };
-          const identity = await processStartTime(pid);
-          const group = Number((await execFileAsync("ps", ["-o", "pgid=", "-p", String(pid)]).catch(() => ({ stdout: "" }))).stdout.trim());
-          if (identity && group > 1 && group !== process.pid) {
-            live.terminalGroupId = group;
-            terminal = { terminalPid: pid, terminalGroupId: group, terminalProcessStartedAt: identity };
-          }
-          break;
-        }
-        if (child.exitCode !== null) break;
-        await new Promise(done => setTimeout(done, 10));
-      }
-    }
-    // Settlement is wired before the journal write below, which can fail: once
-    // the process is live, its exit always releases the slot and finishes the
-    // kernel task. A terminal record keeps the running write from undoing it.
-    void exited.then((exit) => this.#finish(live, exit));
-    const startedAt = this.#now().toISOString();
-    const processStartedAt = await processStartTime(child.pid);
-    const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
-      ...record,
-      state: "running",
-      startedAt,
-      pid: child.pid ?? null,
-      processStartedAt,
-      ...terminal,
+    // Listen before startup awaits, but settle only after the running write
+    // succeeds or its failure is recorded on the live job. Otherwise a fast
+    // command can settle as successful before a late startup failure arrives.
+    let finishStartup!: () => void;
+    const startupFinished = new Promise<void>((resolve) => { finishStartup = resolve; });
+    void exited.then(async (exit) => {
+      await startupFinished;
+      await this.#finish(live, exit);
     });
-    if (accepted.timeoutSeconds !== null && !live.exited) {
-      live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
-      live.timeoutTimer.unref();
+    try {
+      let terminal: Partial<WorkFoldJobRecord> = {};
+      if (accepted.interactive) {
+        const deadline = Date.now() + 2_000;
+        while (Date.now() < deadline) {
+          const pid = Number((await readFile(join(this.store.outputDirectory(accepted.jobId), "terminal.pid"), "utf8").catch(() => "")).trim());
+          if (Number.isInteger(pid) && pid > 1) {
+            // Expect's forkpty child leads its own session/process group. Keep
+            // it stoppable even if ps cannot observe a very short-lived shell.
+            live.terminalGroupId = pid;
+            terminal = { terminalPid: pid, terminalGroupId: pid };
+            const identity = await processStartTime(pid);
+            const group = Number((await execFileAsync("ps", ["-o", "pgid=", "-p", String(pid)]).catch(() => ({ stdout: "" }))).stdout.trim());
+            if (identity && group > 1 && group !== process.pid) {
+              live.terminalGroupId = group;
+              terminal = { terminalPid: pid, terminalGroupId: group, terminalProcessStartedAt: identity };
+            }
+            break;
+          }
+          if (child.exitCode !== null) break;
+          await new Promise(done => setTimeout(done, 10));
+        }
+      }
+      const startedAt = this.#now().toISOString();
+      const processStartedAt = await processStartTime(child.pid);
+      const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
+        ...record,
+        state: "running",
+        startedAt,
+        pid: child.pid ?? null,
+        processStartedAt,
+        ...terminal,
+      });
+      if (accepted.timeoutSeconds !== null && !live.exited) {
+        live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
+        live.timeoutTimer.unref();
+      }
+      if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
+      return { ...running, output: writer.counters };
+    } catch (error) {
+      live.startFailure ??= boundJobError(errorMessage(error));
+      this.#signalStop(live);
+      throw error;
+    } finally {
+      finishStartup();
     }
-    if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
-    return { ...running, output: writer.counters };
   }
 
   async #finish(live: LiveJob, exit: { code: number | null; signal: NodeJS.Signals | null }): Promise<void> {

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 
@@ -347,6 +350,35 @@ test("a journal failure after the process starts stops it, records it failed, an
   assert.deepEqual(h.settled.map((settled) => settled.jobId), [job.jobId], "the host settles it exactly once");
   const next = await start(h, "echo slot-reused");
   assert.equal((await h.service.wait(next.jobId, { seconds: 10 })).outcome, "ended");
+});
+
+test("a fast job waits for its startup write before settling, even when that write fails", async (t) => {
+  const h = await harness(t);
+  const spawn = childProcess.spawn;
+  let commandClosed: Promise<void>;
+  const mockedSpawn = t.mock.method(childProcess, "spawn", (...args: Parameters<typeof spawn>) => {
+    const child = spawn(...args);
+    commandClosed = new Promise((resolve) => child.once("close", () => resolve()));
+    return child;
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mockedSpawn.mock.restore(); syncBuiltinESMExports(); });
+  const update = h.store.update.bind(h.store);
+  let first = true;
+  h.store.update = async (jobId, mutate) => {
+    if (!first || mutate(h.store.get(jobId)!).state !== "running") return update(jobId, mutate);
+    first = false;
+    // Hold the running write until the owned process and its output pipes
+    // close. Drain exit handlers before failing the write.
+    await commandClosed;
+    await setImmediate();
+    throw new Error("Late startup journal failure.");
+  };
+  const job = await start(h, "true");
+  assert.equal(job.state, "failed");
+  assert.equal(job.error, "Late startup journal failure.");
+  assert.equal(h.service.runningCount(), 0);
+  assert.deepEqual(h.settled.map((record) => record.state), ["failed"], "the host sees one failed settlement");
 });
 
 test("a wait longer than a timer can hold still waits", async (t) => {

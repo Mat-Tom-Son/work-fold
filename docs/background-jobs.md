@@ -102,6 +102,9 @@ not start) | `interrupted` (work-fold closed or restarted first).
   period used by Stop. The job stays live until that group has drained,
   before History capture and request settlement; a shell's background child
   cannot keep writing after its job is reported finished.
+- **Startup write failure.** Exit settlement waits for the running-record write
+  to succeed or fail. A failure stops the process and settles it once as failed,
+  with History coverage even when a fast command has already exited.
 - **Stop.** Stopping a request (the Chat's Stop, the work line's Stop, `agent
   stop`, a paired browser, or an App's cancel) stops every running job of that
   request and its descendants: SIGTERM to the process group, then SIGKILL after
