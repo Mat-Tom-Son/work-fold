@@ -1,5 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["scripts/harness-eval/**/*.ts"],
+  "include": [
+    "scripts/harness-eval/**/*.ts",
+    "scripts/helper-eval/**/*.ts",
+    "scripts/document-eval/**/*.ts",
+    "scripts/work-fold-drive.ts",
+    "scripts/work-fold-appearance.ts",
+    "scripts/work-fold-checks.ts"
+  ],
   "exclude": []
 }

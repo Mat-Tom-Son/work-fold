@@ -74,9 +74,9 @@ npm test
 ```
 
 `check` includes the fast, offline `repo:check`: shared Skill parity, local-state
-ignore rules, repository links, and current documented npm commands. It checks
-files and paths, not exact marketing wording. Historical release commands stay
-historical.
+ignore rules, repository links and heading anchors, and current documented npm
+commands. It checks files and paths, not exact marketing wording. Historical
+release commands stay historical.
 
 For bridge changes, also run `npm ci --prefix services/bridge` and
 `npm test --prefix services/bridge`. For Electron, packaging, or runtime-resource

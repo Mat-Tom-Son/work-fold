@@ -43,8 +43,8 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Preserve the Windows custom title bar and the platform menu contract; macOS uses its native hidden-inset title bar plus application, File, Edit, View, Window, and Help menus.
 - Preserve window size, position, maximized state, theme integration, and renderer recovery behavior.
 - On Windows, closing the window may hide work-fold to the system tray when the preference is enabled. On macOS, closing the last window keeps the application host alive and the Dock icon recreates the window. Explicit Quit exits cleanly on both. Close-to-tray remains Windows behavior: the macOS menu-bar item never changes what closing the last macOS window means.
-- The tray exposes clear **Your fold**, **Show**, and **Quit** actions and does not strand an invisible process.
-- Both platforms carry the work-fold agent popover (**Your fold**): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the work-fold agent turn and every delegated work-folder turn it aborts.
+- The tray menu exposes clear **work-fold agent**, **Open work-fold**, **Check for Updates...**, and **Quit work-fold** actions and does not strand an invisible process.
+- Both platforms carry the work-fold agent popover (the menu's **work-fold agent** entry): a macOS menu-bar item where left click opens the popover, right click opens the menu, and files or links dropped on the icon become reference chips; the Windows tray offers the same popover through its menu while click still opens the main window. The popover works with the main window closed, holds drops without sending, and its Stop names the work-fold agent turn and every delegated work-folder turn it aborts.
 - Update status and commands remain available from both the platform-appropriate desktop menu and settings surface.
 
 ### Files and folders

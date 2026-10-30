@@ -74,7 +74,7 @@ test("copied Claude workflows, extra imports, and malformed shared Skills are di
 test("documentation links resolve across Markdown, HTML, references, and encoded spaces", async (t) => {
   const f = await fixture(t);
   await f.write("docs/a file.md", "# A file\n");
-  await f.write("docs/README.md", '[Inline](a%20file.md#heading)\n[Reference][guide]\n[guide]: <a file.md>\n<img src="a%20file.md" />\n```md\n[Example](missing-example.md)\n```\n`[also an example](absent.md)`\n[External](https://example.com)\n');
+  await f.write("docs/README.md", '[Inline](a%20file.md#a-file)\n[Reference][guide]\n[guide]: <a file.md>\n<img src="a%20file.md" />\n```md\n[Example](missing-example.md)\n```\n`[also an example](absent.md)`\n[External](https://example.com)\n');
   assert.deepEqual((await f.check()).problems, []);
   await f.write("docs/README.md", "[Broken](missing.md)\n[Generated](../out/private.md)\n[Escape](../../outside.md)\n");
   await f.write("out/private.md", "Local files must not mask missing clone content");
@@ -82,6 +82,20 @@ test("documentation links resolve across Markdown, HTML, references, and encoded
   assert.match(problems, /missing repository link missing.md/);
   assert.match(problems, /missing repository link ..\/out\/private.md/);
   assert.match(problems, /link escapes the checkout/);
+});
+
+test("heading anchors follow GitHub slugs, including repeats, outside archived and dated docs", async (t) => {
+  const f = await fixture(t);
+  await f.write("docs/guide.md", "# Guide\n## Skills & Extensions\n## Setup\n## Setup\n<a id=\"pinned\"></a>\n```md\n# Not a heading\n```\n");
+  await f.write("docs/README.md", "[A](guide.md#skills--extensions)\n[B](guide.md#setup-1)\n[C](guide.md#pinned)\n[D](#docs)\n# Docs\n");
+  await f.write("docs/archive/old.md", "[Kept](../guide.md#retired-heading)\n");
+  await f.write("docs/releases/0.1.0.md", "[Kept](../guide.md#retired-heading)\n");
+  assert.deepEqual((await f.check()).problems, []);
+  await f.write("docs/README.md", "[A](guide.md#skills-extensions)\n[B](guide.md#setup-2)\n[C](guide.md#not-a-heading)\n[D](#missing)\n");
+  const problems = (await f.check()).problems.join("\n");
+  for (const anchor of ["docs/guide.md#skills-extensions", "docs/guide.md#setup-2", "docs/guide.md#not-a-heading", "#missing"]) {
+    assert.ok(problems.includes(`missing heading anchor ${anchor}`), `${anchor} should be reported:\n${problems}`);
+  }
 });
 
 test("documented npm commands respect package scope and retain dated release history", async (t) => {

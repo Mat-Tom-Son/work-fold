@@ -110,9 +110,9 @@ rules, which mirror the desktop's.
 | Apply appearance | Customize work-folder → Import proposal | none | direct verb (argued below) | `work-folders appearance apply --work-folder <id> (--proposal <path> \| [--banner-image <path>] [--icon <name>] [--color <#rrggbb>])` | prior customization ref | `work-folders appearance undo --work-folder <id>` | proposal must parse as the typed `work-folder-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize work-folder → Reset | none | direct verb | `work-folders appearance reset --work-folder <id>` | prior customization ref | `work-folders appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `work-folders appearance undo --work-folder <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that work-folder, including when the current appearance was last changed on the desktop rather than through a receipted act |
-| Inspect Worker preferences | Settings → AI Models | none | direct verb (content-bearing act read) | `work-folders assistant show --work-folder <id>` | — | n/a | returns only connected model choices plus the current model and instruction text; provider credentials never enter the result |
-| Set the default model for new Chats | Settings → AI Models | none | direct verb | `work-folders assistant model --work-folder <id> --provider <id> --model <id>` | provider and model ids | choose the prior model again | selected model must exist and already have configured auth; fenced against active agent, compaction, or Check work; existing Chat sessions keep their session model |
-| Set or clear work-folder instructions | Settings → AI Models | none | direct verb | `work-folders assistant instructions --work-folder <id> (--instructions <text> \| --clear)` | updated character count or cleared marker — never text | set the prior text again or clear | bounded validated text; fenced against active agent, compaction, or Check work; applies to subsequent turns after scoped client invalidation |
+| Inspect Worker preferences | Settings → AI Models | none | direct verb (content-bearing act read) | `work-folders worker show --work-folder <id>` | — | n/a | returns only connected model choices plus the current model and instruction text; provider credentials never enter the result |
+| Set the default model for new Chats | Settings → AI Models | none | direct verb | `work-folders worker model --work-folder <id> --provider <id> --model <id>` | provider and model ids | choose the prior model again | selected model must exist and already have configured auth; fenced against active agent, compaction, or Check work; existing Chat sessions keep their session model |
+| Set or clear work-folder instructions | Settings → AI Models | none | direct verb | `work-folders worker instructions --work-folder <id> (--instructions <text> \| --clear)` | updated character count or cleared marker — never text | set the prior text again or clear | bounded validated text; fenced against active agent, compaction, or Check work; applies to subsequent turns after scoped client invalidation |
 
 The desktop couples managed-work-folder removal with folder deletion in one
 confirm dialog; the ledger splits them. Unregistration is recoverable and
@@ -371,7 +371,7 @@ Absences that are decisions, not gaps:
 
 - **Desktop-session verbs** — reveal in OS, open with native app, Quick
   Look preview, copy native path, native drag out. They act on this
-  desktop's windowing session; a fold verb would be meaningless from a
+  desktop's windowing session; a work-fold agent verb would be meaningless from a
   phone and a lie in a receipt.
 - **Navigation and workspace state** — switching work-folders, opening tabs,
   selecting files, rail modes, pane sizes. work-folder-bound tabs are a desktop
@@ -381,13 +381,13 @@ Absences that are decisions, not gaps:
   Machine-local preferences with no product meaning.
 - **work-fold self-update** — check, download, install. The updater changes
   the code that enforces everything in this document; it stays a
-  desktop-human action and gains no fold verb.
+  desktop-human action and gains no work-fold agent verb.
 - **Answering extension-UI and permission prompts inside a running turn** —
   these render inside the Chat surface and can carry permission semantics;
   the work-fold agent answering them programmatically would be an answer the person
   did not give. They surface as needs-you questions in the overview and are
   answered on a chat surface by the person.
-- **Composer slash commands as a fold surface** — `/compact` graduated to a
+- **Composer slash commands as a work-fold agent surface** — `/compact` graduated to a
   real verb above; the rest remain conversational conveniences inside a
   turn, not product verbs.
 
