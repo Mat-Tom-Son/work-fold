@@ -14,6 +14,7 @@ const assets = registerHooks({
 });
 
 const {HistoryPane}=await import('../web-local/src/components/panes/workFolderPanes.js');
+const {HistoryFileComparison}=await import('../web-local/src/components/panes/HistoryFileComparison.js');
 assets.deregister();
 
 test('opening a History restore point completes under the exclusive host read fence', async t=>{
@@ -150,4 +151,31 @@ test('a renamed file shows its new name, moved from its old one', async t=>{
  const row=dom.container.querySelector('.history-change-row')!;
  assert.equal(row.querySelector('strong')!.textContent,'new-name.txt');
  assert.equal(row.querySelector('small')!.textContent,'from old-name.txt');
+});
+
+test('switching Compare to another file lets the first comparison finish before the next one starts', async t=>{
+ const dom=await createDomHarness();const original=globalThis.fetch;
+ let reading=false;let release=()=>{};const requested:string[]=[];const refused:string[]=[];
+ t.after(async()=>{release();await dom.cleanup();globalThis.fetch=original;});
+ globalThis.fetch=async(input,init)=>{
+  const path=new URL(String(input),'http://localhost').searchParams.get('path')!;
+  if(reading){refused.push(path);return busyError();}
+  requested.push(path);reading=true;
+  // The host keeps reading, and holding its History lock, after the app stops listening.
+  return new Promise<Response>((resolve,reject)=>{
+   release=()=>{reading=false;resolve(Response.json({error:'not needed'},{status:404}));};
+   init?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});
+  });
+ };
+ const comparison=(path:string)=>createElement(HistoryFileComparison,{workFolderId:'disposable',path,fromCheckpointId:'one'});
+ await dom.render(comparison('first.txt'));
+ await dom.waitFor(()=>reading);
+ await dom.render(comparison('second.txt'));
+ await dom.render(comparison('third.txt'));
+ await dom.settle();
+ assert.deepEqual(refused,[]);
+ await dom.act(async()=>{release();});
+ await dom.waitFor(()=>requested.length===2);
+ assert.deepEqual(requested,['first.txt','third.txt'],'a comparison replaced while it waited is never sent');
+ assert.deepEqual(refused,[]);
 });
