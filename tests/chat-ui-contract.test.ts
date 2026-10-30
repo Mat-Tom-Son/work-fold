@@ -208,6 +208,12 @@ test("surface tab labels use crisp shell typography", () => {
   assert.match(tabBar, /role="menuitemcheckbox"/);
 });
 
+test("opening a past Chat never flashes the new-Chat greeting while its messages load", () => {
+  assert.match(chatPanel, /const openingPastChat = !fixtureMode && Boolean\(targetConversationId\)\s*&& \(conversation\?\.id !== targetConversationId \|\| openingConversationId === targetConversationId\);/);
+  assert.match(chatPanel, /\{!hasTranscript && !openingPastChat \? \(\s*<ChatEmptyState/);
+  assert.match(chatPanel, /setOpeningConversationId\(selected\.id\);\s*let transcript: ChatMessage\[\];\s*try \{\s*transcript = await loadMessages\(selected\.id, true\);\s*\} finally \{\s*setOpeningConversationId\(\(current\) => current === selected\.id \? null : current\);/, "a failed load must not leave the Chat blank forever");
+});
+
 test("a tab group starts with just its work-folder's colored icon, and a line separates groups", () => {
   assert.match(tabBar, /<span className="surface-tab-group" role="presentation" key=\{group\.workFolderId\} style=\{workFolderIdentityStyle\(identity\)\}>/, "the group carries its work-folder's colors");
   assert.match(tabBar, /<span className="surface-tab-group-label" title=\{tabWorkFolder\.name\} aria-hidden="true">\s*<WorkFolderIconGlyph icon=\{identity\.Icon\} size=\{15\} \/>\s*<\/span>/, "icon only; the name is the hover title");
