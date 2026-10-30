@@ -3881,7 +3881,10 @@ to {
   border-left: 1px solid #d8e0e8;
 }
 
-.surface-tab-group:first-child {
+/* A line separates groups; none leads the first. The active tab's frame is
+   the strip's first child, so the first group can follow it. */
+.surface-tab-group:first-child,
+.surface-tab-active-chrome + .surface-tab-group {
   padding-left: 0;
   border-left: 0;
 }
@@ -3897,28 +3900,15 @@ to {
   max-width: 196px;
 }
 
+/* Just the work-folder's icon in its color; the name shows on hover. */
 .surface-tab-group-label {
-  width: clamp(68px, 8vw, 102px);
-  height: 35px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 7px;
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #475467));
-  font-size: 0.67rem;
-  font-weight: 680;
-}
-
-.surface-tab-group-label > svg {
   flex: 0 0 auto;
-}
-
-.surface-tab-group-label > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--work-folder-accent-glyph, var(--work-folder-custom-color, #475467));
 }
 
 .surface-tab-actions {
@@ -6883,10 +6873,6 @@ to {
 
 .app-shell[data-theme="dark"] .surface-tab-group {
   border-left-color: rgba(148, 163, 184, 0.22);
-}
-
-.app-shell[data-theme="dark"] .surface-tab-group-label {
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #cbd5e1));
 }
 
 .app-shell[data-theme="dark"] .surface-tab-work-folder-menu-separator {
@@ -20992,10 +20978,6 @@ to {
 
 :root[data-theme] .app-shell .surface-tab-group-tabs {
   gap: 6px;
-}
-
-:root[data-theme] .app-shell .surface-tab-group-label {
-  height: 34px;
 }
 
 :root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab {

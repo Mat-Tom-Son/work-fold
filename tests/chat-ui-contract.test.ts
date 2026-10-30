@@ -208,6 +208,18 @@ test("surface tab labels use crisp shell typography", () => {
   assert.match(tabBar, /role="menuitemcheckbox"/);
 });
 
+test("a tab group starts with just its work-folder's colored icon, and a line separates groups", () => {
+  assert.match(tabBar, /<span className="surface-tab-group" role="presentation" key=\{group\.workFolderId\} style=\{workFolderIdentityStyle\(identity\)\}>/, "the group carries its work-folder's colors");
+  assert.match(tabBar, /<span className="surface-tab-group-label" title=\{tabWorkFolder\.name\} aria-hidden="true">\s*<WorkFolderIconGlyph icon=\{identity\.Icon\} size=\{15\} \/>\s*<\/span>/, "icon only; the name is the hover title");
+  assert.doesNotMatch(tabBar, /<span>\{tabWorkFolder\.name\}<\/span>|<span>Browser<\/span>/);
+  assert.match(tabBar, /aria-label=\{`\$\{tab\.title\} in \$\{workFolderName\}/, "each tab still names its work-folder for assistive technology");
+  const iconRule = styles.match(/\n\.surface-tab-group-label \{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(iconRule, /color: var\(--work-folder-accent-glyph/);
+  assert.doesNotMatch(iconRule, /background/, "a bare icon, not a chip");
+  assert.match(styles, /\n\.surface-tab-group \{[\s\S]*?border-left: 1px solid/, "a line between groups");
+  assert.match(styles, /\.surface-tab-active-chrome \+ \.surface-tab-group \{\s*padding-left: 0;\s*border-left: 0;/, "no line before the first group");
+});
+
 test("assistant rendering has complete Markdown chrome and work-folder-aware accents", () => {
   for (const contract of ["message-code-toolbar", "message-table-scroll", "message-image", "work-folder-file-link"]) {
     assert.match(messages, new RegExp(contract));

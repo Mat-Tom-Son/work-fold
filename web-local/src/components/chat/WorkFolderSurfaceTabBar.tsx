@@ -447,8 +447,7 @@ export function WorkFolderSurfaceTabBar({
             return (
               <span className="surface-tab-group surface-tab-group-browser" role="presentation" key="browser">
                 <span className="surface-tab-group-label" title="Browser" aria-hidden="true">
-                  <FluentGlyph icon={BrowserTabIcon} size={14} filled={false} />
-                  <span>Browser</span>
+                  <FluentGlyph icon={BrowserTabIcon} size={15} filled={false} />
                 </span>
                 <span className="surface-tab-group-tabs" role="presentation">
                   {group.tabs.map((tab) => renderSurfaceTab(tab, true))}
@@ -459,16 +458,13 @@ export function WorkFolderSurfaceTabBar({
           const tabWorkFolder = workFolders.find((item) => item.id === group.workFolderId)
             ?? fallbackWorkFolderSummary(group.workFolderId, "work-folder");
           const identity = workFolderIdentityFor(tabWorkFolder, workFolderCustomizations);
+          // The group carries the work-folder's colors so its icon chip and the
+          // line under its tabs match; the name shows on hover, and each tab's
+          // accessible name already says which work-folder it is in.
           return (
-            <span className="surface-tab-group" role="presentation" key={group.workFolderId}>
-              <span
-                className="surface-tab-group-label"
-                style={workFolderIdentityStyle(identity)}
-                title={tabWorkFolder.name}
-                aria-hidden="true"
-              >
-                <WorkFolderIconGlyph icon={identity.Icon} size={14} />
-                <span>{tabWorkFolder.name}</span>
+            <span className="surface-tab-group" role="presentation" key={group.workFolderId} style={workFolderIdentityStyle(identity)}>
+              <span className="surface-tab-group-label" title={tabWorkFolder.name} aria-hidden="true">
+                <WorkFolderIconGlyph icon={identity.Icon} size={15} />
               </span>
               <span className="surface-tab-group-tabs" role="presentation">
                 {group.tabs.map((tab) => renderSurfaceTab(tab, true))}
