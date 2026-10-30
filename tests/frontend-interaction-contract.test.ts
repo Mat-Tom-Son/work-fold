@@ -200,13 +200,8 @@ test("a file tab's header is a labeled toolbar with Copy for text and a More men
     read("web-local/src/components/panes/FileDetailsPane.tsx"),
     read("web-local/src/styles.css"),
   ]);
-  // Copy appears only for a text preview and takes the whole file: a
-  // truncated preview reads the rest through the raw-file route, and Markdown
-  // copies as formatted text with its source as the plain text.
-  assert.match(pane, /const copyable = preview\?\.kind === "text" && Boolean\(preview\.content\);/);
-  assert.match(pane, /preview\.truncated \? await \(await workFolderRawFileBlob\(workFolder\.id, path\)\)\.text\(\) : preview\.content/);
-  assert.match(pane, /if \(markdown\) await copyMarkdownToClipboard\(text\);\n\s*else await copyToClipboard\(\{ text \}\);/);
-  assert.match(pane, /showToast\(\{ text: `Couldn't copy \$\{fileName\}\. \$\{errorText\(caught\)\}`, tone: "error" \}\)/);
+  // Clipboard bytes, freshness, empty files and cancelled reads are covered
+  // by file-details-ui.test.ts against the mounted component.
   // The everyday actions keep their words; the rest are named items in More,
   // never a row of unlabeled icons.
   assert.match(pane, /<span className="file-details-action-label">Attach to Chat<\/span>/);

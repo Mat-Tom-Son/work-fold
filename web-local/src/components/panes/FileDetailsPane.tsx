@@ -23,10 +23,11 @@ type FileMenuItem = { key: string; label: string; icon: ReactNode; run: () => vo
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
+export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
   workFolder: WorkFolderSummary;
   path: string;
   entry: TreeEntry | null;
+  active?: boolean;
   fixtureMode?: boolean;
   canOpenWith?: boolean;
   onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
@@ -48,6 +49,7 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
   const [contentKey, setContentKey] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">("idle");
   const copiedTimerRef = useRef<number | null>(null);
+  const copyRequestRef = useRef<AbortController | null>(null);
   const fileKey = `${workFolder.id}\0${path}`;
   const [shownFileKey, setShownFileKey] = useState(fileKey);
   if (shownFileKey !== fileKey) {
@@ -57,7 +59,15 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
     setContentKey(null);
     setCopyState("idle");
   }
-  useEffect(() => () => { if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current); }, []);
+  useEffect(() => {
+    if (!active) setCopyState("idle");
+    return () => {
+      copyRequestRef.current?.abort();
+      copyRequestRef.current = null;
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = null;
+    };
+  }, [fileKey, active]);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setMissing(false); setInfo(null);
@@ -112,23 +122,30 @@ export function FileDetailsPane({ workFolder, path, entry, fixtureMode = false, 
   ].filter(Boolean).join(" · ");
   const markdown = [".md", ".markdown"].includes(fileExtension(path));
   const revealLabel = revealInFileManagerLabel();
-  // Copy takes the whole file, not the bounded preview: a truncated preview
-  // reads the rest through the raw-file route. Markdown copies like a Chat
+  // Read current bytes even while the preview is refreshing. Markdown copies like a Chat
   // reply, as formatted text with the Markdown source as its plain text.
-  const copyable = preview?.kind === "text" && Boolean(preview.content);
+  const copyable = preview?.kind === "text";
   async function copyContents() {
-    if (preview?.kind !== "text" || !preview.content || copyState === "copying") return;
+    if (!active || !copyable || copyRequestRef.current) return;
+    const controller = new AbortController();
+    copyRequestRef.current = controller;
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = null;
     setCopyState("copying");
     try {
-      const text = preview.truncated ? await (await workFolderRawFileBlob(workFolder.id, path)).text() : preview.content;
+      const text = await (await workFolderRawFileBlob(workFolder.id, path, controller.signal)).text();
+      if (controller.signal.aborted) return;
       if (markdown) await copyMarkdownToClipboard(text);
       else await copyToClipboard({ text });
+      if (controller.signal.aborted) return;
       setCopyState("copied");
-      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = window.setTimeout(() => { copiedTimerRef.current = null; setCopyState("idle"); }, copiedFeedbackMs);
     } catch (caught) {
+      if (controller.signal.aborted) return;
       setCopyState("idle");
       showToast({ text: `Couldn't copy ${fileName}. ${errorText(caught)}`, tone: "error" });
+    } finally {
+      if (copyRequestRef.current === controller) copyRequestRef.current = null;
     }
   }
   async function copyPath() {
