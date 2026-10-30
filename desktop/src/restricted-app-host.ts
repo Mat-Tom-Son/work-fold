@@ -340,7 +340,6 @@ interface RestrictedAppFileWatchEntry extends RestrictedAppScopeRef {
 }
 
 export class RestrictedAppHost implements RestrictedAppRuntimeHost {
-  readonly #connections: RestrictedAppConnectionStore;
   readonly #preloadPath: string;
   readonly #kit: Map<string, RestrictedAppKitAsset>;
   readonly #attention = new Map<string, RestrictedAppAttention>();
@@ -386,7 +385,6 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
     this.#readCheckResult = options.readCheckResult;
     this.#assistantTasks = options.assistantTasks;
     this.#assistantInference = options.assistantInference;
-    this.#connections = options.connections;
     this.#preloadPath = options.preloadPath;
     this.#kit = loadRestrictedAppKit(options.kitRoot);
     this.#onAttention = options.onAttention;

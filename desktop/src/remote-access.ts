@@ -25,6 +25,20 @@ import type { WorkFoldRemoteFacade, WorkFoldRemoteOperation, WorkFoldRemotePrinc
 import type { RemoteAccessSettings, RemoteBrowserGrantSettings, SecureSettingsStore } from "./settings.js";
 
 const reconnectDelaysMs = [500, 1_000, 2_000, 5_000, 10_000, 20_000, 30_000] as const;
+/**
+ * The bridge pings each device every 15 s and sends nothing else on an idle
+ * link. Three missed pings mean the network dropped without a FIN, so the
+ * socket is torn down and the ordinary reconnect path takes over.
+ */
+const deviceSocketSilenceLimitMs = 45_000;
+/**
+ * Desktop-to-bridge HTTP calls are small JSON requests; a stalled bridge must
+ * fail them promptly rather than hold a Settings action (or the remote
+ * authority queue) for the HTTP client's multi-minute default.
+ */
+export const remoteBridgeRequestTimeoutMs = 30_000;
+/** Snapshot syncs carry up to 4 MB of ciphertext, so they get a longer bound. */
+const remotePublicationSyncTimeoutMs = 120_000;
 const maximumRememberedResponses = 256;
 const maximumRemoteRequestCiphertextCharacters = Math.floor(12 * 1024 * 1024 * 1.4);
 /**
@@ -172,6 +186,7 @@ export class RemoteAccessClient {
   #onStatus: (status: RemoteAccessStatus) => void;
   #createSocket: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
   #timers: RemoteAccessTimers;
+  #now: () => number;
   #viewerPages: RemoteViewerPageProvider | null;
   #socket: WebSocket | null = null;
   #stopped = true;
@@ -200,6 +215,7 @@ export class RemoteAccessClient {
     onStatus?: (status: RemoteAccessStatus) => void;
     createSocket?: (url: URL, options: { headers: { authorization: string } }) => WebSocket;
     timers?: RemoteAccessTimers;
+    now?: () => number;
     viewerPages?: RemoteViewerPageProvider | null;
   }) {
     this.#settingsStore = options.settingsStore;
@@ -208,6 +224,7 @@ export class RemoteAccessClient {
     this.#onStatus = options.onStatus ?? (() => undefined);
     this.#createSocket = options.createSocket ?? ((url, socketOptions) => new WebSocket(url, socketOptions));
     this.#timers = options.timers ?? defaultRemoteAccessTimers;
+    this.#now = options.now ?? Date.now;
     this.#viewerPages = options.viewerPages ?? null;
   }
 
@@ -307,6 +324,8 @@ export class RemoteAccessClient {
     if (displaced && displaced !== socket && displaced.readyState < WebSocket.CLOSING) {
       displaced.close(1000, "Superseded remote connection");
     }
+    // Any frame or bridge ping proves the link is alive (deviceSocketSilenceLimitMs).
+    let lastInboundAt = this.#now();
     socket.on("open", () => {
       if (!this.#isCurrentSocket(socket, generation)) {
         if (socket.readyState < WebSocket.CLOSING) socket.close(1000, "Superseded remote connection");
@@ -323,13 +342,24 @@ export class RemoteAccessClient {
       if (viewerPages?.onDeviceConnected) {
         void Promise.resolve().then(() => viewerPages.onDeviceConnected!()).catch(() => undefined);
       }
+      lastInboundAt = this.#now();
       if (this.#heartbeatTimer) this.#timers.clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = this.#timers.setInterval(() => {
-        if (this.#isCurrentSocket(socket, generation)) this.#sendOnSocket(socket, { type: "device.heartbeat" });
+        if (!this.#isCurrentSocket(socket, generation)) return;
+        // A link that dropped without a FIN never errors on its own until the
+        // OS gives up on retransmits; the bridge has long since marked this
+        // desktop offline. Ending the socket hands it to the reconnect path.
+        if (this.#now() - lastInboundAt >= deviceSocketSilenceLimitMs) {
+          if (socket.readyState === WebSocket.OPEN) socket.terminate();
+          return;
+        }
+        this.#sendOnSocket(socket, { type: "device.heartbeat" });
       }, 20_000);
     });
+    socket.on("ping", () => { lastInboundAt = this.#now(); });
     socket.on("message", (raw) => {
       if (!this.#isCurrentSocket(socket, generation)) return;
+      lastInboundAt = this.#now();
       void this.#handleMessage(raw.toString()).catch((error) => {
         if (!this.#isCurrentSocket(socket, generation)) return;
         if (error instanceof RemotePeerProtocolError) {
@@ -1097,6 +1127,7 @@ export function createRemoteBridgePublicationSync(
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(remotePublicationSyncTimeoutMs),
     });
     if (!response.ok) {
       const parsed = await response.json().catch(() => null) as { error?: unknown } | null;
@@ -1339,6 +1370,7 @@ function canonicalize(value: unknown): string {
 async function currentGrantGeneration(settings: RemoteAccessSettings): Promise<number> {
   const response = await fetch(new URL("/api/device/account", settings.bridgeUrl), {
     headers: { authorization: `Bearer ${settings.deviceToken}` },
+    signal: AbortSignal.timeout(remoteBridgeRequestTimeoutMs),
   });
   const body = await response.json() as { account?: { grantGeneration?: unknown }; error?: unknown };
   if (!response.ok || !Number.isInteger(body.account?.grantGeneration)) throw new Error(typeof body.error === "string" ? body.error : "Could not read the remote grant generation.");
