@@ -103,6 +103,13 @@ import {
   type NativeFileMenuCommand,
   type NativeFileMenuRequest,
 } from "./file-context-menu.js";
+import {
+  nativeTabMenuItems,
+  parseNativeTabMenuRequest,
+  type NativeTabMenuCommand,
+  type NativeTabMenuItem,
+  type NativeTabMenuRequest,
+} from "./tab-context-menu.js";
 import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
@@ -1342,6 +1349,11 @@ function registerIpc(): void {
     await validateNativeFileMenuEntry(request);
     return popupNativeFileMenu(request);
   });
+  ipcMain.handle("work-fold:work-folder:popup-tab-menu", (event, value: unknown): Promise<NativeTabMenuCommand | null> => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "darwin") return Promise.resolve(null);
+    return popupNativeTabMenu(parseNativeTabMenuRequest(value));
+  });
   ipcMain.handle("work-fold:work-folder:set-active-work-folder", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (value !== null && (typeof value !== "string" || !value.trim() || value.length > 512)) {
@@ -2086,6 +2098,35 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
       x: request.point.x,
       y: request.point.y,
       callback: () => finish(null),
+    });
+  });
+}
+
+function popupNativeTabMenu(request: NativeTabMenuRequest): Promise<NativeTabMenuCommand | null> {
+  const window = mainWindow;
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+    return Promise.reject(new Error("The work-fold window is not available."));
+  }
+  return new Promise((resolveCommand) => {
+    let settled = false;
+    const finish = (command: NativeTabMenuCommand | null) => {
+      if (settled) return;
+      settled = true;
+      resolveCommand(command);
+    };
+    const template = (items: NativeTabMenuItem[]): MenuItemConstructorOptions[] => items.map((item) => {
+      if (item.type === "separator") return { type: "separator" };
+      if (item.type === "submenu") return { label: item.label, submenu: template(item.items) };
+      return { label: item.label, ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
+    });
+    // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
+    const zoom = window.webContents.getZoomFactor() || 1;
+    Menu.buildFromTemplate(template(nativeTabMenuItems(request))).popup({
+      window,
+      x: Math.round(request.point.x * zoom),
+      y: Math.round(request.point.y * zoom),
+      // The menu can report closing before the chosen item's click runs.
+      callback: () => setTimeout(() => finish(null), 0),
     });
   });
 }

@@ -584,8 +584,8 @@ Owner decisions, recorded here in dated form; the body of this document and
   shortcuts, pinned to the work-folder it was opened from. Its Installed view starts
   with an **Included with work-fold** strip holding exactly the five included
   tools (Chrome, Computer Control, Web, Documents, Service Connections), each
-  with one status word (Ready, Setup needed, Unavailable, Not checked, Turned
-  off; Chrome shows Connected or Not connected) and a **Set up** button only
+  with one Title Case status word (Ready, Setup Needed, Unavailable, Not Checked, Turned
+  Off; Chrome shows Connected or Not Connected) and a **Set Up** pointer only
   when a person can act. Below the strip, **Everywhere** and **This folder
   only** sit side by side and stack on narrow widths; rows open their details
   on click; the per-group Add buttons are gone. The Add dialog asks **Where

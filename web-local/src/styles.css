@@ -3881,7 +3881,10 @@ to {
   border-left: 1px solid #d8e0e8;
 }
 
-.surface-tab-group:first-child {
+/* A line separates groups; none leads the first. The active tab's frame is
+   the strip's first child, so the first group can follow it. */
+.surface-tab-group:first-child,
+.surface-tab-active-chrome + .surface-tab-group {
   padding-left: 0;
   border-left: 0;
 }
@@ -3897,28 +3900,15 @@ to {
   max-width: 196px;
 }
 
+/* Just the work-folder's icon in its color; the name shows on hover. */
 .surface-tab-group-label {
-  width: clamp(68px, 8vw, 102px);
-  height: 35px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 7px;
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #475467));
-  font-size: 0.67rem;
-  font-weight: 680;
-}
-
-.surface-tab-group-label > svg {
   flex: 0 0 auto;
-}
-
-.surface-tab-group-label > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--work-folder-accent-glyph, var(--work-folder-custom-color, #475467));
 }
 
 .surface-tab-actions {
@@ -6883,10 +6873,6 @@ to {
 
 .app-shell[data-theme="dark"] .surface-tab-group {
   border-left-color: rgba(148, 163, 184, 0.22);
-}
-
-.app-shell[data-theme="dark"] .surface-tab-group-label {
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #cbd5e1));
 }
 
 .app-shell[data-theme="dark"] .surface-tab-work-folder-menu-separator {
@@ -19539,54 +19525,80 @@ to {
 }
 
 .history-detail-meta {
-  margin: -12px 0 5px;
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--ui-text-muted);
 }
 
-.history-restore-section.empty {
-  display: none;
+/* A restore point: its name and Restore across the top, then one list of the
+   files restoring changes. */
+.history-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.history-restore-section h2 {
+.history-review-identity {
+  min-width: 0;
+}
+
+.history-review-header > .ui-control {
+  flex: 0 0 auto;
+}
+
+.history-review-status,
+.history-review-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ui-text-muted);
+}
+
+.history-restore-changes h2 {
   font-size: 13px;
   font-weight: 600;
-  margin: 0 0 12px;
+  margin: 0 0 6px;
 }
 
-.history-restore-section ul {
+.history-restore-changes ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 6px;
 }
 
-.history-restore-section li {
-  display: flex;
+.history-restore-changes li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.history-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  justify-content: space-between;
-  padding: 8px 0;
-  font-size: 12px;
+  min-height: 44px;
+  padding: 6px 0;
 }
 
-.history-restore-section code {
-  font-family: var(--work-fold-ui-font);
-  overflow-wrap: anywhere;
+.history-change-name {
+  min-width: 0;
+  display: grid;
 }
 
-.history-coverage {
+.history-change-name :is(strong, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-change-name strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.history-change-name small,
+.history-change-kind {
   font-size: 12px;
-  line-height: 1.7;
   color: var(--ui-text-muted);
-  max-width: 65ch;
-}
-
-.history-review > button {
-  justify-self: start;
-  width: auto;
-  padding: 8px 14px;
 }
 
 .history-file-picker {
@@ -20994,10 +21006,6 @@ to {
   gap: 6px;
 }
 
-:root[data-theme] .app-shell .surface-tab-group-label {
-  height: 34px;
-}
-
 :root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab {
   z-index: auto;
 }
@@ -21194,10 +21202,13 @@ to {
   gap: 24px;
 }
 
+/* The page fills its tab and scrolls itself; growing to fit its content let
+   the tab clip everything below the fold, Restore included. */
 :root[data-theme] .app-shell .history-review {
+  height: 100%;
   padding: 30px 36px 40px;
   gap: 20px;
-  max-width: 960px;
+  grid-template-columns: minmax(0, 960px);
 }
 
 :root[data-theme] .app-shell .keyboard-shortcuts-pane h2 {

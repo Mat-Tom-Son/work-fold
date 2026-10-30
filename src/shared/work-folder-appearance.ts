@@ -256,6 +256,50 @@ export function hasWorkFolderAppearanceCustomization(
   );
 }
 
+/** The colors a work-folder can start in before anyone chooses one. */
+export const defaultWorkFolderAccents: ReadonlyArray<{ label: string; hex: string }> = [
+  { label: "Slate", hex: "#60646c" },
+  { label: "Red", hex: "#ce2c31" },
+  { label: "Orange", hex: "#cc4e00" },
+  { label: "Amber", hex: "#ab6400" },
+  { label: "Moss", hex: "#5c7c2e" },
+  { label: "Green", hex: "#1a7f37" },
+  { label: "Cyan", hex: "#0e7490" },
+  { label: "Blue", hex: "#0d74ce" },
+  { label: "Violet", hex: "#6550b9" },
+  { label: "Plum", hex: "#953ea3" },
+  { label: "Pink", hex: "#c2298a" },
+  { label: "Brown", hex: "#815e46" },
+];
+
+/** The starting color a work-folder's id picks when nothing is saved for it. */
+export function defaultWorkFolderAccent(workFolderId: string): { label: string; hex: string } {
+  let hash = 0;
+  for (const character of workFolderId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return defaultWorkFolderAccents[hash % defaultWorkFolderAccents.length] ?? defaultWorkFolderAccents[0]!;
+}
+
+/**
+ * A new work-folder's starting color: one the fewest other work-folders use,
+ * so they stay easy to tell apart (2026-10-30). Its id's own pick wins a tie,
+ * and later ties go to the next color along from it.
+ */
+export function startingWorkFolderAccentHex(workFolderId: string, otherAccentHexes: readonly string[]): string {
+  const uses = new Map(defaultWorkFolderAccents.map((accent) => [accent.hex, 0]));
+  for (const value of otherAccentHexes) {
+    const hex = normalizeHexColor(value, "");
+    const count = uses.get(hex);
+    if (count !== undefined) uses.set(hex, count + 1);
+  }
+  const fewest = Math.min(...uses.values());
+  const start = defaultWorkFolderAccents.indexOf(defaultWorkFolderAccent(workFolderId));
+  for (let offset = 0; offset < defaultWorkFolderAccents.length; offset += 1) {
+    const accent = defaultWorkFolderAccents[(start + offset) % defaultWorkFolderAccents.length]!;
+    if (uses.get(accent.hex) === fewest) return accent.hex;
+  }
+  return defaultWorkFolderAccent(workFolderId).hex;
+}
+
 export function accentIdentityFromHex(value: string): AccentIdentity {
   const referenceHex = normalizeHexColor(value);
   const { l: _lightness, c: chroma, h: hue } = hexToOklch(referenceHex);

@@ -150,6 +150,8 @@ export interface ChatActionsState {
   x: number;
   y: number;
   returnFocusTarget?: HTMLElement | null;
+  /** Opens straight to renaming, as the native menu's Rename… does. */
+  view?: "rename";
 }
 
 export type ChatActivityStatus = "running" | "attention";

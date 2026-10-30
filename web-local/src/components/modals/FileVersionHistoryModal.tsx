@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { History, Loader2, Undo2, X } from "lucide-react";
 import { HistoryFileComparison } from "../panes/HistoryFileComparison";
 import { api, errorText } from "../../lib/api";
+import { queueHistoryRequest } from "../../lib/history-queue";
 import { formatBytes, formatDateTime, formatTimeAgo, splitConfirmMessage } from "../../lib/format";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { requestConfirm, showToast } from "../../ui/feedback";
@@ -43,9 +44,9 @@ function FileVersionHistoryModal({
     loadRequestRef.current = requestId;
     setError(null);
     try {
-      const body = await api<{ path: string; versions: FileVersionEntry[] }>(
+      const body = await queueHistoryRequest(workFolder.id, () => api<{ path: string; versions: FileVersionEntry[] }>(
         `/api/work-folders/${workFolder.id}/history/file-versions?path=${encodeURIComponent(filePath)}`,
-      );
+      ));
       if (loadRequestRef.current !== requestId) return;
       setVersions(body.versions);
     } catch (loadError) {
@@ -79,10 +80,10 @@ function FileVersionHistoryModal({
     setError(null);
     setNotice(null);
     try {
-      const body = await api<{ result: FileVersionRestoreOutcome }>(
+      const body = await queueHistoryRequest(workFolder.id, () => api<{ result: FileVersionRestoreOutcome }>(
         `/api/work-folders/${workFolder.id}/history/file-versions`,
         { method: "POST", body: { path: filePath, hashSha256: version.hashSha256 } },
-      );
+      ));
       setUndoRestorePointId(body.result.safetyCheckpointId);
       setNotice(`Restored "${fileName}" to the version from ${formatDateTime(version.capturedAt)}.`);
       showToast({ text: "Version restored", tone: "success" });
@@ -101,7 +102,7 @@ function FileVersionHistoryModal({
     setUndoing(true);
     setError(null);
     try {
-      await api(`/api/work-folders/${workFolder.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" });
+      await queueHistoryRequest(workFolder.id, () => api(`/api/work-folders/${workFolder.id}/history/checkpoints/${undoRestorePointId}/restore`, { method: "POST" }));
       setUndoRestorePointId(null);
       setNotice(`Undo complete — "${fileName}" is back to how it was.`);
       setComparisonRevision((value) => value + 1);

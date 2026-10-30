@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { HistoryFileComparison as Comparison, HistoryFileObservation, HistoryFileReason } from "../../../../src/shared/history-review";
 import { api, errorText } from "../../lib/api";
+import { queueHistoryRequest } from "../../lib/history-queue";
 import { formatBytes, formatDateTime } from "../../lib/format";
 
 const reasons: Record<HistoryFileReason, string> = {
@@ -34,18 +35,21 @@ export function HistoryFileComparison({ workFolderId, path, fromCheckpointId, to
   const [error, setError] = useState("");
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
     setResult(null); setError("");
     const query = new URLSearchParams({ path, fromCheckpointId, ...(toCheckpointId ? { toCheckpointId } : {}) });
-    void api<{ comparison: Comparison }>(`/api/work-folders/${workFolderId}/history/diff?${query}`, { signal: controller.signal }).then(({ comparison }) => {
-      if (cancelled) return;
+    // A comparison already sent is never aborted: the host keeps reading, and
+    // holding its History lock, after the app stops listening. It finishes in
+    // its turn and an obsolete result is dropped; one still waiting is skipped.
+    void queueHistoryRequest(workFolderId, async () => cancelled ? null : api<{ comparison: Comparison }>(`/api/work-folders/${workFolderId}/history/diff?${query}`)).then((body) => {
+      if (!body || cancelled) return;
+      const { comparison } = body;
       if (comparison.path !== path || comparison.before.checkpointId !== fromCheckpointId ||
         (toCheckpointId ? comparison.after.checkpointId !== toCheckpointId : comparison.after.source !== "current")) {
         throw new Error("The comparison does not match the selected file and versions.");
       }
       setResult(comparison);
     }).catch((failure) => { if (!cancelled) setError(errorText(failure)); });
-    return () => { cancelled = true; controller.abort(); };
+    return () => { cancelled = true; };
   }, [workFolderId, path, fromCheckpointId, toCheckpointId, refreshRequest, revision]);
   return <section className="history-file-comparison" aria-label={`Comparison for ${path}`}>
     <div className="history-comparison-heading"><strong>{path}</strong><button type="button" className="ui-control" onClick={() => setRevision((value) => value + 1)}>Compare again</button></div>

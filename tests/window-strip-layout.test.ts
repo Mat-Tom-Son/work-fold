@@ -23,6 +23,14 @@ test("hiding the sidebar keeps the rail, and every rail destination brings the p
   assert.match(css, /\.work-folder-layout\.sidebar-collapsed \{\s*grid-template-columns: var\(--work-folder-rail-width\) minmax\(0, 1fr\);/);
 });
 
+test("with the sidebar hidden the work area squares its left corners against the rail, panel open or not", async () => {
+  const css = await read("web-local/src/panels.css");
+  const squared = css.search(/\.work-folder-layout\.sidebar-collapsed \.right-rail \{\s*border-top-left-radius: 0;\s*border-bottom-left-radius: 0;\s*\}/);
+  const panelRounded = css.search(/\.work-folder-layout\.agent-panel-open \.right-rail \{\s*border-radius: 11px;/);
+  assert.ok(squared > -1, "the hidden-sidebar layout squares only the left corners");
+  assert.ok(panelRounded > -1 && squared > panelRounded, "the squared corners follow the panel's rounding so they win with the panel open");
+});
+
 test("the agent panel is the shared work-fold agent chat, beside the work area and outside every tab", async () => {
   const app = await read("web-local/src/App.tsx");
   assert.match(app, /<aside className="agent-panel" id="work-fold-agent-panel" aria-label="work-fold agent" hidden=\{!agentPanelOpen\}>/);

@@ -34,6 +34,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Renamed conversations update their tab titles.
 - Moving or renaming a file retargets its open tab; deleting it closes the affected tab.
 - Closing a tab selects the adjacent tab predictably.
+- On macOS, right-clicking a tab opens a native menu, as Files and browser tabs do. A Chat tab, or a Chat in the Chats list, offers **Rename…**, **Make a Copy**, **Snooze** (a submenu of times), **Archive**, and **Delete Chat**; every tab ends with **Close Tab** and **Close Other Tabs**. Other platforms keep the Chat actions popover (2026-10-30).
 - Arrow keys, Home, and End navigate the tab strip with correct focus and ARIA tab semantics.
 - With four or more tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 - Inactive tab panels remain mounted when needed so drafts, scroll position, and transient UI state survive tab switches.
@@ -57,6 +58,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - The file tab offers Copy for text files, including empty ones, and reads the whole current file rather than its bounded preview. Markdown supplies formatted HTML and plain Markdown. Switching tabs, changing the file, or closing the tab cancels an unfinished read; a prior file cannot claim the new one was copied.
 - Desktop drag-out, file opening, and reveal operations use safe work-folder-relative paths and never escape the work-folder root.
 - Delete moves content into History's undo window or Recently deleted; confirmations may remain, but nothing is permanent at the moment it happens and the Undo toast restores from whichever holds it.
+- A restore point's tab puts its name, date, and **Restore** at the top, then one list of the files changed since then, each marked Changed, Added, or Moved with **Compare** opening beneath it; files that still match are not listed, and the folders History never covers (`.work-fold`, `.pi`, `.workspace`) are not mentioned. The page scrolls within its tab (2026-10-30).
 - Registering an existing folder as a work-folder never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
 
 ### Chat and navigation

@@ -119,6 +119,22 @@ test("Darwin file-tree context menus use native command IDs while Windows keeps 
   assert.doesNotMatch(nativeRequest, /(?:label|callback|onSelect):/, "native popup requests must contain data and capabilities only");
 });
 
+test("Mac tab and Chat right-clicks open the native menu while other platforms keep the Chat popover", async () => {
+  const tabBar = await read("web-local/src/components/chat/WorkFolderSurfaceTabBar.tsx");
+  assert.match(tabBar, /onContextMenu=\{\(event\) => onTabMenu\(tab, resolvedWorkFolder,/);
+  assert.match(app, /onTabMenu=\{\(tab, target, conversation, event\) => void openChatMenu\(target, conversation, event, tab\.id\)\}/);
+  assert.match(app, /onActions=\{\(target, chat, event\) => void openChatMenu\(target, chat, event\)\}/);
+  assert.match(app, /if \(!isMacOS\(\) \|\| !popupTabMenu\) \{\s*if \(conversation\) openChatActions\(targetWorkFolder, conversation, event\);/);
+  for (const command of ["close", "close-others", "rename", "copy", "delete", "resume"]) {
+    assert.match(app, new RegExp(`command === "${command}"`));
+  }
+  assert.match(app, /command === `snooze:\$\{item\.id\}`/);
+  assert.match(app, /setChatActions\(\{[^}]*view: "rename" \}\)/, "Rename… opens the popover straight to its name field");
+  const nativeRequest = app.match(/const command = await popupTabMenu\(\{([\s\S]*?)\n\s*point,\n\s*\}\);/)?.[1];
+  assert.ok(nativeRequest, "native popup request must be present");
+  assert.doesNotMatch(nativeRequest, /label: ["'`]|callback:|onSelect:/, "native popup requests carry data, not menu labels");
+});
+
 test("restricted-app notification copy is platform-neutral", () => {
   assert.match(restrictedApps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.match(restrictedApps, /Allow notifications/);

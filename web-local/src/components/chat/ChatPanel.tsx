@@ -177,6 +177,8 @@ export function ChatPanel({
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const conversationsRef = useRef<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // The past Chat whose messages are still on their way.
+  const [openingConversationId, setOpeningConversationId] = useState<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const conversationIdRef = useRef<string | null>(null);
   const turnPreviousAssistantMessageIdRef = useRef<string | null | undefined>(undefined);
@@ -1085,7 +1087,13 @@ export function ChatPanel({
     setContextAttachments([]);
     userPinnedToBottomRef.current = true;
     setUserPinnedToBottom(true);
-    const transcript = await loadMessages(selected.id, true);
+    setOpeningConversationId(selected.id);
+    let transcript: ChatMessage[];
+    try {
+      transcript = await loadMessages(selected.id, true);
+    } finally {
+      setOpeningConversationId((current) => current === selected.id ? null : current);
+    }
     const stored = readStoredPendingChatSend(workFolder.id, selected.id);
     if (!stored) return;
     if (transcript.some((message) => message.role === "user" && message.id === stored.userMessageId)) {
@@ -1130,6 +1138,10 @@ export function ChatPanel({
     || entry.phase === "streaming"
   ));
   const hasTranscript = messages.length > 0 || Boolean(streamingAssistant) || hasVisibleRuntimePreview || running;
+  // A past Chat stays blank until its messages arrive rather than flashing the
+  // new-Chat greeting; that covers the wait for the Chat list as well.
+  const openingPastChat = !fixtureMode && Boolean(targetConversationId)
+    && (conversation?.id !== targetConversationId || openingConversationId === targetConversationId);
   // A new Chat puts the composer under its greeting, with the work-folder's
   // recent Chats below, until the first message is sent (2026-10-27).
   const startLayout = !hasTranscript && !conversation && !targetConversationId && lifecycleView === "active";
@@ -1899,7 +1911,7 @@ export function ChatPanel({
               {liveTurnView.answer ? <MarkdownMessage content={liveTurnView.answer} /> : null}
             </article>
           ) : null}
-          {!hasTranscript ? (
+          {!hasTranscript && !openingPastChat ? (
             <ChatEmptyState greeting={emptyStateGreeting} workFolder={workFolder} identity={workFolderIdentity} />
           ) : null}
           {queuedSend ? (
