@@ -31,11 +31,39 @@ test('opening a History restore point completes under the exclusive host read fe
   }finally{active=false;}
  };
  await dom.render(createElement(StrictMode,null,createElement(HistoryPane,{workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:'checkpoint-one',onError(message){assert.fail(message??'History error');}})));
- await dom.waitFor(()=>dom.container.textContent?.includes('Restore files · 1')===true);
+ await dom.waitFor(()=>dom.container.textContent?.includes('1 file changed since then')===true);
  assert.equal(overlaps,0);
  assert.equal(requests.length,2);
  assert.equal(dom.container.querySelector('[role="alert"]'),null);
- assert.match(dom.container.querySelector('h1')!.textContent!,/After turn/);
- const restore=[...dom.container.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Restore these files');
- assert.ok(restore);assert.equal(restore.disabled,false);
+ assert.match(dom.container.querySelector('h1')!.textContent!,/After a Worker reply/,'saved "turn" labels read in plain words');
+ const restore=dom.container.querySelector<HTMLButtonElement>('.history-review-header .ui-control--primary');
+ assert.equal(restore?.textContent,'Restore','the one action sits at the top');assert.equal(restore!.disabled,false);
+});
+
+test('a restore point lists only what changed since then, in plain words, with Compare under its file', async t=>{
+ const dom=await createDomHarness();const original=globalThis.fetch;
+ t.after(async()=>{await dom.cleanup();globalThis.fetch=original;});
+ const diffs:string[]=[];
+ globalThis.fetch=async(input)=>{
+  const url=String(input);
+  if(url.includes('/history/diff?')){diffs.push(new URL(url,'http://localhost').searchParams.get('path')!);return Response.json({error:'not needed'},{status:404});}
+  return url.endsWith('/preview')?Response.json({preview:{checkpointId:'checkpoint-two',scope:'full',
+   restoreFiles:['Stories/Hiccup.md'],removePaths:['Archive/Old map.md'],moves:[{fromPath:'Drafts/notes.md',toPath:'Notes/notes.md'}],
+   excludedPaths:['.pi','.work-fold','Video/walk.mov'],uncoveredPaths:['.pi','.work-fold/state.json'],conflicts:[]}})
+   :Response.json({checkpoints:[{checkpointId:'checkpoint-two',label:'Manual Restore Point',createdAt:'2026-10-27T21:15:00Z',fileCount:115,reason:'manual'}]});
+ };
+ await dom.render(createElement(HistoryPane,{workFolder:{id:'disposable',name:'Test folder'} as never,selectedCheckpointId:'checkpoint-two',onError(message){assert.fail(message??'History error');}}));
+ await dom.waitFor(()=>dom.container.textContent?.includes('3 files changed since then')===true);
+ assert.match(dom.container.querySelector('h1')!.textContent!,/Saved by you/);
+ const rows=[...dom.container.querySelectorAll('.history-change-row')].map(row=>`${row.querySelector('strong')!.textContent} ${row.querySelector('.history-change-kind')!.textContent}`);
+ assert.deepEqual(rows,['Hiccup.md Changed','Old map.md Added','notes.md Moved']);
+ assert.doesNotMatch(dom.container.textContent!,/Restored|captured|\.work-fold|\.pi\b/,'no past-tense label, jargon, or folders History never covers');
+ assert.equal(dom.container.querySelector('.history-review-note')!.textContent,'Restoring leaves these alone: Video/walk.mov');
+ assert.equal(dom.container.querySelector('input'),null,'no free-text file box');
+ const compare=dom.container.querySelector<HTMLButtonElement>('.history-change-row button')!;
+ await dom.act(async()=>{compare.click();});
+ await dom.waitFor(()=>diffs.length===1);
+ assert.deepEqual(diffs,['Stories/Hiccup.md']);
+ assert.ok(compare.closest('li')!.querySelector('.history-file-comparison'),'the comparison opens under its own file');
+ assert.equal(compare.textContent,'Hide');
 });

@@ -19525,54 +19525,80 @@ to {
 }
 
 .history-detail-meta {
-  margin: -12px 0 5px;
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--ui-text-muted);
 }
 
-.history-restore-section.empty {
-  display: none;
+/* A restore point: its name and Restore across the top, then one list of the
+   files restoring changes. */
+.history-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.history-restore-section h2 {
+.history-review-identity {
+  min-width: 0;
+}
+
+.history-review-header > .ui-control {
+  flex: 0 0 auto;
+}
+
+.history-review-status,
+.history-review-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ui-text-muted);
+}
+
+.history-restore-changes h2 {
   font-size: 13px;
   font-weight: 600;
-  margin: 0 0 12px;
+  margin: 0 0 6px;
 }
 
-.history-restore-section ul {
+.history-restore-changes ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 6px;
 }
 
-.history-restore-section li {
-  display: flex;
+.history-restore-changes li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.history-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  justify-content: space-between;
-  padding: 8px 0;
-  font-size: 12px;
+  min-height: 44px;
+  padding: 6px 0;
 }
 
-.history-restore-section code {
-  font-family: var(--work-fold-ui-font);
-  overflow-wrap: anywhere;
+.history-change-name {
+  min-width: 0;
+  display: grid;
 }
 
-.history-coverage {
+.history-change-name :is(strong, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-change-name strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.history-change-name small,
+.history-change-kind {
   font-size: 12px;
-  line-height: 1.7;
   color: var(--ui-text-muted);
-  max-width: 65ch;
-}
-
-.history-review > button {
-  justify-self: start;
-  width: auto;
-  padding: 8px 14px;
 }
 
 .history-file-picker {
@@ -21176,10 +21202,13 @@ to {
   gap: 24px;
 }
 
+/* The page fills its tab and scrolls itself; growing to fit its content let
+   the tab clip everything below the fold, Restore included. */
 :root[data-theme] .app-shell .history-review {
+  height: 100%;
   padding: 30px 36px 40px;
   gap: 20px;
-  max-width: 960px;
+  grid-template-columns: minmax(0, 960px);
 }
 
 :root[data-theme] .app-shell .keyboard-shortcuts-pane h2 {

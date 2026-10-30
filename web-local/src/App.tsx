@@ -39,7 +39,7 @@ import { ExtensionSurfacePane, ExtensionSurfaceUnavailable, ExtensionSurfaceView
 import { RestrictedAppViewport } from "./components/panes/RestrictedAppViewport";
 import { WorkFolderModeRail, WorkFolderPaneHeader } from "./components/panes/workFolderChrome";
 import { FileContentSearch } from "./components/panes/FileContentSearch";
-import { ChatsPane, HistoryPane, WorkFoldersPane, type ModelScope } from "./components/panes/workFolderPanes";
+import { ChatsPane, HistoryPane, WorkFoldersPane, restorePointTitle, type ModelScope } from "./components/panes/workFolderPanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
 import { useSharedPages } from "./hooks/useSharedPages";
 import { restrictedAppAttentionKey, useRestrictedAppAttention } from "./hooks/useRestrictedAppAttention";
@@ -1794,7 +1794,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       </div> : null}
       {activeMode === "chats" ? <ChatsPane workFolder={workFolder} workFolders={workFolders} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
       {activeMode === "automations" ? <WorkFolderAutomationsNavigator automations={folderAutomations.byWorkFolder[workFolder.id]} activeAutomationId={activeTab?.kind === "work-folder-automation" && activeTab.workFolderId === workFolder.id ? activeTab.automationId : null} onOpen={(automation) => tabs.openWorkFolderAutomationSurfaceTab(workFolder, automation)} onOpenAllAutomations={() => onOpenSettings("automations")} /> : null}
-      {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, item.label || "Restore point")} onError={onError} /> : null}
+      {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, restorePointTitle(item))} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workFolder, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport
         key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`}
@@ -1878,7 +1878,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
                 onError={onError}
               />
             ) : tab.kind === "history" ? (
-              <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={targetWorkFolder} fixtureItems={fixture?.checkpoints[targetWorkFolder.id]} refreshRequest={targetWorkFolder.id === workFolder.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkFolder, item.checkpointId, item.label || "Restore point")} onError={onError} />
+              <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={targetWorkFolder} fixtureItems={fixture?.checkpoints[targetWorkFolder.id]} refreshRequest={targetWorkFolder.id === workFolder.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkFolder, item.checkpointId, restorePointTitle(item))} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
               const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetWorkFolder.id);
               if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the tools installed for this work-folder." />;

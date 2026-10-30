@@ -57,6 +57,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - The file tab offers Copy for text files, including empty ones, and reads the whole current file rather than its bounded preview. Markdown supplies formatted HTML and plain Markdown. Switching tabs, changing the file, or closing the tab cancels an unfinished read; a prior file cannot claim the new one was copied.
 - Desktop drag-out, file opening, and reveal operations use safe work-folder-relative paths and never escape the work-folder root.
 - Delete moves content into History's undo window or Recently deleted; confirmations may remain, but nothing is permanent at the moment it happens and the Undo toast restores from whichever holds it.
+- A restore point's tab puts its name, date, and **Restore** at the top, then one list of the files changed since then, each marked Changed, Added, or Moved with **Compare** opening beneath it; files that still match are not listed, and the folders History never covers (`.work-fold`, `.pi`, `.workspace`) are not mentioned. The page scrolls within its tab (2026-10-30).
 - Registering an existing folder as a work-folder never moves or converts user files. It maintains only the documented hidden `.work-fold/` identity and conversation layer; that layer, preserved legacy `.workspace/`, and native `.pi/` configuration never appear as ordinary Files. Legacy `.workspace/` content is never parsed or imported.
 
 ### Chat and navigation
