@@ -7,7 +7,7 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
-The local 0.13.4 candidate integrates main through `48e08f4` (Mac 0.13.3).
+The local 0.13.5 candidate integrates main through `48e08f4` (Mac 0.13.3).
 It adds interruption recovery, idle Chat compaction, shared queue and steering,
 the refreshed Chat composer and reply files, current-file copying, and the
 updated History flow. It retains Linux's browser input/capture fixes, native CLI,

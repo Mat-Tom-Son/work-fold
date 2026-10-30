@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -160,7 +160,7 @@
       "uuid": "11.1.1"
     },
     "@earendil-works/pi-coding-agent": {
-      "undici": "8.12.3"
+      "undici@8.10.2": "8.12.3"
     }
   },
   "config": {
