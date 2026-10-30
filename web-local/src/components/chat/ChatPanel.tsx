@@ -16,6 +16,7 @@ import { requestConnectAi } from "../../lib/connect-ai";
 import { conversationLifecycleView } from "../../lib/chat-lifecycle";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
 import { hasNativeFiles } from "../../lib/file-actions";
+import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { displayModelLabel } from "../../lib/model-display";
 import { thinkingLevelLabel } from "../../lib/thinking-levels";
 import { composerModelFilterThreshold, composerModelListView } from "../../lib/composer-model-list";
@@ -2119,7 +2120,7 @@ export function ChatPanel({
                 void sendMessage();
               }
             }}
-            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message Worker"}
+            placeholder={running && !pendingSendRef.current ? `Steer (Enter) · Queue (${desktopShortcutKeyLabel(desktopShortcutModifierKey())}+Enter)` : "Message worker"}
           />
           {/* What you add sits on the left; how the Worker runs and Send sit on
               the right (2026-10-27). */}

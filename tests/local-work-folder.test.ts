@@ -459,6 +459,44 @@ test("a final registry-write failure remains idempotently recoverable after mana
   assert.deepEqual(await listPendingWorkFolderRemovals(), []);
 });
 
+for (const legacyIdentity of [false, true]) {
+  test(`removal recovery preserves an inode-reusing replacement (${legacyIdentity ? "legacy" : "creation-time"} identity)`, async () => {
+    const workFolder = await createManagedWorkFolder(`Inode reuse ${legacyIdentity}`, contentRoot);
+    const manifest = await readFile(workFolderManifestFile(workFolder.workFolderRoot), "utf8");
+    await beginWorkFolderRemoval(workFolder.id, contentRoot);
+    await markWorkFolderRemovalAppStateRemoved(workFolder.id);
+    await finalizeWorkFolderRemoval(workFolder.id, {
+      async persistRegistry(registry) {
+        if (!registry.pendingRemovals.length) throw new Error("final write interrupted");
+        await persistWorkFolderRegistryForTest(registry);
+      },
+    });
+    await mkdir(workFolder.workFolderRoot);
+    const sentinel = join(workFolder.workFolderRoot, "replacement.txt");
+    await writeFile(sentinel, "unrelated replacement");
+    // A copied portable identity alone cannot authorize a new directory.
+    if (!legacyIdentity) {
+      await mkdir(dirname(workFolderManifestFile(workFolder.workFolderRoot)));
+      await writeFile(workFolderManifestFile(workFolder.workFolderRoot), manifest);
+    }
+    const replacement = await stat(workFolder.workFolderRoot, { bigint: true });
+    const registry = JSON.parse(await readFile(workFolderRegistryFile(), "utf8"));
+    const identity = registry.pendingRemovals.find((item: { workFolderId: string }) => item.workFolderId === workFolder.id).managedRootIdentity;
+    // Deterministically model the allocator reusing dev/ino. Older records
+    // lack birthtime; newer records distinguish the directory incarnation.
+    identity.device = replacement.dev.toString();
+    identity.inode = replacement.ino.toString();
+    if (legacyIdentity) delete identity.birthtimeNs;
+    else if (identity.birthtimeNs !== undefined) identity.birthtimeNs = (replacement.birthtimeNs + 1n).toString();
+    await writeFile(workFolderRegistryFile(), JSON.stringify(registry));
+    const recovered = await finalizeWorkFolderRemoval(workFolder.id);
+    assert.equal(recovered.cleanupPending, false);
+    assert.equal(recovered.deleted, true);
+    assert.equal(await readFile(sentinel, "utf8"), "unrelated replacement");
+    assert.deepEqual(await listPendingWorkFolderRemovals(), []);
+  });
+}
+
 test("an unclaimed replacement folder or junction keeps managed removal pending", async () => {
   const workFolder = await createManagedWorkFolder("Removal replacement guard", contentRoot);
   await writeFile(join(workFolder.workFolderRoot, "approved-original.txt"), "original", "utf8");

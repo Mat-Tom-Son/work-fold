@@ -2437,6 +2437,42 @@ index 9f0af8c..186b8b1 100644
  		"version": "node scripts/sync-manifest-version.js",
  		"prepublishOnly": "node scripts/sync-manifest-version.js"
  	},
+diff --git a/test-suite/unit/automation-target.test.mjs b/test-suite/unit/automation-target.test.mjs
+index 7f46597..72be2df 100644
+--- a/test-suite/unit/automation-target.test.mjs
++++ b/test-suite/unit/automation-target.test.mjs
+@@ -87,14 +87,17 @@ function makeChrome(state, { withWindows = true, withStorage = true, withTabGrou
+         // Chrome closes a window automatically when its final tab is removed.
+         if (tab && ![...tabs.values()].some((other) => other.windowId === tab.windowId)) windows.delete(tab.windowId);
+       },
+-      group: async ({ groupId, tabIds = [] } = {}) => {
++      group: async ({ groupId, tabIds = [], createProperties } = {}) => {
+         let gid = groupId;
+         if (typeof gid !== "number") {
+           gid = alloc.group();
+-          const firstTab = tabs.get(tabIds[0]);
+-          groups.set(gid, { id: gid, title: "", color: "grey", collapsed: false, windowId: firstTab ? firstTab.windowId : userWindowId });
++          // Chrome defaults a new group to the current window, not the first tab's window.
++          groups.set(gid, { id: gid, title: "", color: "grey", collapsed: false, windowId: createProperties?.windowId ?? userWindowId });
++        }
++        for (const tid of tabIds) {
++          const t = tabs.get(tid);
++          if (t) { t.groupId = gid; t.windowId = groups.get(gid).windowId; }
+         }
+-        for (const tid of tabIds) { const t = tabs.get(tid); if (t) t.groupId = gid; }
+         return gid;
+       },
+       ungroup: async (id) => { const ids = Array.isArray(id) ? id : [id]; for (const tid of ids) { const t = tabs.get(tid); if (t) t.groupId = -1; } },
+@@ -227,6 +230,9 @@ async function run() {
+ 
+     const opened = await w.dispatch("tab.new", { url: "https://pi.test/new-tab", groupTitle, sessionKey: SK });
+     ok(state.groups.size === groupsBefore, "tab.new-group: did not create another same-session group");
++    ok(nav.windowId !== state.userWindowId, "group-window: initial navigation retains its dedicated unfocused window");
++    const status = await w.dispatch("automation.status", { sessionKey: SK });
++    ok(status.windowId === nav.windowId, "group-window: recorded owner and actual tab window agree");
+     ok(opened.tab.groupId === groupId, "tab.new-group: opened tab joined the existing session group");
+     ok(opened.tab.windowId === nav.windowId, "tab.new-group: opened tab was created in the existing group's window");
+ 
 diff --git a/test-suite/unit/background-policy.test.mjs b/test-suite/unit/background-policy.test.mjs
 index e78fa49..bebcdb0 100644
 --- a/test-suite/unit/background-policy.test.mjs

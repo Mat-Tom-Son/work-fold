@@ -1,0 +1,23 @@
+[package]
+name = "work-fold-wayland-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+work-fold-wayland = { path = "../../desktop/native/linux-wayland" }
+futures-util = "0.3"
+ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+gstreamer-video = "0.25"
+serde_json = "1"
+sha2 = "0.10"
+xkbcommon = "0.9"
+png = "0.18"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+
+[dev-dependencies]
+tempfile = "3"

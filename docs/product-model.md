@@ -151,6 +151,8 @@ The order is saved on this computer; grouping by work-folder confines moves to
 the owning work-folder, and reordering preserves the active tab and mounted work. A
 working Chat remains alive when another tab is selected, work-fold is minimized, the Windows
 window is hidden to the tray, or the last macOS window closes and is recreated.
+Linux has separate minimize and maximize controls; closing its main window
+quits the application through the normal shutdown path.
 Every accepted Worker turn has one stable request id through the transcript,
 kernel task, and bounded machine-local turn journal. Retrying an uncertain
 delivery returns that original acceptance rather than running the Worker twice.
@@ -660,6 +662,10 @@ Owner decisions, recorded here in dated form; the body of this document and
 
 ### 2026-10-11 window strip, agent panel, and Files sort
 
+- Placement amendment (2026-10-16): on Linux and Windows, the sidebar toggle
+  sits immediately after **Help** in the application menu strip. On macOS it
+  stays beside the window buttons. The work-fold agent controls stay at the
+  right of the strip.
 - The window's top strip carries two controls and no labels. Beside the
   window buttons, a sidebar toggle hides the navigation pane (Files, Chats,
   History) while the rail stays; every rail destination except **Add** and
@@ -801,3 +807,7 @@ profile reconnects automatically and does not need repeated Store setup.
 Check observes; helper repair is a separate explicit setup operation and cannot
 silently dispose idle Chats. The [extension contract](extension-foundation.md)
 records observation ordering, freshness and cancellation boundaries.
+
+### Linux candidate integration (2026-10-14)
+
+Linux candidates use the same product model and Pi runtime. Their Computer Control setup uses an explicit app-wide portal grant, available before the first work-folder; a single accepted Chat turn owns physical input at a time. Linux setup never asks for macOS permissions. Lock, sleep, Quit and Stop end sharing; ordinary completion releases control while retaining the grant. The [Linux build guide](linux-build.md) records the qualified desktops and remaining distribution limits.

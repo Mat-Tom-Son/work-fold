@@ -172,6 +172,8 @@ export class BuiltInBrowser {
   readonly #sitePermissions: BrowserSitePermissionStore;
   readonly #history: BrowserHistoryStore;
   readonly #bubble = new BrowserStatusBubble();
+  #backgroundWindow: BrowserWindow | null = null;
+  readonly #backgroundPages = new Set<BrowserPage>();
   #synced: BrowserTabsSync = { tabs: [], viewingPageId: null };
 
   constructor(options: BuiltInBrowserOptions) {
@@ -376,6 +378,8 @@ export class BuiltInBrowser {
   dispose(): void {
     for (const page of [...this.#pages.values()]) this.#destroy(page, { announce: false });
     this.#bubble.close();
+    this.#backgroundWindow?.destroy();
+    this.#backgroundWindow = null;
     void this.#history.flush();
   }
 
@@ -672,6 +676,7 @@ export class BuiltInBrowser {
       this.#hide(page);
       return;
     }
+    this.#unpark(page);
     window.contentView.addChildView(page.view);
     page.attachedTo = window;
     page.view.setBounds(bounds);
@@ -681,9 +686,34 @@ export class BuiltInBrowser {
 
   #hide(page: BrowserPage): void {
     if (page.attachedTo) this.#bubble.hide();
+    this.#unpark(page);
     page.view.setVisible(false);
     if (page.attachedTo && !page.attachedTo.isDestroyed()) page.attachedTo.contentView.removeChildView(page.view);
     page.attachedTo = null;
+    if (page.debuggerReady) this.#park(page);
+  }
+
+  /** Linux needs a native parent for trusted mouse presses, even in a background page. */
+  #park(page: BrowserPage): void {
+    if (process.platform !== "linux" || page.closed || page.attachedTo || this.#backgroundPages.has(page)) return;
+    this.#backgroundWindow ??= new BrowserWindow({
+      show: false, focusable: false, skipTaskbar: true,
+      width: defaultPageSize.width, height: defaultPageSize.height,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    this.#backgroundWindow.webContents.setBackgroundThrottling(false);
+    this.#backgroundWindow.contentView.addChildView(page.view);
+    page.view.setVisible(true);
+    page.view.webContents.setBackgroundThrottling(false);
+    this.#backgroundPages.add(page);
+  }
+
+  #unpark(page: BrowserPage): void {
+    if (!this.#backgroundPages.delete(page)) return;
+    if (this.#backgroundWindow && !this.#backgroundWindow.isDestroyed()) this.#backgroundWindow.contentView.removeChildView(page.view);
+    page.view.setVisible(false);
+    const contents = page.view.webContents as WebContents | undefined;
+    if (contents && !contents.isDestroyed()) contents.setBackgroundThrottling(true);
   }
 
   #enterFullScreen(page: BrowserPage): void {
@@ -1165,8 +1195,26 @@ export class BuiltInBrowser {
           const metrics = await cdp.sendCommand("Page.getLayoutMetrics") as { cssContentSize?: { width: number; height: number } };
           const width = Math.max(1, Math.ceil(metrics.cssContentSize?.width ?? viewport.width));
           const height = Math.max(1, Math.min(fullPageMaxHeight, Math.ceil(metrics.cssContentSize?.height ?? viewport.height)));
-          const shot = await cdp.sendCommand("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }) as { data: string };
-          image = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
+          if (process.platform === "linux" && this.#backgroundPages.has(page)) {
+            const bounds = page.view.getBounds();
+            try {
+              // Only the hidden native view changes size; the person's window stays put.
+              page.view.setBounds({ ...bounds, width, height });
+              await Promise.race([
+                contents.executeJavaScriptInIsolatedWorld(isolatedWorldId, [{ code: "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))" }]),
+                delay(2_000),
+              ]);
+              image = await contents.capturePage(undefined, { stayHidden: false, stayAwake: true });
+            } finally {
+              if (!page.closed && !contents.isDestroyed()) {
+                page.view.setBounds(bounds);
+                if (page.attachedTo) this.#applyLayout(page);
+              }
+            }
+          } else {
+            const shot = await cdp.sendCommand("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }) as { data: string };
+            image = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
+          }
           image = image.resize({ width });
         } else if (ref) {
           const box = await this.#elementBox(page, ref);
@@ -1176,10 +1224,10 @@ export class BuiltInBrowser {
             width: Math.max(1, Math.min(Math.ceil(box.width), viewport.width)),
             height: Math.max(1, Math.min(Math.ceil(box.height), viewport.height)),
           };
-          image = await contents.capturePage(rect, { stayHidden: true });
+          image = await contents.capturePage(rect, { stayHidden: process.platform !== "linux", stayAwake: true });
           image = image.resize({ width: rect.width });
         } else {
-          image = await contents.capturePage(undefined, { stayHidden: true });
+          image = await contents.capturePage(undefined, { stayHidden: process.platform !== "linux", stayAwake: true });
           image = image.resize({ width: viewport.width });
         }
         this.#touch(page);
@@ -1341,13 +1389,20 @@ export class BuiltInBrowser {
             const distance = Math.round(along * 0.8 * screens) * (direction === "up" || direction === "left" ? -1 : 1);
             const horizontal = direction === "left" || direction === "right";
             signal?.throwIfAborted();
+            await cdp.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
+            signal?.throwIfAborted();
             await cdp.sendCommand("Input.dispatchMouseEvent", {
               type: "mouseWheel",
               ...point,
               deltaX: horizontal ? distance : 0,
               deltaY: horizontal ? 0 : distance,
             });
-            await delay(250);
+            // Wheel dispatch is queued by Chromium's compositor. Wait for its
+            // frames before returning a page a caller can inspect, even when hidden.
+            await abortable(Promise.race([
+              cdp.sendCommand("Runtime.evaluate", { expression: "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))", awaitPromise: true }),
+              delay(2_000),
+            ]), signal);
           }
           this.#touch(page);
           return { tab: this.#summary(page), navigated: false };
@@ -1468,12 +1523,13 @@ export class BuiltInBrowser {
 
   async #debugger(page: BrowserPage): Promise<Debugger> {
     this.#touch(page);
+    this.#park(page);
     const contents = page.view.webContents;
     if (page.debuggerReady && contents.debugger.isAttached()) return await page.debuggerReady;
     page.debuggerReady = (async () => {
       const cdp = contents.debugger;
       if (!cdp.isAttached()) cdp.attach("1.3");
-      cdp.once("detach", () => { page.debuggerReady = null; });
+      cdp.once("detach", () => { page.debuggerReady = null; this.#unpark(page); });
       // A background page then renders and takes input as if it were in front.
       await cdp.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true });
       await cdp.sendCommand("DOM.enable");

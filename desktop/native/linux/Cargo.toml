@@ -1,0 +1,21 @@
+[package]
+name = "work-fold-linux-hosts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[dependencies]
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
+ureq = { version = "=2.12.1", default-features = false }
+
+[[bin]]
+name = "work-fold-cli"
+path = "src/cli.rs"
+
+[[bin]]
+name = "work-fold-chrome-host"
+path = "src/chrome.rs"

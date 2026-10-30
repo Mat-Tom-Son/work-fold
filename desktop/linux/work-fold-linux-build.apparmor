@@ -1,0 +1,10 @@
+# Explicitly selected only for disposable build/acceptance containers.
+# Ubuntu's unconfined user-namespace restriction also applies inside Docker;
+# this named profile lets Chromium create its own namespace sandbox.
+# It does not change the host sysctl or the installed product's profile.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile work-fold-linux-build flags=(unconfined) {
+  userns,
+}

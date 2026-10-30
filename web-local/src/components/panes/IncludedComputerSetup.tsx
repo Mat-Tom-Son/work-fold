@@ -5,6 +5,7 @@ import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
 import { includedToolReadiness } from "../../lib/included-tool-readiness";
 import { includedToolsPath, includedToolSetupBody } from "../../lib/included-tool-scope";
+import { IncludedLinuxComputerSetup } from "./IncludedLinuxComputerSetup";
 
 type ComputerAction = "check" | "request-permissions" | "accessibility" | "screen-recording" | "recheck";
 
@@ -22,6 +23,13 @@ export function IncludedComputerSetup({ workFolderId, enabled, onStatusChange }:
   workFolderId?: string;
   enabled: boolean;
   onStatusChange?: (status: IncludedToolStatus | null) => void;
+}) {
+  if (window.workFoldDesktop?.app.platform === "linux") return <IncludedLinuxComputerSetup workFolderId={workFolderId} enabled={enabled} onStatusChange={onStatusChange} />;
+  return <IncludedMacComputerSetup workFolderId={workFolderId} enabled={enabled} onStatusChange={onStatusChange} />;
+}
+
+function IncludedMacComputerSetup({ workFolderId, enabled, onStatusChange }: {
+  workFolderId?: string; enabled: boolean; onStatusChange?: (status: IncludedToolStatus | null) => void;
 }) {
   const [status, setStatus] = useState<IncludedToolStatus | null>(null);
   const [busy, setBusy] = useState<ComputerAction | null>(null);

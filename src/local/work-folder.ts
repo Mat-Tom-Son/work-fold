@@ -122,6 +122,8 @@ export interface ManagedWorkFolderRootIdentity {
   managedBaseRealPath: string;
   device: string;
   inode: string;
+  /** Distinguishes recycled inode numbers; absent on older records/filesystems. */
+  birthtimeNs?: string;
 }
 
 export interface WorkFolderRemovalResult {
@@ -496,7 +498,7 @@ export async function managedWorkFolderDeletionPinIssue(
 
 export async function workFolderRemovalPendingResult(
   intent: Pick<WorkFolderRemovalIntent,
-    "transactionId" | "workFolderRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed" | "folderDisposition">,
+    "transactionId" | "workFolderId" | "workFolderRoot" | "storage" | "managedBase" | "managedRootIdentity" | "managedRootClaimed" | "folderDisposition">,
 ): Promise<WorkFolderRemovalResult> {
   const deletes = intent.storage === "managed" && intent.folderDisposition !== "preserve";
   const rootStatus = deletes ? await managedRootStatus(intent) : "mismatch";
@@ -1087,8 +1089,9 @@ async function captureManagedRootIdentity(workFolderRoot: string, managedBase: s
   const [realPath, managedBaseRealPath] = await Promise.all([realpath(workFolderRoot), realpath(managedBase)]);
   const confirmedInfo = await lstat(workFolderRoot, { bigint: true });
   if (!confirmedInfo.isDirectory() || confirmedInfo.isSymbolicLink()
-    || confirmedInfo.dev !== initialInfo.dev || confirmedInfo.ino !== initialInfo.ino) {
-    throw new Error("The managed work-folder root changed while its removal identity was being recorded.");
+    || confirmedInfo.dev !== initialInfo.dev || confirmedInfo.ino !== initialInfo.ino
+    || confirmedInfo.birthtimeNs !== initialInfo.birthtimeNs) {
+    throw new Error("The managed Space root changed while its removal identity was being recorded.");
   }
   if (samePath(realPath, managedBaseRealPath) || !pathContains(managedBaseRealPath, realPath)) {
     throw new Error("A managed work-folder root must resolve inside its managed-content folder.");
@@ -1098,13 +1101,21 @@ async function captureManagedRootIdentity(workFolderRoot: string, managedBase: s
     managedBaseRealPath: resolve(managedBaseRealPath),
     device: confirmedInfo.dev.toString(10),
     inode: confirmedInfo.ino.toString(10),
+    ...(confirmedInfo.birthtimeNs > 0n ? { birthtimeNs: confirmedInfo.birthtimeNs.toString(10) } : {}),
   };
 }
 
 async function managedRootStatus(
-  intent: Pick<WorkFolderRemovalIntent, "workFolderRoot" | "storage" | "managedBase" | "managedRootIdentity">,
+  intent: Pick<WorkFolderRemovalIntent, "workFolderId" | "workFolderRoot" | "storage" | "managedBase" | "managedRootIdentity">,
 ): Promise<ManagedRootStatus> {
-  return managedDirectoryStatus(intent, intent.workFolderRoot, intent.managedRootIdentity?.realPath ?? intent.workFolderRoot);
+  const status = await managedDirectoryStatus(intent, intent.workFolderRoot, intent.managedRootIdentity?.realPath ?? intent.workFolderRoot);
+  // Old intents lack a creation-time pin. A reused inode at the public path
+  // must not let a metadata-free/different Folder inherit the removal claim.
+  // Claimed trees may be partly removed, so this fallback applies only before
+  // reclaiming the original path, never to partial cleanup at the claim path.
+  if (status === "matching" && !intent.managedRootIdentity?.birthtimeNs
+    && (await readExistingWorkFolderManifest(intent.workFolderRoot))?.id !== intent.workFolderId) return "mismatch";
+  return status;
 }
 
 async function managedClaimStatus(
@@ -1142,6 +1153,7 @@ async function managedDirectoryStatus(
   }
   return info.dev.toString(10) === intent.managedRootIdentity.device
     && info.ino.toString(10) === intent.managedRootIdentity.inode
+    && (!intent.managedRootIdentity.birthtimeNs || info.birthtimeNs.toString(10) === intent.managedRootIdentity.birthtimeNs)
     && samePath(currentRealPath, expectedRealPath)
     && samePath(currentManagedBaseRealPath, intent.managedRootIdentity.managedBaseRealPath)
     ? "matching"
@@ -1845,18 +1857,22 @@ function managedRootIdentity(value: unknown): ManagedWorkFolderRootIdentity {
   }
   const item = value as Partial<ManagedWorkFolderRootIdentity>;
   const keys = Object.keys(value).sort();
-  if (keys.join("\0") !== ["device", "inode", "managedBaseRealPath", "realPath"].sort().join("\0")
+  const expectedKeys = ["device", "inode", "managedBaseRealPath", "realPath",
+    ...(Object.hasOwn(item, "birthtimeNs") ? ["birthtimeNs"] : [])].sort();
+  if (keys.join("\0") !== expectedKeys.join("\0")
     || typeof item.realPath !== "string" || !isAbsolute(item.realPath)
     || typeof item.managedBaseRealPath !== "string" || !isAbsolute(item.managedBaseRealPath)
     || typeof item.device !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(item.device)
-    || typeof item.inode !== "string" || !/^[1-9][0-9]*$/.test(item.inode)) {
-    throw new Error("Managed work-folder removal intent has an invalid root identity.");
+    || typeof item.inode !== "string" || !/^[1-9][0-9]*$/.test(item.inode)
+    || (Object.hasOwn(item, "birthtimeNs") && (typeof item.birthtimeNs !== "string" || !/^[1-9][0-9]*$/.test(item.birthtimeNs)))) {
+    throw new Error("Managed Space removal intent has an invalid root identity.");
   }
   return {
     realPath: resolve(item.realPath),
     managedBaseRealPath: resolve(item.managedBaseRealPath),
     device: item.device,
     inode: item.inode,
+    ...(item.birthtimeNs !== undefined ? { birthtimeNs: item.birthtimeNs } : {}),
   };
 }
 

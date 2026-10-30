@@ -253,6 +253,8 @@ declare global {
         onDownload: (listener: (download: import("../../src/shared/browser").BrowserDownload) => void) => () => void;
       };
       window: {
+        control?: (action: "state" | "minimize" | "toggle-maximize" | "quit") => Promise<{ maximized: boolean }>;
+        onMaximized?: (listener: (maximized: boolean) => void) => () => void;
         material: "mica" | "vibrancy" | "none";
         setTheme: (theme: "light" | "dark", source?: "light" | "dark" | "system") => void;
         railTooltip: {
