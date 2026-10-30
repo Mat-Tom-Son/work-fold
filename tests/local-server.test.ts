@@ -16,6 +16,7 @@ import {
 } from "../src/local/agent/registered-work-folder-runtime.js";
 import { appendMessage, createConversation, readConversationSummary } from "../src/local/agent/chat-store.js";
 import { startLocalApi } from "../src/local/server.js";
+import { defaultWorkFolderAccent } from "../src/shared/work-folder-appearance.js";
 import { WorkFoldKernel } from "../src/local/work-fold-kernel.js";
 import { WorkFoldRecentlyDeletedStore } from "../src/local/recently-deleted-store.js";
 
@@ -63,6 +64,46 @@ test("local API covers work-folder files and external restore points", async () 
     }) as { checkpoint: { checkpointId: string }; created: boolean };
     assert.equal(duplicateCheckpoint.checkpoint.checkpointId, checkpoint.checkpoint.checkpointId);
     assert.equal(duplicateCheckpoint.created, false);
+  } finally {
+    await api.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("new work-folders start in colors no other work-folder uses", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-starting-colors-"));
+  const api = await startLocalApi({
+    port: 0,
+    stateBase: join(sandbox, "state"),
+    workFolderBase: join(sandbox, "content"),
+    loadEnv: false,
+  });
+  try {
+    const ids: string[] = [];
+    for (const name of ["One", "Two", "Three", "Four", "Five", "Six"]) {
+      const created = await json(`${api.origin}/api/work-folders`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      }) as { workFolder: { id: string } };
+      ids.push(created.workFolder.id);
+    }
+    const linkedRoot = join(sandbox, "linked");
+    await mkdir(linkedRoot);
+    const linked = await json(`${api.origin}/api/work-folders/local-folder`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workFolderRoot: linkedRoot }),
+    }) as { workFolder: { id: string } };
+    ids.push(linked.workFolder.id);
+    const boot = await json(`${api.origin}/api/bootstrap`) as {
+      appearance: { customizations: Record<string, { primary?: { referenceHex: string } }> };
+    };
+    const colors = ids.map((id) => boot.appearance.customizations[id]?.primary?.referenceHex ?? defaultWorkFolderAccent(id).hex);
+    assert.equal(new Set(colors).size, ids.length, "created and registered work-folders all differ");
+    for (const [id, customization] of Object.entries(boot.appearance.customizations)) {
+      assert.notEqual(customization.primary?.referenceHex, defaultWorkFolderAccent(id).hex, "a color its id already picks is not saved");
+    }
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

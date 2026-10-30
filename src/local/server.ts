@@ -232,8 +232,12 @@ import {
 } from "./work-folder-appearance-parts.js";
 import { normalizeConversationTitle, normalizeGeneratedConversationTitle } from "../shared/chat-title.js";
 import {
+  accentIdentityFromHex,
+  defaultWorkFolderAccent,
   hasWorkFolderAppearanceCustomization,
   parseWorkFolderAppearanceProposal,
+  primaryAccentIdentity,
+  startingWorkFolderAccentHex,
   workFolderAppearanceBannerNames,
   type WorkFolderAppearanceCustomization,
   type WorkFolderAppearanceProposal,
@@ -4637,19 +4641,44 @@ function conversationIdentity(value: unknown): string {
 async function createWorkFolderInternal(state: LocalApiState, name: string): Promise<WorkFolderSummary> {
   const workFolder = await createManagedWorkFolder(name, state.workFolderBase);
   state.workFolderTrustAuthority.grant(workFolder.workFolderRoot);
+  await giveStartingColor(state, workFolder.id);
   publishControlHint(state, "work-folders");
   return workFolder;
 }
 
 async function registerWorkFolderInternal(state: LocalApiState, rootPath: string, providerHint?: "google-drive"): Promise<WorkFolderSummary> {
+  const known = new Set((await registeredWorkFolderOutline()).map((item) => item.id));
   const workFolder = await registerLinkedWorkFolder(rootPath, providerHint);
   state.workFolderTrustAuthority.grant(workFolder.workFolderRoot);
+  // A folder that already carried a work-folder identity keeps the color it had.
+  if (!known.has(workFolder.id) && workFolder.createdAt === workFolder.updatedAt) await giveStartingColor(state, workFolder.id);
   // Copy-level note when a suspended automation's missing work-folder returns with its
   // portable identity; the automation stays suspended — registration never
   // silently re-arms standing behavior — so a failure to note it is tolerable.
   await state.automations.handleWorkFolderReRegistered(workFolder.id).catch(() => undefined);
   publishControlHint(state, "work-folders");
   return workFolder;
+}
+
+/**
+ * A new work-folder starts in the color the fewest others use, so two rarely
+ * share one (2026-10-30). Nothing is saved when that is already the color its
+ * id picks, and a saved choice always wins. The color is a nicety: failing to
+ * save it never fails the creation.
+ */
+async function giveStartingColor(state: LocalApiState, workFolderId: string): Promise<void> {
+  try {
+    const { customizations } = state.appearance.snapshot();
+    if (customizations[workFolderId]) return;
+    const others = (await registeredWorkFolderOutline())
+      .filter((item) => item.id !== workFolderId)
+      .map((item) => primaryAccentIdentity(customizations[item.id], defaultWorkFolderAccent(item.id).hex).referenceHex);
+    const hex = startingWorkFolderAccentHex(workFolderId, others);
+    if (hex === defaultWorkFolderAccent(workFolderId).hex) return;
+    await state.appearance.replaceWorkFolder(workFolderId, { primary: accentIdentityFromHex(hex) });
+  } catch {
+    // The work-folder keeps the color its id picks.
+  }
 }
 
 /** What a Recently deleted entry can still do, and why when it cannot go back. */

@@ -772,6 +772,17 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       setCustomizations(next);
     }
   }, [workFolders.map((item) => item.id).join("|")]);
+  useEffect(() => {
+    // A work-folder created after this window loaded may arrive with a saved
+    // starting color. Only work-folders this window has no appearance for
+    // take the saved one, so nothing here is overwritten.
+    const saved = appearance?.customizations ?? {};
+    const arriving = Object.entries(saved).filter(([id]) => !customizationsRef.current[id]);
+    if (!arriving.length) return;
+    const next = normalizeWorkFolderCustomizations({ ...customizationsRef.current, ...Object.fromEntries(arriving) }, undefined, supportedWorkFolderIconNames);
+    customizationsRef.current = next;
+    setCustomizations(next);
+  }, [appearance?.revision]);
   // A restore from Settings → Recently Deleted can bring back a Chat transcript
   // or a file; the pane cannot reach this state, so it announces the restore.
   useEffect(() => {
