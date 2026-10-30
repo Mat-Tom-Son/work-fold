@@ -47,6 +47,13 @@ class FakeRemoteSocket extends EventEmitter {
     this.readyState = WebSocket.CLOSING;
   }
 
+  terminated = false;
+
+  terminate(): void {
+    this.terminated = true;
+    this.readyState = WebSocket.CLOSING;
+  }
+
   open(): void {
     this.readyState = WebSocket.OPEN;
     this.emit("open");
@@ -237,7 +244,10 @@ function testCanonicalize(value: unknown): string {
   return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${testCanonicalize(record[key])}`).join(",")}}`;
 }
 
-function lifecycleClient(promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean> = async () => false): {
+function lifecycleClient(
+  promptPairing: (pairing: RemotePairingPrompt) => Promise<boolean> = async () => false,
+  now?: () => number,
+): {
   client: RemoteAccessClient;
   sockets: FakeRemoteSocket[];
   timers: ManualRemoteTimers;
@@ -259,6 +269,7 @@ function lifecycleClient(promptPairing: (pairing: RemotePairingPrompt) => Promis
       return socket as unknown as WebSocket;
     },
     timers,
+    ...(now ? { now } : {}),
   });
   return { client, sockets, timers };
 }
@@ -876,6 +887,34 @@ test("stop then start keeps one current socket and orphan events cannot flap it"
   client.stop();
 });
 
+test("a bridge link that falls silent is torn down so the ordinary reconnect replaces it", async () => {
+  let now = 1_000_000;
+  const { client, sockets, timers } = lifecycleClient(undefined, () => now);
+  await client.start();
+  const socket = sockets[0]!;
+  socket.open();
+  const heartbeat = [...timers.intervals.values()][0]!;
+
+  now += 20_000;
+  socket.emit("ping");
+  heartbeat();
+  now += 40_000;
+  heartbeat();
+  assert.equal(socket.terminated, false, "a bridge ping within the limit keeps the link");
+  assert.equal(socket.sent.filter((value) => (JSON.parse(value) as { type: string }).type === "device.heartbeat").length, 2);
+
+  now += 20_000;
+  heartbeat();
+  assert.equal(socket.terminated, true, "a minute without a frame or ping ends the socket");
+  socket.finishClose(1006);
+  await flushAsyncHandlers();
+  assert.equal((await client.status()).connection, "connecting");
+  assert.equal(timers.intervals.size, 0, "the dead socket's heartbeat stops");
+  assert.equal(timers.timeouts.size, 1, "the ordinary reconnect is scheduled");
+
+  client.stop();
+});
+
 test("concurrent starts share one connection attempt", async () => {
   const { client, sockets } = lifecycleClient();
   await Promise.all([client.start(), client.start(), client.start()]);
@@ -1430,7 +1469,7 @@ test("the status view derives the isolated pages- viewer origin beside the manag
 });
 
 test("the publication bridge sync lane is content-free, idempotent, and honest about a missing address", async () => {
-  const requests: Array<{ url: string; method: string; authorization: string; body: unknown }> = [];
+  const requests: Array<{ url: string; method: string; authorization: string; body: unknown; signal: unknown }> = [];
   let nextResponse: { status: number; body: unknown } = { status: 200, body: { publication: {} } };
   const fetchFn = (async (input: URL | RequestInfo, init?: RequestInit) => {
     requests.push({
@@ -1438,6 +1477,7 @@ test("the publication bridge sync lane is content-free, idempotent, and honest a
       method: init?.method ?? "GET",
       authorization: String((init?.headers as Record<string, string>).authorization),
       body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      signal: init?.signal,
     });
     return new Response(JSON.stringify(nextResponse.body), {
       status: nextResponse.status,
@@ -1460,6 +1500,7 @@ test("the publication bridge sync lane is content-free, idempotent, and honest a
   assert.equal(requests[0]!.url, "https://bridge.example/api/device/publications/publication-sync");
   assert.equal(requests[0]!.method, "PUT");
   assert.equal(requests[0]!.authorization, `Bearer ${settings.deviceToken}`);
+  assert.ok(requests[0]!.signal instanceof AbortSignal, "a stalled bridge cannot hold a sync open indefinitely");
   assert.deepEqual(Object.keys(requests[0]!.body as Record<string, unknown>).sort(), [
     "byteBudgetPerDay", "kind", "operationId", "serveRatePerMinute", "snapshotEnabled", "state",
   ], "slot syncs carry only content-free fields — no titles, paths, keys, or bytes");

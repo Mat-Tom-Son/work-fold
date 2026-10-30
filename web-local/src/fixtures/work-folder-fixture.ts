@@ -1,4 +1,4 @@
-import type { AgentExtensionSurface, AgentStatus, ConversationSummary, TreeEntry, WorkFolderCheckpoint, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../types";
+import type { AgentExtensionSurface, AgentStatus, TreeEntry, WorkFolderCheckpoint, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../types";
 import type { SharedPageView } from "../lib/page-sharing";
 import { automationTriggerSummary, type FolderAutomationView } from "../../../src/shared/automation-presentation";
 
@@ -41,6 +41,8 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
           { id: "thinking-2", kind: "thinking", text: "", phase: "complete", durationMs: 2_600 },
           { id: "tool-2", kind: "tool", toolName: "read", text: "Read finished", detail: "Kitchen refresh/budget.xlsx", phase: "complete" },
           { id: "tool-3", kind: "tool", toolName: "bash", text: "Bash finished", detail: "python3 -c \"import openpyxl; wb = openpyxl.load_workbook('Kitchen refresh/budget.xlsx'); print(sum(c.value or 0 for c in wb.active['C'][1:]))\"", phase: "complete" },
+          { id: "tool-4", kind: "tool", toolName: "edit", text: "Edit finished", detail: "C:\\Users\\you\\Documents\\Home projects/Kitchen refresh/ideas.md", phase: "complete" },
+          { id: "tool-5", kind: "tool", toolName: "write", text: "Write finished", detail: "weekend checklist.md", phase: "complete" },
           { id: "thinking-3", kind: "thinking", text: "The cabinetry line is the whole difference:\n\n```\nFixed-price quote ....... cabinetry included, no change orders unless the scope itself changes after signing\nAllowance quote ......... cabinetry allowance only, so the final cost moves with the finish choices\n```\n\nI’ll put that in a short table.", phase: "complete", durationMs: 3_900 },
         ], messages: [{ id: "u1", role: "user", content: "Compare the two estimates and make me a short decision table.", createdAt: now }, { id: "a1", role: "assistant", content: [
           "I compared the scope, allowances, and timelines. The biggest difference is cabinetry: one quote is fixed-price, while the other leaves it as an allowance.",

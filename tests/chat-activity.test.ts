@@ -18,7 +18,7 @@ const icons = registerHooks({
     return next(url, context);
   },
 });
-const { RuntimeContextPreview, formatDuration, workFolderRelativeToolPath, thoughtPreview, workStepsSummary } = await import("../web-local/src/components/chat/activity.js");
+const { RuntimeContextPreview, formatDuration, turnChangedFiles, workFolderRelativeToolPath, thoughtPreview, workStepsSummary } = await import("../web-local/src/components/chat/activity.js");
 icons.deregister();
 
 const read = (id: string, detail: string): RuntimePreviewEntry => ({ id, kind: "tool", toolName: "read", text: "Read finished", detail, phase: "complete" });
@@ -193,4 +193,23 @@ test("an app's tool step names the app and the tool, never the registered hash",
     interruption: { reason: "cancelled", message: "Stopped.", retryAttempts: 0, provider: null, model: null,
       activities: [{ message: "Inbox: Inbox search running", toolName: hashed, toolTitle: "Inbox: Inbox search", phase: "running" }] } });
   assert.equal(workStepsSummary(interrupted), "Used Inbox: Inbox search");
+});
+
+test("a turn's changed files are its write and edit targets inside the work-folder, in first-change order", () => {
+  const tool = (id: string, toolName: string, detail: string, phase: RuntimePreviewEntry["phase"] = "complete"): RuntimePreviewEntry => ({ id, kind: "tool", toolName, text: `${toolName} finished`, detail, phase });
+  const files = turnChangedFiles([
+    read("r1", "/Users/me/Stories/Catalog.md"),
+    tool("e1", "edit", "/Users/me/Stories/Catalog.md"),
+    tool("w1", "write", "53 - Field Study.txt"),
+    tool("e2", "edit", "53 - Field Study.txt"),
+    bash("b1", "cp draft.txt Archive/draft.txt"),
+    tool("e3", "edit", "/Users/me/Elsewhere/notes.md"),
+    tool("w2", "write", "Broken.md", "error"),
+    tool("e4", "edit", "/Users/me/Stories/Characters/Map.md"),
+  ], "/Users/me/Stories");
+  assert.deepEqual(files, [
+    { path: "Catalog.md", change: "edited" },
+    { path: "53 - Field Study.txt", change: "saved" },
+    { path: "Characters/Map.md", change: "edited" },
+  ]);
 });

@@ -86,6 +86,13 @@ where the platform supports it, and a last-known-good backup for recovery. Unsup
 fail closed rather than being rewritten. The renderer reads the snapshot from `/api/bootstrap` and
 writes through the token-authenticated local renderer API.
 
+A work-folder with nothing saved shows one of twelve starting colors, picked from its id
+(`defaultWorkFolderAccent`). Since 2026-10-30, a newly created or newly registered work-folder instead
+starts in the starting color the fewest other work-folders use, so the first twelve all differ; the
+local API saves that choice as its primary accent only when it differs from the id's own pick. A folder
+that already carried a work-folder identity keeps its color, and a saved choice always wins. A window
+that loaded earlier takes saved appearance only for work-folders it has none for.
+
 Legacy Workspace local-storage appearance values and profile records are not read or imported.
 work-fold begins with its own empty appearance store. Unsupported work-fold future versions fail
 closed and remain byte-for-byte untouched rather than being rewritten.

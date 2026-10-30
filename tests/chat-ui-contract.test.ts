@@ -25,22 +25,37 @@ const [app, tabBar, chatPanel, chatActions, messages, workTrail, activity, panes
   read("web-local/src/components/chrome/ActivityDot.tsx"),
 ]);
 
-test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft that sends on settle", () => {
+test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cancellable draft the app sends on settle", () => {
   // Plain Enter while a turn runs delivers the text through Pi's steering
   // queue (the agent reads it after its current step) and shows it as a
   // mid-turn user message; if the turn settles first (409) it becomes the
   // queued draft. ⌘/Ctrl+Enter holds the draft as a dashed queued bubble;
   // further Enters append; the queued draft fires through the ordinary send
   // path when the turn settles; Stop and the bubble's cancel return it to the
-  // composer ahead of any newer text.
+  // composer ahead of any newer text. Since 2026-10-27 the app holds the
+  // queued draft (every window shows it and the app sends it when the turn
+  // ends, never after a Stop); a window holds it only while its own turn has
+  // not been accepted yet.
   assert.match(chatPanel, /void steerMessage\(content\);/);
   assert.match(chatPanel, /body: \{ content, delivery: "steer", requestId, userMessageId \}/);
   assert.match(chatPanel, /caught instanceof ApiError && caught\.status === 409/);
   assert.match(chatPanel, /event\.metaKey \|\| event\.ctrlKey \|\| pendingSendRef\.current \|\| fixtureMode/);
   assert.match(localServer, /body\.delivery === "steer"/);
   assert.match(localServer, /await client\.steer\(input\.content\);/);
-  assert.match(chatPanel, /setQueuedSend\(\(current\) => \(current \? `\$\{current\}\\n\$\{content\}` : content\)\);/);
-  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| lifecycleView !== "active"\) return;/);
+  assert.match(chatPanel, /const next = queueSync\.append\(content\);/);
+  assert.match(chatPanel, /if \(queueSync\.applyEvent\(data\)\) publishQueue\(\);/);
+  assert.match(chatPanel, /\/queue`, \{\s*method: "PUT",/);
+  // Cancel is ordered after any queue write still in flight, so a late write
+  // cannot re-queue a cancelled message, and its echo is ignored meanwhile.
+  assert.match(chatPanel, /const cancel = queueWritesRef\.current\.catch\(\(\) => undefined\)\s*\.then\(\(\) => api<\{ revision: number \}>\(path, \{ method: "DELETE" \}\)\);/);
+  assert.match(chatPanel, /const \{ content, needsDelete \} = queueSync\.cancel\(\);/);
+  assert.match(chatPanel, /addressedWorkFolderIds: addressedFolderIds\(next, mentionFolders\)/);
+  assert.match(chatPanel, /if \(data\.type === "queued_message"\)/);
+  // A window never sends the message itself while its own queue writes or Cancel are unanswered.
+  assert.match(chatPanel, /if \(running \|\| workState\.work\?\.canStop \|\| !queuedSend \|\| queuedOnServer \|\| queueUnsettled \|\| lifecycleView !== "active"\) return;/);
+  // A Stop from any surface holds the queued message; only an unheld one is sent.
+  assert.match(localServer, /if \(queued && settledStatus === "aborted"\) \{[\s\S]{0,200}held: true/);
+  assert.match(localServer, /\} else if \(queued && !queued\.held\) void sendQueuedMessage/);
   assert.match(chatPanel, /className="queued-send-row"/);
   assert.match(chatPanel, /aria-label="Cancel queued message"/);
   assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
@@ -193,6 +208,24 @@ test("surface tab labels use crisp shell typography", () => {
   assert.match(tabBar, /role="menuitemcheckbox"/);
 });
 
+test("opening a past Chat never flashes the new-Chat greeting while its messages load", () => {
+  assert.match(chatPanel, /const openingPastChat = !fixtureMode && Boolean\(targetConversationId\)\s*&& \(conversation\?\.id !== targetConversationId \|\| openingConversationId === targetConversationId\);/);
+  assert.match(chatPanel, /\{!hasTranscript && !openingPastChat \? \(\s*<ChatEmptyState/);
+  assert.match(chatPanel, /setOpeningConversationId\(selected\.id\);\s*let transcript: ChatMessage\[\];\s*try \{\s*transcript = await loadMessages\(selected\.id, true\);\s*\} finally \{\s*setOpeningConversationId\(\(current\) => current === selected\.id \? null : current\);/, "a failed load must not leave the Chat blank forever");
+});
+
+test("a tab group starts with just its work-folder's colored icon, and a line separates groups", () => {
+  assert.match(tabBar, /<span className="surface-tab-group" role="presentation" key=\{group\.workFolderId\} style=\{workFolderIdentityStyle\(identity\)\}>/, "the group carries its work-folder's colors");
+  assert.match(tabBar, /<span className="surface-tab-group-label" title=\{tabWorkFolder\.name\} aria-hidden="true">\s*<WorkFolderIconGlyph icon=\{identity\.Icon\} size=\{15\} \/>\s*<\/span>/, "icon only; the name is the hover title");
+  assert.doesNotMatch(tabBar, /<span>\{tabWorkFolder\.name\}<\/span>|<span>Browser<\/span>/);
+  assert.match(tabBar, /aria-label=\{`\$\{tab\.title\} in \$\{workFolderName\}/, "each tab still names its work-folder for assistive technology");
+  const iconRule = styles.match(/\n\.surface-tab-group-label \{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(iconRule, /color: var\(--work-folder-accent-glyph/);
+  assert.doesNotMatch(iconRule, /background/, "a bare icon, not a chip");
+  assert.match(styles, /\n\.surface-tab-group \{[\s\S]*?border-left: 1px solid/, "a line between groups");
+  assert.match(styles, /\.surface-tab-active-chrome \+ \.surface-tab-group \{\s*padding-left: 0;\s*border-left: 0;/, "no line before the first group");
+});
+
 test("assistant rendering has complete Markdown chrome and work-folder-aware accents", () => {
   for (const contract of ["message-code-toolbar", "message-table-scroll", "message-image", "work-folder-file-link"]) {
     assert.match(messages, new RegExp(contract));
@@ -255,7 +288,7 @@ test("provider interruptions stay visible and the configured model is disclosed 
 });
 
 test("a new turn clears the prior idle stream snapshot before running becomes visible", () => {
-  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
+  const sendMessage = chatPanel.match(/async function sendMessage\(contentOverride\?: string[^)]*\) \{[\s\S]*?\n  async function steerMessage/)?.[0] ?? "";
   assert.match(sendMessage, /cancelStreamingFlush\(\);\s*\n\s*setStreamingAssistant\(""\);/);
   assert.ok(sendMessage.indexOf('setStreamingAssistant("");') < sendMessage.indexOf("setRunning(true);"));
   assert.match(chatPanel, /typeof data\.text === "string" && data\.running === true/);
@@ -291,16 +324,20 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   // Thinking is text-only and calls the real per-conversation endpoint. The
   // control appears only when the current model reports an actual choice.
   assert.doesNotMatch(chatPanel, /Brain(?:Circuit)?\d+(?:Filled|Regular)/);
-  assert.match(chatPanel, /if \(levels\.length < 2\) return null;/);
+  assert.match(chatPanel, /reasoningState && \(reasoningState\.thinkingLevels\?\.length \?\? 0\) > 1/);
   assert.match(chatPanel, /\/conversations\/\$\{conversationId\}\/thinking/);
   assert.match(chatPanel, /body: \{ level \}/);
   assert.match(chatPanel, /setConversationRuntime\(result\.runtime\)/);
-  assert.match(chatPanel, /className="composer-thinking-label">\{thinkingLevelLabel\(state\.thinkingLevel\)\}/);
+  // Reasoning shares the model chip and its menu (2026-10-27).
+  assert.match(chatPanel, /className="composer-model-reasoning">\{thinkingLevelLabel\(reasoning\.level\)\}/);
+  assert.match(chatPanel, /role="radiogroup" aria-labelledby=\{`\$\{menuId\}-reasoning`\}/);
+  assert.match(chatPanel, /reasoning\.forThisChat \? "Reasoning for this Chat" : "Reasoning"/);
+  assert.doesNotMatch(chatPanel, /ThinkingLevelControl/);
   assert.match(chatPanel, /conversationRuntime \?\? composerState/);
   assert.match(chatPanel, /"\/api\/agent\/thinking"/);
   assert.match(chatPanel, /body: \{ scope: "work-folder", workFolderId: workFolder\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
-  assert.match(styles, /\.composer-thinking-trigger > span:first-child \{[\s\S]*?font: inherit;/);
+  assert.match(styles, /\.composer-reasoning-levels button \{[\s\S]*?font: inherit;/);
   assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 700;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });

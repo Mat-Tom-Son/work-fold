@@ -22,7 +22,7 @@ request-wide progress and Stop, addressed questions, selected files, and explici
 across Chats, the work-fold agent, Apps, and the paired browser.
 
 Native Pi Extension dialogs are a separate compatibility mechanism: the
-development [Extension UI adapter](skills-and-extensions.md#live-extension-questions-development)
+development [Extension UI adapter](skills-and-extensions.md#live-extension-questions)
 places live callbacks in the owning Chat and cancels them on Stop or session
 end. It cannot reconstruct a callback after restart and does not claim F27's
 durable answer/continuation semantics. An Extension needing those semantics

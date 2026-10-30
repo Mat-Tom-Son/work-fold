@@ -108,6 +108,8 @@ interface LiveJob {
   timeoutTimer: NodeJS.Timeout | null;
   killTimer: NodeJS.Timeout | null;
   skipHistory: boolean;
+  /** Set when recording the start failed after the process began; #finish records the job as failed. */
+  startFailure: string | null;
   /** The process group has drained; the job stays here through History and host settlement. */
   exited: boolean;
   events: EventEmitter;
@@ -241,6 +243,15 @@ export class WorkFoldJobService {
       await mkdir(this.store.outputDirectory(accepted.jobId), { recursive: true, mode: 0o700 });
       return await this.#spawn(accepted, input.shell ?? {}, releaseStarting);
     } catch (error) {
+      const live = this.#live.get(accepted.jobId);
+      if (live) {
+        // The process started before the failure, so #finish owns its
+        // settlement: stop it and wait, rather than leave it running with its
+        // slot and kernel task held.
+        live.startFailure ??= boundJobError(errorMessage(error));
+        this.#signalStop(live);
+        return await live.settled;
+      }
       const failed = await this.store.update(accepted.jobId, (record) => ({
         ...record,
         state: "failed",
@@ -272,6 +283,7 @@ export class WorkFoldJobService {
       timeoutTimer: null,
       killTimer: null,
       skipHistory: false,
+      startFailure: null,
       exited: false,
       events: new EventEmitter(),
       settled,
@@ -337,45 +349,61 @@ export class WorkFoldJobService {
       child.once("exit", (code, signal) => resolve({ code, signal }));
     });
     child.once("error", () => undefined);
-    let terminal: Partial<WorkFoldJobRecord> = {};
-    if (accepted.interactive) {
-      const deadline = Date.now() + 2_000;
-      while (Date.now() < deadline) {
-        const pid = Number((await readFile(join(this.store.outputDirectory(accepted.jobId), "terminal.pid"), "utf8").catch(() => "")).trim());
-        if (Number.isInteger(pid) && pid > 1) {
-          // Expect's forkpty child leads its own session/process group. Keep
-          // it stoppable even if ps cannot observe a very short-lived shell.
-          live.terminalGroupId = pid;
-          terminal = { terminalPid: pid, terminalGroupId: pid };
-          const identity = await processStartTime(pid);
-          const group = Number((await execFileAsync("ps", ["-o", "pgid=", "-p", String(pid)]).catch(() => ({ stdout: "" }))).stdout.trim());
-          if (identity && group > 1 && group !== process.pid) {
-            live.terminalGroupId = group;
-            terminal = { terminalPid: pid, terminalGroupId: group, terminalProcessStartedAt: identity };
-          }
-          break;
-        }
-        if (child.exitCode !== null) break;
-        await new Promise(done => setTimeout(done, 10));
-      }
-    }
-    const startedAt = this.#now().toISOString();
-    const processStartedAt = await processStartTime(child.pid);
-    const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
-      ...record,
-      state: "running",
-      startedAt,
-      pid: child.pid ?? null,
-      processStartedAt,
-      ...terminal,
+    // Listen before startup awaits, but settle only after the running write
+    // succeeds or its failure is recorded on the live job. Otherwise a fast
+    // command can settle as successful before a late startup failure arrives.
+    let finishStartup!: () => void;
+    const startupFinished = new Promise<void>((resolve) => { finishStartup = resolve; });
+    void exited.then(async (exit) => {
+      await startupFinished;
+      await this.#finish(live, exit);
     });
-    if (accepted.timeoutSeconds !== null) {
-      live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
-      live.timeoutTimer.unref();
+    try {
+      let terminal: Partial<WorkFoldJobRecord> = {};
+      if (accepted.interactive) {
+        const deadline = Date.now() + 2_000;
+        while (Date.now() < deadline) {
+          const pid = Number((await readFile(join(this.store.outputDirectory(accepted.jobId), "terminal.pid"), "utf8").catch(() => "")).trim());
+          if (Number.isInteger(pid) && pid > 1) {
+            // Expect's forkpty child leads its own session/process group. Keep
+            // it stoppable even if ps cannot observe a very short-lived shell.
+            live.terminalGroupId = pid;
+            terminal = { terminalPid: pid, terminalGroupId: pid };
+            const identity = await processStartTime(pid);
+            const group = Number((await execFileAsync("ps", ["-o", "pgid=", "-p", String(pid)]).catch(() => ({ stdout: "" }))).stdout.trim());
+            if (identity && group > 1 && group !== process.pid) {
+              live.terminalGroupId = group;
+              terminal = { terminalPid: pid, terminalGroupId: group, terminalProcessStartedAt: identity };
+            }
+            break;
+          }
+          if (child.exitCode !== null) break;
+          await new Promise(done => setTimeout(done, 10));
+        }
+      }
+      const startedAt = this.#now().toISOString();
+      const processStartedAt = await processStartTime(child.pid);
+      const running = await this.store.update(accepted.jobId, (record) => isWorkFoldJobTerminalState(record.state) ? record : {
+        ...record,
+        state: "running",
+        startedAt,
+        pid: child.pid ?? null,
+        processStartedAt,
+        ...terminal,
+      });
+      if (accepted.timeoutSeconds !== null && !live.exited) {
+        live.timeoutTimer = setTimeout(() => { void this.stop(accepted.jobId, "timeout"); }, accepted.timeoutSeconds * 1000);
+        live.timeoutTimer.unref();
+      }
+      if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
+      return { ...running, output: writer.counters };
+    } catch (error) {
+      live.startFailure ??= boundJobError(errorMessage(error));
+      this.#signalStop(live);
+      throw error;
+    } finally {
+      finishStartup();
     }
-    void exited.then((exit) => this.#finish(live, exit));
-    if (this.#ports.stopRequested?.(running)) void this.stop(accepted.jobId, "request");
-    return { ...running, output: writer.counters };
   }
 
   async #finish(live: LiveJob, exit: { code: number | null; signal: NodeJS.Signals | null }): Promise<void> {
@@ -391,6 +419,8 @@ export class WorkFoldJobService {
       }
     }
     live.exited = true;
+    // A timeout armed while this settlement was starting must not fire later.
+    if (live.timeoutTimer) clearTimeout(live.timeoutTimer);
     // Output still in the pipes arrives before stdio closes. A descendant that
     // kept a pipe open must not hold the job open, so wait only briefly.
     await Promise.race([
@@ -406,7 +436,7 @@ export class WorkFoldJobService {
     const signalNumber = exit.signal ? osConstants.signals[exit.signal] ?? 0 : 0;
     const exitCode = exit.code ?? (exit.signal ? 128 + signalNumber : null);
     const cause = live.stopCause;
-    const state = cause === "timeout" ? "timed_out" : cause === "quit" ? "interrupted" : cause ? "stopped" : "exited";
+    const state = live.startFailure ? "failed" : cause === "timeout" ? "timed_out" : cause === "quit" ? "interrupted" : cause ? "stopped" : "exited";
     const isAgentScope = (record: WorkFoldJobRecord) => record.workFolderId === undefined;
     let ended = await this.store.update(live.jobId, (record) => ({
       ...record,
@@ -415,7 +445,7 @@ export class WorkFoldJobService {
       exitCode,
       signal: exit.signal ?? null,
       stoppedBy: cause,
-      error: cause === "quit" ? "work-fold closed before this job finished." : record.error,
+      error: live.startFailure ?? (cause === "quit" ? "work-fold closed before this job finished." : record.error),
       output: counters,
       history: live.skipHistory
         ? { status: "unavailable", reason: "work-fold was closing." }
@@ -555,7 +585,8 @@ export class WorkFoldJobService {
         finish({ outcome: "ended", job: record });
       };
       const onAbort = () => finish({ outcome: "aborted", job: this.require(jobId) });
-      const timer = setTimeout(() => finish({ outcome: "timed_out", job: this.require(jobId) }), Math.max(0, options.seconds) * 1000);
+      // Node fires a longer delay at once, so a very long wait is capped at the largest one it keeps.
+      const timer = setTimeout(() => finish({ outcome: "timed_out", job: this.require(jobId) }), Math.min(2_147_483_647, Math.max(0, options.seconds) * 1000));
       live.events.on("data", onData);
       live.events.on("settled", onSettled);
       if (options.signal?.aborted) {

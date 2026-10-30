@@ -151,8 +151,12 @@ extra repository instruction source.
 
 - `npm run repo:check` runs without installed dependencies or network access.
   It includes new, non-ignored files, so it is useful before staging a change.
-  It verifies shared files and paths, not model obedience or personal settings.
-- `npm run check` runs repository hygiene plus both TypeScript checks.
+  It verifies shared files, paths, and heading anchors, not model obedience or
+  personal settings.
+- `npm run check` runs repository hygiene plus all three TypeScript checks:
+  `local:check` (renderer), `desktop:check` (local API and Electron), and
+  `harness:check` (evaluation and development driver scripts). Test files are
+  not type-checked; `tsx` strips their types when they run.
 - `npm test` runs the application suite. While editing, run a focused file with
   `npm test -- tests/documentation-contract.test.ts`, substituting the relevant
   test files. Use the full suite before handing off behavior changes.

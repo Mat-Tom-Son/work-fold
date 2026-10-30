@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { connect } from "node:net";
 import test from "node:test";
 
 import { newDb } from "pg-mem";
@@ -206,6 +207,54 @@ test("serves the web client and healthy no-store API responses", async (context)
   assert.equal(rejected.headers.get("allow"), "GET, HEAD");
 });
 
+test("a malformed Host header still routes, and the health 405 keeps the security headers", async (context) => {
+  const service = await testService(context);
+  const malformed = await rawHttpRequest(service.port, "GET /health HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n");
+  assert.equal(malformed.status, 200, "routing never parses the Host header");
+
+  const notAllowed = await rawHttpRequest(service.port, "POST /health HTTP/1.1\r\nHost: www.work-fold.test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+  assert.equal(notAllowed.status, 405);
+  assert.equal(notAllowed.headers.get("allow"), "GET, HEAD");
+  assert.match(notAllowed.headers.get("strict-transport-security") ?? "", /max-age=/);
+});
+
+test("a device upgrade reset during its account lookup does not take the bridge down", async (context) => {
+  const service = await testService(context);
+  const authenticateDevice = service.database.authenticateDevice.bind(service.database);
+  let lookupStarted;
+  const started = new Promise((resolve) => { lookupStarted = resolve; });
+  let releaseLookup;
+  const released = new Promise((resolve) => { releaseLookup = resolve; });
+  service.database.authenticateDevice = async (token) => {
+    lookupStarted();
+    await released;
+    return authenticateDevice(token);
+  };
+
+  const client = connect(service.port, "127.0.0.1");
+  client.on("error", () => undefined);
+  await new Promise((resolve) => client.once("connect", resolve));
+  client.write([
+    "GET /api/device/connect HTTP/1.1",
+    "Host: 127.0.0.1",
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    "Sec-WebSocket-Version: 13",
+    `Authorization: Bearer ${"x".repeat(40)}`,
+    "",
+    "",
+  ].join("\r\n"));
+  await started;
+  client.resetAndDestroy();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  releaseLookup();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const health = await fetch(`http://127.0.0.1:${service.port}/health`);
+  assert.equal(health.status, 200);
+});
+
 test("fixture previews render canned state and stay inert against the real API", async (context) => {
   const service = await testService(context);
   const baseUrl = `http://127.0.0.1:${service.port}`;
@@ -244,11 +293,13 @@ test("the live watch is capability-gated, single, and falls back to polling", as
   // The client starts a watch only when the desktop's summary advertises the
   // capability — an older desktop is never asked — keeps at most one watch,
   // ignores ticks from a superseded watch, refreshes immediately on settle,
-  // and one failed watch quietly returns the page to polling.
+  // and one failed watch quietly returns the page to polling for a while
+  // before live streaming is tried again.
   assert.match(applicationSource, /if \(state\.summary\?\.capabilities\?\.watch !== true\) return;/);
   assert.match(applicationSource, /if \(state\.watchToken\) return;/);
   assert.match(applicationSource, /event\.operationId !== state\.watchOperationId\) return;/);
-  assert.match(applicationSource, /state\.watchUnsupported = true;/);
+  assert.match(applicationSource, /state\.watchRetryAt = Date\.now\(\) \+ 30_000;/);
+  assert.match(applicationSource, /if \(fixtureName \|\| Date\.now\(\) < state\.watchRetryAt \|\| state\.sessionRebooting\) return;/);
   assert.match(applicationSource, /result && result\.settled === true/);
   // Each watch begins with a bounded cumulative snapshot, then applies
   // throttled deltas until the durable transcript replaces the live row.
@@ -300,7 +351,7 @@ test("chat deletion state transition removes only the settled chat and its draft
   assert.deepEqual(removeDeletedChat(state, "chat-b"), { nextConversationId: "chat-c" });
 });
 
-test("the running control replaces Send inside the composer", async () => {
+test("the running control replaces Send inside the composer until there is text to steer with", async () => {
   const applicationSource = await readFile(new URL("./public/app.js", import.meta.url), "utf8");
   const applicationStyles = await readFile(new URL("./public/app.css", import.meta.url), "utf8");
   const topBar = applicationSource.match(/<header class="top-bar">[\s\S]*?<\/header>/)?.[0] ?? "";
@@ -309,7 +360,17 @@ test("the running control replaces Send inside the composer", async () => {
   assert.match(composer, /class="send-button"[\s\S]*?id="stop-task" class="send-button stop-button"/);
   assert.match(applicationStyles, /\.send-button\[hidden\]\s*\{\s*display:\s*none/);
   assert.match(applicationStyles, /\.stop-button\s*\{/);
-  assert.match(applicationSource, /selectedTaskRunning[\s\S]{0,180}if \(!content[\s\S]{0,180}selectedTaskRunning\) return/);
+  // A running Chat takes a message only as steering, only while the agent
+  // itself is working, from a desktop that offers it, without files; when it
+  // cannot, the person is told why. The New chat screen always sends.
+  assert.match(applicationSource, /if \(openChatRunning\(\)\) \{\s*const blocked = steerBlockedReason\(\);/);
+  assert.match(applicationSource, /return state\.contextName === "chat" && !state\.startingNewChat/);
+  assert.match(applicationSource, /\?\.phase !== "working"\) return "Other Workers are still on this/);
+  // Send and Stop sit side by side while steering, never one over the other.
+  assert.match(applicationStyles, /\.composer-field\[data-steering\] \.stop-button \{ right: 52px; \}/);
+  assert.match(applicationSource, /toggleAttribute\("data-steering", running && !button\.hidden\)/);
+  assert.match(applicationSource, /remote\("management\.send", \{ content, conversationId, delivery: "steer" \}\)/);
+  assert.match(applicationSource, /button\.hidden = running && !\(steerable && input\.value\.trim\(\)\);/);
 });
 
 test("composer sends with Enter on hardware keyboards and writes a newline on touch", () => {
@@ -761,6 +822,11 @@ test("a displaced device cannot decide a pairing and the current device can decl
   currentSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: false }));
   const declined = await currentMessages.next("pairing.settled");
   assert.equal(declined.status, "declined");
+  // A second dialog for the same pairing (a reconnect shows it again) answered
+  // late is settled as expired, never a protocol error that ends remote access.
+  currentSocket.send(JSON.stringify({ type: "pairing.decision", pairingId: pairing.body.pairing.id, approved: true }));
+  assert.equal((await currentMessages.next("pairing.settled")).status, "expired");
+  assert.equal(currentMessages.takeNow("protocol.error"), null);
   const pairingResult = await jsonRequest(`${baseUrl}/api/pairings/${pairing.body.pairing.id}?slug=device-displacement-test`, {
     headers: { cookie },
   });
@@ -1143,9 +1209,16 @@ test("pairs a non-exportable browser identity and relays only signed opaque enve
     return result.body.operation?.state === "running" ? result : null;
   });
 
+  // An exact repeat (a desktop recovering a still-running operation re-sends
+  // what it already sent) is dropped quietly: the desktop treats a protocol
+  // error as terminal. A different envelope reusing the sequence is refused.
   socket.send(JSON.stringify({ type: "operation.event", envelope: progressEnvelope }));
-  assert.match((await messages.next("protocol.error")).error, /sequence must increase/);
+  const forged = { ...progressEnvelope, ciphertext: randomBytes(48).toString("base64url"), signature: "" };
+  forged.signature = signText(deviceKeys.signing.privateKey, envelopeText(forged));
+  socket.send(JSON.stringify({ type: "operation.event", envelope: forged }));
+  assert.match((await messages.next("protocol.error")).error, /sequence must increase/, "the different envelope is an error");
   await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(messages.takeNow("protocol.error"), null, "the exact repeat produced no protocol error");
   const afterReplay = await jsonRequest(`${baseUrl}/api/operations/${delivered.operation.id}?slug=alice-test`, { headers: { cookie } });
   assert.equal(afterReplay.body.events.length, 1);
   assert.equal(
@@ -2256,6 +2329,26 @@ async function jsonRequest(url, { method = "GET", headers = {}, body } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { response, body: await response.json() };
+}
+
+/** A hand-written HTTP/1.1 request, for headers `fetch` will not send. */
+function rawHttpRequest(port, text) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1", () => socket.write(text));
+    const chunks = [];
+    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("error", reject);
+    socket.on("end", () => {
+      const [head] = Buffer.concat(chunks).toString("latin1").split("\r\n\r\n", 1);
+      const [statusLine, ...lines] = head.split("\r\n");
+      const headers = new Headers();
+      for (const line of lines) {
+        const index = line.indexOf(":");
+        if (index > 0) headers.append(line.slice(0, index).trim(), line.slice(index + 1).trim());
+      }
+      resolve({ status: Number(statusLine.split(" ")[1]), headers });
+    });
+  });
 }
 
 function cookieFrom(response) {

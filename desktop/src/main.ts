@@ -4,7 +4,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { basename, delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   app,
@@ -106,10 +106,18 @@ import {
   type NativeFileMenuCommand,
   type NativeFileMenuRequest,
 } from "./file-context-menu.js";
+import {
+  nativeTabMenuItems,
+  parseNativeTabMenuRequest,
+  type NativeTabMenuCommand,
+  type NativeTabMenuItem,
+  type NativeTabMenuRequest,
+} from "./tab-context-menu.js";
 import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
 import { RailTooltipOverlay } from "./rail-tooltip-overlay.js";
+import { macSpellingGuesses } from "./mac-spelling.js";
 import { BuiltInBrowser, parseBrowserCommand, parseBrowserTabsSync, parseBrowserViewRequest } from "./built-in-browser.js";
 import { isBrowserPageId } from "../../src/shared/browser.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
@@ -119,6 +127,7 @@ import {
   RemoteBridgeRequestError,
   createRemoteBridgePublicationSync,
   generateRemoteDeviceKeys,
+  remoteBridgeRequestTimeoutMs,
   runRemoteAccountRemoval,
   type RemoteAccessStatus,
   type RemotePairingPrompt,
@@ -232,7 +241,6 @@ let accentColorMonitorRegistered = false;
 let rendererRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererRecoveryInFlight = false;
 let rendererRecoveryAttempts = 0;
-let rendererLoadFailed = false;
 let rendererRecoveryFailurePromptShown = false;
 let createWindowPromise: Promise<void> | null = null;
 let rendererMenuState: RendererMenuState = { workFolderOpen: false };
@@ -548,8 +556,8 @@ async function ensureDesktopHost(): Promise<DesktopHost> {
     try {
       const extensionUi = new RoutedPiExtensionUiBridge();
       extensionUi.on("event", (event: PiExtensionUiEvent) => {
-      if (event.method === "openExternal") void openExternal(event.url);
-      else if (event.method === "oauthDeviceCode") void openExternal(event.verificationUri);
+      if (event.method === "openExternal") void openExternal(event.url).catch((error) => console.warn(`${productName} blocked external navigation: ${errorMessage(error)}`));
+      else if (event.method === "oauthDeviceCode") void openExternal(event.verificationUri).catch((error) => console.warn(`${productName} blocked external navigation: ${errorMessage(error)}`));
       else if (event.method === "copyText") clipboard.writeText(event.text);
       else if (event.method === "openSettings") mainWindow?.webContents.send("work-fold:agent:open-settings");
       else if (event.method === "quit") app.quit();
@@ -1009,6 +1017,7 @@ async function remoteBridgeRequest<T = unknown>(
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    signal: AbortSignal.timeout(remoteBridgeRequestTimeoutMs),
   });
   const body = await response.json().catch(() => ({})) as { error?: unknown } & T;
   if (!response.ok) {
@@ -1378,6 +1387,11 @@ function registerIpc(): void {
     const request = parseNativeFileMenuRequest(value);
     await validateNativeFileMenuEntry(request);
     return popupNativeFileMenu(request);
+  });
+  ipcMain.handle("work-fold:work-folder:popup-tab-menu", (event, value: unknown): Promise<NativeTabMenuCommand | null> => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "darwin") return Promise.resolve(null);
+    return popupNativeTabMenu(parseNativeTabMenuRequest(value));
   });
   ipcMain.handle("work-fold:work-folder:set-active-work-folder", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
@@ -1878,7 +1892,7 @@ function sendRendererMenuCommand(command: RendererMenuCommand): void {
 function updateApplicationMenuState(value: unknown): void {
   rendererMenuState = {
     workFolderOpen: isRecord(value)
-      ? value.workFolderOpen === true || value.workFolderOpen === true
+      ? value.workFolderOpen === true
       : rendererMenuState.workFolderOpen,
   };
   const menu = Menu.getApplicationMenu();
@@ -2142,6 +2156,35 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
       x: request.point.x,
       y: request.point.y,
       callback: () => finish(null),
+    });
+  });
+}
+
+function popupNativeTabMenu(request: NativeTabMenuRequest): Promise<NativeTabMenuCommand | null> {
+  const window = mainWindow;
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+    return Promise.reject(new Error("The work-fold window is not available."));
+  }
+  return new Promise((resolveCommand) => {
+    let settled = false;
+    const finish = (command: NativeTabMenuCommand | null) => {
+      if (settled) return;
+      settled = true;
+      resolveCommand(command);
+    };
+    const template = (items: NativeTabMenuItem[]): MenuItemConstructorOptions[] => items.map((item) => {
+      if (item.type === "separator") return { type: "separator" };
+      if (item.type === "submenu") return { label: item.label, submenu: template(item.items) };
+      return { label: item.label, ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
+    });
+    // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
+    const zoom = window.webContents.getZoomFactor() || 1;
+    Menu.buildFromTemplate(template(nativeTabMenuItems(request))).popup({
+      window,
+      x: Math.round(request.point.x * zoom),
+      y: Math.round(request.point.y * zoom),
+      // The menu can report closing before the chosen item's click runs.
+      callback: () => setTimeout(() => finish(null), 0),
     });
   });
 }
@@ -2540,9 +2583,13 @@ function configureAccentColorMonitor(): void {
   if (accentColorMonitorRegistered || (process.platform !== "win32" && process.platform !== "darwin")) return;
   accentColorMonitorRegistered = true;
   const sendAccentColor = () => {
+    const accent = getSystemAccentColor();
     const window = mainWindow;
-    if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
-    window.webContents.send("work-fold:window:accent-color-changed", getSystemAccentColor());
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send("work-fold:window:accent-color-changed", accent);
+    }
+    // The menu-bar popover subscribes too, and may be open with no main window.
+    workFoldAgentPopover?.send("work-fold:window:accent-color-changed", accent);
   };
   if (process.platform === "darwin") {
     systemPreferences.subscribeNotification("AppleColorPreferencesChangedNotification", sendAccentColor);
@@ -2572,11 +2619,9 @@ function configureWindowResilience(window: BrowserWindow): void {
   });
   window.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
     if (!isMainFrame || !isTrustedRendererUrl(url)) return;
-    rendererLoadFailed = true;
     scheduleRendererRecovery(description || `load failed with error ${code}`);
   });
   window.webContents.on("did-finish-load", () => {
-    rendererLoadFailed = false;
     rendererRecoveryAttempts = 0;
   });
   window.webContents.on("render-process-gone", (_event, details) => {
@@ -2627,7 +2672,6 @@ async function recoverRenderer(reason: string): Promise<void> {
   }
   if (retryReason) scheduleRendererRecovery(retryReason);
   else {
-    rendererLoadFailed = false;
     rendererRecoveryAttempts = 0;
     rendererRecoveryFailurePromptShown = false;
     window.webContents.send("work-fold:runtime:renderer-recovered");
@@ -2671,21 +2715,30 @@ function configureWindowNavigation(window: BrowserWindow): void {
 
 function configureContextMenu(window: BrowserWindow): void {
   window.webContents.on("context-menu", (_event, params) => {
-    const template = buildContextMenuTemplate(window, params);
-    if (template) Menu.buildFromTemplate(template).popup({ window, frame: params.frame ?? undefined });
+    void spellingSuggestions(params).then((suggestions) => {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+      const template = buildContextMenuTemplate(window, params, suggestions);
+      const frame = params.frame && !params.frame.isDestroyed() ? params.frame : undefined;
+      if (template) Menu.buildFromTemplate(template).popup({ window, frame });
+    });
   });
 }
 
-function buildContextMenuTemplate(window: BrowserWindow, params: ContextMenuParams): MenuItemConstructorOptions[] | null {
-  if (params.isEditable) return buildEditableContextMenuTemplate(window, params);
+/** macOS often leaves Electron's suggestions empty; ask the system spell checker, as the built-in browser does. */
+async function spellingSuggestions(params: ContextMenuParams): Promise<string[]> {
+  if (!params.misspelledWord || params.dictionarySuggestions.length) return params.dictionarySuggestions.slice(0, 5);
+  return macSpellingGuesses(params.misspelledWord);
+}
+
+function buildContextMenuTemplate(window: BrowserWindow, params: ContextMenuParams, suggestions: string[]): MenuItemConstructorOptions[] | null {
+  if (params.isEditable) return buildEditableContextMenuTemplate(window, params, suggestions);
   if (params.selectionText.length > 0 || params.linkURL.length > 0) return buildSelectionContextMenuTemplate(params);
   return null;
 }
 
-function buildEditableContextMenuTemplate(window: BrowserWindow, params: ContextMenuParams): MenuItemConstructorOptions[] {
+function buildEditableContextMenuTemplate(window: BrowserWindow, params: ContextMenuParams, suggestions: string[]): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
   if (params.misspelledWord.length > 0) {
-    const suggestions = params.dictionarySuggestions.slice(0, 5);
     template.push(...(suggestions.length ? suggestions.map((suggestion) => ({
       label: suggestion,
       click: () => window.webContents.replaceMisspelling(suggestion),

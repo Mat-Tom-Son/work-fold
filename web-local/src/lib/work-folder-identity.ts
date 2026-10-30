@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import {
+  defaultWorkFolderAccent,
   primaryAccentIdentity,
   normalizeWorkFolderAppearanceBannerFraming,
   resolveWorkFolderAppearance,
@@ -16,21 +17,6 @@ import type { WorkFolderBannerImagePosition, WorkFolderColorOption, WorkFolderCu
 import { readableTextColorOn } from "./color-contrast";
 import { normalizeWorkFolderBannerImage, normalizeWorkFolderBannerImagePosition, workFolderBannerOptionFor } from "./work-folder-customization";
 import { workFolderBannerPresetFor } from "./work-folder-banner-presets";
-
-const defaultWorkFolderColorOptions: WorkFolderColorOption[] = [
-  workFolderColor("Slate", "#60646c"),
-  workFolderColor("Red", "#ce2c31"),
-  workFolderColor("Orange", "#cc4e00"),
-  workFolderColor("Amber", "#ab6400"),
-  workFolderColor("Moss", "#5c7c2e"),
-  workFolderColor("Green", "#1a7f37"),
-  workFolderColor("Cyan", "#0e7490"),
-  workFolderColor("Blue", "#0d74ce"),
-  workFolderColor("Violet", "#6550b9"),
-  workFolderColor("Plum", "#953ea3"),
-  workFolderColor("Pink", "#c2298a"),
-  workFolderColor("Brown", "#815e46"),
-];
 
 // Picker colors can evolve without recoloring work-folders that use their original default.
 export const workFolderColorOptions: WorkFolderColorOption[] = [
@@ -61,9 +47,8 @@ export const workFolderColorOptions: WorkFolderColorOption[] = [
 ];
 
 export function defaultWorkFolderColor(workFolderId: string): WorkFolderColorOption {
-  let hash = 0;
-  for (const character of workFolderId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  return defaultWorkFolderColorOptions[hash % defaultWorkFolderColorOptions.length] ?? defaultWorkFolderColorOptions[0];
+  const { label, hex } = defaultWorkFolderAccent(workFolderId);
+  return workFolderColor(label, hex);
 }
 
 export function workFolderColor(label: string, color: string): WorkFolderColorOption {

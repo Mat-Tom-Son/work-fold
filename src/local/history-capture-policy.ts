@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { isWorkFolderIgnored, readWorkFolderIgnoreState } from "./work-folder-ignore.js";
@@ -66,7 +65,10 @@ export function pathHasAlwaysSkippedSegment(relativePath: string): boolean {
 }
 
 export async function directoryLooksGenerated(absolutePath: string): Promise<boolean> {
-  return generatedDirectoryMarkers.some((marker) => existsSync(join(absolutePath, marker)));
+  // Asked of every directory a full capture walks, so it never blocks on a stat.
+  const markers = await Promise.all(generatedDirectoryMarkers.map((marker) =>
+    access(join(absolutePath, marker)).then(() => true, () => false)));
+  return markers.includes(true);
 }
 
 /** Policy for targeted captures: only the always-skipped set applies. */

@@ -7,8 +7,11 @@ import test from "node:test";
 import {
   accentIdentityFromHex,
   createWorkFolderAppearanceProposal,
+  defaultWorkFolderAccent,
+  defaultWorkFolderAccents,
   parseWorkFolderAppearanceProposal,
   resolveWorkFolderAppearance,
+  startingWorkFolderAccentHex,
 } from "../src/shared/work-folder-appearance.js";
 import { WorkFolderAppearanceStore } from "../src/local/work-folder-appearance-store.js";
 import { configureWorkFoldStateRoot } from "../src/local/state-paths.js";
@@ -31,6 +34,19 @@ const workFolder: WorkFolderSummary = {
   createdAt: "2026-07-10T00:00:00.000Z",
   updatedAt: "2026-07-10T00:00:00.000Z",
 };
+
+test("a new work-folder starts in a color no other work-folder uses while one is free", () => {
+  const ids = Array.from({ length: defaultWorkFolderAccents.length }, (_, index) => `space-${index.toString(16).padStart(16, "0")}`);
+  const taken: string[] = [];
+  for (const id of ids) taken.push(startingWorkFolderAccentHex(id, taken));
+  assert.equal(new Set(taken).size, defaultWorkFolderAccents.length, "the first twelve work-folders all differ");
+
+  const id = "space-8e5d20705b72ebdb";
+  assert.equal(startingWorkFolderAccentHex(id, []), defaultWorkFolderAccent(id).hex, "its own pick wins when nothing is taken");
+  const thirteenth = startingWorkFolderAccentHex(id, [...taken, defaultWorkFolderAccent(id).hex]);
+  assert.notEqual(thirteenth, defaultWorkFolderAccent(id).hex, "once all are used, it avoids the one used twice");
+  assert.equal(startingWorkFolderAccentHex(id, ["#123456", "not a color"]), defaultWorkFolderAccent(id).hex, "custom colors do not count");
+});
 
 test("work-folder banners keep Classic as the explicit default while supporting None", () => {
   assert.equal(defaultWorkFolderBannerName, "classic");

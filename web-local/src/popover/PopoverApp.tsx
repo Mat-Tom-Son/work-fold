@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 
 import { ApiError, api, createEventSource, errorText } from "../lib/api";
 import { groupChatsByRecency } from "../lib/chat-recency";
+import { rehypeSingleLineBreaks } from "../lib/markdown-line-breaks";
 import { subscribeControlEvents } from "../lib/control-events";
 import { activeFolderMention, addressedFolderIds, insertFolderMention, matchingMentionFolders, mentionNames } from "../lib/folder-mentions";
 import { folderTreeRows } from "../lib/folder-nesting";
@@ -107,7 +108,6 @@ const fixtureChats: WorkFoldAgentChat[] = [
 ];
 
 const activePhases = new Set(["working", "handed_off"]);
-const terminalPhases = new Set(["done", "failed", "stopped"]);
 const pollIntervalMs = 1_500;
 const idlePollIntervalMs = 5_000;
 const popoverFixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "agent";
@@ -217,6 +217,14 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   } : null);
   const draftsRef = useRef(new Map<string, { text: string; staged: StagedItem[] }>());
   const transcriptRef = useRef<HTMLElement | null>(null);
+  // The transcript mounts only after the first availability read (and again
+  // if the agent becomes available later), so its observers follow the
+  // element rather than the first render.
+  const [transcriptElement, setTranscriptElement] = useState<HTMLElement | null>(null);
+  const attachTranscript = useCallback((node: HTMLElement | null) => {
+    transcriptRef.current = node;
+    setTranscriptElement(node);
+  }, []);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const transcriptPinnedRef = useRef(true);
   const [transcriptPinned, setTranscriptPinnedState] = useState(true);
@@ -569,7 +577,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   // Size changes that come from outside the chat state follow too: a resized
   // panel or window, a growing composer, a loaded image, or an opened step.
   useEffect(() => {
-    const transcript = transcriptRef.current;
+    const transcript = transcriptElement;
     if (!transcript) return;
     let frame: number | null = null;
     const stick = () => {
@@ -589,7 +597,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       transcript.removeEventListener("toggle", stick, true);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [transcriptElement]);
 
   // The door comes first: whenever the shown popover has nothing that outranks
   // it — no running work hiding the composer — and focus has not landed
@@ -703,6 +711,33 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       setSending(false);
     }
   }, [text, staged, sending, loadingChat, stopping, refreshConversation, replaceStreamingAssistant, clearLiveSteps, mentionFolders, followLatest]);
+
+  // Enter while the work-fold agent is working reaches its running turn after
+  // its current step, the way a work-folder Chat steers (2026-10-27).
+  const steer = useCallback(async () => {
+    const content = text.trim();
+    const conversation = selectionRef.current;
+    if (!content || sending || !conversation) return;
+    if (staged.length) {
+      setBanner("Attachments go with your next message, after this work finishes.");
+      return;
+    }
+    setSending(true);
+    setBanner("");
+    try {
+      await api("/api/work-fold-agent/messages", {
+        method: "POST",
+        idempotent: true,
+        body: { content, delivery: "steer", conversationId: conversation, requestId: workFoldAgentTurnIdentity("request"), userMessageId: workFoldAgentTurnIdentity("message") },
+      });
+      setText((current) => (current === text ? "" : current));
+      await refreshConversation();
+    } catch (error) {
+      setBanner(errorText(error));
+    } finally {
+      setSending(false);
+    }
+  }, [text, staged, sending, refreshConversation]);
 
   const activeMention = useMemo(() => mentionFolders.length ? activeFolderMention(text, composerCaret) : null, [composerCaret, mentionFolders.length, text]);
   const mentionSuggestions = useMemo(() => activeMention ? matchingMentionFolders(mentionFolders, activeMention.query) : [], [activeMention, mentionFolders]);
@@ -932,7 +967,10 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   }
 
   const requestRunning = request !== null && activePhases.has(request.phase);
-  const composerPlaceholder = requestRunning
+  const canSteer = request?.phase === "working" && Boolean(conversationId) && !startingNewChat;
+  const composerPlaceholder = canSteer
+    ? "Steer (Enter)"
+    : requestRunning
     ? "Draft a follow-up"
     : request?.phase === "needs_you"
       ? "Reply to work-fold"
@@ -1057,7 +1095,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
         <section
           className="popover-transcript"
           id="popover-conversation"
-          ref={transcriptRef}
+          ref={attachTranscript}
           aria-label="work-fold agent chat" aria-live="polite"
           tabIndex={-1}
           onScroll={(event) => {
@@ -1078,7 +1116,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
               {message.role === "assistant" && message.kind !== "assistant_continuation" ? <RuntimeContextPreview entries={savedWorkTrailPreviews(message as ChatMessage)} renderText={renderStepText} /> : null}
               <div className="popover-message-body">
                 {message.kind === "assistant_continuation" ? "Continuing with the results from delegated work." : message.role === "assistant"
-                  ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  ? <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{message.content}</ReactMarkdown>
                   : message.content}
               </div>
             </article>
@@ -1089,7 +1127,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           {streamingAssistant ? (
             <article className="popover-message assistant streaming" aria-label="work-fold is replying">
               <div className="popover-message-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingAssistant}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{streamingAssistant}</ReactMarkdown>
               </div>
             </article>
           ) : null}
@@ -1184,11 +1222,12 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
                   setDismissedMentionKey(mentionKey);
                   return;
                 }
-                // Enter sends when idle; while a turn streams, the composer is a
-                // safe draft area and the action becomes Stop.
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !requestRunning) {
+                // Enter sends when idle and steers while the agent works; while
+                // only delegated work runs, the composer is a safe draft area
+                // and the action stays Stop.
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && (!requestRunning || canSteer)) {
                   event.preventDefault();
-                  void send();
+                  void (requestRunning ? steer() : send());
                 }
               }}
             />
@@ -1239,7 +1278,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
 
 /** Progress notes inside the steps render with the same Markdown as replies. */
 function renderStepText(text: string) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSingleLineBreaks]}>{text}</ReactMarkdown>;
 }
 
 function chatDateLabel(value: string): string {

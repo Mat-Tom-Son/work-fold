@@ -27,7 +27,7 @@ export interface AppTypographyPreference {
   textSize: AppTextSize;
 }
 
-import type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
+import type { WorkFolderSummary } from "../../src/shared/work-folder-summary";
 export type { WorkFolderLocation, WorkFolderSummary } from "../../src/shared/work-folder-summary";
 
 export interface WorkFolderCustomization {
@@ -150,6 +150,8 @@ export interface ChatActionsState {
   x: number;
   y: number;
   returnFocusTarget?: HTMLElement | null;
+  /** Opens straight to renaming, as the native menu's Rename… does. */
+  view?: "rename";
 }
 
 export type ChatActivityStatus = "running" | "attention";
@@ -947,7 +949,7 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message";
   conversationId: string;
   running?: boolean;
   turnId?: string | null;
@@ -971,6 +973,12 @@ export interface ChatStreamEvent {
   requests?: ExtensionUiRequest[];
   proposal?: RestrictedAppProposal;
   editorMode?: "replace" | "append";
+  /** The Chat's queued message, held by the app for every window (2026-10-27). */
+  queued?: { content: string; updatedAt: string; held?: boolean } | null;
+  /** The app's number for this queue change; a higher one is newer. */
+  revision?: number;
+  /** Files that went out with a sent queued message. */
+  sentContextPaths?: string[];
 }
 
 export interface BootstrapResponse { workFolders: WorkFolderSummary[]; agent: AgentStatus; appearance?: WorkFolderAppearanceState }

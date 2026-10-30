@@ -2,14 +2,18 @@
 
 ## Current product language
 
-Current user-facing documentation uses **work-folder** for the ordinary registered
-working folder, **Worker** for its AI assistant, **work-fold agent** for the
-management Worker above all work-folders, and **Automation** for the deterministic
-cross-work-folder feature formerly presented as Automations. Technical contracts keep
-their established identifiers (`work-folder`, `fold`, `automation`, `work-fold
-automations`, and related paths, schemas, and API fields) until a separately
-designed domain migration. Historical release notes, dated evidence, quoted
-copy, and code examples retain the names they recorded.
+Current documentation uses **work-folder** (always lowercase) for the working
+context backed by one ordinary folder, **Worker** for its AI assistant,
+**work-fold agent** for the agent above all work-folders, **Automation** for
+deterministic cross-work-folder steps, **Skills & Extensions** for capability
+management, and **Recently deleted** for reversible deletion. There is no
+Library. Since the 2026-10-10 domain migration these words are also the code's:
+identifiers, HTTP routes, CLI verbs and flags, JSON keys, schemas, and storage
+paths use them, with the exceptions listed in [the vocabulary
+glossary](../scripts/vocabulary/GLOSSARY.md) (for example the app-state
+`management/` folder and the paired-web `management.*` operations). Historical
+release notes, dated evidence, quoted copy, and archived documents retain the
+names they recorded.
 
 For a first checkout, start with [Contributing](../CONTRIBUTING.md) and
 [Development](development.md). Read [the product model](product-model.md) for product scope and
@@ -22,7 +26,7 @@ instruction to implement its contents.
 | Area | Read |
 |---|---|
 | Product and contributor workflow | [Product model](product-model.md), [Contributing](../CONTRIBUTING.md), [Development](development.md), [Architecture](architecture.md) |
-| The work-fold agent and receipts | [Decision register](work-fold-agent-decisions.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Background jobs](background-jobs.md), [Worker tools](worker-tools.md), [Built-in browser](built-in-browser.md), [Management and CLI](work-fold-agent-and-cli.md), [Act ledger](act-ledger.md) |
+| The work-fold agent and receipts | [Decision register](work-fold-agent-decisions.md), [Receipts, not gates](receipts-not-gates.md), [Collaboration contract](collaboration-contract.md), [Background jobs](background-jobs.md), [Worker tools](worker-tools.md), [Built-in browser](built-in-browser.md), [The work-fold agent and CLI](work-fold-agent-and-cli.md), [Act ledger](act-ledger.md) |
 | Checks and Automations | [Checks](checks.md), [Automations (technical automation contract)](automations.md), [The overview](work-fold-agent-overview.md) |
 | Native agent capabilities | [Skills, Extensions, packages, and scopes](skills-and-extensions.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted work-folder apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |

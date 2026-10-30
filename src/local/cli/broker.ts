@@ -16,7 +16,6 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   WorkFoldCliError,
-  WorkFoldCliExitCode,
   createWorkFoldCliResponse,
   normalizeWorkFoldCliRequestId,
   parseWorkFoldCliRequest,

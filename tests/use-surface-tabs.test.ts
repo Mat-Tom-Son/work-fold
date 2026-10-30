@@ -238,6 +238,15 @@ test("restored tabs belonging to removed work-folders are discarded", () => {
   });
 });
 
+test("a registry read that removes nothing keeps the same tab list", () => {
+  // Each window focus re-reads the registry; an unchanged list must not re-render or re-save the tabs.
+  const tabs: SurfaceTab[] = [
+    { id: "chat:work-folder-1:new", kind: "chat", workFolderId: "work-folder-1", conversationId: null, title: "New Chat" },
+    { id: "history:work-folder-2", kind: "history", workFolderId: "work-folder-2", title: "History" },
+  ];
+  assert.equal(restoreStoredSurfaceTabsForWorkFolders({ tabs, activeTabId: tabs[0].id }, [{ ...workFolder }, { ...otherWorkFolder }]).tabs, tabs);
+});
+
 test("retired Customize tabs are discarded without losing other tabs or leaving a blank active tab", () => {
   assert.deepEqual(normalizeStoredSurfaceTabsValue({
     tabs: [

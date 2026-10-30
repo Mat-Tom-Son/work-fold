@@ -63,7 +63,7 @@ export function WorkFolderSurfaceTabBar({
   onClose,
   onReorder,
   onNewChatInWorkFolder,
-  onChatActions,
+  onTabMenu,
   isSharedFile,
   browserTabLooks = {},
   onNewBrowserTab,
@@ -80,7 +80,8 @@ export function WorkFolderSurfaceTabBar({
   onClose: (tabId: string) => void;
   onReorder: (ids: string[]) => void;
   onNewChatInWorkFolder: (workFolder: WorkFolderSummary) => void;
-  onChatActions: (workFolder: WorkFolderSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
+  /** A work-folder tab's right-click menu, with its Chat when it holds a saved one. */
+  onTabMenu: (tab: WorkFolderSurfaceTab, workFolder: WorkFolderSummary, conversation: ConversationSummary | null, event: ReactMouseEvent<HTMLElement>) => void;
   /** True when this work-folder file is shared as a page; file tabs carry the mark. */
   isSharedFile?: (workFolderId: string, path: string) => boolean;
   /** Each browser tab's page icon and state, by page id. */
@@ -382,14 +383,13 @@ export function WorkFolderSurfaceTabBar({
         data-work-folder-id={tab.workFolderId}
         style={style}
         title={`${tab.title} - ${workFolderName}${activityLabel ? ` · ${activityLabel}` : ""}`}
-        onContextMenu={(event) => {
-          if (tab.kind !== "chat" || !tab.conversationId) return;
-          onChatActions(resolvedWorkFolder, conversation ?? {
+        onContextMenu={(event) => onTabMenu(tab, resolvedWorkFolder, tab.kind === "chat" && tab.conversationId
+          ? conversation ?? {
             id: tab.conversationId,
             title: chatDisplayTitle({ serverTitle: tab.title }),
             updatedAt: new Date().toISOString(),
-          }, event);
-        }}
+          }
+          : null, event)}
         onAuxClick={(event) => {
           if (event.button !== 1) return;
           event.preventDefault();
@@ -447,8 +447,7 @@ export function WorkFolderSurfaceTabBar({
             return (
               <span className="surface-tab-group surface-tab-group-browser" role="presentation" key="browser">
                 <span className="surface-tab-group-label" title="Browser" aria-hidden="true">
-                  <FluentGlyph icon={BrowserTabIcon} size={14} filled={false} />
-                  <span>Browser</span>
+                  <FluentGlyph icon={BrowserTabIcon} size={15} filled={false} />
                 </span>
                 <span className="surface-tab-group-tabs" role="presentation">
                   {group.tabs.map((tab) => renderSurfaceTab(tab, true))}
@@ -459,16 +458,13 @@ export function WorkFolderSurfaceTabBar({
           const tabWorkFolder = workFolders.find((item) => item.id === group.workFolderId)
             ?? fallbackWorkFolderSummary(group.workFolderId, "work-folder");
           const identity = workFolderIdentityFor(tabWorkFolder, workFolderCustomizations);
+          // The group carries the work-folder's colors so its icon chip and the
+          // line under its tabs match; the name shows on hover, and each tab's
+          // accessible name already says which work-folder it is in.
           return (
-            <span className="surface-tab-group" role="presentation" key={group.workFolderId}>
-              <span
-                className="surface-tab-group-label"
-                style={workFolderIdentityStyle(identity)}
-                title={tabWorkFolder.name}
-                aria-hidden="true"
-              >
-                <WorkFolderIconGlyph icon={identity.Icon} size={14} />
-                <span>{tabWorkFolder.name}</span>
+            <span className="surface-tab-group" role="presentation" key={group.workFolderId} style={workFolderIdentityStyle(identity)}>
+              <span className="surface-tab-group-label" title={tabWorkFolder.name} aria-hidden="true">
+                <WorkFolderIconGlyph icon={identity.Icon} size={15} />
               </span>
               <span className="surface-tab-group-tabs" role="presentation">
                 {group.tabs.map((tab) => renderSurfaceTab(tab, true))}

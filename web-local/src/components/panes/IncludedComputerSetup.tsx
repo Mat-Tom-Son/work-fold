@@ -33,7 +33,7 @@ function IncludedMacComputerSetup({ workFolderId, enabled, onStatusChange }: {
 }) {
   const [status, setStatus] = useState<IncludedToolStatus | null>(null);
   const [busy, setBusy] = useState<ComputerAction | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ source: "read" | "action"; message: string } | null>(null);
   const [watching, setWatching] = useState(false);
   const watchUntil = useRef(0);
   const restarted = useRef(false);
@@ -54,8 +54,12 @@ function IncludedMacComputerSetup({ workFolderId, enabled, onStatusChange }: {
     const read = () => {
       if (request.current || document.visibilityState === "hidden") return;
       void api<{ tools: IncludedToolStatus[] }>(includedToolsPath(workFolderId), { signal: controller.signal })
-        .then(({ tools }) => { if (alive.current && !request.current) publish(tools.find((tool) => tool.id === "computer") ?? null); })
-        .catch((caught) => { if (alive.current && !controller.signal.aborted) setError(errorText(caught)); });
+        .then(({ tools }) => {
+          if (!alive.current || request.current) return;
+          publish(tools.find((tool) => tool.id === "computer") ?? null);
+          setError((current) => current?.source === "read" ? null : current);
+        })
+        .catch((caught) => { if (alive.current && !controller.signal.aborted) setError({ source: "read", message: errorText(caught) }); });
     };
     read();
     const timer = window.setInterval(read, 5_000);
@@ -75,7 +79,7 @@ function IncludedMacComputerSetup({ workFolderId, enabled, onStatusChange }: {
       if (alive.current && !controller.signal.aborted) publish(result.status);
       return result.status;
     } catch (caught) {
-      if (alive.current && !controller.signal.aborted && !quiet) setError(errorText(caught));
+      if (alive.current && !controller.signal.aborted && !quiet) setError({ source: "action", message: errorText(caught) });
       return null;
     } finally {
       if (request.current === controller) request.current = null;
@@ -151,7 +155,7 @@ function IncludedMacComputerSetup({ workFolderId, enabled, onStatusChange }: {
         </>
       ) : null}
       {ready ? <div className="included-tool-actions"><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void act("check")}>{busy === "check" ? "Checking…" : "Check again"}</button></div> : null}
-      {error ? <p className="included-tool-error" role="alert">{error}</p> : null}
+      {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
       {enabled && !unavailable ? (
         <details className="included-tool-optional">
           <summary>Technical details</summary>

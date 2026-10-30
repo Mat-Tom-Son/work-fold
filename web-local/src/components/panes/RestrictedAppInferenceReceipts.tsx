@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { RestrictedAppInferenceReceipt } from "../../../../src/shared/restricted-app-inference";
 import { errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
+import { formatBytes } from "../../lib/format";
 import { listRestrictedAppInferenceReceipts } from "../../lib/restricted-apps";
 import type { RestrictedAppInstalled } from "../../types";
 
@@ -14,12 +15,6 @@ import type { RestrictedAppInstalled } from "../../types";
  * and what it used. The list spans code changes, so a receipt stays readable
  * after the app is updated.
  */
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export function inferenceReceiptOutcomeLabel(receipt: RestrictedAppInferenceReceipt): string {
   if (receipt.outcome === "ok") return "Answered";

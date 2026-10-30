@@ -41,16 +41,6 @@ export type RestrictedAppInferenceErrorCode =
   | "INFER_FAILED"
   | "INFER_UNAVAILABLE";
 
-/** Exactly the bridge argument: `assistant.infer({ instructions, input, outputSchema?, maxOutputBytes? })`. */
-export interface RestrictedAppInferenceRequest {
-  instructions: string;
-  /** Text, or any JSON value; the host serializes non-text input with two-work-folder indentation before the call. */
-  input: unknown;
-  /** The closed JSON Schema subset app tools already use; parsed host-side. */
-  outputSchema?: unknown;
-  maxOutputBytes?: number;
-}
-
 export interface RestrictedAppInferenceModelRef {
   provider: string;
   id: string;

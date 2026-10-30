@@ -32,7 +32,9 @@ export function ChatActionsPopover({
   onCopy?: (workFolder: WorkFolderSummary, conversation: ConversationSummary) => Promise<void>;
   onClose: () => void;
 }) {
-  const [view, setView] = useState<ActionView>("menu");
+  // Opened straight to Rename (from the native menu), Cancel and Escape close instead of going back.
+  const renameOnly = state.view === "rename";
+  const [view, setView] = useState<ActionView>(state.view ?? "menu");
   const [title, setTitle] = useState(chatDisplayTitle({ serverTitle: state.conversation.title }));
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Saving");
@@ -45,11 +47,11 @@ export function ChatActionsPopover({
   const position = popoverPosition(state.x, state.y);
 
   useEffect(() => {
-    setView("menu");
+    setView(state.view ?? "menu");
     setTitle(chatDisplayTitle({ serverTitle: state.conversation.title }));
     setError(null);
     setBusy(false);
-  }, [state.conversation.id, state.conversation.title]);
+  }, [state.conversation.id, state.conversation.title, state.view]);
 
   useEffect(() => {
     window.requestAnimationFrame(() => {
@@ -72,7 +74,7 @@ export function ChatActionsPopover({
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (view === "menu") closeAndRestore();
+      if (view === "menu" || renameOnly) closeAndRestore();
       else setView("menu");
     }
 
@@ -82,7 +84,7 @@ export function ChatActionsPopover({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [view, onClose, state.returnFocusTarget]);
+  }, [view, renameOnly, onClose, state.returnFocusTarget]);
 
   async function handleRename(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -179,9 +181,11 @@ export function ChatActionsPopover({
 
       {view === "rename" ? (
         <form onSubmit={(event) => void handleRename(event)}>
-          <button className="chat-actions-back" type="button" disabled={busy} onClick={() => setView("menu")}>
-            <ChevronLeft size={14} />Actions
-          </button>
+          {renameOnly ? null : (
+            <button className="chat-actions-back" type="button" disabled={busy} onClick={() => setView("menu")}>
+              <ChevronLeft size={14} />Actions
+            </button>
+          )}
           <label>
             <span>Rename Chat</span>
             <input
@@ -193,7 +197,7 @@ export function ChatActionsPopover({
             />
           </label>
           <div className="chat-rename-actions">
-            <button type="button" disabled={busy} onClick={() => setView("menu")}>Cancel</button>
+            <button type="button" disabled={busy} onClick={() => (renameOnly ? closeAndRestore() : setView("menu"))}>Cancel</button>
             <button className="primary" type="submit" disabled={busy || !title.trim()}>
               {busy ? <Loader2 className="spin" size={14} /> : <Check size={14} />}
               Save

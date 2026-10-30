@@ -58,6 +58,11 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
         capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
+      popupTabMenu: (request: {
+        chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
+        tab?: { hasOthers: boolean };
+        point: { x: number; y: number };
+      }) => ipcRenderer.invoke("work-fold:work-folder:popup-tab-menu", request),
     } : {}),
     setActiveWorkFolder: (workFolderId: string | null) => ipcRenderer.invoke("work-fold:work-folder:set-active-work-folder", workFolderId),
     onOpenWorkFolder: (callback: (workFolderId: string, view?: "checks") => void) => {

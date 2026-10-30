@@ -167,9 +167,7 @@ button {
 .context-menu,
 .context-chip,
 .chat-work-folder-heading,
-.message-footer,
-.file-status-badges,
-.file-status-badge {
+.message-footer {
   user-select: none;
 }
 
@@ -951,7 +949,8 @@ body:has(> #root > .desktop-chrome-shell) {
   background: color-mix(in srgb, var(--ui-accent) 22%, transparent);
 }
 
-.turn-interruption--setup .ui-control {
+.turn-interruption--setup .ui-control,
+.turn-interruption-continue {
   justify-self: start;
   margin-top: 6px;
 }
@@ -1550,35 +1549,6 @@ body:has(> #root > .desktop-chrome-shell) {
   color: rgba(255, 255, 255, 0.78);
 }
 
-.saved-secret-card {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid #b8e3d3;
-  border-radius: 8px;
-  color: #0f5b46;
-  background: #f0fbf6;
-}
-
-.saved-secret-card div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.saved-secret-card span {
-  min-width: 0;
-  overflow: hidden;
-  color: #667085;
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .tool-card:hover {
   outline: none;
   border-color: #9fb5d6;
@@ -1590,16 +1560,6 @@ body:has(> #root > .desktop-chrome-shell) {
   border-color: #9fb5d6;
   background: #eef4fb;
   box-shadow: 0 0 0 2px rgba(53, 81, 150, 0.1);
-}
-
-.tool-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.tool-grid.compact {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .tool-card {
@@ -1631,32 +1591,6 @@ body:has(> #root > .desktop-chrome-shell) {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-}
-
-.tool-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-}
-
-.tool-card-meta span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  color: #475467;
-  background: #eef2f6;
-  font-size: 0.72rem;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.tool-card .tool-card-meta {
-  align-self: end;
-  max-height: 49px;
-  overflow: hidden;
 }
 
 .markdown-preview {
@@ -3500,10 +3434,11 @@ to {
   white-space: nowrap;
 }
 
+/* Titles are regular weight so the open Chat's semi-bold title stands out (2026-10-27). */
 .chat-work-folder-row-title {
   color: #667085;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.25;
 }
 
@@ -3530,7 +3465,7 @@ to {
 
 .chat-work-folder-row-shell.active .chat-work-folder-row-title {
   color: #3e4c60;
-  font-weight: 680;
+  font-weight: 600;
 }
 
 .chat-work-folder-row-shell.active .chat-work-folder-row-time {
@@ -3946,7 +3881,10 @@ to {
   border-left: 1px solid #d8e0e8;
 }
 
-.surface-tab-group:first-child {
+/* A line separates groups; none leads the first. The active tab's frame is
+   the strip's first child, so the first group can follow it. */
+.surface-tab-group:first-child,
+.surface-tab-active-chrome + .surface-tab-group {
   padding-left: 0;
   border-left: 0;
 }
@@ -3962,28 +3900,15 @@ to {
   max-width: 196px;
 }
 
+/* Just the work-folder's icon in its color; the name shows on hover. */
 .surface-tab-group-label {
-  width: clamp(68px, 8vw, 102px);
-  height: 35px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 7px;
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #475467));
-  font-size: 0.67rem;
-  font-weight: 680;
-}
-
-.surface-tab-group-label > svg {
   flex: 0 0 auto;
-}
-
-.surface-tab-group-label > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--work-folder-accent-glyph, var(--work-folder-custom-color, #475467));
 }
 
 .surface-tab-actions {
@@ -4630,84 +4555,31 @@ to {
   max-width: 100%;
 }
 
+.file-name.has-extension {
+  display: flex;
+}
+
+.file-name-stem {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-name-extension {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted, #66707c);
+}
+
+.file-row.selected .file-name-extension {
+  color: inherit;
+  opacity: .72;
+}
+
 .file-name mark {
   padding: 0 1px;
   color: inherit;
   background: #fff2a8;
   border-radius: 3px;
-}
-
-.file-status-badges {
-  justify-self: end;
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-}
-
-.file-status-badge {
-  flex: 0 1 auto;
-  max-width: 82px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 5px;
-  border: 1px solid #dde3ea;
-  border-radius: 4px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.file-status-badge.change {
-  color: #8a4b12;
-  background: #fff7ed;
-  border-color: #f2d4b6;
-}
-
-.file-status-badge.change.created {
-  color: #1f6b4d;
-  background: #eef8f2;
-  border-color: #cfe8da;
-}
-
-.file-status-badge.change.deleted {
-  color: #2457a6;
-  background: #eef4ff;
-  border-color: #d6e4fb;
-}
-
-/* Deliverable folders whose last check failed. The direct badge is a click
-   target (opens the review record); ancestor rollups are passive. */
-
-.file-status-badge.review {
-  color: var(--readiness-fail-fg);
-  background: var(--readiness-fail-bg);
-  border-color: var(--readiness-fail-border);
-}
-
-.file-status-badge.review:not(.rollup) {
-  cursor: pointer;
-}
-
-.file-row:hover .file-status-badge.review:not(.rollup),
-.file-status-badge.review:not(.rollup):hover {
-  text-decoration: underline;
-}
-
-.file-status-badge.change.remote_deleted {
-  color: #9f1f1f;
-  background: #fff2f2;
-  border-color: #f0c4c4;
-}
-
-.file-status-badge.ignored {
-  color: #5b6678;
-  background: #f2f4f7;
-  border-color: #d9dee7;
 }
 
 .file-icon {
@@ -4812,21 +4684,6 @@ to {
 
 .chat-top-notice:empty {
   visibility: hidden;
-}
-
-.chat-floating-actions {
-  position: relative;
-  order: 0;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 0;
-  margin-right: auto;
-}
-
-.chat-floating-actions:empty {
-  display: none;
 }
 
 .chat-top-notice .banner {
@@ -5584,6 +5441,14 @@ to {
   overflow-wrap: anywhere;
 }
 
+.queued-send-held {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  white-space: normal;
+}
+
 .queued-send-cancel {
   flex: none;
   display: grid;
@@ -6018,63 +5883,73 @@ button.context-chip.message-attachment:focus-visible {
   container-type: inline-size;
 }
 
-/* One row: what the file is on the left, what you can do with it on the right. */
+/* A toolbar across the top of the tab: what the file is on the left, the
+   everyday actions with their words on the right, and the rest in More. */
 
 .file-details-header {
   flex: 0 0 auto;
   min-width: 0;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px 16px;
-  padding-bottom: 14px;
+  gap: 8px 16px;
+  padding: 10px 16px 10px 24px;
+  border-bottom: 1px solid #e5e9ef;
 }
 
 .file-details-identity {
   flex: 1 1 auto;
   min-width: 0;
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .file-details-icon {
-  width: 34px;
-  height: 34px;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
 }
 
 .file-details-icon .file-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
 }
 
 .file-details-title {
   min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.file-details-title h2,
+.file-details-title p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .file-details-title h2 {
-  margin: 0;
   color: #101828;
-  font-size: 1.08rem;
-  font-weight: 700;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .file-details-title p {
-  margin: 3px 0 0;
   color: #667085;
-  font-size: 0.8rem;
-  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
-.file-details-meta-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.file-details-meta-line svg {
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .file-details-actions {
@@ -6093,7 +5968,23 @@ button.context-chip.message-attachment:focus-visible {
   white-space: nowrap;
 }
 
-@container file-details (max-width: 720px) {
+.file-details-more {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Narrower tabs keep every action but drop the words from Copy and Attach
+   to Chat (their tooltips and accessible names stay); a very narrow tab
+   puts the actions on their own row. */
+
+@container file-details (max-width: 560px) {
+
+.file-details-action-label {
+  display: none;
+}
+}
+
+@container file-details (max-width: 420px) {
 
 .file-details-header {
   flex-wrap: wrap;
@@ -6101,10 +5992,6 @@ button.context-chip.message-attachment:focus-visible {
 
 .file-details-identity {
   flex-basis: 100%;
-}
-
-.file-details-actions {
-  flex-wrap: wrap;
 }
 }
 
@@ -6252,7 +6139,7 @@ button.context-chip.message-attachment:focus-visible {
   bottom: calc(100% + 9px);
   z-index: 8;
   width: min(560px, 100%);
-  max-height: min(360px, 48vh);
+  max-height: min(360px, 48vh, var(--composer-menu-available-height, 100vh));
   overflow: auto;
   padding: 6px;
   color: #253044;
@@ -6449,7 +6336,7 @@ button.context-chip.message-attachment:focus-visible {
 .composer-model-menu {
   width: 280px;
   max-width: calc(100vw - 32px);
-  max-height: min(460px, 64vh);
+  max-height: min(460px, 64vh, var(--composer-menu-available-height, 100vh));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -6578,43 +6465,6 @@ button.context-chip.message-attachment:focus-visible {
   letter-spacing: 0.02em;
 }
 
-.composer-thinking-control {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 0;
-  pointer-events: auto;
-}
-
-.composer-thinking-trigger:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.composer-thinking-trigger > span:first-child {
-  display: inline;
-  width: auto;
-  height: auto;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-
-.composer-thinking-menu {
-  width: 148px;
-  max-height: min(320px, 44vh);
-}
-
-.composer-thinking-menu > button {
-  display: block;
-  padding: 8px 10px;
-}
-
-.composer-thinking-menu > button .composer-command-name {
-  font-family: inherit;
-  font-size: 0.7rem;
-  font-weight: 700;
-}
-
 .conversation-context-meter svg {
   width: 17px;
   height: 17px;
@@ -6722,75 +6572,6 @@ button.context-chip.message-attachment:focus-visible {
 .send-button.stop-send-button:focus-visible {
   color: #ffffff;
   background: #b42318;
-}
-
-/* work-folder status bar: anchored footer of the files pane. Sections (review
-   status, cloud sync) share one visual system; no floating cards. */
-
-.status-bar-section {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 3px 10px 3px;
-}
-
-.status-bar-section.open {
-  padding-bottom: 10px;
-}
-
-.status-bar-section + .status-bar-section {
-  border-top: 1px solid #e8edf3;
-}
-
-.status-bar-dot {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
-/* The body caps overall height; the list is the single scroll container so
-   the toolbar and the selection strip always stay visible. */
-
-.file-details-review {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  background: #f8fafc;
-  border: 1px solid #e3e8ee;
-  border-radius: 8px;
-}
-
-.file-details-review-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.file-details-review-copy strong {
-  font-size: 0.82rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-details-review-verdict {
-  font-size: 0.76rem;
-  font-weight: 600;
-}
-
-.file-details-review-pass {
-  color: var(--readiness-pass-fg);
-}
-
-.file-details-review-fail {
-  color: var(--readiness-fail-fg);
-}
-
-.file-details-review-muted {
-  color: var(--readiness-muted-fg);
 }
 
 .publish-review-backdrop {
@@ -7037,9 +6818,7 @@ to {
 .app-shell[data-theme="dark"] .muted,
 .app-shell[data-theme="dark"] .modal-title p,
 .app-shell[data-theme="dark"] .settings-section-heading span,
-.app-shell[data-theme="dark"] .saved-secret-card span,
 .app-shell[data-theme="dark"] .tool-card span,
-.app-shell[data-theme="dark"] .tool-card-meta span,
 .app-shell[data-theme="dark"] .work-folder-tab span,
 .app-shell[data-theme="dark"] .work-folder-pane-current-copy > span,
 .app-shell[data-theme="dark"] .work-folder-pane-current-copy small,
@@ -7081,28 +6860,6 @@ to {
   border-color: rgba(148, 163, 184, 0.24);
 }
 
-.app-shell[data-theme="dark"] .status-bar-section + .status-bar-section {
-  border-top-color: rgba(148, 163, 184, 0.16);
-}
-
-.app-shell[data-theme="dark"] .file-details-review {
-  background: rgba(15, 23, 42, 0.6);
-  border-color: rgba(148, 163, 184, 0.2);
-}
-
-.app-shell[data-theme="dark"] .file-details-review-copy strong {
-  color: #e5edf7;
-}
-
-/* Outrank the generic dark badge rule so the review badge keeps its fail
-   tones (the readiness variables already carry the dark values). */
-
-.app-shell[data-theme="dark"] .file-status-badge.review {
-  color: var(--readiness-fail-fg);
-  background: var(--readiness-fail-bg);
-  border-color: var(--readiness-fail-border);
-}
-
 .app-shell[data-theme="dark"] .create-work-folder-modal,
 .app-shell[data-theme="dark"] .text-input-modal,
 .app-shell[data-theme="dark"] .settings-modal,
@@ -7116,10 +6873,6 @@ to {
 
 .app-shell[data-theme="dark"] .surface-tab-group {
   border-left-color: rgba(148, 163, 184, 0.22);
-}
-
-.app-shell[data-theme="dark"] .surface-tab-group-label {
-  color: var(--work-folder-accent-text-ui, var(--work-folder-custom-color, #cbd5e1));
 }
 
 .app-shell[data-theme="dark"] .surface-tab-work-folder-menu-separator {
@@ -7425,12 +7178,6 @@ to {
   border-color: rgba(148, 163, 184, 0.28);
 }
 
-.app-shell[data-theme="dark"] .saved-secret-card {
-  color: #86efac;
-  background: rgba(22, 101, 52, 0.28);
-  border-color: rgba(74, 222, 128, 0.28);
-}
-
 .app-shell[data-theme="dark"] .theme-segmented-control button.active {
   border-color: rgba(96, 165, 250, 0.38);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -7485,8 +7232,7 @@ to {
 }
 
 .app-shell[data-theme="dark"] .banner,
-.app-shell[data-theme="dark"] .publish-review-alert.error,
-.app-shell[data-theme="dark"] .file-status-badge.change.remote_deleted {
+.app-shell[data-theme="dark"] .publish-review-alert.error {
   color: #fecaca;
   background: rgba(127, 29, 29, 0.24);
   border-color: rgba(248, 113, 113, 0.28);
@@ -7494,15 +7240,13 @@ to {
 
 .app-shell[data-theme="dark"] .banner.info,
 .app-shell[data-theme="dark"] .publish-review-alert.info,
-.app-shell[data-theme="dark"] .file-upload-progress,
-.app-shell[data-theme="dark"] .file-status-badge.change.deleted {
+.app-shell[data-theme="dark"] .file-upload-progress {
   color: #bfdbfe;
   background: rgba(30, 64, 175, 0.22);
   border-color: rgba(96, 165, 250, 0.26);
 }
 
-.app-shell[data-theme="dark"] .context-chip.path_only_reference,
-.app-shell[data-theme="dark"] .file-status-badge.change {
+.app-shell[data-theme="dark"] .context-chip.path_only_reference {
   color: #fde68a;
   background: rgba(113, 63, 18, 0.22);
   border-color: rgba(251, 191, 36, 0.28);
@@ -7610,8 +7354,7 @@ to {
     0 14px 30px rgba(0, 0, 0, 0.24);
 }
 
-.app-shell[data-theme="dark"] .tool-card,
-.app-shell[data-theme="dark"] .tool-card-meta span {
+.app-shell[data-theme="dark"] .tool-card {
   background: rgba(30, 41, 59, 0.68);
   border-color: rgba(148, 163, 184, 0.18);
 }
@@ -7834,19 +7577,6 @@ to {
 
 .app-shell[data-theme="dark"] .file-icon-glyph-dark {
   display: block;
-}
-
-.app-shell[data-theme="dark"] .file-status-badge,
-.app-shell[data-theme="dark"] .file-status-badge.ignored {
-  color: #94a3b8;
-  background: rgba(30, 41, 59, 0.8);
-  border-color: rgba(148, 163, 184, 0.18);
-}
-
-.app-shell[data-theme="dark"] .file-status-badge.change.created {
-  color: #86efac;
-  background: rgba(22, 101, 52, 0.28);
-  border-color: rgba(74, 222, 128, 0.22);
 }
 
 .app-shell[data-theme="dark"] .file-name mark {
@@ -8361,15 +8091,6 @@ to {
   align-items: stretch;
   flex-direction: column;
 }
-
-.saved-secret-card {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.saved-secret-card .ui-control {
-  grid-column: 1 / -1;
-}
-
 }
 
 @media (max-width: 480px) {
@@ -8391,14 +8112,6 @@ to {
 .file-row {
   gap: 5px;
   padding-inline: 4px;
-}
-
-.file-status-badges {
-  max-width: 52px;
-}
-
-.file-status-badge {
-  max-width: 52px;
 }
 }
 
@@ -8559,13 +8272,6 @@ to {
 
 .file-history-copy small {
   font-size: 11.5px;
-  color: var(--readiness-muted-fg);
-}
-
-.file-history-footnote {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
   color: var(--readiness-muted-fg);
 }
 
@@ -9142,11 +8848,6 @@ to {
   height: 1px;
   margin: 5px 7px;
   background: #e5e9ef;
-}
-
-.file-status-badge.ignored {
-  margin-left: auto;
-  font-size: 0.62rem;
 }
 
 @media (max-width: 700px) {
@@ -11430,25 +11131,11 @@ textarea:focus-visible,
 }
 
 .professional-setup .ai-models-section-heading p,
-.professional-setup .ai-models-connection-row p,
-.professional-setup .ai-models-provider-note {
+.professional-setup .ai-models-connection-row p {
   margin: 0;
   color: var(--ui-text-muted);
   font-size: 12px;
   line-height: 1.55;
-}
-
-.professional-setup .ai-models-form-fields {
-  display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.3fr);
-  gap: 14px;
-  min-width: 0;
-}
-
-.professional-setup .ai-models-form-fields > .professional-field > .professional-field-label {
-  display: flex;
-  align-items: center;
-  min-height: 20px;
 }
 
 .professional-setup .ai-models-form-actions {
@@ -11635,10 +11322,6 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
-.professional-setup .ai-models-provider-note {
-  margin-top: 10px;
-}
-
 .professional-setup .ai-models-external-change {
   display: flex;
   flex-wrap: wrap;
@@ -11654,10 +11337,6 @@ textarea:focus-visible,
 }
 
 @container (max-width: 460px) {
-
-.professional-setup .ai-models-form-fields {
-  grid-template-columns: minmax(0, 1fr);
-}
 
 .professional-setup .ai-models-provider-actions {
   grid-template-columns: minmax(0, 1fr);
@@ -11684,14 +11363,6 @@ textarea:focus-visible,
   color: var(--ui-text);
   font-size: 13px;
   font-weight: 600;
-}
-
-.professional-setup .ai-model-field-heading {
-  min-height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .professional-setup .ai-models-refresh {
@@ -12580,49 +12251,6 @@ textarea:focus-visible,
   line-height: 1.5;
 }
 
-.capabilities-trust-status {
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 3px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-}
-
-.capabilities-trust-status > svg {
-  color: var(--ui-accent);
-}
-
-.capabilities-trust-status > button {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 0;
-  color: var(--ui-text-muted);
-  background: transparent;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-}
-
-.capabilities-trust-status > button:hover:not(:disabled) {
-  color: var(--ui-text);
-  text-decoration: underline;
-}
-
-.capabilities-trust-status > button:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.capabilities-scope-groups {
-  min-width: 0;
-  display: grid;
-  gap: 24px;
-}
-
 .capabilities-scope-group {
   min-width: 0;
   display: grid;
@@ -12851,35 +12479,6 @@ textarea:focus-visible,
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.capabilities-result-heading h2 {
-  margin: 0;
-  color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.capabilities-result-heading p {
-  color: var(--ui-text-muted);
-  font-size: 12px;
-}
-
-.capabilities-inline-trust {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  color: var(--ui-text-muted);
-  background: var(--ui-surface-subtle);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  font-size: 12px;
-}
-
-.capabilities-inline-trust > svg {
-  color: var(--ui-accent);
-}
-
 .capabilities-add-options {
   display: grid;
   gap: 8px;
@@ -12939,41 +12538,6 @@ textarea:focus-visible,
   padding: 0 2px;
   color: var(--ui-text-muted);
   font-size: 11px;
-}
-
-.capabilities-result-heading {
-  min-width: 0;
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 2px 0;
-}
-
-.capabilities-result-heading > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-
-.capabilities-result-heading > span {
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  text-align: right;
-}
-
-.capabilities-result-heading > a {
-  font-size: 11px;
-  text-align: right;
-}
-
-.capabilities-result-heading > a {
-  color: var(--ui-accent);
-  text-decoration: none;
-}
-
-.capabilities-result-heading > a:hover {
-  text-decoration: underline;
 }
 
 .capabilities-resource-list,
@@ -13081,23 +12645,10 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
 }
 
-.capabilities-resource-actions {
-  display: grid;
-  justify-items: end;
-  gap: 8px;
-}
-
 .professional-status-badge.error {
   color: var(--ui-danger);
   background: color-mix(in srgb, var(--ui-danger) 8%, var(--ui-surface));
   border-color: color-mix(in srgb, var(--ui-danger) 30%, var(--ui-border));
-}
-
-.capabilities-package-details {
-  min-width: 0;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
 }
 
 .capabilities-management-section {
@@ -13135,29 +12686,6 @@ textarea:focus-visible,
   gap: 8px;
 }
 
-.capabilities-package-details > summary {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.capabilities-management-heading {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.capabilities-management-heading > div:first-child,
 .capabilities-packages > summary > span,
 .capabilities-core-tools > summary > span {
   min-width: 0;
@@ -13166,14 +12694,6 @@ textarea:focus-visible,
   gap: 8px;
 }
 
-.capabilities-management-heading h3 {
-  margin: 0;
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.capabilities-management-heading > span,
 .capabilities-packages > summary > small,
 .capabilities-core-tools > summary > small {
   color: var(--ui-text-subtle);
@@ -13258,14 +12778,6 @@ textarea:focus-visible,
   gap: 8px;
   padding: 0 8px 8px;
   border-top: 1px solid var(--ui-border);
-}
-
-.capabilities-core-tools-copy {
-  margin: 0;
-  padding: 10px 4px 2px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .capabilities-core-tool-list {
@@ -13660,26 +13172,9 @@ textarea:focus-visible,
   grid-template-columns: 32px minmax(0, 1fr);
 }
 
-.capabilities-add-option > .ui-control,
-.capabilities-resource-actions {
+.capabilities-add-option > .ui-control {
   grid-column: 2;
   justify-self: start;
-}
-
-.capabilities-resource-actions {
-  justify-items: start;
-  grid-template-columns: auto auto;
-  align-items: center;
-}
-
-.capabilities-result-heading {
-  align-items: start;
-  flex-direction: column;
-}
-
-.capabilities-result-heading > span,
-.capabilities-result-heading > a {
-  text-align: left;
 }
 
 .capabilities-package-row {
@@ -13721,16 +13216,6 @@ textarea:focus-visible,
   height: 28px;
 }
 
-.capabilities-inline-trust {
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: start;
-}
-
-.capabilities-inline-trust > .ui-control {
-  grid-column: 2;
-  justify-self: start;
-}
-
 .capabilities-add-option {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -13739,18 +13224,8 @@ textarea:focus-visible,
   display: none;
 }
 
-.capabilities-add-option > .ui-control,
-.capabilities-resource-actions {
+.capabilities-add-option > .ui-control {
   grid-column: 1;
-}
-
-.capabilities-segmented-filter {
-  width: 100%;
-}
-
-.capabilities-segmented-filter {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 }
 
@@ -14532,14 +14007,6 @@ textarea:focus-visible,
   color: var(--ui-text-muted);
   font-size: 12px;
   line-height: 1.35;
-}
-
-.extension-surface-pane-footnote {
-  margin: auto 4px 0;
-  padding-top: 20px;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .extension-surface-canvas {
@@ -19702,8 +19169,7 @@ to {
   padding-top: 0;
 }
 
-:root[data-theme] .app-shell .local-files-panel input,
-:root[data-theme] .app-shell .chat-search-field input {
+:root[data-theme] .app-shell .local-files-panel input {
   border-color: transparent;
   background: color-mix(in srgb,var(--ui-canvas) 70%,var(--ui-surface));
   border-radius: 6px;
@@ -19756,19 +19222,102 @@ to {
   border-color: transparent;
 }
 
+/* Over a picture, the name and its arrow share one frosted pill: legible on
+   any image without a text shadow, and plainly the switcher (2026-10-27). */
+
+.app-shell .work-folder-pane-title-pill {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 14px;
+  border-radius: 999px;
+  color: #1c2530;
+  background: rgb(255 255 255 / .82);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
+  transition: background-color 150ms var(--work-fold-ease-smooth);
+}
+
+.app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
+.app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
+  background: rgb(255 255 255 / .94);
+}
+
+:root[data-theme="dark"] .app-shell .work-folder-pane-title-pill {
+  color: #f1f4f6;
+  background: rgb(22 26 30 / .74);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
+}
+
+:root[data-theme="dark"] .app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
+:root[data-theme="dark"] .app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
+  background: rgb(22 26 30 / .88);
+}
+
 :root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-current-lockup strong {
   background: transparent;
   padding: 0;
-  color: #fff;
-  text-shadow: 0 1px 8px rgb(0 0 0 / .65);
-  font-size: 19px;
-  font-weight: 600;
+  color: inherit;
+  text-shadow: none;
 }
 
-:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-switch-caret {
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill .work-folder-pane-switch-caret {
+  position: static;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: inherit;
   background: transparent;
-  color: #fff;
-  filter: drop-shadow(0 1px 3px rgb(0 0 0 / .45));
+  opacity: .72;
+  transform: none;
+  filter: none;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image.switcher-open .work-folder-pane-title-pill .work-folder-pane-switch-caret {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+
+/* While the list below scrolls, the banner gives its height back to the list. */
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap {
+  transition: height 180ms var(--work-fold-ease-smooth), flex-basis 180ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+  transition: filter 150ms, height 180ms var(--work-fold-ease-smooth), min-height 180ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap.slim {
+  --work-folder-identity-header-height: 52px;
+  --work-folder-identity-title-size: 15px;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .professional-pane-header.has-breadcrumb > .work-folder-pane-switch-trigger {
+  padding-top: 0;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-breadcrumb {
+  display: none;
+}
+
+.app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-title-pill {
+  padding-block: 2px;
+}
+
+:root[data-appearance-motion="reduce"] .app-shell .work-folder-layout .work-folder-pane-header-wrap,
+:root[data-appearance-motion="reduce"] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap,
+  :root[data-theme] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header {
+    transition: none;
+  }
 }
 
 .work-folder-pane-banner-image.has-banner-preset .work-folder-pane-banner-scrim {
@@ -19797,7 +19346,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-row:not(.selected),.chat-work-folder-row-shell:not(.active),.history-entry:not(.selected),.capabilities-resource-row,.automation-list-row:not(.selected),.settings-window .settings-tab:not(.active)):hover {
+:root[data-theme] .app-shell :is(.file-row:not(.selected),.chat-work-folder-row-shell:not(.active),.history-entry:not(.selected),.automation-list-row:not(.selected),.settings-window .settings-tab:not(.active)):hover {
   background: var(--ui-surface-hover);
 }
 
@@ -19871,7 +19420,7 @@ to {
   font-weight: 500;
 }
 
-:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.model-catalog-menu,.ai-model-menu,.work-folder-icon-picker) {
+:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.work-folder-icon-picker) {
   border: 0;
   border-radius: 8px;
   background: var(--ui-surface);
@@ -19976,54 +19525,80 @@ to {
 }
 
 .history-detail-meta {
-  margin: -12px 0 5px;
+  margin: 4px 0 0;
   font-size: 12px;
   color: var(--ui-text-muted);
 }
 
-.history-restore-section.empty {
-  display: none;
+/* A restore point: its name and Restore across the top, then one list of the
+   files restoring changes. */
+.history-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.history-restore-section h2 {
+.history-review-identity {
+  min-width: 0;
+}
+
+.history-review-header > .ui-control {
+  flex: 0 0 auto;
+}
+
+.history-review-status,
+.history-review-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ui-text-muted);
+}
+
+.history-restore-changes h2 {
   font-size: 13px;
   font-weight: 600;
-  margin: 0 0 12px;
+  margin: 0 0 6px;
 }
 
-.history-restore-section ul {
+.history-restore-changes ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 6px;
 }
 
-.history-restore-section li {
-  display: flex;
+.history-restore-changes li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.history-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
-  justify-content: space-between;
-  padding: 8px 0;
-  font-size: 12px;
+  min-height: 44px;
+  padding: 6px 0;
 }
 
-.history-restore-section code {
-  font-family: var(--work-fold-ui-font);
-  overflow-wrap: anywhere;
+.history-change-name {
+  min-width: 0;
+  display: grid;
 }
 
-.history-coverage {
+.history-change-name :is(strong, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-change-name strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.history-change-name small,
+.history-change-kind {
   font-size: 12px;
-  line-height: 1.7;
   color: var(--ui-text-muted);
-  max-width: 65ch;
-}
-
-.history-review > button {
-  justify-self: start;
-  width: auto;
-  padding: 8px 14px;
 }
 
 .history-file-picker {
@@ -20123,7 +19698,7 @@ to {
   padding-top: 24px;
 }
 
-:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.ai-model-section,.remote-browser-list,.remote-browser-row,.publication-list,.publication-row,.settings-app-folder) {
+:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.remote-browser-list,.remote-browser-row,.publication-list,.publication-row) {
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -20192,14 +19767,10 @@ to {
   letter-spacing: -.025em;
 }
 
-:root[data-theme] .app-shell :is(.capabilities-panel,.capabilities-resource-row,.capabilities-scope-group,.capabilities-scope-empty,.capabilities-discover-result,.capabilities-resource-list) {
+:root[data-theme] .app-shell :is(.capabilities-panel,.capabilities-scope-group,.capabilities-scope-empty,.capabilities-resource-list) {
   border: 0;
   box-shadow: none;
   background: transparent;
-}
-
-:root[data-theme] .app-shell .capabilities-resource-row:hover {
-  background: var(--ui-surface-hover);
 }
 
 :root[data-theme] .app-shell .capabilities-included-tile {
@@ -20446,7 +20017,7 @@ to {
   box-shadow: none;
 }
 
-:is(.modal-title,.file-history-heading) {
+.modal-title {
   border: 0;
 }
 
@@ -20464,11 +20035,23 @@ to {
   border: 0;
 }
 
+/* The previews show the header's frosted name pill over the picture. */
+
 .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-copy strong {
-  background: transparent;
-  padding: 0;
-  color: white;
-  text-shadow: 0 1px 8px rgb(0 0 0 / .65);
+  padding: 4px 14px;
+  border-radius: 999px;
+  color: #1c2530;
+  background: rgb(255 255 255 / .82);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  box-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
+  text-shadow: none;
+}
+
+.work-folder-appearance-preview.preview-dark.has-banner-image .work-folder-appearance-preview-copy strong {
+  color: #f1f4f6;
+  background: rgb(22 26 30 / .74);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
 }
 
 .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-image > span {
@@ -20709,8 +20292,7 @@ to {
 }
 
 :root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.work-folder-rail-button:not(.active):not([aria-current="page"]),.work-folder-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-work-folder-row-actions,.message-copy-button,
-  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
-  .work-folder-header-menu button,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):hover:not(:disabled) {
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):hover:not(:disabled) {
   background: var(--ui-control-hover,var(--ui-surface-hover));
   color: var(--ui-control-foreground,var(--ui-text));
   box-shadow: none;
@@ -20724,8 +20306,7 @@ to {
 }
 
 :root[data-theme] .app-shell :is(.ui-control:not(.ui-control--primary),.work-folder-rail-button:not(.active):not([aria-current="page"]),.work-folder-rail-account-button,.surface-tab-action,.composer-command-trigger,.chat-work-folder-row-actions,.message-copy-button,
-  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,
-  .work-folder-header-menu button,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.model-catalog-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):active:not(:disabled) {
+  .chat-actions-menu > button,.chat-actions-back,.chat-rename-actions button:not(.primary),.checks-manual-button,.work-folder-name-save,.work-folders-pane-done,.work-folder-banner-upload-button,.model-catalog-trigger,.model-catalog-option,.composer-menu button,.context-menu button,.work-folder-header-switcher button,.command-palette-option,.composer-command-menu button,.composer-mention-menu button,.surface-tab-work-folder-menu button:not([aria-checked="true"])):active:not(:disabled) {
   background: var(--ui-control-pressed);
 }
 
@@ -20763,7 +20344,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) {
+:root[data-theme] .app-shell .file-tree-search {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -20776,16 +20357,16 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search):hover {
+:root[data-theme] .app-shell .file-tree-search:hover {
   background: var(--ui-surface-hover);
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search):focus-within {
+:root[data-theme] .app-shell .file-tree-search:focus-within {
   outline: 2px solid var(--ui-focus, var(--ui-accent));
   outline-offset: 0;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) input {
+:root[data-theme] .app-shell .file-tree-search input {
   flex: 1;
   min-width: 0;
   width: 100%;
@@ -20799,7 +20380,7 @@ to {
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search,.chat-work-folder-search) input:focus-visible {
+:root[data-theme] .app-shell .file-tree-search input:focus-visible {
   outline: 0;
 }
 
@@ -20885,6 +20466,447 @@ to {
 
 :root[data-theme] .app-shell .composer-capability-bar {
   border: 0;
+}
+
+/* The composer starts one line tall and grows with the draft. Its bar keeps
+   what you add (attach, Commands) on the left and how the Worker runs (model
+   and reasoning) beside Send on the right (2026-10-27). */
+
+:root[data-theme] .app-shell .composer-input-shell {
+  min-height: 0;
+}
+
+:root[data-theme] .app-shell .composer-input-shell textarea {
+  min-height: 0;
+  padding: 13px 16px 6px;
+}
+
+:root[data-theme] .app-shell .composer-capability-bar {
+  padding: 0 8px 8px;
+  gap: 4px;
+}
+
+.composer-capability-spacer {
+  flex: 1 1 auto;
+}
+
+:root[data-theme] .app-shell .composer-capability-bar .send-button {
+  position: static;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-left: 2px;
+  pointer-events: auto;
+}
+
+.composer-attach-control {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.composer-attach-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--ui-border-strong, var(--ui-border));
+  border-radius: 999px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  transition: background-color 110ms, color 110ms;
+}
+
+.composer-attach-trigger:is(:hover, .active) {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.composer-attach-trigger.active {
+  border-color: var(--work-folder-accent-border-state, var(--ui-accent));
+}
+
+.composer-attach-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.composer-command-menu.composer-attach-menu {
+  width: 300px;
+  max-width: calc(100vw - 32px);
+}
+
+.composer-command-menu.composer-attach-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+}
+
+.composer-attach-option-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--work-folder-accent-glyph, var(--ui-text-muted));
+  background: var(--ui-surface-subtle);
+}
+
+.composer-attach-option-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.composer-attach-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.composer-attach-option-copy strong {
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attach-option-copy small {
+  color: var(--ui-text-muted);
+  font-size: 0.72rem;
+}
+
+.composer-command-menu.composer-attach-picker {
+  width: 380px;
+  max-height: min(420px, 60vh, var(--composer-menu-available-height, 100vh));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.composer-attach-search {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 4px 6px 0;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-text-muted);
+}
+
+.composer-attach-back {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+}
+
+.composer-attach-back:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.composer-attach-search-icon {
+  flex: 0 0 auto;
+}
+
+.composer-attach-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  outline: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+:root[data-theme] .app-shell .composer-attach-search input:focus-visible {
+  outline: 0;
+}
+
+.composer-attach-options {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: grid;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.composer-attach-options button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.composer-attach-options button[aria-selected="true"] {
+  color: var(--ui-text-muted);
+}
+
+.composer-attach-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attach-file-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: 0.72rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The files a reply wrote or edited close the reply as one bounded list, each
+   row opening its file (2026-10-27). */
+
+.turn-files {
+  margin: 14px 0 2px;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  background: var(--ui-surface);
+}
+
+.turn-files li + li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.turn-files button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  transition: background-color 110ms;
+}
+
+.turn-files button:hover {
+  background: var(--ui-surface-hover);
+}
+
+.turn-file-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.turn-file-name,
+.turn-file-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-file-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.turn-file-detail {
+  color: var(--ui-text-muted);
+  font-size: 0.76rem;
+}
+
+.turn-file-open {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border: 1px solid var(--ui-border-strong, var(--ui-border));
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.turn-files button.turn-files-more {
+  justify-content: center;
+  padding: 8px 12px;
+  color: var(--ui-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* A new Chat starts with its composer under the greeting and the work-folder's
+   recent Chats below; the first message settles it at the bottom (2026-10-27). */
+
+.chat-panel.is-start {
+  grid-template-rows: auto minmax(0, 1fr) auto minmax(min-content, 1.25fr);
+}
+
+.chat-panel.is-start .chat-empty-state {
+  margin: auto 0 0;
+  padding-bottom: 12px;
+}
+
+.chat-recent {
+  width: calc(100% - 28px);
+  max-width: var(--work-fold-chat-measure, 760px);
+  align-self: start;
+  justify-self: center;
+  padding: 18px 0 24px;
+}
+
+.chat-recent h2 {
+  margin: 0 0 8px 4px;
+  color: var(--ui-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.chat-recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.chat-recent li + li {
+  border-top: 1px solid var(--ui-border);
+}
+
+.chat-recent button {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 0;
+  color: var(--ui-text);
+  background: transparent;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  transition: background-color 110ms;
+}
+
+.chat-recent button:hover {
+  background: var(--ui-surface-hover);
+}
+
+.chat-recent-icon {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+}
+
+.chat-recent-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-recent-time {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The model chip carries the reasoning level, and its menu opens toward the
+   composer's middle from the right side. */
+
+.composer-model-control .composer-model-menu {
+  left: auto;
+  right: 0;
+}
+
+:is(.composer-model-control, .composer-attach-control)[data-menu-placement="below"] .composer-command-menu {
+  top: calc(100% + 9px);
+  bottom: auto;
+}
+
+.composer-model-reasoning {
+  flex: 0 0 auto;
+  color: var(--ui-text-muted);
+  font-weight: 600;
+}
+
+.composer-model-control .composer-model-caret {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-left: -2px;
+  color: var(--ui-text-muted);
+  transform: none;
+}
+
+.composer-reasoning {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.composer-reasoning-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 4px 6px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--ui-surface-subtle);
+}
+
+.composer-reasoning-levels button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell .composer-reasoning-levels button.active,
+:root[data-theme] .app-shell .composer-reasoning-levels button.active:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .14);
 }
 
 :root[data-theme] .app-shell .send-button {
@@ -20984,10 +21006,6 @@ to {
   gap: 6px;
 }
 
-:root[data-theme] .app-shell .surface-tab-group-label {
-  height: 34px;
-}
-
 :root[data-theme] .app-shell .surface-tabs[data-active-chrome] .surface-tab {
   z-index: auto;
 }
@@ -21062,49 +21080,43 @@ to {
 :root[data-theme] .app-shell .surface-tabs[data-reordering="dragging"] * {
   cursor: grabbing;
 }
-/* File metadata, actions and document share one gutter. Reading preferences apply here too. */
+/* The header is a toolbar across the top of the tab, and the file below it
+   scrolls on its own under the same gutter. Reading preferences apply here too. */
 
 :root[data-theme] .app-shell .file-details-pane {
-  gap: 20px;
-  padding: 22px 28px 28px;
+  --file-details-gutter: 28px;
+  gap: 0;
+  padding: 0;
 }
 
 :root[data-theme] .app-shell .file-details-header {
-  padding: 0;
+  padding: 10px 16px 10px var(--file-details-gutter);
   border: 0;
-  gap: 12px 20px;
-}
-
-:root[data-theme] .app-shell .file-details-identity {
-  grid-template-columns: 24px minmax(0,1fr);
-  gap: 12px;
+  border-bottom: 1px solid var(--ui-border);
 }
 
 :root[data-theme] .app-shell .file-details-icon {
-  width: 24px;
-  height: 24px;
   border: 0;
   background: transparent;
 }
 
 :root[data-theme] .app-shell .file-details-title h2 {
-  margin: 0 0 4px;
-  font-size: 1.2rem;
-  font-weight: 600;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  color: var(--ui-text);
 }
 
 :root[data-theme] .app-shell .file-details-title p {
-  margin: 0;
-  font-size: .8rem;
   color: var(--ui-text-muted);
-  line-height: 1.5;
 }
 
-:root[data-theme] .app-shell .file-details-actions {
-  flex-wrap: wrap;
-  gap: 6px;
+:root[data-theme] .app-shell .file-details-copy[data-state="copied"] {
+  color: var(--ui-success);
+}
+
+:root[data-theme] .app-shell .file-details-more .context-menu.file-details-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
 }
 
 :root[data-theme] .app-shell .file-preview {
@@ -21116,14 +21128,14 @@ to {
 }
 
 :root[data-theme] .app-shell .file-preview-document {
-  padding: 0;
+  padding: 0 var(--file-details-gutter);
   background: transparent;
 }
 
 :root[data-theme] .app-shell .file-preview-markdown {
   max-width: var(--work-fold-chat-measure,760px);
   margin: 0;
-  padding: 12px 0 32px;
+  padding: 20px 0 32px;
   font-family: var(--work-fold-reading-font);
   font-size: var(--work-fold-reading-size,15px);
   line-height: var(--work-fold-reading-leading,1.65);
@@ -21150,20 +21162,29 @@ to {
 }
 
 :root[data-theme] .app-shell .file-preview-text {
-  padding: 16px 0;
+  padding: 16px var(--file-details-gutter);
   color: var(--ui-text);
   background: transparent;
   font-family: var(--work-fold-monospace-font);
 }
 
 :root[data-theme] .app-shell .file-preview-truncated {
+  padding: 8px var(--file-details-gutter);
   color: var(--ui-text-muted);
   background: var(--ui-surface-subtle);
   border: 0;
 }
 
+:root[data-theme] .app-shell .file-preview-document .file-preview-truncated {
+  max-width: var(--work-fold-chat-measure,760px);
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  border-radius: var(--ui-radius-sm);
+}
+
 :root[data-theme] .app-shell .file-preview-media {
   min-height: 320px;
+  margin: 20px var(--file-details-gutter) var(--file-details-gutter);
   background: var(--ui-surface-subtle);
   border-radius: var(--ui-radius-md);
 }
@@ -21181,10 +21202,13 @@ to {
   gap: 24px;
 }
 
+/* The page fills its tab and scrolls itself; growing to fit its content let
+   the tab clip everything below the fold, Restore included. */
 :root[data-theme] .app-shell .history-review {
+  height: 100%;
   padding: 30px 36px 40px;
   gap: 20px;
-  max-width: 960px;
+  grid-template-columns: minmax(0, 960px);
 }
 
 :root[data-theme] .app-shell .keyboard-shortcuts-pane h2 {
@@ -21215,7 +21239,7 @@ to {
 @media(max-width:700px) {
 
 :root[data-theme] .app-shell .file-details-pane {
-  padding: 18px;
+  --file-details-gutter: 18px;
 }
 
 :root[data-theme] .app-shell .history-review {
@@ -21343,7 +21367,13 @@ to {
 
 /* Higher contrast keeps banner titles readable over arbitrary image pixels. */
 
-:root[data-appearance-contrast="more"] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-current-lockup strong,
+:root[data-appearance-contrast="more"] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill {
+  color: #fff;
+  background: #17212e;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 :root[data-appearance-contrast="more"] .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-copy strong {
   padding: 2px 8px;
   background: #17212e;

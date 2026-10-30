@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { writeFileAtomic } from "./agent/turn-store.js";
 import { workFolderStateDir } from "./state-paths.js";
 import { ensureSafeWorkFolderRoot, resolveWorkFolderPath } from "./work-folder.js";
 
@@ -52,20 +53,34 @@ export async function setWorkFolderIgnoreState(
     requestedPatterns.push(info.isDirectory() ? `${path}/` : path);
   }
 
-  const state = await readWorkFolderIgnoreState(root);
-  const existing = new Set(state.patterns);
-  for (const pattern of requestedPatterns) {
-    existing.delete(pattern);
-    existing.delete(`!${pattern}`);
-    if (ignored) existing.add(pattern);
-    else if (isWorkFolderIgnored(pattern.replace(/\/$/, ""), [...existing])) existing.add(`!${pattern}`);
-  }
-  const patterns = [...existing].sort((left, right) => left.localeCompare(right));
+  // Read, change, and replace the rules as one queued step per work-folder, so
+  // two changes in flight cannot each start from the same old rules.
   const file = ignoreStateFile(root);
-  await mkdir(dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify({ version: 1, patterns }, null, 2)}\n`, "utf8");
-  return { ignored, paths: normalizedPaths, patterns };
+  const previous = ignoreStateUpdates.get(file) ?? Promise.resolve();
+  const operation = previous.catch(() => undefined).then(async () => {
+    const state = await readWorkFolderIgnoreState(root);
+    const existing = new Set(state.patterns);
+    for (const pattern of requestedPatterns) {
+      existing.delete(pattern);
+      existing.delete(`!${pattern}`);
+      if (ignored) existing.add(pattern);
+      else if (isWorkFolderIgnored(pattern.replace(/\/$/, ""), [...existing])) existing.add(`!${pattern}`);
+    }
+    const patterns = [...existing].sort((left, right) => left.localeCompare(right));
+    await mkdir(dirname(file), { recursive: true });
+    // A torn file would read back as no rules at all, so replace it whole.
+    await writeFileAtomic(file, `${JSON.stringify({ version: 1, patterns }, null, 2)}\n`);
+    return patterns;
+  });
+  ignoreStateUpdates.set(file, operation);
+  try {
+    return { ignored, paths: normalizedPaths, patterns: await operation };
+  } finally {
+    if (ignoreStateUpdates.get(file) === operation) ignoreStateUpdates.delete(file);
+  }
 }
+
+const ignoreStateUpdates = new Map<string, Promise<string[]>>();
 
 export function isWorkFolderIgnored(relativePath: string, configuredPatterns: string[]): boolean {
   const path = normalizeWorkFolderPath(relativePath);

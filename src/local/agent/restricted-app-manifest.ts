@@ -1,5 +1,4 @@
 import { restrictedAppCheckLimits, type RestrictedAppCheckPermission } from "../../shared/restricted-app-checks.js";
-import { restrictedAppAssistantLimits } from "../../shared/restricted-app-tasks.js";
 import { isIP } from "node:net";
 import { extname, posix } from "node:path";
 

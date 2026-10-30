@@ -84,12 +84,12 @@
   background: var(--ui-surface);
 }
 :root[data-appearance-palette] .app-shell .chat-panel .composer { background: var(--ui-surface); }
-:root[data-appearance-palette] .app-shell :is(.search-box, .context-menu, .composer-command-menu) {
+:root[data-appearance-palette] .app-shell :is(.context-menu, .composer-command-menu) {
   color: var(--ui-text);
   background: var(--ui-surface);
   border-color: var(--ui-border);
 }
-:root[data-appearance-palette] .app-shell :is(.composer textarea, .file-tree-search input, .search-box input, .file-details-title h2, .file-details-meta dd) { color: var(--ui-text); }
+:root[data-appearance-palette] .app-shell :is(.composer textarea, .file-tree-search input, .file-details-title h2, .file-details-meta dd) { color: var(--ui-text); }
 :root[data-appearance-palette] .app-shell :is(.composer textarea, .file-tree-search input)::placeholder { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell :is(.file-details-title p, .file-details-loading, .chat-empty-state, .chat-empty-state p) { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .chat-empty-state strong { color: var(--ui-text); }
@@ -174,7 +174,6 @@
 }
 :root[data-appearance-palette] .app-shell .file-row { color: var(--ui-text); font-size: .8667rem; }
 :root[data-appearance-palette] .app-shell .file-row.selected { color: var(--ui-text); background: var(--work-folder-accent-soft-fill, var(--ui-accent-soft)); }
-:root[data-appearance-palette] .app-shell .file-row:is(.draft-area, .is-ignored):not(.selected) { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .chat-work-folder-row-title { color: var(--ui-text); }
 :root[data-appearance-palette] .app-shell .chat-work-folder-row-time { color: var(--ui-text-muted); }
 :root[data-appearance-palette] .app-shell .settings-window :is(.settings-tab, .settings-field input, .settings-field select, .settings-section p, .context-meta-grid dt, .context-meta-grid dd) { font-size: max(13px, calc(var(--work-fold-font-size) - 2px)); }

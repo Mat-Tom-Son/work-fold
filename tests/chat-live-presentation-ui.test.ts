@@ -7,11 +7,13 @@ import type { ChatMessage, ChatStreamEvent, LocalEventStream, WorkFolderSummary 
 
 const userMessage: ChatMessage = { id: "request", role: "user", content: "Update the notes", createdAt: "2026-09-27T12:00:00Z" };
 
-async function chatHarness(t: TestContext, readTranscript = async () => ({ messages: [userMessage] })) {
+async function chatHarness(t: TestContext, readTranscript = async () => ({ messages: [userMessage] }), overrideApi?: (path: string, options: { method?: string; body?: unknown }) => unknown, targetConversationId: string | null = "chat") {
   const dom = await createDomHarness();
   const realApi = await import("../web-local/src/lib/api.js");
   const streams = new Map<string, LocalEventStream>();
-  const api = async (path: string, options: { body?: unknown } = {}) => {
+  const api = async (path: string, options: { method?: string; body?: unknown } = {}) => {
+    const overridden = overrideApi?.(path, options);
+    if (overridden !== undefined) return overridden;
     if (path === "/api/work-folders/folder/conversations") return { conversations: [{ id: "chat", title: "Notes", updatedAt: "2026-09-27T12:00:00Z" }] };
     if (path.endsWith("/conversations/chat")) return readTranscript();
     if (path.endsWith("/conversations/chat/messages")) {
@@ -51,12 +53,88 @@ async function chatHarness(t: TestContext, readTranscript = async () => ({ messa
   HTMLElement.prototype.scrollTo = () => {};
   const { ChatPanel } = await import("../web-local/src/components/chat/ChatPanel.js");
   await dom.render(createElement(ChatPanel, { surfaceTabId: "chat-tab", workFolder: { id: "folder", name: "Notes", workFolderRoot: "/folder" } as WorkFolderSummary,
-    workFolderCustomizations: {}, targetConversationId: "chat", contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
-  await dom.waitFor(() => streams.has("/api/work-folders/folder/conversations/chat/events"));
+    workFolderCustomizations: {}, targetConversationId, contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
+  if (targetConversationId) await dom.waitFor(() => streams.has("/api/work-folders/folder/conversations/chat/events"));
   const stream = streams.get("/api/work-folders/folder/conversations/chat/events")!;
   const emit = async (value: Omit<ChatStreamEvent, "conversationId">) => { await dom.act(async () => { stream.onmessage?.({ data: JSON.stringify({ conversationId: "chat", ...value }) }); await Promise.resolve(); }); await dom.settle(); };
   return { dom, stream, emit };
 }
+
+test("reopening the attachment picker reads files created since its previous visit", async (t) => {
+  let name = "Before.txt";
+  let reads = 0;
+  const { dom } = await chatHarness(t, undefined, (path) => {
+    if (!path.includes("/tree?")) return;
+    reads += 1;
+    return { tree: [{ kind: "file", path: name, name }] };
+  });
+  const open = async () => {
+    await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach files"]')!.click());
+    await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
+    await dom.waitFor(() => !!dom.container.querySelector('.composer-attach-options [role="option"]'));
+  };
+  await open();
+  assert.match(dom.container.querySelector(".composer-attach-options")!.textContent!, /Before.txt/);
+  await dom.press("Escape");
+  name = "After.txt";
+  await open();
+  assert.equal(reads, 2);
+  assert.match(dom.container.querySelector(".composer-attach-options")!.textContent!, /After.txt/);
+  assert.doesNotMatch(dom.container.querySelector(".composer-attach-options")!.textContent!, /Before.txt/);
+});
+
+test("a typed /compact uses the Chat's compaction route, not a turn", async (t) => {
+  const calls: Array<{ path: string; method?: string; body?: unknown }> = [];
+  const { dom } = await chatHarness(t, undefined, (path, options) => {
+    if (path.endsWith("/compact") || path.endsWith("/messages")) calls.push({ path, method: options.method, body: options.body });
+    if (path.endsWith("/conversations/chat/compact")) return { compacted: true };
+  });
+  const composer = dom.container.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+  await dom.act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(composer, "/compact keep the open questions");
+    composer.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click(); await Promise.resolve(); });
+  await dom.waitFor(() => calls.length > 0 && !dom.container.querySelector('[aria-label="Stop Worker"]'));
+  assert.deepEqual(calls, [{ path: "/api/work-folders/folder/conversations/chat/compact", method: "POST", body: { customInstructions: "keep the open questions" } }]);
+  assert.equal(composer.value, "", "the command leaves the composer");
+});
+
+test("a typed /compact in a new Chat does not create a conversation or send a model message", async (t) => {
+  const writes: string[] = [];
+  const { dom } = await chatHarness(t, undefined, (path, options) => {
+    if (options.method === "POST") writes.push(path);
+  }, null);
+  const composer = dom.container.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+  await dom.act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(composer, "/compact");
+    composer.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click(); });
+  assert.deepEqual(writes, [], "a local command with nothing to compact must never start a paid turn");
+  assert.equal(composer.value, "");
+});
+
+test("composer menus choose the available side and follow window resizing", async (t) => {
+  const { dom } = await chatHarness(t);
+  const elementPrototype = HTMLElement.prototype;
+  const original = elementPrototype.getBoundingClientRect;
+  let anchorTop = 390;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.matches(".chat-panel")) return new window.DOMRect(0, 80, 800, 720);
+    if (this.matches(".composer-attach-control")) return new window.DOMRect(0, anchorTop, 28, 30);
+    return original.call(this);
+  };
+  t.after(() => { elementPrototype.getBoundingClientRect = original; });
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach files"]')!.click());
+  const control = dom.container.querySelector<HTMLElement>(".composer-attach-control")!;
+  assert.equal(control.dataset.menuPlacement, "below", "the centered composer has more room below");
+  assert.equal(control.style.getPropertyValue("--composer-menu-available-height"), "371px");
+  anchorTop = 740;
+  await dom.act(() => { window.dispatchEvent(new Event("resize")); });
+  assert.equal(control.dataset.menuPlacement, "above", "a composer at the bottom opens upward");
+  assert.equal(control.style.getPropertyValue("--composer-menu-available-height"), "651px");
+});
 
 test("Chat reconnect replaces stable steps, resumes their updates, and clears a different turn", async (t) => {
   const { dom, emit } = await chatHarness(t);

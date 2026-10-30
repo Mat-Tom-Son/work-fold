@@ -1,6 +1,6 @@
 {
   "name": "work-fold-desktop",
-  "version": "0.13.1",
+  "version": "0.13.4",
   "private": true,
   "type": "module",
   "description": "A local-first desktop app powered by Pi.",
@@ -99,7 +99,7 @@
     "pptxgenjs": "4.0.1",
     "protobufjs": "7.6.5",
     "saxes": "6.0.0",
-    "undici-pi-reviewed": "npm:undici@8.10.2",
+    "undici-pi-reviewed": "npm:undici@8.12.3",
     "ws": "^8.21.2"
   },
   "devDependencies": {
@@ -127,10 +127,10 @@
     "react-dom": "^19.2.5",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vite": "^8.1.4"
+    "vite": "^8.1.6"
   },
   "overrides": {
     "brace-expansion": "5.0.12",
@@ -144,20 +144,23 @@
     "tar": "7.5.22",
     "tmp": "0.2.7",
     "form-data": "4.0.6",
-    "shell-quote": "1.9.0",
+    "shell-quote": "1.12.0",
     "esbuild": "0.28.1",
     "@electron/get": {
-      "undici": "7.29.1"
+      "undici": "7.30.1"
     },
     "node-gyp": {
-      "undici": "6.28.1"
+      "undici": "6.29.1"
     },
     "jsdom": {
-      "undici": "7.29.1"
+      "undici": "7.30.1"
     },
     "smol-toml": "1.7.1",
     "exceljs": {
       "uuid": "11.1.1"
+    },
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.3"
     }
   },
   "config": {

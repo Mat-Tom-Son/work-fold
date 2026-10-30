@@ -4,6 +4,12 @@ The [public Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/rele
 is the authority for the newest available desktop update. A source tag or
 release-note file alone does not mean a version was published.
 
+## October 27, 2026
+
+[0.13.1](work-fold-0.13.1.md) adds Continue after an interrupted reply, resends
+replies that go silent, summarizes long Chats in the background, and holds a
+queued message for every window, with steering from the agent panels.
+
 ## October 23, 2026
 
 [0.13.0](work-fold-0.13.0.md) adds a built-in browser shared with the work-fold

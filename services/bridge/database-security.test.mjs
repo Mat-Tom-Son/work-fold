@@ -109,7 +109,7 @@ test("session CSRF issuance is stable across tabs", async (context) => {
   ]);
   assert.equal(tabTwoToken, created.csrfToken);
   assert.equal(tabThreeToken, created.csrfToken);
-  assert.equal(await database.rotateSessionCsrf(created.token), created.csrfToken, "the compatibility API no longer rotates");
+  assert.equal(await database.issueSessionCsrf(created.token), created.csrfToken, "a later issuance does not rotate the token");
 
   const sharedSession = await database.session(created.token, { touch: false });
   await assert.doesNotReject(database.assertCsrf(sharedSession, created.csrfToken));

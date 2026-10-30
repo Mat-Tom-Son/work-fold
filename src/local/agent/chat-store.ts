@@ -4,7 +4,7 @@ import { appendFile, mkdir, open, readFile, readdir, rename, stat, unlink, write
 import { join } from "node:path";
 
 import { workFolderConversationDir, workFolderStateDir } from "../state-paths.js";
-import { maxChatToolTitleLength, maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatToolEdit, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
+import { maxChatToolTitleLength, maxTurnToolEditDiffBytes, type AssistantPresentation, type ChatWorkTrailEntry } from "../../shared/chat-presentation.js";
 import { parseAssistantPresentation, parseChatToolEdit, parseChatToolImage } from "./turn-presentation.js";
 import {
   normalizeConversationTitle,

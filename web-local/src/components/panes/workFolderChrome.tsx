@@ -247,8 +247,25 @@ function WorkFolderPaneHeader({
 }) {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [slim, setSlim] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const switchTriggerRef = useRef<HTMLButtonElement>(null);
+  // The banner slims to a strip while the list below it scrolls and returns at
+  // the top (2026-10-27). Only a list with room to spare slims it, so the
+  // height it gives back can never pull the list back to the top and flicker.
+  useEffect(() => {
+    const pane = headerRef.current?.closest(".work-folder-mode-pane");
+    if (!pane) return;
+    function followListScroll(event: Event) {
+      const list = event.target;
+      if (!(list instanceof HTMLElement) || list.contains(headerRef.current)) return;
+      if (list.scrollTop <= 0) setSlim(false);
+      else if (list.scrollTop > 24 && list.scrollHeight - list.clientHeight > 160) setSlim(true);
+    }
+    pane.addEventListener("scroll", followListScroll, true);
+    return () => pane.removeEventListener("scroll", followListScroll, true);
+  }, []);
+  useEffect(() => { setSlim(false); }, [workFolder.id]);
   const switcherEnabled = switchable && Boolean(workFolderCustomizations && onSwitchWorkFolder);
   const switcherId = `work-folder-header-switcher-${surfaceDomIdSuffix(workFolder.id)}`;
   const detail = workFolderHeaderSourceBadgeLabel(workFolder);
@@ -357,7 +374,7 @@ function WorkFolderPaneHeader({
 
   return (
     <div
-      className="work-folder-pane-header-wrap work-folder-identity-header-wrap"
+      className={slim && !switcherOpen ? "work-folder-pane-header-wrap work-folder-identity-header-wrap slim" : "work-folder-pane-header-wrap work-folder-identity-header-wrap"}
       ref={headerRef}
       onBlurCapture={(event) => {
         if (switcherOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setSwitcherOpen(false);
@@ -392,9 +409,20 @@ function WorkFolderPaneHeader({
             onClick={toggleSwitcher}
             title="Switch work-folder"
           >
-            {identityLockup}
+            {identity.bannerImage ? (
+              // Over a picture the name and its arrow sit together on a frosted
+              // pill, readable on any image without a text shadow (2026-10-27).
+              <span className="work-folder-pane-title-pill">
+                {identityLockup}
+                <ChevronDown20Regular className="work-folder-pane-switch-caret" aria-hidden="true" />
+              </span>
+            ) : (
+              <>
+                {identityLockup}
+                <ChevronDown20Regular className="work-folder-pane-switch-caret" aria-hidden="true" />
+              </>
+            )}
             {nestedStatus ? <span className="work-folder-pane-nested-activity"><ActivityDot status={nestedStatus} /></span> : null}
-            <ChevronDown20Regular className="work-folder-pane-switch-caret" aria-hidden="true" />
           </button>
         ) : identityLockup}
         {ancestors.length ? (
@@ -501,8 +529,13 @@ function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance,
   onManageWorkFolders: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  // Focus enters once, on open: the header re-renders while the menu is up,
+  // and arrow-key navigation must not snap back to the first item.
   useEffect(() => {
-    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    const frame = window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  useEffect(() => {
     function closeOnOutside(event: PointerEvent) {
       if (menuRef.current?.contains(event.target as Node)) return;
       event.preventDefault();

@@ -54,6 +54,14 @@ type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
 type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
 
+type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | `snooze:${string}`;
+
+interface WorkFoldDesktopTabMenuRequest {
+  chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
+  tab?: { hasOthers: boolean };
+  point: { x: number; y: number };
+}
+
 interface WorkFoldDesktopFileMenuRequest {
   workFolderId: string;
   path: string;
@@ -170,6 +178,8 @@ declare global {
         startDrag: (workFolderId: string, path: string) => Promise<void>;
         previewFile: (workFolderId: string, path: string) => Promise<boolean>;
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
+        /** A work-folder tab's or a Chat's right-click menu (macOS). */
+        popupTabMenu?: (request: WorkFoldDesktopTabMenuRequest) => Promise<WorkFoldDesktopTabMenuCommand | null>;
         setActiveWorkFolder: (workFolderId: string | null) => Promise<void>;
         onOpenWorkFolder: (listener: (workFolderId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;

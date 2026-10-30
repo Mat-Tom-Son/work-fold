@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { existsSync, fstatSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -472,3 +473,63 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
   }
 }
+
+test("an abandoned raw-file read closes its file instead of holding it open", { skip: process.platform === "win32" }, async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-folder-raw-file-"));
+  const api = await startLocalApi({ port: 0, stateBase: join(sandbox, "state"), workFolderBase: join(sandbox, "content"), loadEnv: false });
+  t.after(async () => {
+    await api.close();
+    configureWorkFoldStateRoot(undefined);
+    await rm(sandbox, { recursive: true, force: true });
+  });
+  const created = await json(`${api.origin}/api/work-folders`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Previews" }),
+  }) as { workFolder: { id: string; workFolderRoot: string } };
+  const { id, workFolderRoot } = created.workFolder;
+  const size = 16 * 1024 * 1024;
+  await writeFile(join(workFolderRoot, "large.bin"), Buffer.alloc(size, 7));
+  await writeFile(join(workFolderRoot, "empty.txt"), "");
+  const rawFile = (path: string) => `${api.origin}/api/work-folders/${id}/raw-file?path=${encodeURIComponent(path)}`;
+
+  const whole = await fetch(rawFile("large.bin"));
+  assert.equal(whole.headers.get("content-length"), String(size));
+  assert.equal((await whole.arrayBuffer()).byteLength, size);
+  const empty = await fetch(rawFile("empty.txt"));
+  assert.equal(empty.status, 200);
+  assert.equal((await empty.arrayBuffer()).byteLength, 0);
+
+  // A preview that changes aborts its fetch mid-body. Each abandoned read must
+  // release its file: count this process's descriptors that still name it.
+  const { dev, ino } = await stat(join(workFolderRoot, "large.bin"));
+  const descriptorsOnFile = async () => {
+    let count = 0;
+    for (const name of await readdir("/dev/fd")) {
+      try {
+        const info = fstatSync(Number(name));
+        if (info.dev === dev && info.ino === ino) count += 1;
+      } catch {
+        // Closed while the listing was read.
+      }
+    }
+    return count;
+  };
+  assert.equal(await descriptorsOnFile(), 0);
+  for (let index = 0; index < 5; index += 1) {
+    await new Promise<void>((resolvePromise, reject) => {
+      const request = get(rawFile("large.bin"), { agent: false }, (response) => {
+        response.once("data", () => {
+          request.destroy();
+          resolvePromise();
+        });
+      });
+      request.once("error", reject);
+    });
+  }
+  const started = Date.now();
+  while (await descriptorsOnFile() > 0) {
+    if (Date.now() - started > 2_000) assert.fail(`abandoned raw-file reads left ${await descriptorsOnFile()} descriptors open on the file`);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+  }
+});

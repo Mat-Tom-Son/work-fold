@@ -62,3 +62,26 @@ test("the work-folder context menu consumes outside presses, preserves its actio
   assert.equal(document.querySelector(".folder-context-menu"), null);
   assert.equal(document.activeElement, trigger);
 });
+
+test("the work-folder context menu keeps keyboard focus where the person moved it while the header re-renders", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const workFolder = { id: "menu-owner", name: "Workshop", workFolderRoot: "/synthetic/workshop", location: { kind: "local", storage: "linked" } } as WorkFolderSummary;
+  const render = () => dom.render(createElement("div", { className: "app-shell" },
+    createElement(WorkFolderPaneHeader, {
+      workFolder, identity: workFolderIdentityFor(workFolder, {}), workFolders: [workFolder], workFolderCustomizations: {},
+      onSwitchWorkFolder: () => {}, onCreateWorkFolder: () => {}, onOpenFolder: () => {}, onManageWorkFolders: () => {},
+      onNewChat: () => {}, onOpenAppearance: () => {},
+    }),
+  ));
+  await render();
+  const header = document.querySelector<HTMLElement>(".work-folder-identity-header")!;
+  await dom.act(() => header.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 80 })));
+  await dom.waitFor(() => document.activeElement?.getAttribute("role") === "menuitem");
+  await dom.press("ArrowDown");
+  assert.equal(document.activeElement?.textContent, "Customize work-folder");
+  // A file refresh or activity update re-renders the header with a new close callback.
+  await render();
+  await dom.settle();
+  assert.equal(document.activeElement?.textContent, "Customize work-folder", "focus does not snap back to the first item");
+});

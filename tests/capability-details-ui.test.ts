@@ -184,7 +184,9 @@ test("Installed separates cold readiness from native loading and keeps a newer s
   assert.equal(dom.container.querySelector(".capabilities-health"), null, "no tool-count or attention line");
   assert.equal(dom.container.querySelector(".capabilities-scope-heading .capabilities-hierarchy-glyph"), null);
   assert.equal(dom.container.querySelector(".scope-global .capabilities-resource-card"), null, "included tools are not repeated under Everywhere");
-  assert.doesNotMatch(dom.container.querySelector(".capabilities-scope-groups")?.textContent ?? "", /builtin:|0 tools/);
+  const scopeGroups = [...dom.container.querySelectorAll(".capabilities-scope-group")];
+  assert.equal(scopeGroups.length, 2, "Everywhere and This work-folder only are both shown");
+  assert.doesNotMatch(scopeGroups.map((group) => group.textContent).join("\n"), /builtin:|0 tools/);
   assert.equal(dom.container.querySelectorAll(".capabilities-core-tool-row").length, 2, "native built-ins remain discoverable once in Core Tools");
   for (const name of ["Chrome", "Computer Control", "Documents"]) {
     assert.equal(setup(name), null, `${name} is unchecked or off, so it never asks for setup`);

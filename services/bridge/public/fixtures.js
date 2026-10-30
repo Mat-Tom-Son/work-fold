@@ -61,7 +61,7 @@ export function buildFixture(name, { running = false } = {}) {
       messages: report.messages.slice(0, 1),
       summary: { state: "running", latestRequest: { phase: "working", canStop: true, taskId: "task-2",
         actions: [{ command: "files.add", workFolderId: "work-folder-1", workFolderName: "Launch plan", copied: ["reports/q3-summary.md"] }] } },
-      activeTasks: new Map([["chat-2", { taskId: "task-2", conversationId: "chat-2" }]]),
+      activeTasks: new Map([["chat-2", { taskId: "task-2", conversationId: "chat-2", phase: "working" }]]),
       liveAssistantText: "I’m checking the invoice references and putting the summary together.",
     });
   }
@@ -76,6 +76,8 @@ export function buildFixture(name, { running = false } = {}) {
       conversations,
       conversationsLoaded: true,
       sharedPagesAvailable: true,
+      // Current desktops take a message into running work.
+      steerAvailable: true,
       fixtureSharedPages: [
         { publicationId: "fixture-quarterly", title: "Quarterly overview", kind: "page", health: { state: "live" } },
         { publicationId: "fixture-trip", title: "Montréal weekend", kind: "page", health: { state: "live" } },

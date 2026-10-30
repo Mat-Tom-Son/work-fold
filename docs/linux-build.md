@@ -7,6 +7,13 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
+The local 0.13.4 candidate integrates main through `48e08f4` (Mac 0.13.3).
+It adds interruption recovery, idle Chat compaction, shared queue and steering,
+the refreshed Chat composer and reply files, current-file copying, and the
+updated History flow. It retains Linux's browser input/capture fixes, native CLI,
+window controls, keyrings and app-wide Wayland sharing. The preview link above
+continues to identify 0.13.1 until this candidate is published.
+
 The 0.13.1 preview integrates main through `a320928` (Mac 0.13.0
 source plus the Electron 42.11.18 security update). It adds the shared built-in
 browser and Worker browser tools, reversible Skill removal, persistent Chat

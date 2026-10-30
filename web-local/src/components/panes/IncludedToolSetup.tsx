@@ -81,9 +81,6 @@ function IncludedToolSetupSession({ workFolderId, tool, enabled, onStatusChange 
     finally { if (request.current === controller) request.current = null; if (alive.current && !controller.signal.aborted) setBusy(false); }
   }
   const label = !enabled ? "Turned Off" : includedToolReadiness(status ?? undefined).label;
-  const linuxComputer = tool.id === "computer" && (window.workFoldDesktop?.app.platform === "linux" || status?.facts?.platform === "linux");
-  const waylandComputer = linuxComputer && Boolean(status?.computerSession);
-  const needsSetup = enabled && status?.state === "setup_required";
   const requirement = tool.id !== "mcp" && enabled && status && ["setup_required", "unavailable"].includes(status.state) ? status.detail : null;
   return <section className="included-tool-setup" aria-label={`${tool.title} setup`} aria-busy={busy}>
     {tool.id !== "mcp" || !enabled ? <div className="included-tool-status"><strong role="status">{label}</strong>{tool.id !== "mcp" ? <button type="button" className="ui-control" disabled={busy || !enabled} onClick={() => void act("check")}>{busy ? "Checking…" : "Check"}</button> : null}</div> : null}

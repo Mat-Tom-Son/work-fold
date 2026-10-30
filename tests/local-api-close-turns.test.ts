@@ -25,10 +25,11 @@ test("closing stops an accepted turn that is still preparing before it reaches t
   // preparing after closing began, whenever close() reaches its clients.
   resume();
   await within(closing, "close()");
-  assert.equal(h.turnStore.get(taskId)?.status, "aborted");
+  // Quitting is recorded like a crash, never as a Stop the person asked for (2026-10-27).
+  assert.equal(h.turnStore.get(taskId)?.status, "interrupted");
   const reply = (await readConversation(h.workFolderRoot, h.conversationId)).findLast((message) => message.role === "assistant");
   assert.equal(reply?.turnId, taskId);
-  assert.equal(reply?.interruption?.reason, "cancelled");
+  assert.equal(reply?.interruption?.reason, "app_interrupted");
   assert.equal(h.runtimeRequests(), runtimeRequests, "the turn never started its prompt, which resolves its runtime first");
   assert.equal(h.providerRequests(), 0);
 });
@@ -56,7 +57,7 @@ test("closing waits for an acceptance already in flight and stops its turn befor
   } finally {
     clearTimeout(fallback);
   }
-  assert.equal(h.turnStore.get(taskId)?.status, "aborted", "close() resolves only after the turn it was accepting has settled");
+  assert.equal(h.turnStore.get(taskId)?.status, "interrupted", "close() resolves only after the turn it was accepting has settled");
   assert.equal((await sending).taskId, taskId);
   assert.equal(h.runtimeRequests(), runtimeRequests);
   assert.equal(h.providerRequests(), 0);

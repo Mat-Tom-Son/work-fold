@@ -41,8 +41,6 @@ export interface BackgroundJobToolsInput {
   shell: () => WorkFoldJobShell;
 }
 
-export const backgroundJobToolNames = ["job_start", "job_output", "job_stop", "job_input"] as const;
-
 function requireTask(input: BackgroundJobToolsInput): string {
   const taskId = input.taskId();
   if (!taskId) throw new Error("Background jobs start and read only inside a running turn.");

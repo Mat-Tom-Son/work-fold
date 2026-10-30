@@ -95,3 +95,23 @@ test("the panel puts its chat controls in the window's top strip, icon only", as
   assert.deepEqual(labels, ["Chats", "New Chat"]);
   assert.ok([...controls.querySelectorAll("button")].every((button) => !button.textContent?.trim()), "no text labels in the strip");
 });
+
+test("the transcript keeps following the newest entry when a picture loads or a step opens", async (t) => {
+  // The live chat first renders "Connecting…", so the transcript mounts after
+  // the availability read; its observers must attach to that later element.
+  const { dom } = await agentHarness(t);
+  const transcript = dom.container.querySelector<HTMLElement>(".popover-transcript")!;
+  const writes: number[] = [];
+  Object.defineProperty(transcript, "scrollHeight", { configurable: true, get: () => 640 });
+  Object.defineProperty(transcript, "scrollTop", { configurable: true, get: () => 0, set: (value: number) => { writes.push(value); } });
+  await dom.settle();
+  writes.length = 0;
+  const inner = transcript.querySelector("*") ?? transcript;
+  await dom.act(() => { inner.dispatchEvent(new Event("load")); });
+  await dom.settle();
+  assert.deepEqual(writes, [640], "a loaded picture keeps the pinned transcript at the bottom");
+  writes.length = 0;
+  await dom.act(() => { inner.dispatchEvent(new Event("toggle")); });
+  await dom.settle();
+  assert.deepEqual(writes, [640], "so does an opened step");
+});

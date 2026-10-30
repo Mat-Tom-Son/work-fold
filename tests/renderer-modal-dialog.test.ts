@@ -148,6 +148,27 @@ test("an action toast raised from inside an open dialog stays reachable", async 
   assert.equal(closes, 0, "using the toast does not close the dialog");
 });
 
+test("a hovered toast stays open while other toasts arrive", async (t) => {
+  const dom = await createDomHarness();
+  t.after(() => dom.cleanup());
+  const closed: string[] = [];
+
+  await dom.render(createElement(ToastHost));
+  await dom.act(() => { showToast({ text: "First", durationMs: 100, onClose: (reason) => { closed.push(reason); } }); });
+  const first = document.querySelector<HTMLElement>(".toast")!;
+  // React derives enter/leave from over/out events whose other end is outside its tree.
+  await dom.act(() => { first.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })); });
+  // A sibling toast re-renders the host; the paused toast must not re-arm its timer.
+  await dom.act(() => { showToast({ text: "Second", durationMs: 60_000 }); });
+  await dom.act(() => new Promise((resolve) => setTimeout(resolve, 600)));
+  assert.equal(document.querySelectorAll(".toast").length, 2, "the hovered toast is still shown");
+  assert.deepEqual(closed, []);
+
+  await dom.act(() => { first.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })); });
+  await dom.waitFor(() => closed.length === 1);
+  assert.deepEqual(closed, ["timeout"], "leaving resumes the countdown");
+});
+
 test("focus restoration survives React Strict Mode effect replay", async (t) => {
   const dom = await createDomHarness();
   t.after(() => dom.cleanup());

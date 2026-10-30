@@ -19,11 +19,11 @@
  * - A damaged middle line is skipped and counted, never thrown on.
  */
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { workFoldRequestLimits } from "../../shared/work-fold-limits.js";
-import { directorySyncUnsupported } from "../agent/turn-store.js";
+import { syncDirectory } from "../agent/turn-store.js";
 import {
   isWorkFoldJobTerminalState,
   parseWorkFoldJobRecord,
@@ -223,11 +223,12 @@ export class WorkFoldJobStore {
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index]!.trim();
       if (!line) continue;
-      const isLastNonEmpty = lines.slice(index + 1).every((candidate) => !candidate.trim());
       try {
         JSON.parse(line);
       } catch {
-        if (isLastNonEmpty) break;
+        // Only a torn final line is an interrupted append; checking that
+        // here, not for every line, keeps loading linear in the journal.
+        if (lines.slice(index + 1).every((candidate) => !candidate.trim())) break;
         if (countDamaged) this.#damaged += 1;
         continue;
       }
@@ -261,16 +262,4 @@ export class WorkFoldJobStore {
 
 function rotatedPath(path: string): string {
   return path.replace(/\.jsonl$/, ".1.jsonl");
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  let directory: Awaited<ReturnType<typeof open>> | null = null;
-  try {
-    directory = await open(path, "r");
-    await directory.sync();
-  } catch (error) {
-    if (!directorySyncUnsupported(error)) throw error;
-  } finally {
-    await directory?.close().catch(() => undefined);
-  }
 }

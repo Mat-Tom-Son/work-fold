@@ -63,6 +63,9 @@ export class BridgeDatabase {
       max: numberFromEnv("WORKFOLD_BRIDGE_DB_POOL", 10, 1, 50),
       ...(ssl === undefined ? {} : { ssl }),
     });
+    // An idle connection dropped by a database restart or failover must not
+    // crash the process; the pool replaces it on the next query.
+    this.#pool.on("error", (error) => console.warn(`work-fold bridge database connection error: ${error?.message ?? error}`));
     this.#ownsPool = true;
   }
 
@@ -402,17 +405,6 @@ export class BridgeDatabase {
       [csrfHash, tokenHash(token)],
     );
     return result.rows[0] ? csrfToken : null;
-  }
-
-  // Kept as a compatibility alias while callers move to the issuance name.
-  // Unlike the old implementation, repeated calls do not invalidate tabs.
-  async rotateSessionCsrf(token) {
-    return this.issueSessionCsrf(token);
-  }
-
-  async revokeSessions(accountId) {
-    const result = await this.#pool.query("DELETE FROM bridge_sessions WHERE account_id = $1", [accountId]);
-    return result.rowCount;
   }
 
   async bindSessionToBrowser(token, { browserId, signature }) {

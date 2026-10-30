@@ -26,7 +26,6 @@ import { maximumWorkerInstructionsLength } from "../agent/model-preferences.js";
 import {
   parseWorkFoldQuestionOptions,
   workFoldRequestLimitMessage,
-  workFoldRequestLimitsSection,
   type WorkFoldResultOutcome,
 } from "../requests/request-records.js";
 import { workFoldBackgroundJobLimits, workFoldRequestLimits } from "../../shared/work-fold-limits.js";

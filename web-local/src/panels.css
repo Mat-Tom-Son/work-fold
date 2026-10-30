@@ -146,6 +146,14 @@
   border-radius: 11px;
 }
 
+/* With the navigation pane hidden the work area meets the rail directly, so
+   its left corners square off like the pane's do. This follows the panel rule
+   so it holds with the panel open too; the right corners are left alone. */
+:root[data-theme] .app-shell .work-folder-layout.sidebar-collapsed .right-rail {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 :root[data-theme] .app-shell .agent-panel {
   min-width: 0;
   min-height: 0;

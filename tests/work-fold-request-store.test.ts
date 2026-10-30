@@ -696,6 +696,25 @@ test("a damaged journal line degrades the view instead of keeping the app from s
   await reopened.flush();
 });
 
+test("only a torn final line, however many blank lines follow it, reads as an interrupted append", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  for (let index = 1; index <= 200; index += 1) {
+    await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: `task-${index}` });
+  }
+  await store.flush();
+
+  const journalPath = join(root, "requests.jsonl");
+  const lines = (await readFile(journalPath, "utf8")).trim().split("\n");
+  await writeFile(journalPath, `${lines.slice(0, 100).join("\n")}\n{ damaged\n${lines.slice(100).join("\n")}\n{"schema":"work-fold.req\n\n\n`, "utf8");
+
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  assert.equal(reopened.list().length, 200);
+  assert.equal(reopened.damagedRecordCount(), 1, "the damaged middle line counts; the torn tail does not");
+  await reopened.flush();
+});
+
 test("an outgrown journal compacts into one line per record and keeps the generation it replaced", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");

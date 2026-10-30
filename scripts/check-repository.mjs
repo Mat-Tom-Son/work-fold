@@ -23,6 +23,7 @@ export async function inspectRepository(root) {
     catch (error) { if (error.code !== "ENOENT") throw error; }
   }
   const present = new Set(files);
+  const anchorCache = new Map();
   const fail = (file, message) => problems.push(`${file}: ${message}`);
   const read = async (file) => {
     const path = await realpath(resolve(root, file));
@@ -104,7 +105,8 @@ export async function inspectRepository(root) {
   return { problems: [...new Set(problems)], documents: documents.length, skills: skills.size };
 
   async function checkLink(file, href) {
-    if (/^(?:[a-z][\w+.-]*:|#|\/\/)/i.test(href)) return;
+    if (href.startsWith("#")) { await checkAnchor(file, file, href.slice(1)); return; }
+    if (/^(?:[a-z][\w+.-]*:|\/\/)/i.test(href)) return;
     let path;
     try { path = decodeURIComponent(href.split(/[?#]/, 1)[0]); }
     catch { fail(file, `invalid encoded link ${href}`); return; }
@@ -122,9 +124,53 @@ export async function inspectRepository(root) {
     }
     try {
       const resolved = await realpath(target);
-      if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) fail(file, `link resolves outside the checkout: ${href}`);
-    } catch { fail(file, `broken link ${href}`); }
+      if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) { fail(file, `link resolves outside the checkout: ${href}`); return; }
+    } catch { fail(file, `broken link ${href}`); return; }
+    const fragment = /#(.*)$/.exec(href)?.[1];
+    if (fragment) await checkAnchor(file, portable, fragment);
   }
+
+  // Archived plans and dated releases keep the anchors that existed when they were written.
+  async function checkAnchor(file, target, fragment) {
+    if (!fragment || !target.endsWith(".md") || /^docs\/(?:archive|releases)\//.test(file)) return;
+    let anchor;
+    try { anchor = decodeURIComponent(fragment); }
+    catch { fail(file, `invalid encoded anchor #${fragment}`); return; }
+    if (!anchorCache.has(target)) anchorCache.set(target, headingAnchors(await read(target)));
+    if (!anchorCache.get(target).has(anchor)) fail(file, `missing heading anchor ${target === file ? "" : target}#${fragment}`);
+  }
+}
+
+/**
+ * The fragment ids GitHub gives a Markdown file: one slug per ATX heading
+ * (rendered text, lowercased, punctuation removed, spaces to hyphens, with
+ * -1, -2 suffixes for repeats, as github-slugger does) plus explicit
+ * `<a id>`/`<a name>` targets. Fenced code is not scanned.
+ */
+export function headingAnchors(text) {
+  const anchors = new Set();
+  const seen = new Map();
+  const prose = text.replace(/^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\s*\1\s*$/gm, "");
+  for (const [, title] of prose.matchAll(/^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/gm)) {
+    const base = title
+      .replace(/<[^>]*>/g, "")
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/&(?:[a-z]+|#\d+);/gi, "")
+      .replace(/(^|[^\p{L}\p{N}_])(_{1,2})(?=\S)(.+?)\2(?![\p{L}\p{N}_])/gu, "$1$3")
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "")
+      .replace(/ /g, "-");
+    let slug = base;
+    while (seen.has(slug)) {
+      seen.set(base, seen.get(base) + 1);
+      slug = `${base}-${seen.get(base)}`;
+    }
+    seen.set(slug, 0);
+    anchors.add(slug);
+  }
+  for (const [, id] of prose.matchAll(/<a\b[^>]*?\b(?:id|name)="([^"]+)"/g)) anchors.add(id);
+  return anchors;
 }
 
 function withoutCode(text) {

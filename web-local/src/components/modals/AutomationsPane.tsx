@@ -2,6 +2,7 @@ import { openWorkFoldAgentDraft } from "../../lib/agent-draft";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { errorText } from "../../lib/api";
+import { formatBytes } from "../../lib/format";
 import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
 import {
   automationCatchUpSentence,
@@ -875,12 +876,6 @@ function hopLabel(kind: AutomationHistoryHopView["kind"]): string {
   if (kind === "chat") return "Chat";
   if (kind === "files") return "Copy Files";
   return kind === "agent" ? "Message work-fold agent" : "Run Checks";
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MiB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`;
-  return `${bytes} B`;
 }
 
 function sameProposals(left: AutomationProposalView[], right: AutomationProposalView[]): boolean {

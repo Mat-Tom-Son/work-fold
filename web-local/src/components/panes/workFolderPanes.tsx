@@ -5,32 +5,26 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import {
   ArrowSync16Regular,
-  ArrowUpload16Regular,
   Chat16Regular,
   Checkmark12Regular,
   Checkmark16Regular,
   ChevronRight16Regular,
   Clock16Regular,
-  Copy16Regular,
   Delete16Regular,
   Dismiss16Regular,
-  Folder16Regular,
-  Folder20Regular,
-  FolderAdd16Regular,
   FolderAdd20Regular,
   FolderOpen20Regular,
-  History16Regular,
   History20Regular,
   MoreHorizontal16Regular,
   Search16Regular,
 } from "@fluentui/react-icons";
-import { api, apiForm, errorText } from "../../lib/api";
+import { api, errorText } from "../../lib/api";
+import { queueHistoryRequest } from "../../lib/history-queue";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { descendantFolders, folderTreeRows } from "../../lib/folder-nesting";
 import { aggregateChatActivityStatus, chatActivityKey, chatSnoozeTimeLabel, conversationLifecycleView, isRecentlyResurfaced } from "../../lib/chat-lifecycle";
@@ -39,16 +33,12 @@ import { formatChatListTime, formatItemCount } from "../../lib/format";
 import { workFolderIdentityStyle } from "../../lib/work-folder-identity";
 import type {
   ChatActivityStatus,
-  ChatLifecycleView,
   ConversationSummary,
-  TreeEntry,
   WorkFolderCheckpoint,
   WorkFolderCustomizationMap,
   WorkFolderSummary,
 } from "../../types";
 import { WorkFolderIconGlyph } from "../chrome/common";
-import { FileTypeIcon } from "../tree/FileTree";
-import { TextInputModal } from "../modals/TextInputModal";
 import { requestConfirm, showToast } from "../../ui/feedback";
 import { ChatContentSearch } from "./ChatContentSearch";
 
@@ -426,31 +416,25 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   const [previewRevision, setPreviewRevision] = useState(0);
   const [previewError, setPreviewError] = useState("");
   const [comparisonPath, setComparisonPath] = useState("");
-  const [pathInput, setPathInput] = useState("");
-  const inspectionQueue = useRef(Promise.resolve());
-  useEffect(() => { setComparisonPath(""); setPathInput(""); }, [workFolder.id, selectedCheckpointId]);
+  useEffect(() => { setComparisonPath(""); }, [workFolder.id, selectedCheckpointId]);
 
   useEffect(() => {
     let cancelled = false;
     setPreview(null); setPreviewError("");
     if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
     if (!fixtureItems) {
-      // Both reads hold the host's History operation fence. Finish listing
-      // before opening the preview instead of racing our own initial reads.
-      const inspect = inspectionQueue.current.then(async () => {
-        if (cancelled) return;
-        const listed = await api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`);
-        if (cancelled) return;
+      // An obsolete effect skips its reads; one already sent still finishes
+      // before the next starts (development Strict Mode replay, a quickly
+      // changed restore point).
+      const read = <T,>(path: string) => queueHistoryRequest(workFolder.id, async () => cancelled ? null : api<T>(path));
+      void (async () => {
+        const listed = await read<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`);
+        if (!listed || cancelled) return;
         setItems(listed.checkpoints);
-        if (selectedCheckpointId) {
-          const result = await api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${selectedCheckpointId}/preview`);
-          if (!cancelled) setPreview(result.preview);
-        }
-      });
-      // An obsolete read still drains before a newer effect starts, including
-      // development Strict Mode replay and a rapidly changed restore point.
-      inspectionQueue.current = inspect.catch(() => undefined);
-      void inspect.catch((error) => {
+        if (!selectedCheckpointId) return;
+        const result = await read<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${selectedCheckpointId}/preview`);
+        if (result && !cancelled) setPreview(result.preview);
+      })().catch((error) => {
         if (cancelled) return;
         if (selectedCheckpointId) setPreviewError(errorText(error));
         else onError(errorText(error));
@@ -462,7 +446,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   useEffect(() => { setNotice(""); }, [workFolder.id, fixtureItems]);
 
   async function load() {
-    try { setItems((await api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`)).checkpoints); }
+    try { setItems((await queueHistoryRequest(workFolder.id, () => api<{ checkpoints: WorkFolderCheckpoint[] }>(`/api/work-folders/${workFolder.id}/history/checkpoints`))).checkpoints); }
     catch (caught) { onError(errorText(caught)); }
   }
 
@@ -470,7 +454,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (fixtureItems) return;
     setBusy(true);
     try {
-      const result = await api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } });
+      const result = await queueHistoryRequest(workFolder.id, () => api<{ created: boolean }>(`/api/work-folders/${workFolder.id}/history/checkpoints`, { method: "POST", body: { label: "Manual Restore Point" } }));
       setNotice(result.created ? "Restore point saved." : "Current files already match the latest restore point.");
       await load();
     }
@@ -483,22 +467,23 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     if (selectedCheckpointId !== item.checkpointId && onOpen) { onOpen(item); return; }
     let reviewed: HistoryRestorePreview;
     try {
-      reviewed = (await api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/preview`)).preview;
+      reviewed = (await queueHistoryRequest(workFolder.id, () => api<{ preview: HistoryRestorePreview }>(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/preview`))).preview;
       setPreview(reviewed);
     } catch (error) { setPreviewError(errorText(error)); return; }
     if (reviewed.conflicts.length) return;
+    const changing = restorePointChanges(reviewed).length;
     const confirmed = await requestConfirm({
-      title: reviewed.scope === "targeted" ? "Undo these file changes?" : `Restore files in ${workFolder.name}?`,
-      body: `${reviewed.restoreFiles.length} ${reviewed.restoreFiles.length === 1 ? "file" : "files"} restored, ${reviewed.removePaths.length} ${reviewed.removePaths.length === 1 ? "path" : "paths"} removed, and ${reviewed.moves.length} ${reviewed.moves.length === 1 ? "entry" : "entries"} moved. A safety restore point preserves the affected current content. Excluded content stays untouched.`,
-      confirmLabel: reviewed.scope === "targeted" ? "Undo changes" : "Restore files", tone: "danger",
+      title: reviewed.scope === "targeted" ? "Undo these changes?" : `Restore ${workFolder.name} to ${formatDate(item.createdAt)}?`,
+      body: `${changing} ${changing === 1 ? "file changes" : "files change"}. Your current files are saved first, so you can undo this from History.`,
+      confirmLabel: reviewed.scope === "targeted" ? "Undo changes" : "Restore", tone: "danger",
     });
     if (!confirmed) return;
     setBusy(true);
     try {
-      await api(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} });
+      await queueHistoryRequest(workFolder.id, () => api(`/api/work-folders/${workFolder.id}/history/checkpoints/${item.checkpointId}/restore`, { method: "POST", body: {} }));
       await load(); setPreviewRevision((value) => value + 1);
-      setNotice("Restore complete. The previous files are preserved in a new safety restore point.");
-      showToast({ text: "Files restored. Safety restore point saved in History.", tone: "success" });
+      setComparisonPath("");
+      showToast({ text: "Restored. Your previous files are saved in History.", tone: "success" });
       await onRestored?.();
     }
     catch (caught) { onError(errorText(caught)); }
@@ -506,33 +491,42 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   }
 
   if (selectedCheckpointId) {
+    // One action at the top and one list of what it changes (2026-10-30).
     const selected = items.find((item) => item.checkpointId === selectedCheckpointId);
+    const changes = preview ? restorePointChanges(preview) : [];
+    const leftAlone = preview ? restorePointLeftAlone(preview) : [];
     return <div className="work-folder-pane-content history-pane professional-surface professional-history history-review">
-      <h1>{selected?.label || "Review restore point"}</h1>
-      {selected ? <p className="history-detail-meta">{formatDate(selected.createdAt)} · {selected.fileCount} captured {selected.fileCount === 1 ? "file" : "files"}</p> : null}
-      {notice ? <p role="status">{notice}</p> : null}
+      <header className="history-review-header">
+        <div className="history-review-identity">
+          <h1>{selected ? restorePointTitle(selected) : "Restore point"}</h1>
+          {selected ? <p className="history-detail-meta">{formatDate(selected.createdAt)}</p> : null}
+        </div>
+        {preview && changes.length ? <button className="ui-control ui-control--primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0} onClick={() => selected && void restore(selected)}>
+          {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore"}
+        </button> : null}
+      </header>
       {previewError ? <p role="alert">{previewError}</p> : null}
-      {!preview && !previewError ? <p role="status">Inspecting current files…</p> : null}
-      {!fixtureItems ? <form className="history-file-picker" onSubmit={(event) => { event.preventDefault(); setComparisonPath(pathInput.trim()); }}>
-        <label>Compare a file <input aria-label="File path to compare" placeholder="notes.txt" value={pathInput} onChange={(event) => setPathInput(event.target.value)} /></label>
-        <button className="ui-control" type="submit" disabled={!pathInput.trim()}>Compare with current file</button>
-      </form> : null}
-      {comparisonPath && !fixtureItems ? <HistoryFileComparison workFolderId={workFolder.id} path={comparisonPath} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
-      {preview ? <>
-        {preview.conflicts.map((conflict) => <p role="alert" key={conflict}>{conflict}</p>)}
-        {([ ["Restore files", preview.restoreFiles], ["Remove paths", preview.removePaths],
-          ["Move entries", preview.moves.map((move) => `${move.fromPath} → ${move.toPath}`)],
-          ["Excluded from this restore point", preview.excludedPaths],
-          ["Current content outside History coverage", preview.uncoveredPaths],
-        ] as Array<[string, string[]]>).map(([title, paths]) => <section className={paths.length ? "history-restore-section" : "history-restore-section empty"} key={title}>
-          <h2>{title} · {paths.length}</h2>
-          {paths.length ? <ul>{paths.map((path) => <li key={path}><code>{path}</code>{(title === "Restore files" || title === "Remove paths") && !fixtureItems ? <button className="ui-control" type="button" onClick={() => { setPathInput(path); setComparisonPath(path); }}>Compare</button> : null}</li>)}</ul> : <p>None</p>}
-        </section>)}
-        <p className="history-coverage">A safety restore point preserves the current files before this change.{!preview.removePaths.length ? " No paths will be removed." : ""}{!preview.moves.length ? " No entries will be moved." : ""}{!preview.excludedPaths.length && !preview.uncoveredPaths.length ? " No content is excluded or outside History coverage." : ""}</p>
-        <button className="ui-control ui-control--primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0 || (preview.restoreFiles.length + preview.removePaths.length + preview.moves.length === 0)} onClick={() => selected && void restore(selected)}>
-          {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore these files"}
-        </button>
-      </> : null}
+      {!preview && !previewError ? <p className="history-review-status" role="status">Checking your files…</p> : null}
+      {preview?.conflicts.map((conflict) => <p role="alert" key={conflict}>{conflict}</p>)}
+      {preview && !changes.length && !preview.conflicts.length ? <p className="history-review-status">Your files already match this restore point.</p> : null}
+      {changes.length ? <section className="history-restore-changes">
+        <h2>{changes.length} {changes.length === 1 ? "file" : "files"} changed since then</h2>
+        <ul>{changes.map((change) => {
+          const comparing = comparisonPath === change.path;
+          return <li key={`${change.kind}:${change.path}`}>
+            <div className="history-change-row">
+              <span className="history-change-name" title={change.detail ?? change.path}>
+                <strong>{pathBaseName(change.path)}</strong>
+                {change.detail ?? pathFolder(change.path) ? <small>{change.detail ?? pathFolder(change.path)}</small> : null}
+              </span>
+              <span className="history-change-kind">{change.kind}</span>
+              {change.kind !== "Moved" && !fixtureItems ? <button className="ui-control ui-control--quiet compact" type="button" aria-expanded={comparing} onClick={() => setComparisonPath(comparing ? "" : change.path)}>{comparing ? "Hide" : "Compare"}</button> : null}
+            </div>
+            {comparing ? <HistoryFileComparison workFolderId={workFolder.id} path={change.path} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
+          </li>;
+        })}</ul>
+      </section> : null}
+      {leftAlone.length ? <p className="history-review-note">Restoring leaves these alone: {leftAlone.join(", ")}</p> : null}
     </div>;
   }
 
@@ -547,14 +541,63 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
       </div>
       <div className="history-journal">
         {!items.length ? <EmptyState icon={<History20Regular />} title="No restore points yet" detail="Save a restore point to keep a version of this work-folder." /> : null}
-        {historyDateGroups(items).map(({label,points}) => <section key={label} className="history-day"><h3>{label}</h3><div>{points.map(item => <button className={item.checkpointId===selectedCheckpointId ? "history-entry selected" : "history-entry"} aria-current={item.checkpointId===selectedCheckpointId ? "true" : undefined} type="button" key={item.checkpointId} disabled={!onOpen && (busy || Boolean(fixtureItems))} onClick={()=>onOpen ? onOpen(item) : void restore(item)} aria-label={`Review ${item.label || item.reason}`}>
+        {historyDateGroups(items).map(({label,points}) => <section key={label} className="history-day"><h3>{label}</h3><div>{points.map(item => <button className={item.checkpointId===selectedCheckpointId ? "history-entry selected" : "history-entry"} aria-current={item.checkpointId===selectedCheckpointId ? "true" : undefined} type="button" key={item.checkpointId} disabled={!onOpen && (busy || Boolean(fixtureItems))} onClick={()=>onOpen ? onOpen(item) : void restore(item)} aria-label={`Review ${restorePointTitle(item)}`}>
           <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>
-          <span><strong>{item.label || item.reason}</strong><small>{item.fileCount} captured {item.fileCount === 1 ? 'file' : 'files'}</small></span>
+          <span><strong>{restorePointTitle(item)}</strong><small>{item.fileCount} {item.fileCount === 1 ? 'file' : 'files'}</small></span>
           <ChevronRight16Regular aria-hidden="true"/>
         </button>)}</div></section>)}
       </div>
     </div>
   );
+}
+
+// Saved labels predate the plain words; older ones still say "turn" or "Assistant".
+const restorePointTitles: Record<string, string> = {
+  "Before turn": "Before a Worker reply",
+  "After turn": "After a Worker reply",
+  "Before Assistant turn": "Before a Worker reply",
+  "After Assistant turn": "After a Worker reply",
+  "Manual Restore Point": "Saved by you",
+};
+
+/** A restore point's name in the words the rest of the app uses. */
+export function restorePointTitle(item: Pick<WorkFolderCheckpoint, "label" | "reason">): string {
+  const label = item.label?.trim() || item.reason;
+  return restorePointTitles[label] ?? label;
+}
+
+type RestorePointChange = { kind: "Changed" | "Added" | "Moved"; path: string; detail?: string };
+
+/**
+ * What changed since the restore point, which is what restoring undoes.
+ * Files that still match are never listed: the host only reports a file whose
+ * saved copy differs from the one on disk or is missing from it.
+ */
+function restorePointChanges(preview: HistoryRestorePreview): RestorePointChange[] {
+  return [
+    ...preview.restoreFiles.map((path): RestorePointChange => ({ kind: "Changed", path })),
+    ...preview.removePaths.map((path): RestorePointChange => ({ kind: "Added", path })),
+    // The host describes a move the way restoring undoes it, from where the
+    // file is now back to where it was, so the change since then runs the other way.
+    ...preview.moves.map((move): RestorePointChange => ({ kind: "Moved", path: move.fromPath, detail: `from ${move.toPath}` })),
+  ];
+}
+
+/**
+ * What restoring will not touch, minus the folders History never covers
+ * (`.work-fold`, `.pi`, `.workspace`), which every restore point leaves alone.
+ */
+function restorePointLeftAlone(preview: HistoryRestorePreview): string[] {
+  const neverCovered = /^\.(?:work-fold|pi|workspace)(?:\/|$)/u;
+  return [...new Set([...preview.excludedPaths, ...preview.uncoveredPaths])].filter((path) => !neverCovered.test(path));
+}
+
+function pathBaseName(path: string): string {
+  return path.split("/").filter(Boolean).at(-1) ?? path;
+}
+
+function pathFolder(path: string): string {
+  return path.split("/").filter(Boolean).slice(0, -1).join("/");
 }
 
 function historyDateGroups(items: WorkFolderCheckpoint[]): Array<{ label: string; points: WorkFolderCheckpoint[] }> {
@@ -585,10 +628,4 @@ function EmptyState({ icon, title, detail }: { icon: ReactNode; title: string; d
   );
 }
 
-function LoadingRow({ label }: { label: string }) {
-  return <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />{label}</div>;
-}
-
 function formatDate(value: string) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
-function findTreeEntry(entries: TreeEntry[], path: string): TreeEntry | null { for (const entry of entries) { if (entry.path === path) return entry; const child = entry.children ? findTreeEntry(entry.children, path) : null; if (child) return child; } return null; }
-function filterTree(entries: TreeEntry[], query: string): TreeEntry[] { return entries.flatMap((entry) => { const children = entry.children ? filterTree(entry.children, query) : []; return entry.name.toLocaleLowerCase().includes(query) || children.length ? [{ ...entry, children }] : []; }); }
