@@ -63,7 +63,7 @@ export function WorkFolderSurfaceTabBar({
   onClose,
   onReorder,
   onNewChatInWorkFolder,
-  onChatActions,
+  onTabMenu,
   isSharedFile,
   browserTabLooks = {},
   onNewBrowserTab,
@@ -80,7 +80,8 @@ export function WorkFolderSurfaceTabBar({
   onClose: (tabId: string) => void;
   onReorder: (ids: string[]) => void;
   onNewChatInWorkFolder: (workFolder: WorkFolderSummary) => void;
-  onChatActions: (workFolder: WorkFolderSummary, conversation: ConversationSummary, event: ReactMouseEvent<HTMLElement>) => void;
+  /** A work-folder tab's right-click menu, with its Chat when it holds a saved one. */
+  onTabMenu: (tab: WorkFolderSurfaceTab, workFolder: WorkFolderSummary, conversation: ConversationSummary | null, event: ReactMouseEvent<HTMLElement>) => void;
   /** True when this work-folder file is shared as a page; file tabs carry the mark. */
   isSharedFile?: (workFolderId: string, path: string) => boolean;
   /** Each browser tab's page icon and state, by page id. */
@@ -382,14 +383,13 @@ export function WorkFolderSurfaceTabBar({
         data-work-folder-id={tab.workFolderId}
         style={style}
         title={`${tab.title} - ${workFolderName}${activityLabel ? ` · ${activityLabel}` : ""}`}
-        onContextMenu={(event) => {
-          if (tab.kind !== "chat" || !tab.conversationId) return;
-          onChatActions(resolvedWorkFolder, conversation ?? {
+        onContextMenu={(event) => onTabMenu(tab, resolvedWorkFolder, tab.kind === "chat" && tab.conversationId
+          ? conversation ?? {
             id: tab.conversationId,
             title: chatDisplayTitle({ serverTitle: tab.title }),
             updatedAt: new Date().toISOString(),
-          }, event);
-        }}
+          }
+          : null, event)}
         onAuxClick={(event) => {
           if (event.button !== 1) return;
           event.preventDefault();

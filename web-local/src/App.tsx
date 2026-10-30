@@ -59,7 +59,7 @@ import { useWorkFolderTree } from "./hooks/useWorkFolderTree";
 import { useWorkFolderChecks } from "./hooks/useWorkFolderChecks";
 import { useFolderAutomations } from "./hooks/useFolderAutomations";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
-import { chatActivityKey, conversationLifecycleView } from "./lib/chat-lifecycle";
+import { chatActivityKey, conversationLifecycleView, resolveChatSnoozePresets } from "./lib/chat-lifecycle";
 import { appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
 import { canOpenDirectly, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel } from "./lib/file-actions";
@@ -1219,6 +1219,52 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       returnFocusTarget,
     });
   }
+  /**
+   * A Chat's or a work-folder tab's right-click menu. On the Mac it is a native
+   * menu, like Files and browser tabs; elsewhere a Chat opens the actions popover.
+   */
+  async function openChatMenu(
+    targetWorkFolder: WorkFolderSummary,
+    conversation: ConversationSummary | null,
+    event: React.MouseEvent<HTMLElement>,
+    tabId?: string,
+  ): Promise<void> {
+    const popupTabMenu = window.workFoldDesktop?.workFolder.popupTabMenu;
+    if (!isMacOS() || !popupTabMenu) {
+      if (conversation) openChatActions(targetWorkFolder, conversation, event);
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const anchor = event.currentTarget;
+    const rect = anchor.getBoundingClientRect();
+    // A button or the keyboard opens the menu under its control; a right-click opens it at the pointer.
+    const underAnchor = event.type === "click" || (event.clientX === 0 && event.clientY === 0);
+    const point = underAnchor
+      ? { x: Math.round(rect.left), y: Math.round(rect.bottom + 4) }
+      : { x: Math.round(event.clientX), y: Math.round(event.clientY) };
+    const snooze = resolveChatSnoozePresets(new Date());
+    const others = tabId ? tabs.surfaceTabs.filter((tab) => tab.id !== tabId) : [];
+    try {
+      const command = await popupTabMenu({
+        ...(conversation ? { chat: { lifecycle: conversationLifecycleView(conversation), snooze: snooze.map(({ id, label, detail }) => ({ id, label, detail })) } } : {}),
+        ...(tabId ? { tab: { hasOthers: others.length > 0 } } : {}),
+        point,
+      });
+      if (command === "close") { if (tabId) tabs.closeSurfaceTab(tabId); return; }
+      if (command === "close-others") { for (const other of others) tabs.closeSurfaceTab(other.id); return; }
+      if (!command || !conversation) return;
+      if (command === "rename") setChatActions({ workFolder: targetWorkFolder, conversation, x: point.x, y: point.y, returnFocusTarget: anchor, view: "rename" });
+      else if (command === "copy") await copyChat(targetWorkFolder, conversation);
+      else if (command === "delete") await deleteChat(targetWorkFolder, conversation);
+      else if (command === "resume") await updateChatLifecycle(targetWorkFolder, conversation, { snoozedUntil: null });
+      else if (command === "archive" || command === "restore") await updateChatLifecycle(targetWorkFolder, conversation, { archived: command === "archive" });
+      else {
+        const preset = snooze.find((item) => command === `snooze:${item.id}`);
+        if (preset) await updateChatLifecycle(targetWorkFolder, conversation, { snoozedUntil: preset.snoozedUntil });
+      }
+    } catch (caught) { onError(errorText(caught)); }
+  }
   function attachToChat(path: string) {
     // The Chat in front, else the one the person was last in, else a blank draft.
     const workFolderChats = tabs.surfaceTabs.filter((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id);
@@ -1792,7 +1838,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
           />
         )}
       </div> : null}
-      {activeMode === "chats" ? <ChatsPane workFolder={workFolder} workFolders={workFolders} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={openChatActions} /> : null}
+      {activeMode === "chats" ? <ChatsPane workFolder={workFolder} workFolders={workFolders} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={(target, chat, event) => void openChatMenu(target, chat, event)} /> : null}
       {activeMode === "automations" ? <WorkFolderAutomationsNavigator automations={folderAutomations.byWorkFolder[workFolder.id]} activeAutomationId={activeTab?.kind === "work-folder-automation" && activeTab.workFolderId === workFolder.id ? activeTab.automationId : null} onOpen={(automation) => tabs.openWorkFolderAutomationSurfaceTab(workFolder, automation)} onOpenAllAutomations={() => onOpenSettings("automations")} /> : null}
       {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, restorePointTitle(item))} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workFolder, activeSurface, view)} /> : null}
@@ -1809,7 +1855,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     </section>
     <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">
-      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onChatActions={openChatActions} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
+      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         if (tab.kind === "browser") {
           // A browser tab belongs to no work-folder; every work-folder shows it.

@@ -13,6 +13,15 @@ test("Darwin file menus require the trusted main renderer and canonical work-fol
   assert.match(main, /validateNativeFileMenuEntry[\s\S]*?resolveWorkFolderItem\(request\.workFolderId, request\.path\)/);
 });
 
+test("Darwin tab menus require the trusted main renderer and build their items in the host", () => {
+  assert.match(
+    main,
+    /ipcMain\.handle\("work-fold:work-folder:popup-tab-menu"[\s\S]*?assertTrustedMainRenderer\(event\)[\s\S]*?process\.platform !== "darwin"[\s\S]*?popupNativeTabMenu\(parseNativeTabMenuRequest\(value\)\)/,
+  );
+  assert.match(main, /function popupNativeTabMenu[\s\S]*?nativeTabMenuItems\(request\)/);
+  assert.match(preload, /popupTabMenu: \(request[\s\S]*?ipcRenderer\.invoke\("work-fold:work-folder:popup-tab-menu", request\)/);
+});
+
 test("Finder and Open Recent recreate the Mac window before automation a queued work-folder", () => {
   assert.match(
     main,

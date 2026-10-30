@@ -34,6 +34,7 @@ The translation is intentionally narrow. It does not justify replacing the shell
 - Renamed conversations update their tab titles.
 - Moving or renaming a file retargets its open tab; deleting it closes the affected tab.
 - Closing a tab selects the adjacent tab predictably.
+- On macOS, right-clicking a tab opens a native menu, as Files and browser tabs do. A Chat tab, or a Chat in the Chats list, offers **Rename…**, **Make a Copy**, **Snooze** (a submenu of times), **Archive**, and **Delete Chat**; every tab ends with **Close Tab** and **Close Other Tabs**. Other platforms keep the Chat actions popover (2026-10-30).
 - Arrow keys, Home, and End navigate the tab strip with correct focus and ARIA tab semantics.
 - With four or more tabs open, tabs narrow but keep their work-folder icon and a normal close button.
 - Inactive tab panels remain mounted when needed so drafts, scroll position, and transient UI state survive tab switches.
