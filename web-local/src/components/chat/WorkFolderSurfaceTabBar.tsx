@@ -14,6 +14,7 @@ import { surfacePanelDomId, surfaceTabDomId } from "../../lib/work-folder-ui";
 import type { BrowserSurfaceTab, ChatActivityStatus, ConversationSummary, WorkFolderCustomizationMap, WorkFolderSummary, WorkFolderSurfaceTab } from "../../types";
 import { BrowserTabIcon, FluentGlyph, NewBrowserTabIcon, NewChatIcon, WorkFolderIconGlyph } from "../chrome/common";
 import { fileSharing } from "../../ui-contract";
+import { useFinishCelebration } from "../../hooks/useFinishCelebration";
 import { SharedPageGlyph } from "../tree/FileTree";
 
 const groupSurfaceTabsStorageKey = "work-fold.work-folder.surface-tabs.group-by-work-folder.v1";
@@ -316,6 +317,7 @@ export function WorkFolderSurfaceTabBar({
         className={["surface-tab", "surface-tab-browser", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : ""].filter(Boolean).join(" ")}
         key={tab.id}
         data-tab-id={tab.id}
+        data-exit-motion="collapse-inline"
         title={tab.url ? `${tab.title}\n${tab.url}` : tab.title}
         onContextMenu={(event) => onBrowserTabMenu?.(tab, event)}
         onAuxClick={(event) => {
@@ -380,6 +382,7 @@ export function WorkFolderSurfaceTabBar({
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
         key={tab.id}
         data-tab-id={tab.id}
+        data-exit-motion="collapse-inline"
         data-work-folder-id={tab.workFolderId}
         style={style}
         title={`${tab.title} - ${workFolderName}${activityLabel ? ` · ${activityLabel}` : ""}`}
@@ -413,7 +416,7 @@ export function WorkFolderSurfaceTabBar({
           <span className="surface-tab-copy">
             <span className="surface-tab-title">{tab.title}</span>
           </span>
-          {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
+          {activity ? <TabActivityDot status={activity} /> : null}
           {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}
         </button>
         <button
@@ -622,6 +625,13 @@ export function WorkFolderSurfaceTabBar({
       </div>
     </div>
   );
+}
+
+/** A Chat tab's activity dot, with the reply-landed moment when its Worker finishes. */
+function TabActivityDot({ status }: { status: ChatActivityStatus }) {
+  const dotRef = useRef<HTMLSpanElement | null>(null);
+  useFinishCelebration(dotRef, status);
+  return <span ref={dotRef} className={`surface-tab-chat-status ${status}`} aria-hidden="true" />;
 }
 
 function fallbackWorkFolderSummary(id: string, name: string): WorkFolderSummary {

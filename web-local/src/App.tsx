@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, Loader2, Search, X } from "lucide-react";
 import {
@@ -30,6 +30,7 @@ import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFol
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { onConnectAiRequested, requestConnectAi } from "./lib/connect-ai";
+import { settleIn } from "./lib/motion";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
@@ -470,6 +471,14 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [uploadTargetPath, setUploadTargetPath] = useState("");
   const uploadRef = useRef<HTMLInputElement>(null);
+  // Another work-folder's banner and left pane settle in rather than cutting.
+  const modePaneRef = useRef<HTMLElement | null>(null);
+  const shownWorkFolderIdRef = useRef(workFolder.id);
+  useLayoutEffect(() => {
+    if (shownWorkFolderIdRef.current === workFolder.id) return;
+    shownWorkFolderIdRef.current = workFolder.id;
+    settleIn([modePaneRef.current]);
+  }, [workFolder.id]);
   const contextRequestId = useRef(0);
   const pendingDeletesRef = useRef(new Map<string, PendingDelete>());
   const activeWorkFolderIdRef = useRef(workFolder.id);
@@ -1777,7 +1786,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   return <main className={layoutClassName} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
     <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
     <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: !sidebarCollapsed && activeMode === "automations" } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
-    <section className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
+    <section ref={modePaneRef} className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
       <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} {...(!fixture ? { onSetUp: (mode: WorkFolderSetUpMode) => void startSetUp(mode) } : {})} />
       {setUpOffered ? <WorkFolderSetUpCard workFolderName={workFolder.name} onSetUp={(mode) => { onCloseSetUpOffer(); void startSetUp(mode); }} onDismiss={onCloseSetUpOffer} /> : null}
       {activeMode === "work-folders" ? <WorkFoldersPane workFolder={workFolder} workFolders={workFolders} identities={customizations} onCreate={onCreateWorkFolder} onOpenFolder={onOpenFolder} onCustomize={openWorkFolderAppearance} onRemove={(target) => void removeWorkFolder(target)} onDone={leaveManageFolders} /> : null}
@@ -2064,14 +2073,14 @@ function isCommandPaletteShortcut(event: KeyboardEvent) {
 
 function isQuickLookShortcut(event: KeyboardEvent) {
   if ((event.key !== " " && event.code !== "Space") || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  if (document.querySelector(".modal-backdrop, .publish-review-backdrop, [role='dialog'][aria-modal='true']")) return false;
+  if (document.querySelector(":is(.modal-backdrop, .publish-review-backdrop):not([data-exit-ghost]), [role='dialog'][aria-modal='true']")) return false;
   const target = event.target instanceof Element ? event.target : null;
   return !target?.closest("input, textarea, select, button, a[href], [contenteditable='true'], [role='button'], [role='textbox'], [data-tree-row]");
 }
 
 function commandPaletteBlockedByDialog() {
   if (typeof document === "undefined") return false;
-  return Boolean(document.querySelector(".modal-backdrop, .publish-review-backdrop, [role='dialog'][aria-modal='true']"));
+  return Boolean(document.querySelector(":is(.modal-backdrop, .publish-review-backdrop):not([data-exit-ghost]), [role='dialog'][aria-modal='true']"));
 }
 
 function pendingDeleteKey(pending: Pick<PendingDelete, "workFolderId" | "path">) {
