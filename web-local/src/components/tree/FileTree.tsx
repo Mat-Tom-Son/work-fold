@@ -1,4 +1,4 @@
-import type React from "react";
+import React, { useEffect, useRef } from "react";
 import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
@@ -78,8 +78,20 @@ export function FileTree({
   onDragStartEntry: (path: string, event: React.DragEvent<HTMLElement>) => void;
   onDragEndEntry: () => void;
 }) {
+  // Opening one tree must not animate the same relative path in another.
+  const openedFolder = useRef<{ path: string; at: number } | null>(null);
+  useEffect(() => { openedFolder.current = null; }, [searchQuery]);
+  function justOpened(path: string): boolean {
+    const opened = openedFolder.current;
+    return !searchQuery.trim() && opened?.path === path && performance.now() - opened.at < 1200;
+  }
   if (!entries.length) return emptyContent ? <div className="empty-inline">{emptyContent}</div> : <EmptyInline text={emptyText} />;
   const searching = Boolean(searchQuery.trim());
+
+  function toggleFolder(path: string, collapsed: boolean) {
+    openedFolder.current = collapsed ? { path, at: performance.now() } : null;
+    onToggleFolder(path);
+  }
 
   // After a keyboard move lands focus on a row, the visual selection follows
   // it — the way Finder's arrow keys select — without opening any tab.
@@ -131,10 +143,10 @@ export function FileTree({
       const collapsed = collapsedPaths.has(entry.path) || treeEntryNeedsLazyChildren(entry);
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        if (!searching) onToggleFolder(entry.path);
+        if (!searching) toggleFolder(entry.path, collapsed);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        if (collapsed && !searching) onToggleFolder(entry.path);
+        if (collapsed && !searching) toggleFolder(entry.path, true);
         else {
           focusFirstChildTreeRow(event.currentTarget, entry.path);
           reportFocusedTreeRow();
@@ -240,7 +252,7 @@ export function FileTree({
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
-              onClick={() => entry.kind === "file" ? onSelectFile(entry.path) : !searching && onToggleFolder(entry.path)}
+              onClick={() => entry.kind === "file" ? onSelectFile(entry.path) : !searching && toggleFolder(entry.path, folderCollapsed)}
               onDoubleClick={() => entry.kind === "file" && onOpenFile(entry.path)}
               onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
               onContextMenu={(event) => onOpenContextMenu(entry, event)}
@@ -276,7 +288,7 @@ export function FileTree({
               {checkAttention ? <span className="file-check-attention-marker" aria-hidden="true" /> : null}
             </button>
             {entry.kind === "folder" && entry.children?.length && !folderCollapsed ? (
-              <div className="file-children">
+              <div className={justOpened(entry.path) ? "file-children opening" : "file-children"} data-exit-motion={searching ? undefined : "collapse"}>
                 <FileTree
                   entries={entry.children}
                   collapsedPaths={collapsedPaths}

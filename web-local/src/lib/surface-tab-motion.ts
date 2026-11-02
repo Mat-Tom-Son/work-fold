@@ -57,6 +57,18 @@ export function createSurfaceTabMotion(strip: HTMLElement, chrome: HTMLElement) 
   preferenceObserver.observe(root, { attributes: true, attributeFilter: ["data-appearance-motion"] });
   const onSystemMotionChange = () => { if (reduceMotion()) settle(); };
   systemMotion?.addEventListener("change", onSystemMotionChange);
+  // A closed tab shrinks away (lib/motion.ts) and moves its neighbours without
+  // resizing them, so the frame follows the selected tab until the copy is gone.
+  let follow = 0;
+  const followLeavingTabs = () => {
+    position(false);
+    follow = strip.querySelector("[data-exit-ghost]") ? view.requestAnimationFrame(followLeavingTabs) : 0;
+  };
+  const leaving = new view.MutationObserver((records) => {
+    if (follow || !records.some((record) => [...record.addedNodes].some((node) => node instanceof view.HTMLElement && "exitGhost" in node.dataset))) return;
+    follow = view.requestAnimationFrame(followLeavingTabs);
+  });
+  leaving.observe(strip, { childList: true, subtree: true });
 
   return {
     select(tab: HTMLElement | null, animate = false): void {
@@ -70,6 +82,8 @@ export function createSurfaceTabMotion(strip: HTMLElement, chrome: HTMLElement) 
     },
     dispose(): void {
       settle();
+      view.cancelAnimationFrame(follow);
+      leaving.disconnect();
       resize?.disconnect();
       preferenceObserver.disconnect();
       systemMotion?.removeEventListener("change", onSystemMotionChange);

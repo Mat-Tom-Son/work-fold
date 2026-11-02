@@ -15,8 +15,10 @@ import "./components/chat/model-context-inspector.css";
 import "./popover/popover.css";
 import "./panels.css";
 import "./application-appearance.css";
+import "./motion.css";
 import { App } from "./App";
 import { ModelContextInspector } from "./components/chat/ModelContextInspector";
+import { startExitMotion } from "./lib/motion";
 import { migrateRendererStorage } from "./lib/storage-migration";
 
 // Before any component reads a saved tab, draft, or preference.
@@ -34,6 +36,8 @@ if (windowMaterial === "mica" || windowMaterial === "vibrancy") {
 } else {
   delete document.documentElement.dataset.windowMaterial;
 }
+
+startExitMotion();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

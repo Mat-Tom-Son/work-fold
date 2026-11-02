@@ -33,6 +33,7 @@ import {
   writeStoredChatDraft,
   writeStoredPendingChatSend,
 } from "../../lib/format";
+import { glideFrom } from "../../lib/motion";
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
 import { assistantTurnView } from "../../lib/chat-work-trail";
 import type { AssistantPresentation } from "../../../../src/shared/chat-presentation";
@@ -285,6 +286,9 @@ export function ChatPanel({
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
+  // Where the composer stood under a new Chat's greeting when its first message went.
+  const composerGlideFromRef = useRef<DOMRect | null>(null);
   const userPinnedToBottomRef = useRef(true);
   const streamingBufferRef = useRef("");
   const streamingFlushRef = useRef<number | null>(null);
@@ -1145,6 +1149,12 @@ export function ChatPanel({
   // A new Chat puts the composer under its greeting, with the work-folder's
   // recent Chats below, until the first message is sent (2026-10-27).
   const startLayout = !hasTranscript && !conversation && !targetConversationId && lifecycleView === "active";
+  // The first message carries the composer from under the greeting to its place at the bottom.
+  useLayoutEffect(() => {
+    const from = composerGlideFromRef.current;
+    composerGlideFromRef.current = null;
+    if (!startLayout) glideFrom(composerRef.current, from);
+  }, [startLayout]);
   const recentChats = useMemo(() => startLayout
     ? conversations
       .filter((item) => conversationLifecycleView(item) === "active")
@@ -1290,6 +1300,7 @@ export function ChatPanel({
     cancelStreamingFlush();
     setStreamingAssistant("");
     const sentDraftStorageKey = draftStorageKey;
+    if (startLayout) composerGlideFromRef.current = composerRef.current?.getBoundingClientRect() ?? null;
     const addressedWorkFolderIds = addressedFolderIds(content, mentionFolders);
     if (contentOverride === undefined) setDraft("");
     setRunning(true);
@@ -1953,6 +1964,7 @@ export function ChatPanel({
         </div>
       ) : null}
       <form
+        ref={composerRef}
         className={dragActive ? "composer composer-drop-active" : "composer"}
         hidden={lifecycleView !== "active"}
         onDragEnter={handleComposerDragEnter}

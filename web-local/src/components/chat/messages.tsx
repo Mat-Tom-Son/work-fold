@@ -255,7 +255,7 @@ export function MessageActions({ copied, onCopy }: { copied: boolean; onCopy: ()
   return (
     <div className="message-actions">
       <button
-        className="message-copy-button"
+        className={copied ? "message-copy-button is-copied" : "message-copy-button"}
         type="button"
         onClick={onCopy}
         aria-label={copied ? "Copied message" : "Copy message"}
@@ -437,7 +437,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
     <div className="message-code-block">
       <div className="message-code-toolbar">
         <span>{label}</span>
-        <button type="button" onClick={() => void copyCode()} aria-label={copied ? "Copied code" : "Copy code"} title={copied ? "Copied" : "Copy code"}>
+        <button className={copied ? "is-copied" : undefined} type="button" onClick={() => void copyCode()} aria-label={copied ? "Copied code" : "Copy code"} title={copied ? "Copied" : "Copy code"}>
           <FluentGlyph icon={copied ? Checkmark20Regular : Copy20Regular} size={13} />
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
