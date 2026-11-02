@@ -1,4 +1,4 @@
-import type React from "react";
+import React, { useEffect, useRef } from "react";
 import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
@@ -10,14 +10,6 @@ import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../typ
 import { fileSharing } from "../../ui-contract";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { EmptyInline, WorkFolderIconGlyph } from "../chrome/common";
-
-// The folder a person just opened grows open (motion.css); folders that were
-// already open when Files renders, or that a search reveals, appear in place.
-let openedFolder: { path: string; at: number } | null = null;
-
-function justOpened(path: string): boolean {
-  return openedFolder?.path === path && performance.now() - openedFolder.at < 1200;
-}
 
 /** A work-folder registered inside this one, as Files shows it (2026-10-01). */
 export interface NestedFolderView {
@@ -86,11 +78,18 @@ export function FileTree({
   onDragStartEntry: (path: string, event: React.DragEvent<HTMLElement>) => void;
   onDragEndEntry: () => void;
 }) {
+  // Opening one tree must not animate the same relative path in another.
+  const openedFolder = useRef<{ path: string; at: number } | null>(null);
+  useEffect(() => { openedFolder.current = null; }, [searchQuery]);
+  function justOpened(path: string): boolean {
+    const opened = openedFolder.current;
+    return !searchQuery.trim() && opened?.path === path && performance.now() - opened.at < 1200;
+  }
   if (!entries.length) return emptyContent ? <div className="empty-inline">{emptyContent}</div> : <EmptyInline text={emptyText} />;
   const searching = Boolean(searchQuery.trim());
 
   function toggleFolder(path: string, collapsed: boolean) {
-    if (collapsed) openedFolder = { path, at: performance.now() };
+    openedFolder.current = collapsed ? { path, at: performance.now() } : null;
     onToggleFolder(path);
   }
 

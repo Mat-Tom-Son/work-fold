@@ -66,7 +66,7 @@ Motion confirms what happened and where things went; it never decorates. Entranc
 - Files: only the folder a person just opened grows open; folders already open when Files renders, or revealed by a search, appear in place. Closing a folder folds its contents away. Toasts slide out to the right and the stack closes the gap.
 - A new Chat's first message carries the composer from under the greeting down to its place at the bottom. Switching work-folders settles the left pane in rather than cutting; the work surface swaps like any tab selection.
 - A Worker's dot pops in when its turn starts; when the reply lands it pops once and sends out one ring. Copied checks pop once. Settings pages fade up as they open.
-- Streamed replies, background refreshes, and the file list never animate. A leaving element is an inert copy that no query, focus, or click can reach, and a replacement (the next confirmation, the palette handing over to Settings, tabs regrouping) swaps at once. Application Reduce Motion and the operating system preference both remove every animation, and no leaving copy is made.
+- Streamed replies, background refreshes, and the file list never animate. Folder-opening state belongs to its Files tree and is cleared for searches and work-folder changes. A leaving element is an inert copy excluded from focus, clicks, and the shell's live-element queries, and a replacement (the next confirmation, the palette handing over to Settings, tabs regrouping) swaps at once. Application Reduce Motion and the operating system preference both remove every animation, including scripted effects already running, and remove existing leaving copies; no new leaving copy is made.
 
 ## Windows material
 

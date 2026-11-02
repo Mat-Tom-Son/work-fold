@@ -6,6 +6,39 @@
 
 const ease = "cubic-bezier(.2,0,0,1)";
 
+// CSS preference rules cannot cancel Web Animations API effects. Keep the
+// scripted effects together so either preference also stops motion in flight.
+const motionDocuments = new WeakMap<Document, { animations: Set<Animation>; clearExits: Set<() => void> }>();
+
+function documentMotion(doc: Document) {
+  let state = motionDocuments.get(doc);
+  if (state) return state;
+  state = { animations: new Set(), clearExits: new Set() };
+  motionDocuments.set(doc, state);
+  const current = state;
+  const stopIfReduced = () => {
+    if (!motionReduced(doc)) return;
+    for (const animation of current.animations) animation.cancel();
+    current.animations.clear();
+    for (const clear of current.clearExits) clear();
+  };
+  const view = doc.defaultView;
+  if (view) {
+    new view.MutationObserver(stopIfReduced).observe(doc.documentElement, { attributes: true, attributeFilter: ["data-appearance-motion"] });
+    view.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener("change", stopIfReduced);
+  }
+  return state;
+}
+
+function animate(element: Element, frames: Keyframe[], options: KeyframeAnimationOptions): Animation {
+  const state = documentMotion(element.ownerDocument);
+  const animation = element.animate(frames, options);
+  state.animations.add(animation);
+  const finished = () => state.animations.delete(animation);
+  void animation.finished.then(finished, finished);
+  return animation;
+}
+
 export function motionReduced(doc: Document = document): boolean {
   return doc.documentElement.dataset.appearanceMotion === "reduce"
     || Boolean(doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
@@ -46,6 +79,9 @@ export function startExitMotion(doc: Document = document): () => void {
   // A detached element forgets its scroll position, so remember it while it is on screen.
   const scrolled = new WeakMap<Element, { top: number; left: number }>();
   const live = new Set<HTMLElement>();
+  const clearExits = () => { for (const ghost of live) ghost.remove(); live.clear(); };
+  const motion = documentMotion(doc);
+  motion.clearExits.add(clearExits);
   const rememberScroll = (event: Event) => {
     const target = event.target;
     if (target instanceof Element) scrolled.set(target, { top: target.scrollTop, left: target.scrollLeft });
@@ -71,7 +107,7 @@ export function startExitMotion(doc: Document = document): () => void {
         if (kind) leaving.push({ kind, node, parent, next: record.nextSibling?.parentNode === parent ? record.nextSibling : null });
       }
     }
-    for (const ghost of live) if (arriving.has(ghost.dataset.exitGhost as ExitKind)) ghost.remove();
+    for (const ghost of live) if (arriving.has(ghost.dataset.exitGhost as ExitKind)) { live.delete(ghost); ghost.remove(); }
     if (!leaving.length || doc.hidden || motionReduced(doc)) return;
     for (const { kind, node, parent, next } of leaving) {
       if (!arriving.has(kind) && !node.querySelector("iframe, webview, video")) leave(kind, node, parent, next);
@@ -114,8 +150,8 @@ export function startExitMotion(doc: Document = document): () => void {
   return () => {
     observer.disconnect();
     doc.removeEventListener("scroll", rememberScroll, { capture: true });
-    for (const ghost of live) ghost.remove();
-    live.clear();
+    motion.clearExits.delete(clearExits);
+    clearExits();
   };
 }
 
@@ -123,14 +159,14 @@ function exitAnimations(kind: ExitKind, ghost: HTMLElement): Animation[] {
   switch (kind) {
     case "dialog":
       return [
-        ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: "ease-out", fill: "forwards" }),
-        ...[...ghost.children].map((panel) => panel.animate(
+        animate(ghost, [{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: "ease-out", fill: "forwards" }),
+        ...[...ghost.children].map((panel) => animate(panel,
           [{ scale: "1", translate: "0 0" }, { scale: "0.98", translate: "0 4px" }],
           { duration: 150, easing: ease, fill: "forwards" },
         )),
       ];
     case "menu":
-      return [ghost.animate(
+      return [animate(ghost,
         [{ opacity: 1, scale: "1" }, { opacity: 0, scale: "0.97" }],
         { duration: 110, easing: "ease-out", fill: "forwards" },
       )];
@@ -171,8 +207,8 @@ function collapse(ghost: HTMLElement, axis: "block" | "inline", duration: number
   }
   if (gap && (hasNext || hasPrevious)) to[closingMargin] = `${-gap}px`;
   return [
-    ghost.animate([from, to], { duration, easing: ease, fill: "forwards" }),
-    ghost.animate(fade, { duration, easing: "ease-out", fill: "forwards" }),
+    animate(ghost, [from, to], { duration, easing: ease, fill: "forwards" }),
+    animate(ghost, fade, { duration, easing: "ease-out", fill: "forwards" }),
   ];
 }
 
@@ -183,20 +219,20 @@ export function glideFrom(element: HTMLElement | null, from: DOMRect | null, dur
   const dx = from.left - to.left;
   const dy = from.top - to.top;
   if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-  element.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0 0" }], { duration, easing: ease });
+  animate(element, [{ translate: `${dx}px ${dy}px` }, { translate: "0 0" }], { duration, easing: ease });
 }
 
 /** A content swap in place (another work-folder) settles in rather than cutting. */
 export function settleIn(elements: Iterable<Element | null | undefined>, duration = 220): void {
   for (const element of elements) {
     if (!element || typeof element.animate !== "function" || motionReduced(element.ownerDocument)) continue;
-    element.animate([{ opacity: 0.25, translate: "0 3px" }, { opacity: 1, translate: "0 0" }], { duration, easing: ease });
+    animate(element, [{ opacity: 0.25, translate: "0 3px" }, { opacity: 1, translate: "0 0" }], { duration, easing: ease });
   }
 }
 
 /** The dot's small moment when a Worker's reply lands: a pop and one ring. */
 export function celebrateFinish(dot: HTMLElement | null): void {
   if (!dot || typeof dot.animate !== "function" || motionReduced(dot.ownerDocument)) return;
-  dot.animate([{ scale: "1" }, { scale: "1.6", offset: 0.35 }, { scale: "1" }], { duration: 460, easing: ease });
-  dot.animate([{ opacity: 0.8, scale: "1" }, { opacity: 0, scale: "3" }], { duration: 620, easing: ease, pseudoElement: "::after" });
+  animate(dot, [{ scale: "1" }, { scale: "1.6", offset: 0.35 }, { scale: "1" }], { duration: 460, easing: ease });
+  animate(dot, [{ opacity: 0.8, scale: "1" }, { opacity: 0, scale: "3" }], { duration: 620, easing: ease, pseudoElement: "::after" });
 }
