@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { stream } from "@earendil-works/pi-ai/api/azure-openai-responses";
 import { AZURE_OPENAI_DEPLOYMENTS_ENV, AZURE_OPENAI_PROVIDER, FOUNDRY_PROVIDERS, normalizeFoundryConnection, parseAzureDeploymentNames } from "../src/shared/foundry.js";
 import { getFoundryConnection, saveFoundryConnection } from "../src/local/agent/foundry-connection.js";
@@ -40,6 +41,8 @@ test("Foundry normalizes both endpoint families and refuses mismatched protocols
   }
 });
 
+// Provider registration refreshes Pi's catalog in the background. Keep that
+// cache in memory while still reading the real models.json in these fixtures.
 test("existing Azure deployments retain Pi's Chat Completions routing and model overrides", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-upgrade-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -49,7 +52,7 @@ test("existing Azure deployments retain Pi's Chat Completions routing and model 
   } } });
   const modelsPath = join(root, "models.json");
   await writeFile(modelsPath, JSON.stringify({ providers: { azure: { modelOverrides: { "gpt-4.1": { contextWindow: 64000 } } } } }));
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
   await resolvePiRuntime(root, provider, { requestProjectTrust: false });
   assert.equal(modelRuntime.getModel("azure", "deepseek-v4-pro")?.api, "openai-completions");
@@ -82,16 +85,19 @@ test("API-key text in desktop storage cannot become a shell command", async () =
 
 test("Foundry can save a first deployment using Pi's ambient key and preserve it on later edits", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-env-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  t.after(async () => {
+    await api?.close();
+    await rm(root, { recursive: true, force: true });
+  });
   const previous = process.env.ANTHROPIC_FOUNDRY_API_KEY;
   process.env.ANTHROPIC_FOUNDRY_API_KEY = "synthetic-environment-key";
   t.after(() => { if (previous === undefined) delete process.env.ANTHROPIC_FOUNDRY_API_KEY; else process.env.ANTHROPIC_FOUNDRY_API_KEY = previous; });
   let persisted: PiAuthStorageData = {};
   const credentials = await HostCredentialStore.create({ load: async () => persisted, save: async (data) => { persisted = data; } });
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: join(root, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(root, "models.json") });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
-  t.after(() => api.close());
+  api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
   for (const deployment of ["claude-sonnet-4-6", "team-reviewer"]) {
     const response = await fetch(api.origin + "/api/agent/configure", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "agent", provider: "azure-anthropic", foundry: {
       baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: [deployment], modelIds: { [deployment]: "claude-sonnet-4-6" },
@@ -105,7 +111,11 @@ test("Foundry can save a first deployment using Pi's ambient key and preserve it
 
 test("a stale saved base model cannot block Settings, other providers, or credential removal", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-stale-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  t.after(async () => {
+    await api?.close();
+    await rm(root, { recursive: true, force: true });
+  });
   const credentials = FileCredentialStore.inMemory({
     "azure-anthropic": { type: "api_key", key: "synthetic-key", env: {
       ANTHROPIC_FOUNDRY_BASE_URL: "https://example.services.ai.azure.com/anthropic",
@@ -113,10 +123,9 @@ test("a stale saved base model cannot block Settings, other providers, or creden
     } },
     azure: { type: "api_key", key: "synthetic-other-key" },
   });
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: join(root, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(root, "models.json") });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
-  t.after(() => api.close());
+  api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
   const settings = await fetch(api.origin + "/api/agent/models?scope=agent");
   assert.equal(settings.status, 200, await settings.clone().text());
   assert.equal((await settings.json()).foundry["azure-anthropic"].modelIds.team, "removed-model");
@@ -130,7 +139,7 @@ test("unknown deployment names use conservative metadata until a base model is s
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-generic-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const credentials = FileCredentialStore.inMemory();
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: join(root, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(root, "models.json") });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
   for (const id of ["azure-chat-completions", "azure-anthropic"]) {
     await saveFoundryConnection(root, { baseUrl: "https://example.services.ai.azure.com", deployments: ["arbitrary-team-alias"] }, "synthetic-key", provider, id);
@@ -153,7 +162,7 @@ test("Foundry registration preserves the person's native models.json declaration
     models: [{ id: "custom-from-models-json", api: spec.id === "azure" ? "openai-completions" : spec.api, contextWindow: 64000, maxTokens: 4000, reasoning: false }],
   }])) }));
   const credentials = FileCredentialStore.inMemory();
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
   await resolvePiRuntime(root, provider, { requestProjectTrust: false });
   for (const spec of FOUNDRY_PROVIDERS) assert.ok(modelRuntime.getModel(spec.id, "custom-from-models-json"), spec.id + " custom model survives opening Settings");
@@ -184,7 +193,7 @@ test("Foundry Anthropic models omit the unsupported server-side fallback paramet
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-features-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const credentials = FileCredentialStore.inMemory();
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: join(root, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(root, "models.json") });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
   await saveFoundryConnection(root, { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["claude-fable-5", "claude-sonnet-4-5"] }, "synthetic-key", provider, "azure-anthropic");
   assert.equal(modelRuntime.getModel("azure-anthropic", "claude-sonnet-4-5")?.contextWindow, 200000, "Foundry's Sonnet 4.5 context limit is narrower than the direct API's catalog entry");
@@ -207,15 +216,18 @@ test("Foundry Anthropic models omit the unsupported server-side fallback paramet
 
 test("malformed saved Foundry metadata is isolated, redacted, and repairable through Settings", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-invalid-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  t.after(async () => {
+    await api?.close();
+    await rm(root, { recursive: true, force: true });
+  });
   const credentials = FileCredentialStore.inMemory(Object.fromEntries(FOUNDRY_PROVIDERS.map((spec) => [spec.id, { type: "api_key", key: "synthetic-key", env: {
     [spec.baseUrlEnv]: "https://example.services.ai.azure.com" + spec.path,
     [AZURE_OPENAI_DEPLOYMENTS_ENV]: "malformed-private-value",
   } }])));
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: join(root, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(root, "models.json") });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
-  t.after(() => api.close());
+  api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
   const response = await fetch(api.origin + "/api/agent/models?scope=agent");
   assert.equal(response.status, 200, await response.clone().text());
   const text = await response.text();
@@ -248,7 +260,7 @@ test("malformed connection settings cannot release their stored key to a models.
   const credentials = FileCredentialStore.inMemory({ "azure-anthropic": { type: "api_key", key: "synthetic-bound-key", env: {
     ANTHROPIC_FOUNDRY_BASE_URL: "https://expected.services.ai.azure.com/anthropic", [AZURE_OPENAI_DEPLOYMENTS_ENV]: "[broken",
   } } });
-  const modelRuntime = await ModelRuntime.create({ credentials, modelsPath });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath });
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir: root, credentials, modelRuntime, settingsManager: SettingsManager.inMemory() }; } };
   await resolvePiRuntime(root, provider, { requestProjectTrust: false });
   const model = modelRuntime.getModel("azure-anthropic", "custom")!;
@@ -303,16 +315,19 @@ function foundryStream(api: string, tool: boolean): Response {
 
 test("all Foundry formats coexist, survive restart, and stream text and tool calls through native Pi", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-foundry-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  t.after(async () => {
+    await api?.close();
+    await rm(root, { recursive: true, force: true });
+  });
   const agentDir = join(root, "agent");
   await mkdir(agentDir);
   const authPath = join(agentDir, "auth.json");
   const credentials = FileCredentialStore.create(authPath);
-  const registry = await ModelRuntime.create({ credentials, modelsPath: join(agentDir, "models.json") });
+  const registry = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials, modelsPath: join(agentDir, "models.json") });
   const settingsManager = SettingsManager.inMemory();
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials, modelRuntime: registry, settingsManager }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
-  t.after(() => api.close());
+  api = await startLocalApi({ port: 0, stateBase: join(root, "state"), loadEnv: false, piRuntimeProvider: provider });
   const baseIds = ["gpt-4.1", "deepseek-v4-pro", "claude-sonnet-4-6"];
   for (const [i, spec] of FOUNDRY_PROVIDERS.entries()) {
     const response = await fetch(api.origin + "/api/agent/configure", { method: "POST", headers: { "content-type": "application/json" },
@@ -324,7 +339,7 @@ test("all Foundry formats coexist, survive restart, and stream text and tool cal
     assert.doesNotMatch(await response.text(), /synthetic-/);
   }
   const reopened = FileCredentialStore.create(authPath);
-  const fresh = await ModelRuntime.create({ credentials: reopened, modelsPath: join(agentDir, "models.json") });
+  const fresh = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials: reopened, modelsPath: join(agentDir, "models.json") });
   const freshProvider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: reopened, modelRuntime: fresh, settingsManager }; } };
   await resolvePiRuntime(root, freshProvider, { requestProjectTrust: false });
   const originalFetch = globalThis.fetch;
@@ -372,16 +387,19 @@ test("all Foundry formats coexist, survive restart, and stream text and tool cal
 
 test("Azure settings persist through the API, preserve the key, and reach Pi's actual request transport", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-azure-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  t.after(async () => {
+    await api?.close();
+    await rm(root, { recursive: true, force: true });
+  });
   const agentDir = join(root, "agent");
   await mkdir(agentDir);
   const authPath = join(agentDir, "auth.json");
   const authStorage = FileCredentialStore.create(authPath);
-  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: join(agentDir, "models.json") });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials: authStorage, modelsPath: join(agentDir, "models.json") });
   const settingsManager = SettingsManager.inMemory();
   const provider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } };
-  const api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
-  t.after(() => api.close());
+  api = await startLocalApi({ port: 0, stateBase: join(root, "state"), workFolderBase: join(root, "content"), loadEnv: false, piRuntimeProvider: provider });
   const configure = (azure: unknown, apiKey?: string, providerId = AZURE_OPENAI_PROVIDER) => fetch(`${api.origin}/api/agent/configure`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ scope: "agent", provider: providerId, model: "team", azure, ...(apiKey ? { apiKey } : {}) }),
@@ -397,7 +415,7 @@ test("Azure settings persist through the API, preserve the key, and reach Pi's a
   assert.equal(credential?.type === "api_key" && credential.env?.AZURE_OPENAI_BASE_URL, "https://example.openai.azure.com/openai/v1");
   assert.ok(credential?.type === "api_key");
   assert.deepEqual(JSON.parse(credential.env![AZURE_OPENAI_DEPLOYMENTS_ENV]!), azure.deployments);
-  const freshRegistry = await ModelRuntime.create({ credentials: reopened, modelsPath: join(agentDir, "models.json") });
+  const freshRegistry = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials: reopened, modelsPath: join(agentDir, "models.json") });
   const freshProvider: PiRuntimeProvider = { async resolveRuntime() { return { agentDir, credentials: reopened, modelRuntime: freshRegistry, settingsManager }; } };
   const runtime = await resolvePiRuntime(root, freshProvider, { requestProjectTrust: false });
   for (const name of azure.deployments) assert.equal(runtime.modelRuntime.getModel(AZURE_OPENAI_PROVIDER, name)?.id, name);
@@ -479,7 +497,7 @@ test("Chat titles use the active Azure deployment and its stored connection with
   const workFolderRoot = join(root, "work-folder");
   await mkdir(workFolderRoot, { recursive: true });
   const authStorage = FileCredentialStore.inMemory();
-  const modelRuntime = await ModelRuntime.create({ credentials: authStorage, modelsPath: null });
+  const modelRuntime = await ModelRuntime.create({ modelsStore: new InMemoryModelsStore(), credentials: authStorage, modelsPath: null });
   const provider: PiRuntimeProvider = { async resolveRuntime() {
     return { agentDir, credentials: authStorage, modelRuntime,
       preferredModel: { provider: AZURE_OPENAI_PROVIDER, id: "gpt-4.1" },
