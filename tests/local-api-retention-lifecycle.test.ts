@@ -7,6 +7,53 @@ import { setImmediate } from "node:timers/promises";
 import { test } from "node:test";
 import { startLocalApi } from "../src/local/server.js";
 import { WorkFoldRequestStore } from "../src/local/requests/request-store.js";
+import { WorkFoldRecentlyDeletedStore } from "../src/local/recently-deleted-store.js";
+
+test("API close drains the startup Recently deleted purge", { timeout: 15_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "work-fold-recently-deleted-close-"));
+  const stateBase = join(root, "state");
+  const recentlyDeleted = await WorkFoldRecentlyDeletedStore.open({ rootPath: join(stateBase, "recently-deleted") });
+  const original = recentlyDeleted.purgeExpired.bind(recentlyDeleted);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let started = false, purgeFinished = false;
+  let purging: Promise<Awaited<ReturnType<typeof original>>> | undefined;
+  recentlyDeleted.purgeExpired = () => purging = (async () => {
+    started = true;
+    await held;
+    const result = await original();
+    purgeFinished = true;
+    return result;
+  })();
+  let api: Awaited<ReturnType<typeof startLocalApi>> | undefined;
+  let closing: Promise<void> | undefined;
+  try {
+    api = await startLocalApi({ port: 0, stateBase, workFolderBase: join(root, "content"), loadEnv: false,
+      recentlyDeletedStore: recentlyDeleted,
+      piRuntimeProvider: { resolveRuntime: async () => ({ agentDir: join(root, "pi") }) },
+    });
+    assert.equal(started, true, "startup schedules retention without delaying API availability");
+    let closed = false;
+    closing = api.close().then(() => { closed = true; });
+    await until(async () => !await listening(api!.port));
+    await setImmediate();
+    assert.equal(closed, false, "close must wait while the startup purge can still write");
+    assert.equal(purgeFinished, false);
+    release(); await closing;
+    assert.equal(purgeFinished, true);
+    const settings = JSON.parse(await readFile(join(stateBase, "recently-deleted", "settings.json"), "utf8"));
+    assert.equal(typeof settings.lastPurgeAt, "string", "close includes the real retention commit");
+    await rm(stateBase, { recursive: true, force: true });
+    await setImmediate();
+    await assert.rejects(readFile(join(stateBase, "recently-deleted", "settings.json")), { code: "ENOENT" });
+  } finally {
+    release();
+    if (closing) await closing;
+    else await api?.close();
+    await purging;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("API close drains startup retention even when management cannot initialize", { timeout: 15_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-retention-close-"));

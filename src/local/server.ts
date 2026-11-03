@@ -908,7 +908,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // expired work-folder entry can hold a large tree, and walking plus
   // deleting it must not sit between the process starting and the port being
   // bound. Nothing a task needs is behind this purge.
-  void recentlyDeleted.purgeExpired().catch((error: unknown) => {
+  const startupRecentlyDeletedPurge = recentlyDeleted.purgeExpired().catch((error: unknown) => {
     console.warn(`work-fold could not clean Recently deleted at startup: ${errorMessage(error)}`);
   });
   const host = options.host ?? "127.0.0.1";
@@ -1382,7 +1382,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     retentionTasks.add(task);
     void task.then(() => retentionTasks.delete(task));
   };
-  const drainRetention = () => Promise.allSettled([...retentionTasks]);
+  const drainRetention = () => Promise.allSettled([startupRecentlyDeletedPurge, ...retentionTasks]);
   trackRetention(state.requests.purgeExpiredIfDue(), "work-fold could not tidy its request records at startup");
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
@@ -1500,7 +1500,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
-      // In particular, startup request retention may still be writing its
+      // In particular, startup retention may still be writing its
       // durable lastPurgeAt even when no turn has ever run.
       await drainRetention();
     },
