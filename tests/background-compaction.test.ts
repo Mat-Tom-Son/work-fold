@@ -142,6 +142,15 @@ test("an idle Chat near Pi's compaction point is summarized in the background as
   await waitFor(() => h.summaries >= 1, "the background summary");
   await waitFor(async () => !(await compactionTasks(h)).length, "the compaction task to finish");
   assert.deepEqual(h.compactionTaskActors, [{ kind: "system", conversationId: first.conversationId }], "recorded as its own kernel compaction task");
+  const transcriptUrl = `${h.api.origin}/api/work-folders/${workFolder.id}/conversations/${first.conversationId}`;
+  const saved = await (await fetch(transcriptUrl)).json();
+  const notices = saved.messages.filter((message: any) => message.kind === "context_compaction");
+  assert.equal(notices.length, 1, "a background summary leaves one durable Chat notice");
+  assert.equal(notices[0].role, "system", "the host's notice is not an agent answer");
+  assert.match(notices[0].content, /context compacted.*history is still available/);
+  assert.ok(!notices[0].content.includes("SUMMARY-MARKER"), "the private summary never enters the portable Chat");
+  const { runtime: compactedRuntime } = await (await fetch(`${transcriptUrl}/runtime`)).json();
+  assert.equal(compactedRuntime.usage.contextTokens, null, "pre-compaction usage is not presented as current");
   const summaryRequests = h.summaries;
 
   const third = await h.api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: first.conversationId, content: "And the last step." });
@@ -167,4 +176,6 @@ test("a message sent during a background summary cancels it and runs at once", {
   assert.ok(h.aborted >= 1, "the summary was cancelled for the person's message");
   assert.equal(await settled(h, workFolder.id, followUp.taskId), "succeeded");
   assert.equal((await compactionTasks(h)).length, 0);
+  const saved = await (await fetch(`${h.api.origin}/api/work-folders/${workFolder.id}/conversations/${first.conversationId}`)).json();
+  assert.equal(saved.messages.filter((message: any) => message.kind === "context_compaction").length, 0, "cancelling a summary never claims it compacted");
 });

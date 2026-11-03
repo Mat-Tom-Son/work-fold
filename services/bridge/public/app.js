@@ -1005,7 +1005,7 @@ function renderMessages() {
   if (!container || !notice || !rows || !workStatus) return;
   const wasNearBottom = !container.dataset.rendered
     || container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-  const visible = state.messages.filter((message) => (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
+  const visible = state.messages.filter((message) => message.kind === "context_compaction" || (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
   const request = state.startingNewChat ? null : state.summary?.latestRequest;
   const requestPhase = request?.phase;
   const visibleWork = !state.startingNewChat && state.work?.owner.conversationId === state.selectedConversationId ? state.work : null;
@@ -1138,7 +1138,7 @@ function reconcileMessageRows(container, messages, animateNew) {
     row.classList.toggle("web", message.source === "remote_web");
     row.classList.toggle("pending", message.pending === true);
     row.classList.toggle("streaming", message.streaming === true);
-    changed = replaceHtmlIfChanged(row, message.kind === "assistant_continuation" ? `<p class="work-continuation">Continuing with the results from delegated work.</p>` : `
+    changed = replaceHtmlIfChanged(row, message.kind === "context_compaction" ? `<p class="work-continuation">${escapeHtml(message.content)}</p>` : message.kind === "assistant_continuation" ? `<p class="work-continuation">Continuing with the results from delegated work.</p>` : `
       <div class="message-role"${message.createdAt ? ` title="${escapeAttribute(cardTime(message.createdAt))}"` : ""}>${message.role === "assistant" ? escapeHtml(assistantLabel()) : "You"}</div>
       <div class="message-content"><div class="message-body markdown">${renderMarkdown(message.content)}</div>${message.attachments?.length ? `<div class="message-attachments">${message.attachments.map((attachment) => `<span>${fileGlyph(attachment.kind)}${escapeHtml(attachment.name)}</span>`).join("")}</div>` : ""}${message.streaming && message.truncated ? `<div class="live-reply-limit">The rest will appear when this reply finishes.</div>` : ""}</div>
     `) || changed;

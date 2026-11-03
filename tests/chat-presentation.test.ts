@@ -7,11 +7,62 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { appendMessage, readConversation, type ChatMessage } from "../src/local/agent/chat-store.js";
-import { PiConversationClient, PiTurnFailure, type PiChatEvent } from "../src/local/agent/pi-client.js";
+import { PiConversationClient, PiTurnFailure, type PiChatEvent, type PiConversationClientOptions } from "../src/local/agent/pi-client.js";
 import { localEditPath, parseAssistantPresentation, projectNativeEdit, turnPresentation } from "../src/local/agent/turn-presentation.js";
 import { maxAssistantPresentationSegments, maxChatToolEditDiffBytes, maxTurnToolEditDiffBytes } from "../src/shared/chat-presentation.js";
 import { WorkFoldTurnStore } from "../src/local/agent/turn-store.js";
 import { startLocalApi } from "../src/local/server.js";
+
+test("context snapshots grow while text streams and finalized usage replaces the estimate", async (t) => {
+  let sendMore!: Send;
+  let finish!: () => void;
+  const h = await harness(t, (_payload, send, response) => {
+    sendMore = send;
+    finish = () => {
+      send({}, "stop");
+      response.write(`data: ${JSON.stringify({ id: "usage", object: "chat.completion.chunk", created: 1, model: "presentation", choices: [], usage: { prompt_tokens: 12000, completion_tokens: 500, total_tokens: 12500 } })}\n\n`);
+      response.end("data: [DONE]\n\n");
+    };
+    send({ role: "assistant", content: "Streaming text. ".repeat(200) });
+    return "hold";
+  }, undefined, { enabled: false, reserveTokens: 1024, keepRecentTokens: 64 });
+  const nextRuntime = (predicate: (event: PiChatEvent) => boolean) => within(new Promise<PiChatEvent>(resolve => {
+    const listener = (event: PiChatEvent) => {
+      if (event.type === "runtime" && predicate(event)) { h.client.off("event", listener); resolve(event); }
+    };
+    h.client.on("event", listener);
+  }), "A live context snapshot");
+  const firstSnapshot = nextRuntime(event => typeof sendMore === "function" && h.events.some(item => item.type === "assistant_delta")
+    && event.runtime!.isStreaming && event.runtime!.usage.contextTokens! > 500);
+  const reply = h.client.prompt("Show a long reply.", { workFoldAgentTaskId: "context-owner" });
+  const first = (await firstSnapshot).runtime!;
+  const secondSnapshot = nextRuntime(event => event.runtime!.usage.contextTokens! > first.usage.contextTokens!);
+  sendMore({ content: "More streaming text. ".repeat(300) });
+  const second = await secondSnapshot;
+  assert.equal(second.turnId, null, "runtime belongs to the Chat rather than one turn's presentation");
+  assert.ok(second.runtime!.usage.contextTokens! > first.usage.contextTokens!);
+  const finalized = nextRuntime(event => !event.runtime!.isStreaming && event.runtime!.usage.totalTokens === 12500);
+  finish();
+  assert.match(await reply, /More streaming text/);
+  const state = (await finalized).runtime!;
+  assert.equal(state.usage.contextTokens, 12500, "the completed message is not counted twice");
+});
+
+test("manual compaction awaits one host notice and failed compaction leaves none", async (t) => {
+  let notices = 0;
+  const h = await harness(t, (_payload, send) => { send({ role: "assistant", content: "Ready." }); send({}, "stop"); },
+    `export default pi => pi.on("session_before_compact", event => ({ compaction: {
+      summary: "Earlier work.", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: event.preparation.tokensBefore
+    } }));`, { enabled: false, reserveTokens: 1024, keepRecentTokens: 64 },
+    { onContextCompacted: async () => { await new Promise(resolve => setImmediate(resolve)); notices++; } });
+  await assert.rejects(h.client.compact());
+  assert.equal(notices, 0);
+  await h.client.prompt("Earlier context. ".repeat(1000));
+  await h.client.prompt("More earlier context. ".repeat(1000));
+  await h.client.compact();
+  assert.equal(notices, 1);
+  assert.equal((await h.client.getState()).usage.contextTokens, null);
+});
 
 test("native edit events retain selected diffs and exact progress/final boundaries without changing Pi evidence", async (t) => {
   const h = await harness(t, (payload, send) => {
@@ -151,6 +202,7 @@ test("length-limited and tool-only final messages never relabel progress as a fi
 
 test("native overflow compaction recovery discards the failed attempt's error and presentation", async (t) => {
   let requests = 0;
+  let notices = 0;
   const h = await harness(t, (_payload, send, response) => {
     requests++;
     if (requests === 3) {
@@ -166,12 +218,13 @@ test("native overflow compaction recovery discards the failed attempt's error an
       firstKeptEntryId: event.preparation.firstKeptEntryId,
       tokensBefore: event.preparation.tokensBefore,
     } }));
-  }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 });
+  }`, { enabled: true, reserveTokens: 1024, keepRecentTokens: 64 }, { onContextCompacted: async () => { notices++; } });
   await h.client.prompt("Earlier context. ".repeat(1_000));
   await h.client.prompt("More earlier context. ".repeat(1_000));
   const reply = await h.client.prompt("Now recover from the overflow.");
   assert.equal(reply, "Recovered after compaction.");
   assert.equal(requests, 4);
+  assert.equal(notices, 1, "native overflow recovery reports the successful compaction once");
   assert.ok(h.events.some((event) => (event.raw as any)?.type === "compaction_end" && (event.raw as any)?.willRetry));
   assert.deepEqual(h.client.getTurnPresentation()?.segments.map((segment) => segment.kind), ["final"]);
 });
@@ -245,11 +298,16 @@ test("Stop preserves partial text boundaries without inventing a final segment",
     return "hold";
   });
   const streamed = new Promise<void>((resolve) => h.client.on("event", (event: PiChatEvent) => { if (event.type === "assistant_delta") resolve(); }));
+  const drained = new Promise<void>((resolve) => h.client.on("event", (event: PiChatEvent) => {
+    if (event.type === "runtime" && event.runtime?.isStreaming === false) resolve();
+  }));
   const pending = h.client.prompt("Wait while streaming.");
   const stopped = assert.rejects(pending, { name: "PiTurnCancelledError" });
   await streamed;
   await h.client.abort();
   await stopped;
+  await within(drained, "The stopped Chat's finalized context");
+  assert.equal((await h.client.getState()).isStreaming, false);
   assert.deepEqual(h.client.getTurnPresentation(), { version: 1, segments: [{ start: 0, end: 26, kind: "progress", order: 0 }], truncated: false });
 });
 
@@ -384,7 +442,7 @@ test("edit path admission rejects symlink parents and rechecks a changed target"
 type Send = (delta: Record<string, unknown>, finishReason?: string) => void;
 
 async function harness(t: TestContext, respond: (payload: any, send: Send, response: ServerResponse) => void | "hold", extension?: string,
-  compaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }) {
+  compaction?: { enabled: boolean; reserveTokens: number; keepRecentTokens: number }, clientOptions: PiConversationClientOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), "work-fold-native-presentation-"));
   const workFolderRoot = join(root, "folder");
   const agentDir = join(root, "pi");
@@ -414,7 +472,7 @@ async function harness(t: TestContext, respond: (payload: any, send: Send, respo
     models: [{ id: "presentation", name: "Presentation", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }] });
   const settingsManager = SettingsManager.inMemory({ defaultProvider: "presentation", defaultModel: "presentation", defaultThinkingLevel: "off", ...(compaction ? { compaction } : {}) });
   const provider = { async resolveRuntime() { return { agentDir, credentials: authStorage, modelRuntime, settingsManager }; } };
-  const client = new PiConversationClient("native-presentation", workFolderRoot, provider);
+  const client = new PiConversationClient("native-presentation", workFolderRoot, provider, undefined, clientOptions);
   const events: PiChatEvent[] = [];
   client.on("event", (event: PiChatEvent) => events.push(event));
   // One hook, because node:test skips the remaining after hooks once one

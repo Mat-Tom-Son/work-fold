@@ -19,6 +19,15 @@ If compaction removes a Worker answer continuation's hidden context, the host
 restates that request's original assignment separately from its latest answer,
 so the requested deliverable contract remains available alongside corrections.
 
+The Chat composer's context circle updates during a turn as text and tool results
+arrive, using Pi's context estimate and its estimator for a response still
+streaming. Finalized provider usage replaces that streaming estimate. Its tooltip
+remains available while model changes are disabled. After successful manual,
+automatic, or background compaction, a quiet saved Chat notice says that earlier
+messages were summarized and the chat history remains available. Cancelled or
+failed compactions never claim success. Context pressure clears until Pi has
+usage from the next model reply; an unknown count is never shown as zero.
+
 Workers are taught to keep temporary working files in an ordinary `.worker/<task-id>/`
 folder, created only when needed, and deliver requested files outside it.
 The Files tab gives that top-level folder a muted name and icon while keeping
@@ -154,6 +163,17 @@ provider-specific configuration and cloud credential choices. ChatGPT sign-in
 uses the installation UUID Pi saves in global settings, never a project identity.
 Connections retain the complete credential in encrypted machine-local storage;
 only non-secret connection status and model metadata reach Settings.
+
+For an OpenAI account connection, AI Models also reads OpenAI's OIDC account
+profile and shows its email, explicit workspace identity/name, and plan when
+provided. A missing workspace stays **Not provided by OpenAI**; an email, user
+id, API organization, or OAuth client id is never presented as the workspace.
+Legacy ChatGPT connections may retain labeled details from their saved sign-in.
+**Refresh account details** updates the profile without changing the model or
+reconnecting. The direct ChatGPT-plan grant has no documented plan-limit or
+reset-time read API, so Settings links to **Manage usage in ChatGPT** rather
+than inventing quotas from local token counts. Account details stay in Settings,
+outside Chat, CLI snapshots, portable work-folder records and model prompts.
 
 Each open tab belongs to one work-folder. Selecting a tab takes the user back to
 that work-folder; selecting a work-folder restores its most recent tab. Browser

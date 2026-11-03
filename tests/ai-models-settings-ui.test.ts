@@ -96,6 +96,60 @@ async function setup(t: TestContext) {
   return { dom, requests, render, finish, select, type, submit, button, callbacks, changes, hint };
 }
 
+test("OpenAI account Settings shows identity and an honest usage link, and ignores an old profile after switching providers", async t => {
+  const ui = await setup(t);
+  const connected = [
+    ...models,
+    { ...models[0]!, provider: "openai", providerName: "OpenAI", name: "Account model", authType: "oauth" as const },
+  ];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ models: connected, status: { ...status, provider: "openai" } }));
+  await ui.dom.waitFor(() => ui.requests.some(request => request.path.startsWith("/api/agent/provider-account?")));
+  const profileRead = ui.requests.find(request => request.path.startsWith("/api/agent/provider-account?"))!;
+  const account = { provider: "openai", connected: true, email: "person@example.test", workspaceName: "Research", workspaceId: "selected",
+    plan: "pro", source: "provider", checkedAt: "2026-11-03T12:00:00Z", error: null, limitsAvailability: "not_provided", usageUrl: "https://chatgpt.com/settings/usage" };
+  await ui.finish(profileRead, { account });
+  const panel = () => ui.dom.container.querySelector<HTMLElement>('[aria-label="OpenAI account details"]');
+  assert.match(panel()!.textContent!, /person@example.test/);
+  assert.match(panel()!.textContent!, /Research/);
+  assert.match(panel()!.textContent!, /does not provide plan usage limits or reset times/);
+  assert.equal(panel()!.querySelector("a")!.getAttribute("href"), "https://chatgpt.com/settings/usage");
+  await ui.type("textarea", "Keep these unsaved Worker instructions");
+  await ui.hint();
+  const changedAccount = ui.requests.filter(request => request.path.startsWith("/api/agent/provider-account?")).at(-1)!;
+  await ui.finish(changedAccount, { account: { ...account, email: "changed@example.test" } });
+  assert.match(panel()!.textContent!, /changed@example.test/);
+  assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")!.value, "Keep these unsaved Worker instructions");
+  await ui.dom.act(() => ui.button("Refresh account details").click());
+  const oldRead = ui.requests.at(-1)!;
+  await ui.select('select[aria-label="Provider"]', "openrouter");
+  assert.equal(panel(), null);
+  assert.ok(oldRead.init.signal?.aborted);
+  await ui.finish(oldRead, { account: { ...account, email: "late@example.test" } });
+  assert.doesNotMatch(ui.dom.container.textContent!, /late@example|person@example|Research/);
+});
+
+test("OpenAI account Settings leaves missing workspace explicit and keeps API-key connections separate", async t => {
+  const ui = await setup(t);
+  const connected = [{ ...models[0]!, provider: "openai", providerName: "OpenAI", name: "Account model", authType: "oauth" as const }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ models: connected, status: { ...status, provider: "openai" } }));
+  await ui.dom.waitFor(() => ui.requests.some(request => request.path.startsWith("/api/agent/provider-account?")));
+  await ui.finish(ui.requests.find(request => request.path.startsWith("/api/agent/provider-account?"))!, { account: {
+    provider: "openai", connected: true, email: "person@example.test", workspaceName: null, workspaceId: null, plan: null, source: "provider", checkedAt: null, error: null,
+  } });
+  const panel = ui.dom.container.querySelector<HTMLElement>('[aria-label="OpenAI account details"]')!;
+  assert.match(panel.textContent!, /WorkspaceNot provided by OpenAI/);
+  await ui.dom.act(() => ui.button("Refresh account details").click());
+  await ui.finish(ui.requests.at(-1)!, { error: "sensitive upstream failure" }, 502);
+  assert.match(panel.textContent!, /account details are unavailable/);
+  assert.doesNotMatch(panel.textContent!, /sensitive upstream/);
+  await ui.dom.render(null);
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests.at(-1)!, modelResponse({ models: connected.map(model => ({ ...model, authType: "api_key" })), status: { ...status, provider: "openai" } }));
+  assert.equal(ui.dom.container.querySelector('[aria-label="OpenAI account details"]'), null);
+});
+
 test("obsolete scope reads and Strict Mode replay cannot overwrite the current target or request a missing work-folder", async (t) => {
   const ui = await setup(t);
   await ui.render(workFolder("a"), "work-folder", true);

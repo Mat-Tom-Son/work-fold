@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
 import { ImageModelSection, type ImageModelSettings } from "./ImageModelSection";
+import { ProviderAccountDetails } from "./ProviderAccountDetails";
 import { ConnectAi, featuredProviders } from "../onboarding/ConnectAi";
 import { RefreshCw } from "lucide-react";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
@@ -600,6 +601,9 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
             {removableAuth ? <button className="ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
         </div>
+        {authConfigured && providerAuth?.authType === "oauth" && (provider === "openai" || provider === "openai-codex") ? <ProviderAccountDetails
+          key={provider} provider={provider} scope={scope} workFolderId={workFolder?.id} revision={providerCatalog} active={active} fixtureMode={fixtureMode}
+        /> : null}
         {(!authConfigured || isAzure || editingApiKey) && apiKeySupported && provider ? <form id="ai-models-key-form" className={`ai-models-key-connection${isAzure ? " ai-models-azure-connection" : ""}`} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
           {isAzure ? <>
             {foundryErrors[provider] ? <p className="professional-field-hint" role="alert">{foundryErrors[provider]}</p> : null}

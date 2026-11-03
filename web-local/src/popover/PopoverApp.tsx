@@ -210,6 +210,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   const searchRef = useRef<HTMLInputElement | null>(null);
   const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-agent" : null);
   const refreshGeneration = useRef(0);
+  const runtimeUpdateRevision = useRef(0);
   const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixture ? {
     conversationId: "fixture-agent", requests: [
       { id: "fixture-extension", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
@@ -252,11 +253,12 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
 
   const refreshConversationRuntime = useCallback(async (id: string) => {
     if (popoverFixtureRequested) return;
+    const revision = runtimeUpdateRevision.current;
     try {
       const result = await api<{ runtime: ConversationRuntime }>(`/api/work-fold-agent/conversations/${encodeURIComponent(id)}/runtime`);
-      if (selectionRef.current === id) setConversationRuntime(result.runtime);
+      if (selectionRef.current === id && revision === runtimeUpdateRevision.current) setConversationRuntime(result.runtime);
     } catch {
-      if (selectionRef.current === id) setConversationRuntime(null);
+      if (selectionRef.current === id && revision === runtimeUpdateRevision.current) setConversationRuntime(null);
     }
   }, []);
 
@@ -323,11 +325,15 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       setChatTitle(summary.conversation?.title || "Untitled chat");
       setRequest(summary.latestRequest);
       const next = transcript.messages.filter((message) =>
-        (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
+        message.kind === "context_compaction" || (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
       // Polling refetches the same transcript most ticks; keeping the old
       // array identity for identical content spares re-renders and the
       // follow-scroll effect.
-      setMessages((current) => (sameTranscript(current, next) ? current : next));
+      setMessages((current) => {
+        const ids = new Set(next.map(message => message.id));
+        const merged = [...next, ...current.filter(message => message.kind === "context_compaction" && !ids.has(message.id))];
+        return sameTranscript(current, merged) ? current : merged;
+      });
       if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) {
         replaceStreamingAssistant("");
         activeThinkingIdRef.current = null;
@@ -429,6 +435,14 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
         return;
       }
       if (event.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: event.requests ?? [] });
+      if (event.type === "runtime" && event.runtime) {
+        runtimeUpdateRevision.current++;
+        setConversationRuntime(event.runtime);
+      }
+      if (event.type === "context_compacted" && event.chatMessage?.kind === "context_compaction") {
+        const notice = event.chatMessage;
+        setMessages((current) => current.some((message) => message.id === notice.id) ? current : [...current, notice]);
+      }
       if (event.type === "extension_ui_request" && event.request?.method === "notify") setActivity(event.request.message ?? "");
       if (event.type === "editor" && typeof event.text === "string") setText((current) => event.editorMode === "replace" ? event.text! : current + event.text);
       if (event.type === "status" || event.type === "tool") {
@@ -1109,7 +1123,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="agent-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
           {messages.map((message) => (
             <article
-              className={message.kind === "assistant_continuation" ? "work-continuation" : `popover-message ${message.role}`}
+              className={message.kind === "assistant_continuation" || message.kind === "context_compaction" ? "work-continuation" : `popover-message ${message.role}`}
               key={message.id}
               title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
             >

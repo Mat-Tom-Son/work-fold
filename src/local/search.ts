@@ -154,7 +154,7 @@ export async function searchWorkFolder(workFolderRoot: string, rawQuery: string,
       state.transcriptVersion = transcriptVersion; inspected++;
       while (state.messageIndex < messages.length && chats.length + files.length < maxMatches) {
         const message = messages[state.messageIndex++]!;
-        if (["conversation_lifecycle", "conversation_title", "assistant_continuation"].includes(message.kind ?? "")) continue;
+        if (["conversation_lifecycle", "conversation_title", "assistant_continuation", "context_compaction"].includes(message.kind ?? "")) continue;
         const text = message.content.replace(/\s+/g, " ");
         const at = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
         if (at >= 0) {

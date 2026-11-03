@@ -156,7 +156,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /target\.scrollHeight - target\.scrollTop - target\.clientHeight < 120/);
   assert.match(popover, /clearLiveSteps\(\);\s*followLatest\(\);/);
   assert.match(popover, /className="agent-jump-latest" type="button" onClick=\{\(\) => followLatest\("smooth"\)\}/);
-  assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
+  assert.match(popover, /sameTranscript\(current, merged\) \? current : merged/);
   // Staged chips render outside the composer conditional so a mid-turn drop
   // is confirmed on screen instead of surfacing after the turn settles.
   const chips = popover.indexOf('className="chips"');
