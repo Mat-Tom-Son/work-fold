@@ -587,13 +587,13 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
           <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
             {[true, false].map(connected => {
               // ChatGPT sign-in lives under OpenAI; the legacy entry shows only while it is connected.
-              const options = providerCatalog.filter(item => item.configured === connected && (item.id !== "openai-codex" || item.configured || item.id === provider));
+              const options = providerCatalog.filter(item => (item.configured && !foundryErrors[item.id]) === connected && (item.id !== "openai-codex" || item.configured || item.id === provider));
               return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</optgroup> : null;
             })}
           </select>
         </label>
         <div className="ai-models-connection-row">
-          <div><p>{providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
+          <div><p>{foundryErrors[provider] ? "Saved key · connection setup needed" : providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
           <div className="ai-models-connection-controls">
             {catalog?.refreshable ? <button className="ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="ai-models-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}

@@ -476,6 +476,23 @@ test("undoing base-model edits clears the connection's unsaved state", async (t)
   assert.equal(ui.button("Save Foundry settings").disabled, true);
 });
 
+test("a malformed connection shows setup needed while keeping its stored key available for repair", async (t) => {
+  const ui = await setup(t);
+  const providers = [{ id: "azure-anthropic", name: "Foundry Anthropic", configured: true, apiKey: true, oauth: false, modelCount: 0, authSource: "stored", authType: "api_key" }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, foundry: { "azure-anthropic": { baseUrl: "", deployments: [] } },
+    foundryErrors: { "azure-anthropic": "Saved connection settings need correction." } }));
+  assert.match(ui.dom.container.textContent!, /Saved key · connection setup needed/);
+  assert.equal(ui.dom.container.querySelector<HTMLOptGroupElement>('option[value="azure-anthropic"]')?.parentElement?.getAttribute("label"), "Available");
+  await ui.type("#ai-models-azure-endpoint", "https://example.services.ai.azure.com/anthropic");
+  await ui.type("#ai-models-azure-deployments", "claude-sonnet-4-6");
+  assert.equal(ui.button("Save Foundry settings").disabled, false);
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.apiKey, undefined);
+  await ui.finish(ui.requests.at(-1)!, { status, providers, models, foundryErrors: {}, foundry: { "azure-anthropic": { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["claude-sonnet-4-6"] } } });
+  assert.doesNotMatch(ui.dom.container.textContent!, /Saved key · connection setup needed/);
+});
+
 test("outside settings changes refresh clean forms without replacing unsaved drafts", async (t) => {
   const ui = await setup(t);
   await ui.render(workFolder("a"));

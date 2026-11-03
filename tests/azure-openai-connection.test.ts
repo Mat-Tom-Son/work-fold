@@ -234,6 +234,7 @@ test("malformed saved Foundry metadata is isolated, redacted, and repairable thr
   for (const id of ["azure", "azure-chat-completions"]) {
     const removed = await fetch(api.origin + "/api/agent/auth", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "agent", provider: id }) });
     assert.equal(removed.status, 200);
+    if (id === "azure") assert.ok(modelRuntime.getModel("azure", "gpt-4.1"), "removal restores Pi's native catalog in the same runtime");
   }
 });
 
@@ -242,7 +243,7 @@ test("malformed connection settings cannot release their stored key to a models.
   t.after(() => rm(root, { recursive: true, force: true }));
   const modelsPath = join(root, "models.json");
   await writeFile(modelsPath, JSON.stringify({ providers: { "azure-anthropic": {
-    baseUrl: "https://other.services.ai.azure.com/anthropic", api: "anthropic-messages", models: [{ id: "custom" }],
+    baseUrl: "https://other.services.ai.azure.com/anthropic", api: "anthropic-messages", apiKey: "synthetic-config-key", models: [{ id: "custom" }],
   } } }));
   const credentials = FileCredentialStore.inMemory({ "azure-anthropic": { type: "api_key", key: "synthetic-bound-key", env: {
     ANTHROPIC_FOUNDRY_BASE_URL: "https://expected.services.ai.azure.com/anthropic", [AZURE_OPENAI_DEPLOYMENTS_ENV]: "[broken",
@@ -253,6 +254,8 @@ test("malformed connection settings cannot release their stored key to a models.
   const model = modelRuntime.getModel("azure-anthropic", "custom")!;
   assert.ok(model, "the person's metadata remains intact");
   assert.equal(await modelRuntime.getAuth(model), undefined, "the broken connection cannot release a key");
+  assert.equal((await modelRuntime.getAvailable()).filter((item) => item.provider === "azure-anthropic").length, 0, "Pi does not offer models from the broken connection");
+  assert.ok((await listPiModels(root, provider)).filter((item) => item.provider === "azure-anthropic").every((item) => !item.authConfigured));
   const previousFetch = globalThis.fetch;
   let requests = 0;
   try {
@@ -261,6 +264,9 @@ test("malformed connection settings cannot release their stored key to a models.
     assert.equal(result.stopReason, "error");
     assert.equal(requests, 0);
   } finally { globalThis.fetch = previousFetch; }
+  await credentials.delete("azure-anthropic");
+  await resolvePiRuntime(root, provider, { requestProjectTrust: false });
+  assert.equal((await modelRuntime.getAuth(modelRuntime.getModel("azure-anthropic", "custom")!))?.auth.apiKey, "synthetic-config-key", "removing broken app settings restores native user configuration in the same runtime");
 });
 
 /** Real SDK streaming envelopes: no substitute inference or parsing implementation. */

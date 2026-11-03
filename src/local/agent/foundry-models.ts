@@ -66,7 +66,9 @@ export async function applyFoundryDeployments(auth: CredentialStore, registry: M
     try { return await storedFoundryConnection(auth, spec.id); }
     catch { return null; } // Isolate malformed saved data; Settings owns correction/removal.
   }));
-  const signature = JSON.stringify(settings);
+  // JSON arrays serialize undefined as null. Absence and invalid saved data
+  // must remain distinct so removing a broken connection rebuilds the runtime.
+  const signature = JSON.stringify(settings.map((value) => value === undefined ? "absent" : value === null ? "invalid" : value));
   const previous = applied.get(registry);
   if (previous?.signature === signature) return;
   if (previous) {
@@ -101,6 +103,11 @@ export async function applyFoundryDeployments(auth: CredentialStore, registry: M
       ...native, id: spec.id, name: spec.name, baseUrl: value?.baseUrl,
       auth: { apiKey: {
         ...keyAuth,
+        async check(input) {
+          if (value === null) return undefined;
+          const resolved = await keyAuth.resolve(input);
+          return resolved ? { type: "api_key", source: resolved.source } : undefined;
+        },
         async resolve(input) {
           if (value === null) return undefined; // No endpoint is authoritative until malformed settings are repaired.
           const resolved = await keyAuth.resolve(input);
