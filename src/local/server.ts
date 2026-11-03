@@ -904,13 +904,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // deletion finished by startup recovery below must reach Recently deleted rather
   // than an erase (docs/receipts-not-gates.md, F20).
   const recentlyDeleted = options.recentlyDeletedStore ?? await WorkFoldRecentlyDeletedStore.open({ rootPath: workFoldRecentlyDeletedRoot() });
-  // Retention is background work, exactly as the hourly path treats it: one
-  // expired work-folder entry can hold a large tree, and walking plus
-  // deleting it must not sit between the process starting and the port being
-  // bound. Nothing a task needs is behind this purge.
-  void recentlyDeleted.purgeExpired().catch((error: unknown) => {
-    console.warn(`work-fold could not clean Recently deleted at startup: ${errorMessage(error)}`);
-  });
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? developmentDefaults?.port ?? numberFromEnv("WORKFOLD_LOCAL_API_PORT", 4327);
   const extensionUi = options.extensionUiBridge ?? new RoutedPiExtensionUiBridge();
@@ -1383,6 +1376,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     void task.then(() => retentionTasks.delete(task));
   };
   const drainRetention = () => Promise.allSettled([...retentionTasks]);
+  // Start only once shutdown and listen-failure cleanup can own this work.
+  // A large expired tree must not delay the port becoming available.
+  trackRetention(recentlyDeleted.purgeExpired(), "work-fold could not clean Recently deleted at startup");
   trackRetention(state.requests.purgeExpiredIfDue(), "work-fold could not tidy its request records at startup");
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
@@ -1500,7 +1496,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
-      // In particular, startup request retention may still be writing its
+      // In particular, startup retention may still be writing its
       // durable lastPurgeAt even when no turn has ever run.
       await drainRetention();
     },
