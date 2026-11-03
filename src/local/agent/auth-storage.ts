@@ -39,7 +39,12 @@ export class HostCredentialStore implements CredentialStore {
 
   async read(providerId: string, options?: AuthOperationOptions): Promise<Credential | undefined> {
     options?.signal?.throwIfAborted();
-    return structuredClone(Object.hasOwn(this.data, providerId) ? this.data[providerId] : undefined);
+    const credential = Object.hasOwn(this.data, providerId) ? this.data[providerId] : undefined;
+    // Resolve $ENV references through Pi without turning text pasted into the
+    // desktop API-key field into executable configuration. Command keys retain
+    // their previous literal treatment here; Pi models.json owns that setup.
+    if (credential?.type !== "api_key" || !credential.key?.startsWith("$")) return structuredClone(credential);
+    return FileCredentialStore.inMemory({ [providerId]: structuredClone(credential) }).read(providerId, options);
   }
 
   async list(options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {

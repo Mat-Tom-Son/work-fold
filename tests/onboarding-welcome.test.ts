@@ -28,6 +28,8 @@ const provider = (id: string, name: string, extra: Record<string, unknown> = {})
 const providers = [
   provider("anthropic", "Anthropic", { oauth: true, oauthLabel: "Anthropic (Claude Pro/Max)" }),
   provider("azure", "Azure OpenAI"),
+  provider("azure-anthropic", "Microsoft Foundry (Anthropic)", { modelCount: 0 }),
+  provider("azure-chat-completions", "Microsoft Foundry (Chat Completions)", { modelCount: 0 }),
   provider("google", "Google"),
   provider("openai", "OpenAI", { oauth: true, oauthLabel: "Sign in with ChatGPT", oauthAvailable: true }),
   provider("openai-codex", "OpenAI Codex (legacy)", { apiKey: false, oauth: true }),
@@ -134,7 +136,7 @@ test("Connect your AI signs in where it can, searches the rest, and sends Azure 
 
   await dom.act(() => button(/^Another provider/)!.click());
   const listed = () => [...document.querySelectorAll(".connect-ai-others button")].map((item) => item.textContent);
-  assert.deepEqual(listed(), ["Azure OpenAI", "Google", "xAI"], "featured providers and the legacy ChatGPT entry stay out of the list");
+  assert.deepEqual(listed(), ["Azure OpenAI", "Microsoft Foundry (Anthropic)", "Microsoft Foundry (Chat Completions)", "Google", "xAI"], "featured providers and the legacy ChatGPT entry stay out of the list");
   const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
   await dom.act(() => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(search, "goo");
@@ -149,6 +151,13 @@ test("Connect your AI signs in where it can, searches the rest, and sends Azure 
   assert.match(document.body.textContent!, /Azure OpenAI needs a few more details/);
   await dom.act(() => button(/Set it up in Settings/)!.click());
   assert.equal(settingsOpened, 1);
+  for (const name of ["Microsoft Foundry (Anthropic)", "Microsoft Foundry (Chat Completions)"]) {
+    await dom.act(() => button(name)!.click());
+    assert.ok(document.body.textContent!.includes(name + " needs a few more details"));
+    assert.equal(document.querySelector("label[for=connect-ai-key]"), null);
+    await dom.act(() => button(/Set it up in Settings/)!.click());
+  }
+  assert.equal(settingsOpened, 3, "all Foundry formats lead to the complete connection form");
   await dom.act(() => button("xAI")!.click());
   assert.equal(document.querySelector("label[for=connect-ai-key]")?.textContent, "Paste your xAI API key");
 });

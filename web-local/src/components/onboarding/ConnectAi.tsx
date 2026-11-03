@@ -3,7 +3,7 @@ import { Check, ChevronRight, KeyRound, Loader2, Search } from "lucide-react";
 
 import { api, errorText } from "../../lib/api";
 import type { AgentModel, AgentProvider, AgentStatus } from "../../types";
-import { AZURE_OPENAI_PROVIDER } from "../../../../src/shared/azure-openai";
+import { FOUNDRY_PROVIDERS } from "../../../../src/shared/foundry";
 
 /**
  * Connect your AI (2026-10-11): the one place a person connects a model
@@ -29,7 +29,7 @@ export const featuredProviders: FeaturedProvider[] = [
 
 /** Providers that need more than a key, or that another entry already covers. */
 const hiddenProviders = new Set(["openai-codex"]);
-const settingsOnlyProviders = new Set([AZURE_OPENAI_PROVIDER]);
+const settingsOnlyProviders = new Set<string>(FOUNDRY_PROVIDERS.map((item) => item.id));
 
 type ModelsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus };
 type ConnectResult = { status: AgentStatus; models?: AgentModel[]; providers?: AgentProvider[] };

@@ -11422,6 +11422,23 @@ textarea:focus-visible,
   line-height: 1.5;
 }
 
+.professional-setup .ai-models-foundry-models {
+  min-width: 0;
+}
+
+.professional-setup .ai-models-foundry-models summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.professional-setup .ai-models-foundry-models[open] > .professional-field-hint {
+  margin: 10px 0;
+}
+
+.professional-setup .ai-models-foundry-models .professional-field + .professional-field {
+  margin-top: 10px;
+}
+
 .professional-setup .worker-instructions-field textarea {
   min-width: 0;
   width: 100%;

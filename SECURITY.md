@@ -49,6 +49,7 @@ work-fold is local first, but local does not mean that every action is sandboxed
 
 - A work-folder exposes an ordinary folder to the local application and Pi's filesystem tools.
 - Selected chat attachments and later tool results may be sent to the configured model provider as part of an agent turn.
+- Microsoft Foundry connections use Pi's native Responses, Chat Completions, and Anthropic adapters. Each connection owns its endpoint and encrypted API-key credential. Settings returns only non-secret connection metadata; saving does not call inference, and source-model headers are not copied into a different connection.
 - Skills can influence model behavior and may include executable scripts.
 - Extensions and Pi packages can execute code with the current user's permissions and can make network requests.
 - Creating or registering a work-folder authorizes work-fold to load project configuration from its `.pi` and other Pi-supported project resource locations. Registration is authorization, not code review, signing, or malware detection.

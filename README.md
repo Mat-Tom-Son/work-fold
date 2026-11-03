@@ -50,6 +50,12 @@ Use **Compare** in Version History or a selected work-folder restore point to re
 2. Open it. First run connects your AI (sign in with ChatGPT, Claude, or OpenRouter, or paste an API key; provider usage may cost money), optionally sets up Chrome and Computer Control, then asks for your first folder. You can change the model anytime in **Settings → AI Models**.
 3. Choose **Set up for me** to have the Worker organize the folder and give it a look, or just start a Chat.
 
+Microsoft Foundry chat deployments connect in **Settings → AI Models** using
+separate Responses, Chat Completions, and Anthropic connections. Enter the
+endpoint, API key, and deployment names for each format you use; all three can
+stay connected together. Existing Azure connections continue to work. See
+[model connections](docs/skills-and-extensions.md) for setup and scope.
+
 Files live on your computer. Content a Worker uses goes to your chosen model provider. Optional Web Access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
 
 ## Under the hood
