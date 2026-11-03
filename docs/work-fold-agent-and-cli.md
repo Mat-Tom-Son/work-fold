@@ -154,6 +154,16 @@ The local API and the desktop CLI share one kernel instance. Agent turns and Cha
 
 Capability snapshots are projections of Pi's native catalog. They do not create a second full-trust registry, activate inactive tools, bypass the work-folder registry, or install anything.
 
+Trusted Chat streams also carry throttled `runtime` snapshots during native Pi
+activity. Streaming text uses Pi's own token estimator until finalized usage is
+available; reconnect refreshes the current runtime. A successful compaction
+appends a presentation-only `system` message with kind `context_compaction`, then
+publishes `context_compacted` with that saved message. Manual, automatic and
+background compactions share this path. The notice contains no summary text,
+does not become a model message or result, and remains visible in desktop,
+menu-bar and paired-web transcripts. Failure and cancellation leave no success
+notice. The content-free CLI snapshots and task lifecycle are unchanged.
+
 This contract belongs only to work-fold's new profile and `.work-fold/` data. The kernel and its adapters never parse or project a legacy Workspace registry or `.workspace/` manifest. Registering a folder that contains preserved `.workspace/` data creates a new work-fold work-folder identity instead of adopting the old one.
 
 ## work-fold CLI

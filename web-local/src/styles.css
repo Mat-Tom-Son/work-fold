@@ -11228,6 +11228,29 @@ textarea:focus-visible,
   line-height: 1.55;
 }
 
+.ai-models-account-details {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ai-models-account-details dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.ai-models-account-details dl > div {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ai-models-account-details dt { color: var(--ui-text-muted); }
+.ai-models-account-details dd { margin: 0; overflow-wrap: anywhere; }
+.ai-models-account-details p { margin: 0; }
+
 .professional-setup .ai-models-remove-credential {
   min-height: 34px;
   padding: 4px 0;

@@ -118,8 +118,9 @@ test("Stop leaves native tool effects intact, suppresses late UI events and fenc
   assert.equal((await readFile(effectPath, "utf8").catch(() => "")), "");
   release.resolve();
   await until(async () => !(await client.getState()).isStreaming);
+  await until(async () => events.slice(stoppedEvents).some(event => event.type === "runtime" && event.runtime?.isStreaming === false));
   assert.equal(await readFile(effectPath, "utf8"), "effect happened once\n", "Stop does not erase an actual external effect");
-  assert.equal(events.length, stoppedEvents, "late native results do not repaint a stopped Chat");
+  assert.ok(events.slice(stoppedEvents).every(event => event.type === "runtime"), "late native results cannot revive the stopped turn; only its context meter refreshes");
   assert.deepEqual(client.getTurnWorkTrail(), stoppedTrail);
   assert.equal(await client.prompt("Continue with a fresh request.", { workFoldAgentTaskId: "new-task" }), "Ready for the next request.");
   assert.equal(await readFile(effectPath, "utf8"), "effect happened once\n", "reuse does not replay the tool");

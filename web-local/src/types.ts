@@ -101,7 +101,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation";
+  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation" | "context_compaction";
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
@@ -949,8 +949,10 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message" | "runtime" | "context_compacted";
   conversationId: string;
+  runtime?: ConversationRuntime;
+  chatMessage?: ChatMessage;
   running?: boolean;
   turnId?: string | null;
   message?: string;

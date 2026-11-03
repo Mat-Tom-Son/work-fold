@@ -86,6 +86,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   }, [message.content, message.id, message.role, onOpenWorkFolderFile, resolveWorkFolderPathLinks, workFolderLinkCacheKey]);
 
   if (message.kind === "assistant_continuation") return <p className="work-continuation" role="note">Continuing with the results from delegated work.</p>;
+  if (message.kind === "context_compaction") return <p className="work-continuation" role="note">{message.content}</p>;
 
   // An app's request is not the person's message: it gets its own quiet
   // treatment and says which app asked, instead of the person's bubble.

@@ -18,6 +18,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  estimateTokens,
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
@@ -102,9 +103,11 @@ export interface PiChatEvent {
     | "assistant_thinking"
     | "tool"
     | "resources_changed"
+    | "runtime"
     | "error"
     | "done";
   conversationId: string;
+  runtime?: PiConversationState;
   message?: string;
   text?: string;
   thinkingPhase?: "start" | "delta" | "end";
@@ -197,6 +200,8 @@ export interface PiTurnContext {
 }
 
 export interface PiConversationClientOptions {
+  /** Saves a presentation-only notice after Pi has actually compacted the session. */
+  onContextCompacted?: () => Promise<void>;
   /** Which role opens each request in place of Pi's coding preamble; a Worker unless set. */
   role?: WorkFoldSessionRole;
   /** Appended after this work-folder's instructions; absent for the work-fold agent scope. */
@@ -274,6 +279,9 @@ export class PiConversationClient extends EventEmitter {
   private resolvedRuntime: ResolvedPiRuntime | null = null;
   private uninstallRuntimeInspection: (() => void) | null = null;
   private unsubscribeSession: (() => void) | null = null;
+  private runtimeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  private streamingContextMessage: Parameters<typeof estimateTokens>[0] | null = null;
+  private compactionNotices: Promise<void> = Promise.resolve();
   /**
    * Every assistant text segment of the running turn, in order: one entry per
    * assistant message (text before a tool call, text after it, the final
@@ -442,6 +450,7 @@ export class PiConversationClient extends EventEmitter {
     } finally {
       if (this.activeThinkingTrailId) this.emitThinkingEvent("end", undefined, undefined);
       await this.drainHelpers();
+      await this.compactionNotices;
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       for (const usage of this.turnHelperUnreported) {
         if (this.lastTurnUsage) {
@@ -509,6 +518,7 @@ export class PiConversationClient extends EventEmitter {
     const session = await this.ensureSession();
     if (!options.quiet) this.emitEvent({ type: "status", message: "Compacting conversation context." });
     await this.modelCall.run({ purpose: "compaction" }, () => session.compact(customInstructions));
+    await this.compactionNotices;
   }
 
   /**
@@ -557,8 +567,16 @@ export class PiConversationClient extends EventEmitter {
 
   async getState(): Promise<PiConversationState> {
     const session = await this.ensureSession();
+    return this.conversationState(session);
+  }
+
+  private conversationState(session: AgentSession): PiConversationState {
     const stats = session.getSessionStats();
     const contextUsage = stats.contextUsage;
+    // Pi's saved projection excludes the assistant message still streaming.
+    // Use Pi's own estimator until its finalized provider usage replaces it.
+    const contextTokens = contextUsage?.tokens == null ? null
+      : contextUsage.tokens + (this.streamingContextMessage ? estimateTokens(this.streamingContextMessage) : 0);
     const modelContextWindow = session.model?.contextWindow;
     return {
       sessionId: session.sessionId,
@@ -568,10 +586,11 @@ export class PiConversationClient extends EventEmitter {
         model: { provider: session.model.provider, id: session.model.id, name: session.model.name },
       } : {}),
       usage: {
-        contextTokens: contextUsage?.tokens ?? null,
+        contextTokens,
         contextWindow: contextUsage?.contextWindow
           ?? (modelContextWindow && modelContextWindow > 0 ? modelContextWindow : null),
-        contextPercent: contextUsage?.percent ?? null,
+        contextPercent: contextTokens !== null && contextUsage?.contextWindow
+          ? contextTokens / contextUsage.contextWindow * 100 : null,
         totalTokens: stats.tokens.total,
         cost: stats.cost,
       },
@@ -754,6 +773,9 @@ export class PiConversationClient extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    if (this.runtimeUpdateTimer) clearTimeout(this.runtimeUpdateTimer);
+    this.runtimeUpdateTimer = null;
+    this.streamingContextMessage = null;
     for (const run of this.helperRuns) run.controller.abort();
     // A background Chat summary must not keep writing to a session being torn down.
     this.runtimeHost?.session.abortCompaction();
@@ -1087,6 +1109,14 @@ export class PiConversationClient extends EventEmitter {
     this.assertNativePromptSettled();
     const native = { session, owner: this.activeExtensionTurn! };
     this.nativePrompt = native;
+    const finishNative = () => {
+      if (this.nativePrompt !== native) return;
+      this.nativePrompt = null;
+      this.streamingContextMessage = null;
+      // Stop suppresses presentation events while tools drain, but the final
+      // saved context still needs to replace the last streaming estimate.
+      this.scheduleRuntimeUpdate(true, true);
+    };
     const startedAt = Date.now();
     const heartbeatMs = piHeartbeatMs();
     const timeoutMs = piTurnTimeoutMs();
@@ -1116,11 +1146,11 @@ export class PiConversationClient extends EventEmitter {
         }
         session.prompt(message, { source: "rpc", ...(images.length ? { images } : {}) }).then(
           () => {
-            if (this.nativePrompt === native) this.nativePrompt = null;
+            finishNative();
             finish(resolvePromise);
           },
           (error) => {
-            if (this.nativePrompt === native) this.nativePrompt = null;
+            finishNative();
             finish(() => rejectPromise(asError(error)));
           },
         );
@@ -1138,6 +1168,17 @@ export class PiConversationClient extends EventEmitter {
 
   private handleSessionEvent(event: AgentSessionEvent): void {
     const raw = event as any;
+    if ((raw.type === "message_start" || raw.type === "message_update") && raw.message?.role === "assistant") {
+      this.streamingContextMessage = raw.message;
+    } else if (raw.type === "agent_end" || raw.type === "compaction_start"
+      || raw.type === "message_end" && raw.message?.role === "assistant") {
+      this.streamingContextMessage = null;
+    }
+    this.scheduleRuntimeUpdate(raw.type === "message_end" || raw.type === "agent_end" || raw.type.startsWith("compaction_"));
+    if (raw.type === "compaction_end" && raw.result && !raw.aborted && !raw.errorMessage) {
+      this.compactionNotices = this.compactionNotices.then(() => this.options.onContextCompacted?.())
+        .catch(() => { console.warn("Could not save the Chat's context compaction notice."); });
+    }
     if (raw.type === "message_start" && raw.message?.role === "assistant") {
       this.finalAssistantSegment = null;
       this.assistantAttemptStartSegment = this.assistantSegments.length;
@@ -1657,7 +1698,21 @@ export class PiConversationClient extends EventEmitter {
 
   private emitEvent(event: Omit<PiChatEvent, "conversationId">): void {
     if (event.type === "assistant_message") event.assistantPresentation = this.liveAssistantPresentation();
-    this.emit("event", { ...event, turnId: this.extensionTurn.getStore()?.taskId ?? this.presentationTaskId ?? null, conversationId: this.conversationId } satisfies PiChatEvent);
+    this.emit("event", { ...event, turnId: event.type === "runtime" ? null : this.extensionTurn.getStore()?.taskId ?? this.presentationTaskId ?? null, conversationId: this.conversationId } satisfies PiChatEvent);
+  }
+
+  private scheduleRuntimeUpdate(immediate: boolean, afterDrain = false): void {
+    if (this.runtimeUpdateTimer && !immediate) return;
+    if (this.runtimeUpdateTimer) clearTimeout(this.runtimeUpdateTimer);
+    const session = this.runtimeHost?.session;
+    const owner = this.extensionTurn.getStore();
+    // Defer until Pi has persisted message_end, which it emits before saving.
+    this.runtimeUpdateTimer = setTimeout(() => {
+      this.runtimeUpdateTimer = null;
+      if (!session || this.runtimeHost?.session !== session || owner?.cancelled && !afterDrain) return;
+      this.emitEvent({ type: "runtime", runtime: this.conversationState(session) });
+    }, immediate ? 0 : 150);
+    this.runtimeUpdateTimer.unref?.();
   }
 }
 

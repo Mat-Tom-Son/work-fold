@@ -296,6 +296,8 @@ export function ChatPanel({
   const runtimePreviewIdRef = useRef(0);
   const workFolderIdRef = useRef(workFolder.id);
   const messagesLoadGenerationRef = useRef(0);
+  const runtimeUpdateRevisionRef = useRef(0);
+  const compactionNoticeOwnersRef = useRef(new Map<string, string>());
   const settlingTurnRef = useRef(false);
   const settlementRetryTimerRef = useRef<number | null>(null);
   useEffect(() => () => {
@@ -500,6 +502,8 @@ export function ChatPanel({
   }, [workFolder.id, fixtureMode, modelConfigurationRevision, composerModelRevision]);
 
   useEffect(() => {
+    runtimeUpdateRevisionRef.current++;
+    compactionNoticeOwnersRef.current.clear();
     setConversationRuntime(null);
   }, [workFolder.id, conversation?.id]);
 
@@ -514,13 +518,13 @@ export function ChatPanel({
       setConversationRuntime(null);
       return;
     }
-    if (running) return;
     if (fixtureMode) {
       setConversationRuntime(fixtureConversationRuntime);
       return;
     }
+    const revision = runtimeUpdateRevisionRef.current;
     void loadConversationRuntime(conversationId).then((runtime) => {
-      if (!cancelled) setConversationRuntime(runtime);
+      if (!cancelled && revision === runtimeUpdateRevisionRef.current) setConversationRuntime(runtime);
     });
     return () => {
       cancelled = true;
@@ -559,7 +563,7 @@ export function ChatPanel({
     if (fixtureConversation && fixtureConversationSummaryValue) {
       setConversation(fixtureConversationSummaryValue);
       onConversationActivated?.(fixtureConversationSummaryValue);
-      setMessages(fixtureConversation.messages.filter((message) => message.role !== "system"));
+      setMessages(fixtureConversation.messages.filter((message) => message.role !== "system" || message.kind === "context_compaction"));
       setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning && !eventPreviews.length ? "I’m reading the selected files and checking the generated outputs now." : ""));
       setContextAttachments(fixtureConversation.contextAttachments ?? []);
     } else {
@@ -609,7 +613,7 @@ export function ChatPanel({
   useEffect(() => {
     if (!conversation || !shouldKeepEventStreamOpen) return;
     const conversationId = conversation.id;
-    let openedOnce = false;
+    let closed = false;
     const turnStateGate = createChatTurnStateGate();
     eventStreamReadyConversationIdRef.current = null;
     // Queue numbers belong to one Chat's stream; a new Chat starts from its own.
@@ -618,13 +622,16 @@ export function ChatPanel({
     source.onopen = () => {
       eventStreamReadyConversationIdRef.current = conversationId;
       setError(null);
-      if (openedOnce && !pendingSendRef.current && !postingPendingSendRef.current) {
-        // Reconcile messages that may have landed while Windows was asleep or
-        // the renderer was disconnected. Runtime previews remain intact while
-        // a turn is still active.
+      const revision = runtimeUpdateRevisionRef.current;
+      void loadConversationRuntime(conversationId).then((runtime) => {
+        if (!closed && runtime && revision === runtimeUpdateRevisionRef.current) setConversationRuntime(runtime);
+      });
+      if (!pendingSendRef.current && !postingPendingSendRef.current) {
+        // A newly reopened stream may belong to an inactive tab, not just a
+        // reconnect. Reconcile saved background compaction notices in both
+        // cases. Runtime previews remain intact while a turn is active.
         void loadMessages(conversationId, false).catch(() => undefined);
       }
-      openedOnce = true;
       if (pendingSendRef.current?.conversation.id === conversationId) void postPendingMessage();
     };
     source.onerror = (streamError) => {
@@ -657,6 +664,15 @@ export function ChatPanel({
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
       if (data.conversationId !== conversationId) return;
+      if (data.type === "runtime" && data.runtime) {
+        runtimeUpdateRevisionRef.current++;
+        setConversationRuntime(data.runtime);
+      }
+      if (data.type === "context_compacted" && data.chatMessage?.kind === "context_compaction") {
+        const notice = data.chatMessage;
+        compactionNoticeOwnersRef.current.set(notice.id, `${workFolder.id}:${conversationId}`);
+        setMessages((current) => current.some((message) => message.id === notice.id) ? current : [...current, notice]);
+      }
       const turnFrame = data.type === "turn_state" || data.type === "turn_snapshot";
       if (!turnFrame && data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current) return;
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
@@ -802,6 +818,7 @@ export function ChatPanel({
       }
     };
     return () => {
+      closed = true;
       if (eventStreamReadyConversationIdRef.current === conversationId) eventStreamReadyConversationIdRef.current = null;
       source.close();
       cancelStreamingFlush();
@@ -1196,7 +1213,7 @@ export function ChatPanel({
     try {
       if (fixtureMode) return [];
       const result = await api<{ messages: ChatMessage[] }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}`);
-      transcript = result.messages.filter((message) => message.role !== "system");
+      transcript = result.messages.filter((message) => message.role !== "system" || message.kind === "context_compaction");
       if (generation !== messagesLoadGenerationRef.current) return transcript;
       if (settleStreamingTurn) {
         keepSettledTurnArtifacts = settledTurnHasNewAssistantMessage(
@@ -1215,7 +1232,11 @@ export function ChatPanel({
         } else {
           suppressMessageEnterIdsRef.current.clear();
         }
-        return transcript;
+        // A read begun before a background compaction may arrive after its
+        // saved notice event. Keep that notice until the next read includes it.
+        const ids = new Set(transcript.map((message) => message.id));
+        return [...transcript, ...current.filter((message) => message.kind === "context_compaction" && !ids.has(message.id)
+          && compactionNoticeOwnersRef.current.get(message.id) === `${workFolder.id}:${conversationId}`)];
       });
       applyModelConversationTitle(conversationId, result.messages);
       if (pinToBottom) {
@@ -2231,9 +2252,10 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker, rea
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
-  const contextLabel = runtime.usage.contextTokens === null
-    ? "Context recalculates after the next reply"
-    : `${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
+  const contextLabel = runtime.isCompacting ? "Compacting conversation context"
+    : runtime.usage.contextTokens === null
+      ? "Context recalculates after the next model reply"
+      : `Estimated ${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
   const modelLabel = runtime.model?.name
     ?? runtime.model?.id
     ?? displayModelLabel(status.provider ?? "", status.model ?? "");
@@ -2513,7 +2535,7 @@ function ComposerModelPicker({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={reasoning ? `${ariaLabel}. Reasoning: ${thinkingLevelLabel(reasoning.level)}` : ariaLabel}
-        title={disabled ? "Model and reasoning changes apply between turns" : reasoning ? `${title} · Reasoning: ${thinkingLevelLabel(reasoning.level)}` : title}
+        title={[title, reasoning ? `Reasoning: ${thinkingLevelLabel(reasoning.level)}` : null, disabled ? "Model and reasoning changes apply between turns" : null].filter(Boolean).join(" · ")}
         onClick={() => { if (!disabled) setOpen((current) => !current); }}
         onKeyDown={(event) => {
           if (disabled || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;

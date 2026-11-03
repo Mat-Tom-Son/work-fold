@@ -152,6 +152,7 @@ import {
   type PiOAuthHooks,
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
+import { readOpenAiAccount } from "./agent/openai-account.js";
 import { ImageModelPreference, imageModelPreferencePath, normalizeImageModelChoice } from "./agent/image-model-preference.js";
 import { GeneratedImageStore, isGeneratedImageId } from "./agent/generated-image-store.js";
 import { getFoundrySettings, saveFoundryConnection } from "./agent/foundry-connection.js";
@@ -2866,6 +2867,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       await state.imageModelPreference.set(model);
     }
     sendJson(res, await imageModelSettings(state));
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/provider-account") {
+    const provider = url.searchParams.get("provider");
+    if (provider !== "openai" && provider !== "openai-codex") throw badRequest("Choose an OpenAI account connection.");
+    const scope = await modelScope(url.searchParams.get("scope"), url.searchParams.get("workFolderId"));
+    const runtime = await resolvePiRuntime(scope.workFolderRoot, state.runtimeProvider, { requestProjectTrust: false });
+    const account = await readOpenAiAccount(runtime, provider);
+    res.setHeader("Cache-Control", "no-store");
+    sendJson(res, { account });
     return;
   }
   if (method === "GET" && url.pathname === "/api/agent/models") {
@@ -13395,6 +13406,15 @@ async function getClient(
   const operationsGuide = workFolderOperationsGuideForScope(workFolderId);
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
     role: workFolderId === workFoldAgentScopeId ? "work-fold-agent" : "worker",
+    async onContextCompacted() {
+      const chatMessage: ChatMessage = {
+        id: randomUUID(), role: "system", kind: "context_compaction",
+        content: "Conversation context compacted. Earlier messages were summarized to make room; your chat history is still available.",
+        createdAt: new Date().toISOString(),
+      };
+      await appendMessage(workFolderRoot, conversationId, chatMessage);
+      broadcast(state, streamKey(workFolderId, conversationId), { type: "context_compacted", conversationId, chatMessage });
+    },
     ...(operationsGuide ? { operationsGuide } : {}),
     imageModel: () => state.imageModelPreference.get(),
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.

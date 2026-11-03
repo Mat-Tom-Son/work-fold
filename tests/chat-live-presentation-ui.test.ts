@@ -3,9 +3,15 @@ import test, { type TestContext } from "node:test";
 import { createRequire, registerHooks } from "node:module";
 import { createElement } from "react";
 import { createDomHarness } from "./support/dom.js";
-import type { ChatMessage, ChatStreamEvent, LocalEventStream, WorkFolderSummary } from "../web-local/src/types.js";
+import type { ChatMessage, ChatStreamEvent, ConversationRuntime, LocalEventStream, WorkFolderSummary } from "../web-local/src/types.js";
 
 const userMessage: ChatMessage = { id: "request", role: "user", content: "Update the notes", createdAt: "2026-09-27T12:00:00Z" };
+
+const runtime: ConversationRuntime = {
+  sessionId: "chat", model: { provider: "fixture", id: "chat", name: "Fixture" },
+  usage: { contextTokens: 1000, contextWindow: 10000, contextPercent: 10, totalTokens: 1000, cost: 0 },
+  thinkingLevel: "off", activeTools: [], isStreaming: false, isCompacting: false,
+};
 
 async function chatHarness(t: TestContext, readTranscript = async () => ({ messages: [userMessage] }), overrideApi?: (path: string, options: { method?: string; body?: unknown }) => unknown, targetConversationId: string | null = "chat") {
   const dom = await createDomHarness();
@@ -52,13 +58,87 @@ async function chatHarness(t: TestContext, readTranscript = async () => ({ messa
   HTMLElement.prototype.scrollIntoView = () => {};
   HTMLElement.prototype.scrollTo = () => {};
   const { ChatPanel } = await import("../web-local/src/components/chat/ChatPanel.js");
-  await dom.render(createElement(ChatPanel, { surfaceTabId: "chat-tab", workFolder: { id: "folder", name: "Notes", workFolderRoot: "/folder" } as WorkFolderSummary,
-    workFolderCustomizations: {}, targetConversationId, contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
+  const render = (target: string | null, active = true) => dom.render(createElement(ChatPanel, { surfaceTabId: "chat-tab", active, workFolder: { id: "folder", name: "Notes", workFolderRoot: "/folder" } as WorkFolderSummary,
+    workFolderCustomizations: {}, targetConversationId: target, contextPathRequest: null, selectedPath: null, onAgentFinished() {} }));
+  await render(targetConversationId);
   if (targetConversationId) await dom.waitFor(() => streams.has("/api/work-folders/folder/conversations/chat/events"));
   const stream = streams.get("/api/work-folders/folder/conversations/chat/events")!;
   const emit = async (value: Omit<ChatStreamEvent, "conversationId">) => { await dom.act(async () => { stream.onmessage?.({ data: JSON.stringify({ conversationId: "chat", ...value }) }); await Promise.resolve(); }); await dom.settle(); };
-  return { dom, stream, emit };
+  return { dom, stream, streams, emit, render };
 }
+
+test("reactivating an idle Chat reads a background compaction notice saved while its stream was closed", async t => {
+  let messages: ChatMessage[] = [userMessage];
+  const { dom, stream, streams, render } = await chatHarness(t, async () => ({ messages }));
+  await dom.waitFor(() => dom.container.textContent!.includes(userMessage.content));
+  await render("chat", false);
+  const notice: ChatMessage = { id: "background-compaction", role: "system", kind: "context_compaction", content: "Background context compacted.", createdAt: "2026-09-27T12:01:00Z" };
+  messages = [userMessage, notice];
+  await render("chat", true);
+  const reopened = streams.get("/api/work-folders/folder/conversations/chat/events")!;
+  assert.notEqual(reopened, stream);
+  await dom.act(() => reopened.onopen?.());
+  await dom.waitFor(() => !!dom.container.querySelector('[role="note"]'));
+  assert.match(dom.container.textContent!, /Background context compacted/);
+  assert.equal(dom.container.querySelectorAll('[role="note"]').length, 1);
+});
+
+test("switching Chats cannot carry a previous Chat's compaction notices into the selected transcript", async t => {
+  const notice: ChatMessage = { id: "compacted-a", role: "system", kind: "context_compaction", content: "Chat A was compacted.", createdAt: "2026-09-27T12:01:00Z" };
+  const { dom, emit, render } = await chatHarness(t, async () => ({ messages: [userMessage, notice] }), path => {
+    if (path === "/api/work-folders/folder/conversations") return { conversations: [
+      { id: "chat", title: "Notes", updatedAt: "2026-09-27T12:00:00Z" }, { id: "other", title: "Other", updatedAt: "2026-09-27T11:00:00Z" },
+    ] };
+    if (path.endsWith("/conversations/other")) return { messages: [{ ...userMessage, id: "other-request", content: "Chat B request" }] };
+  });
+  await dom.waitFor(() => !!dom.container.querySelector('[role="note"]'));
+  await emit({ type: "context_compacted", chatMessage: notice });
+  await render("other");
+  await dom.waitFor(() => dom.container.textContent!.includes("Chat B request"));
+  assert.doesNotMatch(dom.container.textContent!, /Chat A was compacted/);
+  assert.equal(dom.container.querySelector('[role="note"]'), null);
+});
+
+test("context usage updates during a turn and late runtime reads cannot restore old usage", async (t) => {
+  const reads: Array<(value: unknown) => void> = [];
+  const { dom, emit, stream } = await chatHarness(t, undefined, path => {
+    if (path.endsWith("/runtime")) return new Promise(resolve => reads.push(resolve));
+  });
+  await emit({ type: "turn_state", running: true, turnId: "live" });
+  await emit({ type: "runtime", runtime: { ...runtime, isStreaming: true, usage: { ...runtime.usage, contextTokens: 9000, contextPercent: 90 } } });
+  const meter = () => dom.container.querySelector<HTMLElement>(".conversation-context-meter")!;
+  assert.match(meter().title, /Estimated 9k of 10k context/);
+  assert.ok(meter().classList.contains("warning"));
+  assert.equal(meter().querySelector(".value")!.getAttribute("stroke-dasharray"), "90 100");
+  await dom.act(async () => { reads.splice(0).forEach(resolve => resolve({ runtime })); });
+  assert.match(meter().title, /Estimated 9k/);
+  await emit({ type: "runtime", runtime: { ...runtime, isCompacting: true } });
+  assert.match(meter().title, /Compacting conversation context/);
+  await emit({ type: "runtime", runtime: { ...runtime, usage: { ...runtime.usage, contextTokens: null, contextPercent: null } } });
+  assert.equal(meter().querySelector(".value"), null, "old pressure clears after compaction");
+  assert.match(meter().title, /recalculates after the next model reply/);
+  // Reconnect without a new turn must refresh context too.
+  await dom.act(() => stream.onopen?.());
+  await dom.act(async () => { reads.splice(0).forEach(resolve => resolve({ runtime })); });
+  assert.match(meter().title, /Estimated 1k/);
+});
+
+test("compaction notices appear once, survive delayed transcript reads, and reopen from storage", async (t) => {
+  let release!: (value: { messages: ChatMessage[] }) => void;
+  let held = false;
+  const notice: ChatMessage = { id: "compacted", role: "system", kind: "context_compaction", content: "Conversation context compacted.", createdAt: "2026-09-27T12:01:00Z" };
+  let messages = [userMessage, notice];
+  const { dom, emit, stream } = await chatHarness(t, async () => held ? new Promise(resolve => { release = resolve; }) : { messages });
+  await dom.waitFor(() => !!dom.container.querySelector('[role="note"]'));
+  held = true;
+  await dom.act(() => { stream.onopen?.(); stream.onopen?.(); });
+  await dom.waitFor(() => !!release);
+  await emit({ type: "context_compacted", chatMessage: notice });
+  await emit({ type: "context_compacted", chatMessage: notice });
+  await dom.act(async () => release({ messages: [userMessage] }));
+  assert.equal(dom.container.querySelectorAll('[role="note"]').length, 1);
+  assert.match(dom.container.textContent!, /Conversation context compacted/);
+});
 
 test("reopening the attachment picker reads files created since its previous visit", async (t) => {
   let name = "Before.txt";
