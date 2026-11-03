@@ -154,8 +154,8 @@ import {
 } from "./agent/pi-runtime-config.js";
 import { ImageModelPreference, imageModelPreferencePath, normalizeImageModelChoice } from "./agent/image-model-preference.js";
 import { GeneratedImageStore, isGeneratedImageId } from "./agent/generated-image-store.js";
-import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
-import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
+import { getFoundrySettings, saveFoundryConnection } from "./agent/foundry-connection.js";
+import { AZURE_OPENAI_PROVIDER, foundryProvider, normalizeFoundryConnection, type FoundryConnection } from "../shared/foundry.js";
 import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
 import {
   classifyWorkFoldAgentAttachments,
@@ -2885,7 +2885,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       status: normalizeStatus(status),
       providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
-      azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider),
+      ...(await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider)),
       instructions: scope.id === workFoldAgentScopeId
         ? null
         : await getPiWorkerInstructions(scope.workFolderRoot, state.runtimeProvider),
@@ -2946,14 +2946,19 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
-    const body = await readJsonBody<{ workFolderId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown }>(state, req);
+    const body = await readJsonBody<{ workFolderId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown; foundry?: unknown }>(state, req);
     const scope = await modelScope(body.scope, body.workFolderId);
     if (!body.provider?.trim()) throw badRequest("A provider is required.");
-    if (!body.model?.trim() && !body.apiKey?.trim() && body.azure === undefined) throw badRequest("A model or API key is required.");
-    let azure: AzureOpenAIConnection | undefined;
+    if (!body.model?.trim() && !body.apiKey?.trim() && body.azure === undefined && body.foundry === undefined) throw badRequest("A model or API key is required.");
+    if (body.azure !== undefined && body.foundry !== undefined) throw badRequest("Submit one Foundry connection at a time.");
+    let azure: FoundryConnection | undefined;
     if (body.azure !== undefined) {
       if (body.provider !== AZURE_OPENAI_PROVIDER) throw badRequest("Azure settings require the Azure OpenAI provider.");
-      try { azure = normalizeAzureOpenAIConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+      try { azure = normalizeFoundryConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+    }
+    if (body.foundry !== undefined) {
+      if (!foundryProvider(body.provider)) throw badRequest("Foundry settings require a Microsoft Foundry provider.");
+      try { azure = normalizeFoundryConnection(body.foundry, body.provider); } catch (error) { throw badRequest(errorMessage(error)); }
     }
     const available = await listPiModels(scope.workFolderRoot, state.runtimeProvider);
     const selected = available.find((model) => model.provider === body.provider && model.id === body.model);
@@ -2961,14 +2966,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       if (body.model && !azure.deployments.includes(body.model)) throw badRequest("Choose one of the Azure deployment names you entered.");
     } else if (body.model && !selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
     const providerAuth = azure
-      ? available.some((model) => model.provider === body.provider && model.authConfigured)
+      ? (await getPiSetupStatus(scope.workFolderRoot, state.runtimeProvider)).providers.some((item) => item.id === body.provider && item.configured)
       : selected?.authConfigured;
     if (!body.apiKey?.trim() && !providerAuth) {
-      throw badRequest(`Enter an API key for ${selected?.providerName ?? "Azure OpenAI"}.`);
+      throw badRequest(`Enter an API key for ${selected?.providerName ?? foundryProvider(body.provider)?.name ?? body.provider}.`);
     }
     await runCapabilityMutation(state, scope, "global", async () => {
       if (azure) {
-        await saveAzureOpenAIConnection(scope.workFolderRoot, azure, body.apiKey, state.runtimeProvider);
+        await saveFoundryConnection(scope.workFolderRoot, azure, body.apiKey, state.runtimeProvider, body.provider!);
       } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.workFolderRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
         // A first connection also gives every Worker a model to start on.
@@ -2983,7 +2988,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       models: (await listPiModels(scope.workFolderRoot, state.runtimeProvider)).map((model) => ({
         ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
       })),
-      ...(azure ? { azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider) } : {}),
+      ...(azure ? await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider) : {}),
     });
     return;
   }
@@ -2999,7 +3004,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       models: await listPiModels(scope.workFolderRoot, state.runtimeProvider),
       status: normalizeStatus(status),
       providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
-      ...(body.provider === AZURE_OPENAI_PROVIDER ? { azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider) } : {}),
+      ...(foundryProvider(body.provider) ? await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider) : {}),
     });
     return;
   }

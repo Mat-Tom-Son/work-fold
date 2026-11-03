@@ -97,15 +97,30 @@ refresh backed by its tool-capable text-model API; the last good result is
 cached outside every work-folder and Pi's built-in catalog remains a fallback. A
 restricted work-folder app's connection is managed with that app in **Settings → Apps**.
 
-Azure OpenAI setup in AI Models takes an endpoint, an API key, and the names
-of the person's deployed models (separated by commas or new lines). These
-names become the available Azure choices; choosing a built-in Pi model or
-writing a mapping is not required. One deployment is selected separately for
-each work-folder and the work-fold agent. Connection settings are machine-wide,
-use Pi's existing provider credential storage, and can be edited without
-re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
-Saving configures existing deployments at one endpoint; it does not test
-inference, sign in to Azure, or discover deployments.
+Microsoft Foundry setup in AI Models offers **Microsoft Foundry / Azure
+(OpenAI)**, **Microsoft Foundry (Chat Completions)**, and **Microsoft Foundry
+(Anthropic)**. They can be connected together; each keeps its own endpoint,
+API key, and deployment names (separated by commas or new lines). The original
+Azure/OpenAI provider retains Pi's per-model Responses or Chat Completions choice,
+including existing saved deployments; the separate Chat Completions connection
+selects that format explicitly. Names become the available model
+choices without a prerequisite catalog-model selection or mapping. An optional
+**Deployment model details** disclosure lets the person choose a base model
+from Pi's catalog when a custom deployment name hides its context, image, or
+reasoning capabilities. New Chat Completions and Anthropic connections give
+unknown aliases Pi's generic limits until a base model is chosen, with the
+default-limits choice labeled explicitly. Native Pi `models.json` definitions
+and overrides remain available for models outside the base-model picker.
+A base-model id later removed from the catalog makes only that deployment
+unavailable; Settings remains usable to repair or remove it.
+Pi owns provider auth, streaming, and tool-call parsing.
+One deployment is selected separately for each work-folder and the work-fold
+agent. Connection settings are machine-wide, use Pi's existing provider
+credential storage, and can be edited without re-entering the key. Resource or
+full inference URLs normalize to `/openai/v1` or `/anthropic` for the selected
+connection. Saving configures existing chat deployments; it does not test
+inference, sign in to Azure, or discover deployments. This setup uses API keys;
+Microsoft Entra ID authentication and non-chat model operations are separate work.
 
 **First run and Connect your AI (2026-10-11).** With no work-folder yet, the
 app opens on a short first run: a welcome that says what work-fold is, **Connect

@@ -393,6 +393,106 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   await ui.finish(ui.requests.at(-1)!, { status: { ...savedStatus, model: "fast" }, azure: { ...azure, baseUrl: "https://new.openai.azure.com/openai/v1", deployments: ["my-deployment"] }, models: [savedModels[0]] });
 });
 
+test("Foundry forms keep endpoint drafts separate, clear keys on switching, and save Anthropic through its own provider", async (t) => {
+  const ui = await setup(t);
+  const azure = { baseUrl: "https://existing.openai.azure.com/openai/v1", deployments: ["gpt"] };
+  const empty = { baseUrl: "", deployments: [] };
+  const foundry = { azure, "azure-chat-completions": empty, "azure-anthropic": empty };
+  const providers = [
+    { id: "openrouter", name: "OpenRouter", configured: true, apiKey: true, oauth: false, modelCount: 2 },
+    ...["azure", "azure-chat-completions", "azure-anthropic"].map((id) => ({ id, name: id, configured: false, apiKey: true, oauth: false, modelCount: 0 })),
+  ];
+  const foundryModels = { "azure-anthropic": [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }], "azure-chat-completions": [{ id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" }] };
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, azure, foundry, foundryModels }));
+  await ui.select('select[aria-label="Provider"]', "azure-anthropic");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, "");
+  await ui.type("#ai-models-azure-endpoint", "https://claude.services.ai.azure.com/anthropic/v1/messages");
+  await ui.type("#ai-models-azure-deployments", "reviewer");
+  await ui.select("#ai-models-foundry-base-0", "claude-sonnet-4-6");
+  await ui.type("#ai-models-api-key", "discard-on-switch");
+  await ui.select('select[aria-label="Provider"]', "azure-chat-completions");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-api-key")?.value, "");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, "");
+  await ui.type("#ai-models-azure-endpoint", "https://chat.services.ai.azure.com/openai/v1");
+  await ui.type("#ai-models-azure-deployments", "fast");
+  await ui.select('select[aria-label="Provider"]', "azure-anthropic");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, "https://claude.services.ai.azure.com/anthropic/v1/messages");
+  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#ai-models-foundry-base-0")?.value, "claude-sonnet-4-6");
+  await ui.type("#ai-models-api-key", "anthropic-synthetic-key");
+  await ui.submit("connection");
+  const submitted = { baseUrl: "https://claude.services.ai.azure.com/anthropic", deployments: ["reviewer"], modelIds: { reviewer: "claude-sonnet-4-6" } };
+  assert.deepEqual(ui.requests.at(-1)!.body, { scope: "work-folder", workFolderId: "a", provider: "azure-anthropic", apiKey: "anthropic-synthetic-key", foundry: submitted });
+  const connected = providers.map((item) => item.id === "azure-anthropic" ? { ...item, configured: true, authSource: "stored", authType: "api_key" } : item);
+  await ui.finish(ui.requests.at(-1)!, { status, models, providers: connected, azure, foundry: { ...foundry, "azure-anthropic": submitted }, foundryModels });
+  assert.equal(selectedModel(ui.dom), "model-a", "connection saves leave the Worker model alone");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-api-key")?.value, "");
+  assert.equal(ui.button("Save Foundry settings").disabled, true);
+  await ui.dom.act(() => ui.button("Remove API Key").click());
+  assert.deepEqual(ui.requests.at(-1)!.body, { scope: "work-folder", workFolderId: "a", provider: "azure-anthropic" });
+  await ui.finish(ui.requests.at(-1)!, { status, models, providers, azure, foundry });
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, "");
+  await ui.select('select[aria-label="Provider"]', "azure");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, azure.baseUrl);
+  await ui.select('select[aria-label="Provider"]', "azure-chat-completions");
+  assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-azure-endpoint")?.value, "https://chat.services.ai.azure.com/openai/v1", "unsaved details survive another provider's save and removal");
+});
+
+test("Settings exposes an unavailable saved base model and lets the person repair it without a new key", async (t) => {
+  const ui = await setup(t);
+  const connection = { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["team"], modelIds: { team: "removed-model" } };
+  const providers = [
+    { id: "openrouter", name: "OpenRouter", configured: true, apiKey: true, oauth: false, modelCount: 2 },
+    { id: "azure-anthropic", name: "Foundry Anthropic", configured: true, apiKey: true, oauth: false, modelCount: 0, authSource: "stored", authType: "api_key" },
+  ];
+  const foundryModels = { "azure-anthropic": [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }] };
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, foundry: { "azure-anthropic": connection }, foundryModels }));
+  await ui.select('select[aria-label="Provider"]', "azure-anthropic");
+  assert.match(ui.dom.container.textContent!, /Choose a base model again/);
+  assert.equal(ui.dom.container.querySelector<HTMLDetailsElement>(".ai-models-foundry-models")?.open, true);
+  assert.equal(ui.dom.container.querySelector<HTMLSelectElement>("#ai-models-foundry-base-0")?.value, "removed-model");
+  await ui.select("#ai-models-foundry-base-0", "claude-sonnet-4-6");
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.apiKey, undefined);
+  assert.deepEqual((ui.requests.at(-1)!.body.foundry as any).modelIds, { team: "claude-sonnet-4-6" });
+  await ui.finish(ui.requests.at(-1)!, { status, providers, models: [...models, { provider: "azure-anthropic", id: "team", name: "team", authConfigured: true }],
+    foundry: { "azure-anthropic": { ...connection, modelIds: { team: "claude-sonnet-4-6" } } }, foundryModels });
+  assert.doesNotMatch(ui.dom.container.textContent!, /Choose a base model again/);
+});
+
+test("undoing base-model edits clears the connection's unsaved state", async (t) => {
+  const ui = await setup(t);
+  const connection = { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["team"] };
+  const providers = [{ id: "azure-anthropic", name: "Foundry Anthropic", configured: true, apiKey: true, oauth: false, modelCount: 1, authSource: "stored", authType: "api_key" }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, models: [{ ...models[0]!, provider: "azure-anthropic", id: "team" }],
+    status: { ...status, provider: "azure-anthropic", model: "team" }, foundry: { "azure-anthropic": connection },
+    foundryModels: { "azure-anthropic": [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }] } }));
+  assert.equal(ui.button("Save Foundry settings").disabled, true);
+  await ui.select("#ai-models-foundry-base-0", "claude-sonnet-4-6");
+  assert.equal(ui.button("Save Foundry settings").disabled, false);
+  await ui.select("#ai-models-foundry-base-0", "");
+  assert.equal(ui.button("Save Foundry settings").disabled, true);
+});
+
+test("a malformed connection shows setup needed while keeping its stored key available for repair", async (t) => {
+  const ui = await setup(t);
+  const providers = [{ id: "azure-anthropic", name: "Foundry Anthropic", configured: true, apiKey: true, oauth: false, modelCount: 0, authSource: "stored", authType: "api_key" }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers, foundry: { "azure-anthropic": { baseUrl: "", deployments: [] } },
+    foundryErrors: { "azure-anthropic": "Saved connection settings need correction." } }));
+  assert.match(ui.dom.container.textContent!, /Saved key · connection setup needed/);
+  assert.equal(ui.dom.container.querySelector<HTMLOptGroupElement>('option[value="azure-anthropic"]')?.parentElement?.getAttribute("label"), "Available");
+  await ui.type("#ai-models-azure-endpoint", "https://example.services.ai.azure.com/anthropic");
+  await ui.type("#ai-models-azure-deployments", "claude-sonnet-4-6");
+  assert.equal(ui.button("Save Foundry settings").disabled, false);
+  await ui.submit("connection");
+  assert.equal(ui.requests.at(-1)!.body.apiKey, undefined);
+  await ui.finish(ui.requests.at(-1)!, { status, providers, models, foundryErrors: {}, foundry: { "azure-anthropic": { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["claude-sonnet-4-6"] } } });
+  assert.doesNotMatch(ui.dom.container.textContent!, /Saved key · connection setup needed/);
+});
+
 test("outside settings changes refresh clean forms without replacing unsaved drafts", async (t) => {
   const ui = await setup(t);
   await ui.render(workFolder("a"));
