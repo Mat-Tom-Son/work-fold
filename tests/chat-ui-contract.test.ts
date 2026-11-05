@@ -338,7 +338,13 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /body: \{ scope: "work-folder", workFolderId: workFolder\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
   assert.match(styles, /\.composer-reasoning-levels button \{[\s\S]*?font: inherit;/);
-  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: var\(--work-fold-type-2xs\);[\s\S]*?font-weight: 700;/);
+  assert.match(styles, /\.composer-model-chip \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: var\(--work-fold-type-2xs\);[\s\S]*?font-weight: 700;/);
+  // The context ring is its own button with a popover that compacts (2026-11-05),
+  // and the reasoning levels stay on one row.
+  assert.match(chatPanel, /<ConversationContextControl runtime=\{conversationRuntime\}[^>]*onCompact=\{compactFromContextMenu\}/);
+  assert.match(chatPanel, /\{compacting \? "Compacting" : "Compact Chat"\}/);
+  assert.match(styles, /\.composer-reasoning-levels \{[\s\S]*?flex-wrap: nowrap;/);
+  assert.match(styles, /\.composer-model-menu \{\s*min-width: min-content;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 

@@ -66,16 +66,16 @@
   transform-origin: bottom left;
 }
 
-:where(.composer-model-control .composer-model-menu) {
+:where(.composer-model-control .composer-model-menu, .composer-context-control .composer-context-menu) {
   transform-origin: bottom right;
 }
 
-:where(:is(.composer-model-control, .composer-attach-control)[data-menu-placement="below"] .composer-command-menu) {
+:where(:is(.composer-model-control, .composer-attach-control, .composer-context-control)[data-menu-placement="below"] .composer-command-menu) {
   --work-fold-menu-rise: -4px;
   transform-origin: top left;
 }
 
-:where(.composer-model-control[data-menu-placement="below"] .composer-model-menu) {
+:where(.composer-model-control[data-menu-placement="below"] .composer-model-menu, .composer-context-control[data-menu-placement="below"] .composer-context-menu) {
   transform-origin: top right;
 }
 

@@ -6238,7 +6238,7 @@ button.context-chip.message-attachment:focus-visible {
   pointer-events: auto;
 }
 
-.conversation-context-meter {
+.composer-model-chip {
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -6270,7 +6270,7 @@ button.context-chip.message-attachment:focus-visible {
   font-weight: 700;
 }
 
-.conversation-context-meter {
+.composer-model-chip {
   max-width: min(260px, 50%);
   cursor: pointer;
   font-family: inherit;
@@ -6280,25 +6280,25 @@ button.context-chip.message-attachment:focus-visible {
   text-align: left;
 }
 
-.conversation-context-meter:hover,
-.conversation-context-meter:focus-visible {
+.composer-model-chip:hover,
+.composer-model-chip:focus-visible {
   border-color: rgba(101, 116, 139, 0.15);
   color: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-700)));
   background: rgba(100, 116, 139, 0.07);
 }
 
-.conversation-context-meter:focus-visible {
+.composer-model-chip:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-600))) 46%, transparent);
   outline-offset: 1px;
 }
 
-.conversation-context-meter.active {
+.composer-model-chip.active {
   border-color: rgba(101, 116, 139, 0.15);
   color: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-700)));
   background: rgba(100, 116, 139, 0.07);
 }
 
-.conversation-context-meter:disabled {
+.composer-model-chip:disabled {
   cursor: default;
   opacity: 0.7;
 }
@@ -6317,7 +6317,7 @@ button.context-chip.message-attachment:focus-visible {
   cursor: default;
 }
 
-.composer-model-control > .conversation-context-meter {
+.composer-model-control > .composer-model-chip {
   max-width: 100%;
 }
 
@@ -6483,12 +6483,6 @@ button.context-chip.message-attachment:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.conversation-context-value {
-  flex: 0 0 auto;
-  color: var(--ui-text-muted, #5c6460);
-  font-variant-numeric: tabular-nums;
 }
 
 .composer textarea {
@@ -7261,7 +7255,7 @@ to {
 .app-shell[data-theme="dark"] .composer-command-menu-heading,
 .app-shell[data-theme="dark"] .composer-command-description,
 .app-shell[data-theme="dark"] .composer-command-trigger,
-.app-shell[data-theme="dark"] .conversation-context-meter {
+.app-shell[data-theme="dark"] .composer-model-chip {
   color: #94a3b8;
 }
 
@@ -7284,8 +7278,8 @@ to {
   color: #dbeafe;
 }
 
-.app-shell[data-theme="dark"] .conversation-context-meter:hover,
-.app-shell[data-theme="dark"] .conversation-context-meter:focus-visible {
+.app-shell[data-theme="dark"] .composer-model-chip:hover,
+.app-shell[data-theme="dark"] .composer-model-chip:focus-visible {
   color: #dbeafe;
   background: rgba(96, 165, 250, 0.12);
   border-color: rgba(96, 165, 250, 0.2);
@@ -7295,7 +7289,7 @@ to {
   stroke: rgba(148, 163, 184, 0.22);
 }
 
-.app-shell[data-theme="dark"] .conversation-context-meter.active {
+.app-shell[data-theme="dark"] .composer-model-chip.active {
   color: #dbeafe;
   background: rgba(96, 165, 250, 0.12);
 }
@@ -21069,7 +21063,7 @@ to {
 
 .composer-reasoning-levels {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px;
   margin: 0 4px 6px;
   padding: 3px;
@@ -22621,4 +22615,134 @@ to {
 /* An installed row is a button; its description reads left-aligned like the title. */
 .capabilities-resource-card {
   text-align: left;
+}
+
+/* The context ring is its own button beside the model chip. Its popover shows
+   how full the context is and compacts the Chat. */
+
+.composer-context-control {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.conversation-context-meter {
+  width: var(--work-fold-control-md);
+  height: var(--work-fold-control-md);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 110ms;
+}
+
+.conversation-context-meter:is(:hover, .active) {
+  background: var(--ui-surface-hover);
+}
+
+.conversation-context-meter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--surface-tab-accent, var(--work-folder-selection-accent, var(--ui-accent))) 46%, transparent);
+  outline-offset: 1px;
+}
+
+.composer-context-control .composer-context-menu {
+  left: auto;
+  right: 0;
+  width: 248px;
+  max-width: calc(100vw - 32px);
+}
+
+.composer-context-control[data-menu-placement="below"] .composer-command-menu {
+  top: calc(100% + 9px);
+  bottom: auto;
+}
+
+.composer-context-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+
+.composer-context-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-context-summary strong {
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-xl);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.composer-context-summary.pending {
+  font-size: var(--work-fold-type-sm);
+}
+
+.composer-context-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-text-muted, #5c6460) 20%, transparent);
+}
+
+.composer-context-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--ui-accent-solid)));
+}
+
+.composer-context-bar.warning span {
+  background: #d97706;
+}
+
+.composer-context-detail {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-command-menu > button.composer-context-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--work-fold-control-md);
+  padding: 0 10px;
+  border-top: 1px solid var(--ui-border);
+  border-radius: 0 0 7px 7px;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+.composer-command-menu > button.composer-context-compact:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+}
+
+.composer-command-menu > button.composer-context-compact:disabled {
+  color: var(--ui-text-muted);
+  cursor: default;
+}
+
+/* Reasoning levels stay on one row: the model menu widens to fit them, and
+   long model names keep their ellipsis instead of widening it. */
+.composer-model-menu {
+  min-width: min-content;
+}
+
+.composer-model-options {
+  contain: inline-size;
 }
