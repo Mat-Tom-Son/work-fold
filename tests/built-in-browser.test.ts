@@ -260,9 +260,10 @@ test("a misspelled word gets macOS's own guesses when Electron has none", { skip
 
 test("browser tabs reopen, take a right-click menu, and show which Worker is using them", async () => {
   const hook = await readFile("web-local/src/hooks/useBrowserTabs.ts", "utf8");
-  assert.match(hook, /closedRef\.current = \[\.\.\.closedRef\.current, known\]\.slice\(-25\)/, "closed tabs are remembered for Reopen Closed Tab");
+  assert.match(hook, /closedRef\.current = \[\.\.\.closedRef\.current, \{ \.\.\.known, at: Date\.now\(\) \}\]\.slice\(-25\)/, "closed tabs are remembered for Reopen Closed Tab");
   const app = await readFile("web-local/src/App.tsx", "utf8");
-  assert.match(app, /event\.shiftKey && event\.key\.toLocaleLowerCase\(\) === "t"[\s\S]*browser\.reopenClosed\(\)/, "Cmd/Ctrl+Shift+T reopens the last closed browser tab");
+  assert.match(app, /event\.shiftKey && event\.key\.toLocaleLowerCase\(\) === "t"[\s\S]*reopenClosedTab\(\)/, "Cmd/Ctrl+Shift+T reopens the tab closed last");
+  assert.match(app, /function reopenClosedTab\(\)[\s\S]*browser\.lastClosedAt\(\) > tabs\.lastClosedSurfaceTabAt\(\)[\s\S]*browser\.reopenClosed\(\)/, "a browser tab closed last comes back first");
   assert.match(app, /onBrowserTabMenu=\{browser\.openTabMenu\}/);
   assert.match(app, /conversations\/\$\{conversationId\}\/abort/, "the Worker chip's Stop ends that Chat's turn");
   const host = await readFile("desktop/src/built-in-browser.ts", "utf8");

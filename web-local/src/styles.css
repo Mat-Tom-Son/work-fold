@@ -22617,3 +22617,8 @@ to {
   font-size: var(--work-fold-type-xs);
   font-weight: 400;
 }
+
+/* An installed row is a button; its description reads left-aligned like the title. */
+.capabilities-resource-card {
+  text-align: left;
+}
