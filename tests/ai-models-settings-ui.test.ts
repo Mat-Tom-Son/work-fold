@@ -112,7 +112,7 @@ test("OpenAI account Settings shows identity and an honest usage link, and ignor
   const panel = () => ui.dom.container.querySelector<HTMLElement>('[aria-label="OpenAI account details"]');
   assert.match(panel()!.textContent!, /person@example.test/);
   assert.match(panel()!.textContent!, /Research/);
-  assert.match(panel()!.textContent!, /does not provide plan usage limits or reset times/);
+  assert.match(panel()!.textContent!, /available through a separate Codex subscription connection/);
   assert.equal(panel()!.querySelector("a")!.getAttribute("href"), "https://chatgpt.com/settings/usage");
   await ui.type("textarea", "Keep these unsaved Worker instructions");
   await ui.hint();
@@ -139,7 +139,7 @@ test("OpenAI account Settings leaves missing workspace explicit and keeps API-ke
     provider: "openai", connected: true, email: "person@example.test", workspaceName: null, workspaceId: null, plan: null, source: "provider", checkedAt: null, error: null,
   } });
   const panel = ui.dom.container.querySelector<HTMLElement>('[aria-label="OpenAI account details"]')!;
-  assert.match(panel.textContent!, /WorkspaceNot provided by OpenAI/);
+  assert.match(panel.textContent!, /WorkspaceNot returned by this sign-in/);
   await ui.dom.act(() => ui.button("Refresh account details").click());
   await ui.finish(ui.requests.at(-1)!, { error: "sensitive upstream failure" }, 502);
   assert.match(panel.textContent!, /account details are unavailable/);
@@ -148,6 +148,72 @@ test("OpenAI account Settings leaves missing workspace explicit and keeps API-ke
   await ui.render(workFolder("a"));
   await ui.finish(ui.requests.at(-1)!, modelResponse({ models: connected.map(model => ({ ...model, authType: "api_key" })), status: { ...status, provider: "openai" } }));
   assert.equal(ui.dom.container.querySelector('[aria-label="OpenAI account details"]'), null);
+});
+
+test("Codex Settings renders actual zero usage, window length and reset time and refreshes on focus", async t => {
+  const ui = await setup(t);
+  const connected = [{ ...models[0]!, provider: "openai-codex", providerName: "OpenAI (Codex subscription)", authType: "oauth" as const }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ models: connected, status: { ...status, provider: "openai-codex" } }));
+  await ui.dom.waitFor(() => ui.requests.some(request => request.path.startsWith("/api/agent/provider-account?")));
+  const account = { provider: "openai-codex", connected: true, email: "person@example.test", workspaceName: "Synthetic workspace", workspaceId: "selected", plan: "team", source: "provider", checkedAt: "2026-11-04T20:00:00Z", error: null,
+    limitsAvailability: "available", availableResets: 3, applicableResets: 0, limits: [{ id: "codex", name: "Codex", primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1794449000 }, secondary: null }] };
+  await ui.finish(ui.requests.find(request => request.path.startsWith("/api/agent/provider-account?"))!, { account });
+  const panel = ui.dom.container.querySelector<HTMLElement>('[aria-label="Codex subscription usage"]')!;
+  assert.match(panel.textContent!, /7-day window0% used/);
+  assert.match(panel.textContent!, /Rate-limit resets for this workspace: 0 \(3 on account\)/);
+  assert.equal(panel.querySelector("time")?.getAttribute("datetime"), new Date(1794449000 * 1000).toISOString());
+  assert.equal(panel.querySelector("progress")?.value, 0);
+  const count = ui.requests.length;
+  await ui.dom.act(() => window.dispatchEvent(new Event("focus")));
+  assert.equal(ui.requests.length, count + 1);
+  await ui.finish(ui.requests.at(-1)!, { account: { ...account, limits: [{ ...account.limits[0], primary: { ...account.limits[0]!.primary, usedPercent: 12 } }] } });
+  assert.match(ui.dom.container.textContent!, /12% used/);
+  await ui.dom.act(() => ui.button("Refresh account details").click());
+  await ui.finish(ui.requests.at(-1)!, { account: { ...account, applicableResets: null } });
+  assert.match(ui.dom.container.textContent!, /Rate-limit resets on account: 3/);
+  assert.doesNotMatch(ui.dom.container.textContent!, /Rate-limit resets for this workspace/);
+  await ui.render(workFolder("a"), "work-folder", false, { active: false });
+  const inactiveCount = ui.requests.length;
+  await ui.dom.act(() => window.dispatchEvent(new Event("focus")));
+  assert.equal(ui.requests.length, inactiveCount, "hidden Settings releases focus refresh listeners");
+});
+
+test("a direct connection saved without identity offers its native reconnect action", async t => {
+  const ui = await setup(t);
+  const connected = [{ ...models[0]!, provider: "openai", providerName: "OpenAI", authType: "oauth" as const, oauthSupported: true }];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ models: connected, status: { ...status, provider: "openai" } }));
+  await ui.dom.waitFor(() => ui.requests.some(request => request.path.startsWith("/api/agent/provider-account?")));
+  await ui.finish(ui.requests.find(request => request.path.startsWith("/api/agent/provider-account?"))!, { account: {
+    provider: "openai", connected: true, email: null, workspaceName: null, workspaceId: null, plan: null, source: null, checkedAt: null, error: null, identityNeedsReconnect: true, limitsAvailability: "unsupported",
+  } });
+  assert.match(ui.dom.container.textContent!, /saved without your account identity/);
+  assert.doesNotMatch(ui.dom.container.textContent!, /Not provided by OpenAI/);
+  await ui.dom.act(() => ui.button("Reconnect to load email").click());
+  assert.equal(ui.requests.at(-1)?.path, "/api/agent/oauth");
+  assert.equal(ui.requests.at(-1)?.body?.provider, "openai");
+  await ui.finish(ui.requests.at(-1)!, { status: { ...status, provider: "openai" }, models: connected });
+});
+
+test("Codex is a distinct available connection and signing in preserves a working model", async t => {
+  const ui = await setup(t);
+  const providers = [
+    { id: "openrouter", name: "OpenRouter", configured: true, authType: "api_key", authSource: "stored", apiKey: true, oauth: false, modelCount: 2 },
+    { id: "openai-codex", name: "OpenAI", configured: false, apiKey: false, oauth: true, oauthAvailable: true, oauthLabel: "Sign in with ChatGPT", modelCount: 1 },
+  ];
+  await ui.render(workFolder("a"));
+  await ui.finish(ui.requests[0]!, modelResponse({ providers }));
+  const option = ui.dom.container.querySelector<HTMLOptionElement>('option[value="openai-codex"]');
+  assert.equal(option?.textContent, "OpenAI (Codex subscription)");
+  await ui.select('select[aria-label="Provider"]', "openai-codex");
+  assert.equal(selectedModel(ui.dom), "model-a");
+  await ui.dom.act(() => ui.button("Sign in with ChatGPT").click());
+  const request = ui.requests.at(-1)!;
+  assert.equal(request.path, "/api/agent/oauth");
+  assert.equal(request.body?.provider, "openai-codex");
+  await ui.finish(request, { status, models, providers: providers.map(provider => provider.id === "openai-codex" ? { ...provider, configured: true, authType: "oauth", authSource: "stored" } : provider) });
+  assert.equal(selectedModel(ui.dom), "model-a");
 });
 
 test("obsolete scope reads and Strict Mode replay cannot overwrite the current target or request a missing work-folder", async (t) => {

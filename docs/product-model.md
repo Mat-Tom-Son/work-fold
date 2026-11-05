@@ -150,8 +150,10 @@ GPT-6.1 Sol; Claude: Claude Opus 4.8; OpenRouter: GPT-6 Luna; Google: Gemini
 3.1 Pro; otherwise the provider's first model), so every Worker without its own
 choice, the composer, and the status agree on the model in use. A failed turn
 whose reply already explains the failure shows no second status line. ChatGPT
-sign-in is offered once, under OpenAI; Pi's legacy ChatGPT entry appears only
-while it is connected. When the desktop app includes Chrome and Computer Control
+sign-in defaults to the direct OpenAI connection. Settings also offers
+**OpenAI (Codex subscription)** as a distinct connection for Codex models and
+account/usage details; choosing it never silently replaces a working model.
+When the desktop app includes Chrome and Computer Control
 and either is not yet set up, first run adds an optional **Let your Worker use
 your Mac** step before the folder, with each tool's setup inline; the included
 tools' setup works with or without a work-folder.
@@ -164,16 +166,29 @@ uses the installation UUID Pi saves in global settings, never a project identity
 Connections retain the complete credential in encrypted machine-local storage;
 only non-secret connection status and model metadata reach Settings.
 
-For an OpenAI account connection, AI Models also reads OpenAI's OIDC account
-profile and shows its email, explicit workspace identity/name, and plan when
-provided. A missing workspace stays **Not provided by OpenAI**; an email, user
-id, API organization, or OAuth client id is never presented as the workspace.
-Legacy ChatGPT connections may retain labeled details from their saved sign-in.
-**Refresh account details** updates the profile without changing the model or
-reconnecting. The direct ChatGPT-plan grant has no documented plan-limit or
-reset-time read API, so Settings links to **Manage usage in ChatGPT** rather
-than inventing quotas from local token counts. Account details stay in Settings,
-outside Chat, CLI snapshots, portable work-folder records and model prompts.
+For a direct OpenAI account connection, native Pi validates and retains the sign-in
+ID token and its narrow identity metadata in the protected credential. AI Models
+shows the retained email even when OIDC UserInfo returns only a subject. Older
+direct connections saved without identity show a one-time reconnect action,
+rather than claiming that OpenAI did not provide the email. A refresh that
+returns no ID token preserves the verified identity; optional identity-check
+failure after token rotation clears that identity while retaining the replacement
+auth credential so model access does not break.
+
+The direct ChatGPT-plan grant does not authorize Codex workspace/usage reads.
+**View Codex connection** selects the distinct **OpenAI (Codex subscription)**
+entry; a person signs in explicitly to that connection. Its Settings details
+read the selected workspace name/plan and actual provider usage windows, used
+percentages, reset timestamps and available reset count. Reads pin the workspace
+header and reject usage whose returned account id differs or is missing. They
+never infer a workspace from email, a user id, an API organization or a client id,
+and never substitute a default workspace. No reset is consumed by this display.
+Usage refreshes every minute while the details are open and on window focus.
+**Refresh account details** also updates it without changing the model. A
+missing field stays **Not returned by this sign-in**; a failed read says
+**Unavailable** and explains the failure. **Manage usage in ChatGPT** opens the
+corresponding provider usage page. Account details stay in Settings, outside
+Chat, CLI snapshots, portable work-folder records and model prompts.
 
 Each open tab belongs to one work-folder. Selecting a tab takes the user back to
 that work-folder; selecting a work-folder restores its most recent tab. Browser

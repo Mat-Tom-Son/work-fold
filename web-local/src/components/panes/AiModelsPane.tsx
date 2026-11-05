@@ -587,9 +587,8 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
         <label className="professional-field"><span className="sr-only">Provider</span>
           <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
             {[true, false].map(connected => {
-              // ChatGPT sign-in lives under OpenAI; the legacy entry shows only while it is connected.
-              const options = providerCatalog.filter(item => (item.configured && !foundryErrors[item.id]) === connected && (item.id !== "openai-codex" || item.configured || item.id === provider));
-              return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</optgroup> : null;
+              const options = providerCatalog.filter(item => (item.configured && !foundryErrors[item.id]) === connected);
+              return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.id === "openai-codex" ? "OpenAI (Codex subscription)" : item.name}</option>)}</optgroup> : null;
             })}
           </select>
         </label>
@@ -603,7 +602,10 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
         </div>
         {authConfigured && providerAuth?.authType === "oauth" && (provider === "openai" || provider === "openai-codex") ? <ProviderAccountDetails
           key={provider} provider={provider} scope={scope} workFolderId={workFolder?.id} revision={providerCatalog} active={active} fixtureMode={fixtureMode}
+          busy={operationBusy} onReconnect={oauthSupported ? () => void configure("oauth") : undefined}
+          onSelectCodex={providerCatalog.some(item => item.id === "openai-codex" && item.oauth) ? () => changeProvider("openai-codex") : undefined}
         /> : null}
+        {provider === "openai-codex" ? <p className="professional-field-hint">Uses Codex subscription access and can show this connection's workspace, usage limits and reset times. Connecting an account keeps an already configured model selection.</p> : null}
         {(!authConfigured || isAzure || editingApiKey) && apiKeySupported && provider ? <form id="ai-models-key-form" className={`ai-models-key-connection${isAzure ? " ai-models-azure-connection" : ""}`} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
           {isAzure ? <>
             {foundryErrors[provider] ? <p className="professional-field-hint" role="alert">{foundryErrors[provider]}</p> : null}
