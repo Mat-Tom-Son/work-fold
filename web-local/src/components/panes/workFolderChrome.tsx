@@ -768,7 +768,7 @@ function WorkFolderNameEditor({
     <div className="work-folder-name-editor">
       <form className="work-folder-name-form" onSubmit={(event) => void handleSubmit(event)}>
         <label>
-          <span>work-folder Name</span>
+          <span>Name</span>
           <input
             value={name}
             maxLength={80}
@@ -923,7 +923,7 @@ function WorkFolderAppearancePanel({
       </div>
       <input ref={proposalFileInputRef} className="work-folder-banner-file-input" type="file" accept=".json,application/json" onChange={(event) => void importAppearanceProposal(event)} tabIndex={-1} aria-hidden="true" />
       {proposalImportError ? <div className="work-folder-appearance-import-error" role="alert">{proposalImportError}</div> : null}
-      <WorkFolderBannerPreview identity={identity} name={workFolder.name} editable={activeSection === "banner"} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />
+      <WorkFolderBannerPreview identity={identity} name={workFolder.name} editable={activeSection === "banner"} showIcon={activeSection === "icon"} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />
       {!appearancePasses ? <div className="work-folder-appearance-audit warning" role="status"><Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span></div> : null}
       <div className="work-folder-appearance-tab-panel" key={activeSection} role="tabpanel" id={`folder-appearance-panel-${activeSection}`} aria-labelledby={`folder-appearance-tab-${activeSection}`}>
         {activeSection === "banner" ? <>

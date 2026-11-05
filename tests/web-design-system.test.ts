@@ -338,7 +338,7 @@ test("work-folder customization is visible, compact, and separate from structura
   assert.match(workFolderChromeSource, /aria-label="work-folder color presets"/);
   assert.doesNotMatch(workFolderChromeSource, /workFolderLookOptions|work-folder color pairs/);
   assert.match(workFolderChromeSource, /function WorkFolderNameEditor/);
-  assert.match(workFolderChromeSource, /<span>work-folder Name<\/span>/);
+  assert.match(workFolderChromeSource, /<span>Name<\/span>/);
   assert.match(workFolderChromeSource, /finally\s*\{\s*setSaving\(false\);\s*\}/);
   assert.doesNotMatch(workFolderChromeSource, /Fine tune|Saved on this computer|Start with a balanced color pair|Shown in the work-folder menu and tabs/);
   assert.match(workFolderChromeSource, /const workFolderIconPageSize = 96/);
@@ -469,7 +469,7 @@ test("every left-pane mode keeps content padding below the shared work-folder ba
 
 test("the appearance preview mirrors the work-folder header rather than the active surface", () => {
   // Compact, Band and Cover lead with the icon tile; every layout shows the work-folder's own name.
-  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy">(?:\{identity\.bannerLayout !== "card" \? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity\.Icon \/><\/span> : null\})?<strong>\{name\}<\/strong>/);
+  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy">(?:\{identity\.bannerLayout !== "card" \|\| showIcon \? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity\.Icon \/><\/span> : null\})?<strong>\{name\}<\/strong>/);
   assert.doesNotMatch(workFolderChromeSource, /work-folder-appearance-preview-copy"><strong>Files<\/strong>/);
   assert.match(customizationCss, /\.work-folder-appearance-preview\s*\{[\s\S]*?min-height:\s*112px;/);
 });

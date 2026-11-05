@@ -3,9 +3,11 @@ import { ArrowReset20Regular, Crop20Regular } from "@fluentui/react-icons";
 import type { WorkFolderAppearanceBannerFraming } from "../../../../src/shared/work-folder-appearance";
 import { workFolderBannerImageStyle, workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 
-export function WorkFolderBannerPreview({ identity, name, onFrame, editable = true }: {
+export function WorkFolderBannerPreview({ identity, name, onFrame, editable = true, showIcon = false }: {
   identity: WorkFolderIdentity;
   name: string;
+  /** Show the icon even in the Card layout, so choosing one shows somewhere. */
+  showIcon?: boolean;
   onFrame: (framing: WorkFolderAppearanceBannerFraming) => void;
   editable?: boolean;
 }) {
@@ -106,7 +108,7 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
           }}
         >
           {identity.bannerImage ? <span className="work-folder-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={workFolderBannerImageStyle(frame)} /><span /></span> : null}
-          <span className="work-folder-appearance-preview-copy">{identity.bannerLayout !== "card" ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}<strong>{name}</strong></span>
+          <span className="work-folder-appearance-preview-copy">{identity.bannerLayout !== "card" || showIcon ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}<strong>{name}</strong></span>
         </div>
       </div>)}
     </div>

@@ -22441,23 +22441,44 @@ to {
 .work-folder-banner-layouts button {
   display: grid;
   gap: 6px;
-  padding: 6px 6px 8px;
-  color: var(--ui-text);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
+  padding: 0;
+  color: var(--ui-text-muted);
+  background: none;
+  border: 0;
   font-size: var(--work-fold-type-xs);
-  font-weight: 600;
-  text-align: center;
-}
-
-.work-folder-banner-layouts button:hover {
-  background: var(--ui-surface-hover);
+  text-align: left;
 }
 
 .work-folder-banner-layouts button.active {
+  color: var(--ui-text);
+  font-weight: 600;
+}
+
+.work-folder-banner-layouts button:hover .work-folder-layout-diagram {
+  border-color: var(--ui-border-strong);
+}
+
+.work-folder-banner-layouts button.active .work-folder-layout-diagram {
   border-color: var(--work-folder-accent-border-state, var(--ui-accent));
   box-shadow: 0 0 0 1px var(--work-folder-accent-border-state, var(--ui-accent));
+}
+
+/* Customize sections share one rhythm. */
+.work-folder-appearance-modal .work-folder-banner-layouts + .work-folder-banner-section-heading {
+  margin-top: 8px;
+}
+
+/* Inside Customize the icon picker is part of the page, not a popover. */
+.app-shell .work-folder-appearance-modal .work-folder-icon-picker {
+  box-shadow: none;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-icon-search input {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .work-folder-layout-diagram {
@@ -22465,7 +22486,8 @@ to {
   height: 46px;
   overflow: hidden;
   background: var(--ui-surface-subtle);
-  border-radius: 5px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
 }
 
 .work-folder-layout-diagram i,
@@ -22509,3 +22531,11 @@ to {
 .work-folder-layout-diagram.layout-band b { top: 15px; left: 19px; width: 36%; }
 .work-folder-layout-diagram.layout-cover i { height: 38px; }
 .work-folder-layout-diagram.layout-cover b { top: 30px; left: 19px; width: 36%; }
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-card .work-folder-appearance-preview-copy:has(.work-folder-pane-layout-icon) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
