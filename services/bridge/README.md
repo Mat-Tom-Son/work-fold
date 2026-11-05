@@ -69,6 +69,31 @@ needed, with Attach and Send/Stop at its edges. Navigation, menus and secondary
 actions use the same restrained hover surface. On phones the same sidebar
 becomes a focus-trapped drawer.
 
+## Online pages
+
+The bridge is the front door to the page service for publishers
+([Pages, "Publishing (stage 2)"](../../docs/pages.md#bridge)). The desktop
+publishes, unpublishes, checks in, and changes online entries under
+`/api/device/pages` with its device token. The owner's browser reads pages and
+entries, exports a spreadsheet, and unpublishes under `/api/pages` with the
+password session alone — no paired browser and no running desktop — and
+unpublishing also needs the same origin and the session's CSRF token. The web
+client's **Published** view uses those routes; it opens from the offline and
+pairing screens and from the paired sidebar, next to Settings.
+
+Each route calls the page service's internal API with the authenticated
+account's id in the path and the shared secret in `x-work-fold-pages-secret`.
+Page ids must be `pg_` plus 26 lowercase base32 characters (`a`–`z`, `2`–`7`)
+before anything is proxied. Publish bodies stream through up to 26 MiB and
+data changes up to 8 MiB (the page service's own bound); every other page
+route keeps the ordinary 96 KiB JSON bound. Snapshots and
+spreadsheets stream back without being held whole. The page service's status
+and `{ error, code, message, field }` pass through; when it can't be reached
+the answer is a 502 with a plain message, and without configuration every page
+route answers 503 "Online pages aren't available yet." Owner reads, exports,
+and unpublishes, and device publishes and other device page calls, have their
+own process-local rate limits. Page ids and links are never logged.
+
 ## Local development
 
 The inert `?fixture=chat` preview opens a finished conversation. Four saved Chats
@@ -86,6 +111,22 @@ DATABASE_URL=postgresql://localhost/work_fold_bridge \
 WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1 \
 npm start --prefix services/bridge
 ```
+
+Without PostgreSQL, run the bridge on the in-memory database the tests use. It
+listens on `127.0.0.1:$PORT` (8790 by default) with public enrollment on, and
+forgets every address and session when it stops:
+
+```bash
+npm ci --prefix services/bridge
+PORT=8790 npm run dev:memory --prefix services/bridge
+```
+
+To run the whole online-pages flow locally, start the page service and pass the
+same `WORKFOLD_PAGES_*` settings to the runner, for example
+`WORKFOLD_PAGES_INTERNAL_URL=http://127.0.0.1:8792`,
+`WORKFOLD_PAGES_INTERNAL_SECRET=<the page service's secret>`, and
+`WORKFOLD_PAGES_PUBLIC_ORIGIN=http://127.0.0.1:8791`. `?fixture=chat&published=1`
+(or `published=page`) previews the Published view with canned pages.
 
 For a local desktop build, set `WORKFOLD_REMOTE_BRIDGE_URL` to the local bridge
 origin. Loopback browser URLs use `http://127.0.0.1:<port>/?slug=<address>`
@@ -105,6 +146,18 @@ Configuration:
 - `WORKFOLD_BRIDGE_DB_SSL=disable|require|verify-full` — optional explicit SSL
   override. If omitted, the PostgreSQL connection string and driver defaults
   apply.
+- `WORKFOLD_PAGES_INTERNAL_URL` — the page service's internal address, reached
+  over Railway's private network (for example
+  `http://pages.railway.internal:8081`). No credentials, query, or fragment.
+- `WORKFOLD_PAGES_INTERNAL_SECRET` — the shared secret the page service checks
+  in `x-work-fold-pages-secret`; 16 to 512 visible ASCII characters, the same
+  value on both services.
+- `WORKFOLD_PAGES_PUBLIC_ORIGIN` — the origin visitors open pages at (for
+  example `https://pages.work-fold.com`; `http:` only on loopback). The page
+  list and a publish's answer carry it as `pagesOrigin`; clients build links
+  as `<origin>/p/<pageId>`.
+  Set all three page settings or none. A partial or invalid set leaves online
+  pages off with one startup warning that never repeats the values.
 
 Run the relay integration suite with `npm test`.
 

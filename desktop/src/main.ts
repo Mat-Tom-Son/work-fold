@@ -123,6 +123,7 @@ import { BuiltInBrowser, parseBrowserCommand, parseBrowserTabsSync, parseBrowser
 import { isBrowserPageId } from "../../src/shared/browser.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
 import { resolveDesktopApplicationVersion } from "./application-version.js";
+import { createDesktopPagesBridge } from "./pages-bridge.js";
 import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
@@ -219,6 +220,8 @@ let resolveWorkFoldAgentLineageParent: ((taskId: string) => { taskId: string } |
  * API exists; both calls are safe no-ops after close.
  */
 let automationPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
+/** Published pages check in after waking (docs/pages.md, "Checking in"). */
+let pagesCheckIn: (() => Promise<unknown>) | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -787,6 +790,9 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).
       onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
+      // Publishing pages (docs/pages.md, "Publishing (stage 2)") calls the
+      // bridge with the Web Access device token, read at call time.
+      pagesBridge: createDesktopPagesBridge(host.settings),
     });
     // The per-launch act token authorizes the CLI act lane for exactly this
     // interactive run; without a readable token file, act commands stay
@@ -795,6 +801,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     actFacade = api.actFacade;
     resolveWorkFoldAgentLineageParent = api.resolveWorkFoldAgentLineageParent;
     automationPowerLifecycle = api.automations;
+    pagesCheckIn = () => api.pages.checkIn();
     try {
       await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
@@ -2499,6 +2506,8 @@ function configurePowerMonitor(): void {
     void remoteAccessClient?.recoverConnection().catch((error) => {
       console.warn(`${productName} could not recover Web Access after resume: ${errorMessage(error)}`);
     });
+    // Entries visitors made while the computer slept come back into page folders.
+    setTimeout(() => { void pagesCheckIn?.().catch(() => undefined); }, resumeRendererHealthDelayMs);
     setTimeout(ensureRendererAfterResume, resumeRendererHealthDelayMs);
     setTimeout(() => { void checkForUpdates(false); }, resumeUpdateCheckDelayMs);
   });

@@ -135,7 +135,7 @@ test("retired verbs are unknown commands that leave no receipt", async () => {
     for (const argv of [
       ["staged", "list"], ["staged", "show"], ["files", "destroy"],
       ["automations", "stage"], ["pages", "stage"],
-      ["pages", "share"], ["pages", "share-app"], ["pages", "list"], ["pages", "status"],
+      ["pages", "share"], ["pages", "share-app"], ["pages", "status"],
       ["pages", "revoke"], ["pages", "narrow"], ["pages", "widen"], ["pages", "snapshot-off"],
     ]) {
       h.records.length = 0;

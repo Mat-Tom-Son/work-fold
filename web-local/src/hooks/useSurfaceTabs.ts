@@ -158,10 +158,15 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
-  /** Opens a page folder's tab, or selects it; an open tab keeps its title and view. */
-  function openPageSurfaceTab(targetWorkFolder: WorkFolderSummary, path: string, title?: string): void {
+  /**
+   * Opens a page folder's tab, or selects it; an open tab keeps its title,
+   * and its view unless one is asked for (Files' Data row asks for Data).
+   */
+  function openPageSurfaceTab(targetWorkFolder: WorkFolderSummary, path: string, title?: string, view?: "preview" | "data"): void {
     const tab = pageSurfaceTab(targetWorkFolder, path, title);
-    setSurfaceTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
+    setSurfaceTabs((current) => current.some((item) => item.id === tab.id)
+      ? view ? current.map((item) => item.id === tab.id && item.kind === "page" && item.view !== view ? { ...item, view } : item) : current
+      : [...current, view ? { ...tab, view } : tab]);
     setActiveSurfaceTabId(tab.id);
   }
 

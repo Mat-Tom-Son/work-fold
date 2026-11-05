@@ -84,11 +84,12 @@ test("the guide teaches the two rules the host actually enforces", () => {
 /**
  * Pages (docs/pages.md) are taught in the Worker's guide: what makes a page
  * rather than an app, the page folder and page.json, the calls and the form
- * helper, the no-network rule, the recipes, and the validate verb a Worker
- * finishes with. Publishing is a later stage, so the guide never offers it,
- * and the retired single-file sharing is gone.
+ * helper, the no-network rule, the recipes, the validate verb a Worker
+ * finishes with, and publishing (stage 2): only when the person asks, with
+ * `pages publish`, telling them the link. The retired single-file sharing is
+ * gone.
  */
-test("the guide teaches pages: page.json, workFoldPage, the form helper, no network, and pages validate", () => {
+test("the guide teaches pages: page.json, workFoldPage, the form helper, no network, pages validate, and publishing", () => {
   const guide = workFoldWorkFolderOperationsGuide();
   const section = workFolderPagesGuide().join("\n");
   assert.ok(guide.includes(section), "the operations guide carries the pages section");
@@ -148,10 +149,20 @@ test("the guide teaches pages: page.json, workFoldPage, the form helper, no netw
   assert.match(section, /open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the test entries/);
   assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages validate --work-folder <id>"), "the executable name substitutes");
 
-  // Publishing is not offered, and the retired single-file sharing is gone.
-  assert.match(section, /Pages can't be published yet/);
+  // Publishing: only when asked, with pages publish, telling the person the
+  // link and what was uploaded; private files never go in a page folder.
+  assert.doesNotMatch(section, /Pages can't be published yet/);
+  assert.match(section, /Everything in a page folder except `data\.sqlite` goes online when the page is published, so never put private files/);
+  assert.match(section, /publish only when the person asks, with `work-fold pages publish --work-folder <id> --page <path> --json`/);
+  assert.match(section, /Anyone with the link can open the page\. Tell the person the `url` from the result, and list the files it uploaded \(`uploaded\.files`\)/);
+  assert.match(section, /Settings → Web Access/);
+  assert.match(section, /`work-fold pages unpublish` takes a page offline and keeps its entries/);
+  assert.match(section, /come back into the page folder as `data\.sqlite`/);
+  assert.match(section, /read it with `sqlite3 -readonly`/);
+  assert.match(section, /Never write to it/);
+  assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages publish --work-folder <id>"), "the executable name substitutes in publishing too");
+  // The retired single-file sharing is gone.
   assert.doesNotMatch(guide, /Pages the person may share|shareable HTML|sharing pages|shares it from the file's tab/);
-  assert.doesNotMatch(section, /\bpublish (it|the page|a page)\b|Publish →|Copy link/i);
 });
 
 function sessionAppendix(client: PiConversationClient): string[] {

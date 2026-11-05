@@ -255,15 +255,26 @@ removing live data.
 ### Pages
 
 A page is a folder in a work-folder that contains `page.json`
-([Pages](pages.md)). Stage 1 is local only; publishing verbs join this family
-in stage 2 ([Online pages](online-pages-plan.md)).
+([Pages](pages.md)). Stage 2 publishes page folders online
+([Pages](pages.md#desktop), [Online pages](online-pages-plan.md)). A page id
+grants access to its page, so receipts and the overview name a page by its
+path and the id's first 8 characters; only a command's own output carries the
+link.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | Check a page folder | the page tab's problem list | none | direct verb (content-bearing act read) | `pages validate --work-folder <id> --page <path>` | page path and `valid` or the error count | n/a — it changes nothing | a folder without `page.json` is `notFound`; a path that leaves the work-folder, names hidden or reserved folders, or crosses a link is `usage`; a nested registered work-folder's page is `notFound` |
+| Publish a page, or publish changes | page tab → Publish / Publish changes | none | **prepared verb** (`page.publish`) | `pages publish --work-folder <id> --page <path>` | `page.publish`, page path, id prefix, revision, uploaded file count and bytes | `pages unpublish` (the link stays the page's; entries are kept) | refused with the page's problems while any is an error (`conflict`); `unavailable` until Web Access is set up and on; a page whose content digest moved between the check and the upload is a pin mismatch (`conflict`); refused while an Automation's work runs or when `--parent-task` names an Automation's request — Automations can't publish |
+| Unpublish a page | page tab → Unpublish; Settings → Published | none | direct verb | `pages unpublish --work-folder <id> --page <path>` | page path, id prefix, `unpublished` | `pages publish` brings back the same link | `notFound` for a page never published; `unavailable` without Web Access; a page the page service no longer knows is recorded offline |
+| List published pages | Settings → Published | none | direct verb (content-bearing act read) | `pages list [--work-folder <id>]` | page count | n/a — it changes nothing | — |
 
 Test entries made in a page's preview and the Data view's edits are local-API
-operations on machine-local preview databases, not act verbs.
+operations on machine-local preview databases, not act verbs. Edits, deletes,
+and restores of **Online entries** from the Data view go to the page service
+through the bridge and are journaled as main-window acts (`pages.data.update`,
+`pages.data.delete`, `pages.data.restore`; page path, id prefix, table, and
+entry count). Checking in writes the page folder's `data.sqlite` without a
+receipt: it is the folder copy of data that lives online, not a person's act.
 
 ### Library (removed)
 

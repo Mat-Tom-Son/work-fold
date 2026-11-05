@@ -1,9 +1,9 @@
 # Online pages
 
-> **Status:** Plan, 2026-11-05. Stage 0 (removing the old sharing) and
-> stage 1 (page folders, locally; contract in [Pages](pages.md)) are built.
-> "Ask the Worker about this data" waits for stage 2, when the data is in the
-> page folder. Decisions marked **Owner decision** were made
+> **Status:** Plan, 2026-11-05. Stages 0 (removing the old sharing), 1 (page
+> folders, locally) and 2 (publishing online) are built; the contract is in
+> [Pages](pages.md). Stage 2 has been run end to end on one computer and is
+> not deployed yet. "Ask the Worker about this data" is still to come. Decisions marked **Owner decision** were made
 > by Mat on 2026-11-05; the rest is the proposed approach and can change as
 > the build teaches us something.
 

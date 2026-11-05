@@ -5,11 +5,12 @@ import { renderWorkRequest } from "./work-request.js";
 import { scheduleBrowserRefresh, deferAfterRateLimit, canResume, canRecover, pollDelay } from "./refresh.js";
 import { shouldSubmitComposerKey } from "./composer.js";
 import { browserApiPath } from "./api-path.js";
-import { buildFixture, createFixtureAppActions, fixtureAppEntry } from "./fixtures.js";
+import { buildFixture, createFixtureAppActions, createFixturePublishedClient, fixtureAppEntry } from "./fixtures.js";
 import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
 import { createFilePreview } from "./file-preview.js";
 import { createBrowserAppView } from "./browser-app.js";
+import { createPublishedView } from "./published.js";
 import { requestResultLinks, unnamedWorkFolderLabel } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
@@ -144,6 +145,36 @@ function closeFilePreview() { filePreview?.destroy(); filePreview = null; }
 let browserApp = null;
 const fixtureAppActions = createFixtureAppActions();
 
+// Published: the online pages this address has put up, their entries, and
+// Unpublish. It uses the password session alone, so the offline and pairing
+// screens offer it too, and it survives pairing finishing underneath it.
+let publishedView = null;
+function openPublished(options = {}) {
+  publishedView ??= createPublishedView({ client: fixtureName ? createFixturePublishedClient() : publishedClient() });
+  void publishedView.open(options);
+}
+function closePublished() { publishedView?.close(); }
+function publishedOpen() { return Boolean(publishedView?.isOpen()); }
+function publishedClient() {
+  const page = (pageId) => `/api/pages/${encodeURIComponent(pageId)}`;
+  return {
+    list: () => api("/api/pages"),
+    tables: (pageId) => api(`${page(pageId)}/data`),
+    table: (pageId, table) => api(`${page(pageId)}/data?table=${encodeURIComponent(table)}`),
+    exportTable: (pageId, table) => download(`${page(pageId)}/data/export?table=${encodeURIComponent(table)}`),
+    unpublish: (pageId) => api(`${page(pageId)}/unpublish`, { method: "POST", body: {}, csrf: true }),
+  };
+}
+function wirePublishedEntry() {
+  const button = document.querySelector("#open-published");
+  button?.addEventListener("click", () => {
+    // Closing returns focus here, or to ☰ when the phone drawer was open.
+    const opener = state.drawerOpen ? document.querySelector("#menu-button") : button;
+    closeDrawer({ restoreFocus: false });
+    openPublished({ opener });
+  });
+}
+
 function openBrowserAppResult(reference) {
   void browserAppController().open({ ...reference, title: reference.label, webView: true, sourceDigest: reference.digest,
     workFolderName: reference.workFolderName || unnamedWorkFolderLabel });
@@ -250,6 +281,8 @@ function bootFixture(name) {
   renderMessages();
   showContext(name);
   if (fixtureChrome.drawer) openDrawer({ moveFocus: false });
+  const published = new URL(location.href).searchParams.get("published");
+  if (published === "1" || published === "page") openPublished(published === "page" ? { pageId: "pg_gardenpartyrsvpabcdefghijk" } : {});
 }
 
 function saveFixtureConversation() {
@@ -291,10 +324,11 @@ function renderAddressUnavailable() {
 }
 
 function renderLogin(error = "") {
+  closePublished();
   renderAuth({
     eyebrow: "work-fold agent",
     headline: `Welcome back${state.context.slug ? `, ${escapeHtml(state.context.slug)}` : ""}.`,
-    supporting: "Your desktop must be online.",
+    supporting: "Chat needs your desktop online. Published pages work anytime.",
     panel: `
       <form id="login-form">
         <h2>Sign in</h2>
@@ -345,14 +379,17 @@ async function startPairing() {
     return renderAuth({
       eyebrow: "Desktop offline",
       headline: `Open <span class="nobr">work-fold</span> to continue.`,
-      panel: `<button id="retry" class="primary">Try again</button>`,
+      panel: `<button id="retry" class="primary">Try again</button>${publishedEntryMarkup()}`,
     }, () => {
       const retry = document.querySelector("#retry");
       retry?.addEventListener("click", () => location.reload());
+      wirePublishedEntry();
       // The gate notices the desktop coming online by itself and continues
-      // to pairing without needing the button.
+      // to pairing without needing the button — but not while the person is
+      // reading Published, which would put a pairing prompt on their desktop.
       const timer = setInterval(async () => {
         if (!retry || !document.contains(retry)) return clearInterval(timer);
+        if (publishedOpen()) return;
         try {
           const session = await api("/api/auth/session");
           if (!session.desktopOnline) return;
@@ -395,6 +432,12 @@ async function startPairing() {
   void pollPairing(pairingId, expectedCode);
 }
 
+// The way into Published from the screens before the chat: signed in, but
+// this browser isn't paired yet or the desktop is off.
+function publishedEntryMarkup() {
+  return `<button id="open-published" class="auth-secondary" type="button">Published pages</button>`;
+}
+
 function renderPairing(error = "") {
   renderAuth({
     eyebrow: "Confirm this browser once",
@@ -406,8 +449,10 @@ function renderPairing(error = "") {
       ${error
         ? `<p class="form-error">${escapeHtml(error)}</p><button id="pairing-retry" class="primary" type="button">Try again</button>`
         : `<div class="pairing-status"><span class="spinner" aria-hidden="true"></span><span>Waiting for your desktop…</span></div>`}
+      ${publishedEntryMarkup()}
     `,
   }, () => {
+    wirePublishedEntry();
     // A declined, expired, or failed pairing restarts with a fresh code in
     // place — the installed PWA has no address bar to reload from.
     document.querySelector("#pairing-retry")?.addEventListener("click", () => {
@@ -646,6 +691,10 @@ function renderApplication() {
         </div>
         <div class="sidebar-foot">
           <div class="sidebar-footer-actions">
+            <button id="open-published" class="sidebar-item sidebar-published" type="button" data-tip="Published" aria-label="Published">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5Z"/></svg>
+              <span class="sidebar-label">Published</span>
+            </button>
             <div class="rail-account">
               <button id="account-settings" class="account-settings" type="button" aria-label="Settings" data-tip="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
@@ -750,6 +799,7 @@ function renderApplication() {
   });
   document.querySelector("#menu-button")?.addEventListener("click", () => openDrawer());
   document.querySelector("#drawer-scrim")?.addEventListener("click", () => closeDrawer());
+  wirePublishedEntry();
   installDocumentListeners();
   document.querySelector("#chats")?.addEventListener("click", (event) => {
     const chat = event.target.closest?.("[data-chat-id]");
@@ -2146,21 +2196,33 @@ async function api(path, { method = "GET", body, csrf = false } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    // An expired or revoked session returns to sign-in once, instead of a
-    // zombie shell repeating the same failure every poll.
-    if (response.status === 401 && state.session && path !== "/api/auth/login") scheduleSessionReboot();
-    // The relay said slow down: background refresh and recovery hold off for
-    // a cooldown instead of hammering through the limit at full cadence.
-    if (response.status === 429) deferAfterRateLimit(state);
-    throw Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
-  }
+  if (!response.ok) throw apiFailure(response, path, result);
   return result;
+}
+
+// A file from the bridge (Export as spreadsheet), with api()'s session and
+// rate-limit handling. The response streams into a Blob the browser saves.
+async function download(path) {
+  if (fixtureName) throw new Error("Fixture preview is inert; nothing is downloaded.");
+  const response = await fetch(browserApiPath(path, location.href), { credentials: "same-origin" });
+  if (!response.ok) throw apiFailure(response, path, await response.json().catch(() => ({})));
+  return response.blob();
+}
+
+function apiFailure(response, path, result) {
+  // An expired or revoked session returns to sign-in once, instead of a
+  // zombie shell repeating the same failure every poll.
+  if (response.status === 401 && state.session && path !== "/api/auth/login") scheduleSessionReboot();
+  // The relay said slow down: background refresh and recovery hold off for
+  // a cooldown instead of hammering through the limit at full cadence.
+  if (response.status === 429) deferAfterRateLimit(state);
+  return Object.assign(new Error(result.error || `Request failed (${response.status}).`), { status: response.status, code: result.code });
 }
 
 function scheduleSessionReboot() {
   if (state.sessionRebooting) return;
   state.sessionRebooting = true;
+  closePublished();
   saveComposerDraft();
   state.session = null;
   filePreview?.connectionChanged(false);

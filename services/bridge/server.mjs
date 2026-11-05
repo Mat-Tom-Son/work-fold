@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, extname, join, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import WebSocket, { WebSocketServer } from "ws";
@@ -16,6 +17,20 @@ import {
   verifyP1363,
 } from "./database.mjs";
 import { createBridgeMetrics } from "./metrics.mjs";
+import {
+  isValidPageId,
+  maximumPagePublishBytes,
+  normalizePagesConfiguration,
+  pageProxyError,
+  pageServiceErrorView,
+  pageServicePath,
+  pagesConfigurationFromEnvironment,
+  pagesUnavailableMessage,
+  pagesUnreachableMessage,
+  passthroughPageHeaders,
+  readBoundedBody,
+  sendPageServiceRequest,
+} from "./pages-proxy.mjs";
 
 const defaultHost = "0.0.0.0";
 const defaultPort = 3000;
@@ -47,6 +62,12 @@ const maximumConcurrentPasswordChecks = 3;
 const maximumConcurrentPasswordChecksPerIp = 1;
 const maximumQueuedPasswordChecks = 24;
 const maximumQueuedPasswordChecksPerIp = 2;
+// Online pages (docs/pages.md, "Publishing (stage 2)"). The list response is
+// parsed so the bridge can add the pages origin; everything else streams.
+const maximumPageServiceListBytes = 8 * 1024 * 1024;
+const maximumPageServiceErrorBytes = 64 * 1024;
+// Matches the page service, so a large delete or restore and a long-text edit fit.
+const maximumPageDataChangeBytes = 8 * 1024 * 1024;
 const sessionCookieName = "__Host-work_fold_session";
 const localSessionCookieName = "work_fold_session";
 const macReleaseApiUrl = "https://api.github.com/repos/Mat-Tom-Son/work-fold-mac-releases/releases/latest";
@@ -94,6 +115,9 @@ export async function startBridgeServer({
   passwordVerifier = (slug, password) => database.authenticatePassword(slug, password),
   loginProtection,
   metrics,
+  // Online pages: `{ internalUrl, secret, publicOrigin }`, or null for off.
+  // Omitted, the WORKFOLD_PAGES_* environment settings apply.
+  pages,
 } = {}) {
   const state = createState({
     database,
@@ -104,6 +128,7 @@ export async function startBridgeServer({
     passwordVerifier,
     loginProtection,
     metrics,
+    pages: pages === undefined ? pagesConfigurationFromEnvironment() : normalizePagesConfiguration(pages),
   });
   await database.initialize();
   const server = createServer(async (request, response) => {
@@ -168,10 +193,11 @@ export async function startBridgeServer({
   });
 }
 
-function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection, metrics }) {
+function createState({ database, baseDomain, publicEnrollment, trustProxy, releaseFetcher, passwordVerifier, loginProtection, metrics, pages }) {
   const protection = normalizedLoginProtection(loginProtection);
   const state = {
     database,
+    pages,
     baseDomain,
     publicEnrollment,
     trustProxy,
@@ -469,9 +495,200 @@ async function handleRequest(state, request, response) {
     return writeJson(response, 200, { revoked }, method, state, request);
   }
 
+  if (url.pathname === "/api/device/pages" || url.pathname.startsWith("/api/device/pages/")) {
+    return handleDevicePagesRequest(state, request, response, url, method);
+  }
+  if (url.pathname === "/api/pages" || url.pathname.startsWith("/api/pages/")) {
+    return handleOwnerPagesRequest(state, request, response, url, method);
+  }
+
   if (url.pathname.startsWith("/api/")) throw httpError(404, "Not found.");
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed(response, "GET, HEAD", state, request);
   return servePublicFile(state, request, url.pathname, response, method);
+}
+
+// --- Online pages ---------------------------------------------------------
+// The desktop publishes, unpublishes, checks in, and changes online entries
+// with its device token. The owner's browser needs only a signed-in session
+// for that account (not a paired browser), so it works with the desktop off.
+// Both reach the page service's internal API with the account id in the path.
+
+async function handleDevicePagesRequest(state, request, response, url, method) {
+  const match = url.pathname.match(/^\/api\/device\/pages(?:\/([^/]+)(\/data\.sqlite|\/data\/(?:update|delete|restore))?)?$/);
+  if (!match) throw httpError(404, "Not found.");
+  const [, pageId, suffix = ""] = match;
+  const allowed = pageId === undefined ? method === "GET"
+    : suffix === "" ? method === "PUT" || method === "DELETE"
+      : suffix === "/data.sqlite" ? method === "GET" : method === "POST";
+  if (!allowed) throw httpError(404, "Not found.");
+  const account = await requireDevice(state, request);
+  const pages = requirePagesConfiguration(state);
+  if (pageId !== undefined && !isValidPageId(pageId)) throw invalidPageIdError();
+  if (method === "PUT") pageRateLimit(state, `device-page-publish:${account.id}`, 120, 10 * 60_000);
+  else pageRateLimit(state, `device-pages:${account.id}`, 600, 60_000);
+
+  if (pageId === undefined) {
+    return relayPageService(state, request, response, {
+      method: "GET",
+      path: pageServicePath(account.id),
+      decorate: (body) => pageListView(pages, body),
+    });
+  }
+  if (method === "PUT") return relayPagePublish(state, request, response, account, pageId);
+  if (method === "DELETE") {
+    return relayPageService(state, request, response, { method: "DELETE", path: pageServicePath(account.id, pageId) });
+  }
+  if (suffix === "/data.sqlite") {
+    return relayPageService(state, request, response, { method: "GET", path: pageServicePath(account.id, pageId, suffix) });
+  }
+  const body = await readPageJsonBody(request, maximumPageDataChangeBytes);
+  return relayPageService(state, request, response, { method: "POST", path: pageServicePath(account.id, pageId, suffix), json: body });
+}
+
+async function relayPagePublish(state, request, response, account, pageId) {
+  // A declared oversized upload is refused before the page service is called;
+  // an undeclared one is counted while it streams and stopped at the bound.
+  // Either way Node discards the rest, so the desktop can read the refusal.
+  const declared = request.headers["content-length"];
+  let contentLength;
+  if (declared !== undefined) {
+    if (!/^\d{1,15}$/.test(declared)) throw pageProxyError(400, "INVALID", "The upload's length is invalid.");
+    contentLength = Number(declared);
+    if (contentLength > maximumPagePublishBytes) throw pageProxyError(413, "TOO_LARGE", "This page is too large to publish.");
+  }
+  return relayPageService(state, request, response, {
+    method: "PUT",
+    path: pageServicePath(account.id, pageId),
+    stream: request,
+    maximumBytes: maximumPagePublishBytes,
+    contentLength,
+    // The answer is `{ page }`; the origin lets the desktop show the link at once.
+    decorate: (body) => ({ ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}), pagesOrigin: state.pages.publicOrigin }),
+  });
+}
+
+async function handleOwnerPagesRequest(state, request, response, url, method) {
+  const match = url.pathname.match(/^\/api\/pages(?:\/([^/]+)\/(data|data\/export|unpublish))?$/);
+  if (!match) throw httpError(404, "Not found.");
+  const [, pageId, action] = match;
+  if (method !== (action === "unpublish" ? "POST" : "GET")) throw httpError(404, "Not found.");
+  const changing = action === "unpublish";
+  if (changing) assertSameOrigin(state, request);
+  const account = await requestedAccount(state, request, url);
+  const { session } = await requireBrowserSession(state, request, account);
+  if (changing) await state.database.assertCsrf(session, request.headers["x-work-fold-csrf"]);
+  const pages = requirePagesConfiguration(state);
+  if (pageId !== undefined && !isValidPageId(pageId)) throw invalidPageIdError();
+  // A person reading entries makes a handful of requests per page; exports
+  // and unpublishing are deliberate and rarer.
+  if (action === "data/export") pageRateLimit(state, `owner-page-export:${account.id}`, 30, 15 * 60_000);
+  else if (changing) pageRateLimit(state, `owner-page-unpublish:${account.id}`, 30, 15 * 60_000);
+  else pageRateLimit(state, `owner-pages:${account.id}`, 180, 60_000);
+
+  if (pageId === undefined) {
+    return relayPageService(state, request, response, {
+      method: "GET",
+      path: pageServicePath(account.id),
+      decorate: (body) => pageListView(pages, body),
+    });
+  }
+  if (changing) {
+    // The body carries nothing; it is bounded like any other change.
+    await readPageJsonBody(request, maximumJsonBodyBytes);
+    return relayPageService(state, request, response, { method: "DELETE", path: pageServicePath(account.id, pageId) });
+  }
+  const query = [];
+  const table = url.searchParams.get("table");
+  if (table !== null && table.length <= 64) query.push(["table", table]);
+  const deleted = url.searchParams.get("deleted");
+  if (action === "data" && deleted !== null && /^(?:1|0|true|false)$/i.test(deleted)) query.push(["deleted", deleted]);
+  return relayPageService(state, request, response, {
+    method: "GET",
+    path: pageServicePath(account.id, pageId, action === "data" ? "/data" : "/data/export"),
+    query,
+  });
+}
+
+/**
+ * One call to the page service, answered with its status. Successful bodies
+ * stream through (snapshots and spreadsheets are never held whole); refusals
+ * keep only `{ error, code, message, field }`; a network failure is a 502.
+ */
+async function relayPageService(state, request, response, options) {
+  const incoming = await sendPageServiceRequest(state.pages, options);
+  const status = incoming.statusCode ?? 502;
+  if (status < 200 || (status >= 300 && status < 400)) {
+    incoming.resume();
+    throw pageProxyError(502, "UNAVAILABLE", pagesUnreachableMessage);
+  }
+  if (status === 401) {
+    // The page service refused the bridge's own secret. Passing 401 on would
+    // read as the desktop's token or the owner's session failing.
+    incoming.resume();
+    warnPageServiceSecret(state);
+    throw pageProxyError(502, "UNAVAILABLE", pagesUnreachableMessage);
+  }
+  if (status >= 400) {
+    const text = await readBoundedBody(incoming, maximumPageServiceErrorBytes).catch(() => "");
+    const view = pageServiceErrorView(status, text);
+    return writeJson(response, view.status, view.body, "GET", state, request);
+  }
+  if (options.decorate) {
+    const text = await readBoundedBody(incoming, maximumPageServiceListBytes);
+    let body;
+    try { body = JSON.parse(text); } catch { throw pageProxyError(502, "UNAVAILABLE", pagesUnreachableMessage); }
+    return writeJson(response, status, options.decorate(body), "GET", state, request);
+  }
+  response.writeHead(status, {
+    ...passthroughPageHeaders(incoming.headers),
+    "cache-control": "no-store",
+    ...securityHeaders(state, request),
+  });
+  try {
+    await pipeline(incoming, response);
+  } catch {
+    // The caller or the page service went away part-way; the stream already
+    // ended for both sides.
+  }
+}
+
+function pageListView(pages, body) {
+  return { pages: Array.isArray(body?.pages) ? body.pages : [], pagesOrigin: pages.publicOrigin };
+}
+
+function warnPageServiceSecret(state) {
+  const now = Date.now();
+  if (now - (state.pageSecretWarnedAt ?? 0) < 60_000) return;
+  state.pageSecretWarnedAt = now;
+  console.warn("work-fold bridge: the page service refused the internal secret; check WORKFOLD_PAGES_INTERNAL_SECRET on both services.");
+}
+
+/** The ordinary bridge limits, answered with the page API's code. */
+function pageRateLimit(state, key, maximum, windowMs) {
+  try {
+    enforceRateLimit(state.rateLimits, key, maximum, windowMs);
+  } catch (error) {
+    throw pageProxyError(429, "UNAVAILABLE", publicErrorMessage(error));
+  }
+}
+
+async function readPageJsonBody(request, maximumBytes) {
+  try {
+    return await readJsonBody(request, maximumBytes);
+  } catch (error) {
+    if (error?.status === 413) throw pageProxyError(413, "TOO_LARGE", "This change is too large. Send fewer entries at a time.");
+    if (error?.status === 400) throw pageProxyError(400, "INVALID", publicErrorMessage(error));
+    throw error;
+  }
+}
+
+function requirePagesConfiguration(state) {
+  if (!state.pages) throw pageProxyError(503, "UNAVAILABLE", pagesUnavailableMessage);
+  return state.pages;
+}
+
+function invalidPageIdError() {
+  return pageProxyError(400, "INVALID", "That page id isn't valid.");
 }
 
 async function handleUpgrade(state, request, socket, head) {
@@ -1222,7 +1439,10 @@ function writeApiError(response, error, state, request) {
   let status = error?.status ?? 500;
   let message = publicErrorMessage(error);
   let code;
-  if (error instanceof BridgeDatabaseError) {
+  if (typeof error?.publicCode === "string" && error?.status) {
+    // Online page refusals keep the page API's `{ error, code, message }` shape.
+    code = error.publicCode;
+  } else if (error instanceof BridgeDatabaseError) {
     code = error.code;
     status = new Map([
       ["unauthorized", 401], ["csrf", 403], ["pairing_required", 403], ["invalid_signature", 403],
@@ -1234,7 +1454,7 @@ function writeApiError(response, error, state, request) {
     console.error(`work-fold bridge request failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
     message = "The bridge could not complete this request.";
   }
-  const body = JSON.stringify({ ok: false, error: message, ...(code ? { code } : {}) });
+  const body = JSON.stringify({ ok: false, error: message, ...(code ? { code } : {}), ...(error?.publicCode ? { message } : {}) });
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),

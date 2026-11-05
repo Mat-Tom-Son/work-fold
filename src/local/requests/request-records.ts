@@ -276,6 +276,9 @@ export const workFoldRequestActionCommands = [
   "worktrees.archive",
   "worktrees.restore",
   "recently-deleted.restore",
+  // Publishing pages (docs/pages.md, "Publishing (stage 2)").
+  "pages.publish",
+  "pages.unpublish",
 ] as const;
 
 export type WorkFoldRequestActionCommand = (typeof workFoldRequestActionCommands)[number];

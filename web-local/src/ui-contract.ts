@@ -76,6 +76,75 @@ export const workFoldLimitsSettings = {
 } as const;
 
 /**
+ * Publishing a page (docs/pages.md, "Publishing (stage 2)"). Publish puts the
+ * page online at a link anyone can open; later edits wait for Publish
+ * Changes. Unpublish takes it offline and keeps its entries, and publishing
+ * again brings back the same link. Publishing needs Web Access.
+ */
+export const pagePublishing = {
+  publish: "Publish",
+  publishChanges: "Publish Changes",
+  publishing: "Publishing",
+  online: "Online",
+  offline: "Offline",
+  copyLink: "Copy Link",
+  copied: "Copied",
+  linkCopied: "Link copied",
+  open: "Open",
+  openTitle: "Open the online page in your browser",
+  moreActions: "More Actions",
+  unpublish: "Unpublish",
+  unpublishHint: "Takes the page offline and keeps its entries.",
+  unpublished: (title: string) => `${title} is offline. Its entries are kept, and publishing again brings back the same link.`,
+  republishHint: "Publishing again brings back the same link.",
+  hasErrors: "Fix the page's problems to publish it.",
+  webAccessRequired: "Set up web access in Settings to publish.",
+  openSettings: "Open Settings",
+  sending: "Putting the page online.",
+  sendingFiles: (files: string) => `Uploading ${files}.`,
+  publishedHeading: "Your Page Is Online",
+  changesPublishedHeading: "Changes Published",
+  shareHint: "Anyone with the link can open the page.",
+  linkPending: "The link shows here once work-fold hears back from the online service.",
+  uploaded: (files: string, size: string | null) => size ? `Uploaded ${files} · ${size}` : `Uploaded ${files}`,
+  webAccessHeading: "Set Up Web Access First",
+  problemsHeading: "Fix These Problems First",
+  problemsHint: "Preview shows them too. Fix them in the page's files, then publish.",
+  failedHeading: "The Page Couldn't Be Published",
+  tryAgain: "Try Again",
+  done: "Done",
+  close: "Close",
+  onlineEntries: "Online Entries",
+  testEntries: "Test Entries",
+  entriesLabel: "Entries",
+  onlineNote: "Entries visitors made on the online page.",
+  offlineNote: "The page is offline. The entries visitors made are kept.",
+  lastCheckedIn: (when: string) => `Last checked in ${when}.`,
+  notCheckedIn: "Not checked in yet.",
+  checkNow: "Check Now",
+  checking: "Checking",
+  noOnlineEntriesHeading: "No Entries Yet",
+  noOnlineEntries: "When visitors use the online page, what they send shows up here.",
+} as const;
+
+/** Settings → Published: every published page, by work-folder. */
+export const publishedPagesSettings = {
+  heading: "Published",
+  emptyHeading: "Nothing Is Published Yet",
+  empty: "Ask a Worker to make a page, such as an RSVP form, a sign-up sheet, or a poll. Then publish it from its tab.",
+  online: "Online",
+  offline: "Offline",
+  changesWaiting: "Changes Not Published",
+  copyLink: "Copy Link",
+  openLink: "Open Link",
+  openPage: "Open Page",
+  unpublish: "Unpublish",
+  unpublishedNote: "Offline pages keep their entries. Publishing again from the page's tab brings back the same link.",
+  removedWorkFolder: "Removed work-folder",
+  published: (when: string) => `Published ${when}`,
+} as const;
+
+/**
  * Settings → Web Access: what pairing a browser means. Pairing is
  * an identity act on this desktop, never a gate on work; a paired browser
  * holds the work-fold agent's full authority (docs/receipts-not-gates.md).

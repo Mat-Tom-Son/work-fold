@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { errorText } from "../lib/api";
-import { subscribePageDataChanges, type PagesClient, type PageTableData, type PageTableSummary } from "../lib/pages";
+import { subscribePageDataChanges, type PageEntriesClient, type PageTableData, type PageTableSummary } from "../lib/pages";
 
 export interface PageTableState {
   live: PageTableData | null;
@@ -25,7 +25,8 @@ export interface PageTablesHandle {
 const emptyTable: PageTableState = { live: null, deleted: null, loading: false, error: null };
 
 /**
- * A page's test entries (docs/pages.md, "The Data view"). The table list and
+ * A page's test entries, or its online entries (docs/pages.md, "The Data
+ * view"). The table list and
  * its counts load once the tab is shown, for the Data view's "new" count; a
  * table's entries load when the Data view opens it, and its Deleted list only
  * when asked for. Both reload when the page's files change, or when a page
@@ -38,14 +39,17 @@ export function usePageTables({
   enabled,
   revision,
   viewId,
+  followPreview = true,
 }: {
-  client: PagesClient;
+  client: PageEntriesClient;
   workFolderId: string;
   path: string;
   enabled: boolean;
   revision: number;
   /** The Data view's own id: its own edits reload where they're made. */
   viewId: string;
+  /** Test entries hear page calls made in Preview; online entries change only by checking in. */
+  followPreview?: boolean;
 }): PageTablesHandle {
   const [summaries, setSummaries] = useState<PageTableSummary[] | null>(null);
   const [tables, setTables] = useState<Record<string, PageTableState>>({});
@@ -102,6 +106,7 @@ export function usePageTables({
 
   const pendingRef = useRef(new Set<string | null>());
   useEffect(() => {
+    if (!followPreview) return;
     let timer: number | null = null;
     const unsubscribe = subscribePageDataChanges((change) => {
       if (change.workFolderId !== workFolderId || change.page !== path || change.source === viewId) return;
@@ -118,7 +123,7 @@ export function usePageTables({
       }, 150);
     });
     return () => { if (timer !== null) window.clearTimeout(timer); unsubscribe(); };
-  }, [loadSummaries, loadTable, path, viewId, workFolderId]);
+  }, [followPreview, loadSummaries, loadTable, path, viewId, workFolderId]);
 
   const open = useCallback((table: string, options: { deleted?: boolean } = {}) => {
     const current = openedRef.current.get(table);

@@ -12,24 +12,30 @@ import {
   runtimeColumnTypes,
   subscribePageDataChanges,
   type PageDocument,
+  type PageEntriesSource,
   type PageInspection,
   type PageProblem,
   type PagesClient,
+  type PageTableSummary,
   type PageViewer,
   type PageViewerRole,
 } from "../../lib/pages";
 import { mountPageFrame, openPageLink, type PageFrameFailure } from "../../lib/page-frame-host";
 import { readStoredJsonValue, writeStoredJsonValue } from "../../lib/storage";
 import { changeTouchesFolder, subscribeWorkFolderFileChanges, type WorkFolderFileChange } from "../../lib/work-folder-file-events";
+import { usePagePublication } from "../../hooks/usePagePublication";
 import { usePageTables } from "../../hooks/usePageTables";
-import { PageDataView } from "./PageDataView";
+import { showToast } from "../../ui/feedback";
+import { PageDataView, PageEntriesSourceBar } from "./PageDataView";
+import { PagePublishControls } from "./PagePublishing";
 import type { WorkFolderSummary } from "../../types";
 
 export type PageTabView = "preview" | "data";
 
 /**
- * A page tab (docs/pages.md, "Preview and test entries"): the page running in
- * its sandbox, and the test entries it collected. Bound to its work-folder
+ * A page tab (docs/pages.md, "Preview and test entries" and "Publishing
+ * (stage 2)"): the page running in its sandbox, its publishing controls, and
+ * the entries it collected, online and in Preview. Bound to its work-folder
  * like every other tab; `path` is the page folder's work-folder-relative path.
  */
 export function PageTab({
@@ -42,6 +48,7 @@ export function PageTab({
   client: givenClient,
   onViewChange,
   onTitleChange,
+  onOpenWebAccessSettings,
 }: {
   workFolder: WorkFolderSummary;
   path: string;
@@ -53,16 +60,23 @@ export function PageTab({
   client?: PagesClient;
   onViewChange: (view: PageTabView) => void;
   onTitleChange: (title: string) => void;
+  /** Publishing needs Web Access: its Settings page. */
+  onOpenWebAccessSettings?: () => void;
 }) {
   const client = givenClient ?? pagesClient(fixtureMode);
   const [inspection, setInspection] = useState<PageInspection | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  // Online entries change when work-fold checks in and rewrites data.sqlite.
+  const [onlineRevision, setOnlineRevision] = useState(0);
+  const [source, setSource] = useState<PageEntriesSource>("online");
+  const [checking, setChecking] = useState(false);
   const [dataOpened, setDataOpened] = useState(view === "data");
   const ids = useId();
   const previewViewId = `${ids}-preview`;
   const dataViewId = `${ids}-data`;
+  const onlineViewId = `${ids}-online`;
   const titleRef = useRef({ title, onTitleChange });
   titleRef.current = { title, onTitleChange };
   const activeRef = useRef(active);
@@ -90,7 +104,13 @@ export function PageTab({
   useEffect(() => {
     if (fixtureMode) return;
     let timer: number | null = null;
+    let dataTimer: number | null = null;
     const unsubscribe = subscribeWorkFolderFileChanges(workFolder.id, (change) => {
+      if (pageDataFileChange(change, path)) {
+        // Read when shown: the entries hook waits for the tab to be active.
+        if (dataTimer !== null) window.clearTimeout(dataTimer);
+        dataTimer = window.setTimeout(() => { dataTimer = null; setOnlineRevision((value) => value + 1); }, 400);
+      }
       if (!pageFileChange(change, path)) return;
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -99,7 +119,11 @@ export function PageTab({
         else staleRef.current = true;
       }, 400);
     });
-    return () => { if (timer !== null) window.clearTimeout(timer); unsubscribe(); };
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      if (dataTimer !== null) window.clearTimeout(dataTimer);
+      unsubscribe();
+    };
   }, [fixtureMode, path, workFolder.id]);
   useEffect(() => {
     if (!active || !staleRef.current) return;
@@ -110,13 +134,47 @@ export function PageTab({
   useEffect(() => { if (view === "data") setDataOpened(true); }, [view]);
 
   const tables = useMemo(() => declaredTables(inspection), [inspection]);
-  const data = usePageTables({ client, workFolderId: workFolder.id, path, enabled: active && status === "ready", revision, viewId: dataViewId });
-  const newCount = (data.summaries ?? []).reduce((sum, table) => sum + table.newCount, 0);
+  const ready = active && status === "ready";
+  const data = usePageTables({ client, workFolderId: workFolder.id, path, enabled: ready, revision, viewId: dataViewId });
+  const onlineData = usePageTables({ client: client.online, workFolderId: workFolder.id, path, enabled: ready, revision: revision + onlineRevision, viewId: onlineViewId, followPreview: false });
+  const publication = usePagePublication({ client, workFolderId: workFolder.id, path, enabled: ready, revision });
+  const published = publication.state?.publication ?? null;
+
+  // A check-in that brought new entries moves the data revision.
+  const dataRevision = published?.dataRevision ?? null;
+  const dataRevisionRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (dataRevision === null) return;
+    const previous = dataRevisionRef.current;
+    dataRevisionRef.current = dataRevision;
+    if (previous !== undefined && previous !== dataRevision) setOnlineRevision((value) => value + 1);
+  }, [dataRevision]);
+
+  // Once a page has been online, or its folder holds entries from online,
+  // the Data view opens on those, with test entries one click away.
+  const hasOnline = Boolean(published) || (onlineData.summaries ?? []).some((table) => table.live + table.deleted > 0);
+  // Until both are known the Data view waits, rather than flash test entries first.
+  const sourceKnown = publication.known && onlineData.summaries !== null;
+  const shownSource: PageEntriesSource = hasOnline ? source : "test";
+  const newCount = countNew(hasOnline ? onlineData.summaries : data.summaries);
   // A page that saves nothing has no Data view. Tables that were removed from
-  // page.json but still hold test entries keep it.
-  const hasData = tables.length > 0 || (data.summaries ?? []).length > 0;
-  const dataKnown = status === "ready" && data.summaries !== undefined && data.summaries !== null;
+  // page.json but still hold entries keep it.
+  const hasData = tables.length > 0 || (data.summaries ?? []).length > 0 || (onlineData.summaries ?? []).length > 0;
+  const dataKnown = status === "ready" && data.summaries !== null && onlineData.summaries !== null;
   useEffect(() => { if (dataKnown && !hasData && view === "data") onViewChange("preview"); }, [dataKnown, hasData, view, onViewChange]);
+
+  async function checkNow() {
+    if (checking) return;
+    setChecking(true);
+    try {
+      publication.apply(await client.checkIn(workFolder.id, path));
+      setOnlineRevision((value) => value + 1);
+    } catch (error) {
+      showToast({ text: errorText(error), tone: "error" });
+    } finally {
+      setChecking(false);
+    }
+  }
 
   const shownTitle = inspection ? pageTitle(inspection, path) : title;
   const selectView = (next: PageTabView) => { if (next !== view) onViewChange(next); };
@@ -138,14 +196,28 @@ export function PageTab({
             <p title={path}>{path === shownTitle ? "Page" : path}</p>
           </div>
         </div>
-        {hasData ? (
-          <div className="page-tab-views" role="tablist" aria-label="Page View">
-            <button id={`${ids}-preview-tab`} type="button" role="tab" aria-selected={view === "preview"} aria-controls={`${ids}-preview-panel`} tabIndex={view === "preview" ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => selectView("preview")}>Preview</button>
-            <button id={`${ids}-data-tab`} type="button" role="tab" aria-selected={view === "data"} aria-controls={`${ids}-data-panel`} tabIndex={view === "data" ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => selectView("data")}>
-              Data{newCount > 0 && view !== "data" ? <span className="page-tab-new-count" aria-label={`, ${newCount} new`}>{newCount}</span> : null}
-            </button>
-          </div>
-        ) : null}
+        <div className="page-tab-actions">
+          {status === "ready" ? (
+            <PagePublishControls
+              workFolderId={workFolder.id}
+              path={path}
+              title={shownTitle}
+              client={client}
+              publication={publication}
+              inspection={inspection}
+              onOpenWebAccessSettings={onOpenWebAccessSettings}
+              onPublished={() => setOnlineRevision((value) => value + 1)}
+            />
+          ) : null}
+          {hasData ? (
+            <div className="page-tab-views" role="tablist" aria-label="Page View">
+              <button id={`${ids}-preview-tab`} type="button" role="tab" aria-selected={view === "preview"} aria-controls={`${ids}-preview-panel`} tabIndex={view === "preview" ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => selectView("preview")}>Preview</button>
+              <button id={`${ids}-data-tab`} type="button" role="tab" aria-selected={view === "data"} aria-controls={`${ids}-data-panel`} tabIndex={view === "data" ? 0 : -1} onKeyDown={handleViewKeyDown} onClick={() => selectView("data")}>
+                Data{newCount > 0 && view !== "data" ? <span className="page-tab-new-count" aria-label={`, ${newCount} new`}>{newCount}</span> : null}
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
       {status === "missing" ? (
         <div className="page-tab-state" role="status">
@@ -174,15 +246,21 @@ export function PageTab({
           <div id={`${ids}-data-panel`} className="page-tab-panel" role="tabpanel" aria-labelledby={`${ids}-data-tab`} hidden={!hasData || view !== "data"}>
             {dataOpened ? (
               <PageDataView
+                key={shownSource}
                 workFolderId={workFolder.id}
                 path={path}
-                title={shownTitle}
-                client={client}
-                ready={status === "ready"}
+                // Two exports of one page shouldn't share a name.
+                title={hasOnline && shownSource === "test" ? `${shownTitle} - Test Entries` : shownTitle}
+                client={shownSource === "online" ? client.online : client}
+                ready={status === "ready" && sourceKnown}
                 tables={tables}
-                data={data}
+                data={shownSource === "online" ? onlineData : data}
                 visiting={active && view === "data"}
-                viewId={dataViewId}
+                viewId={shownSource === "online" ? onlineViewId : dataViewId}
+                source={shownSource}
+                sourceBar={hasOnline ? (
+                  <PageEntriesSourceBar source={shownSource} publication={published} checking={checking} onSourceChange={setSource} onCheckNow={() => void checkNow()} />
+                ) : undefined}
                 onTryInPreview={() => selectView("preview")}
               />
             ) : null}
@@ -191,6 +269,16 @@ export function PageTab({
       )}
     </section>
   );
+}
+
+function countNew(summaries: readonly PageTableSummary[] | null): number {
+  return (summaries ?? []).reduce((sum, table) => sum + table.newCount, 0);
+}
+
+/** The page folder's data.sqlite changed: work-fold checked in and brought new online entries. */
+export function pageDataFileChange(change: WorkFolderFileChange, path: string): boolean {
+  if (change.path === null || !change.path.startsWith(`${path}/`)) return false;
+  return /^data\.sqlite(?:-journal|-wal|-shm)?$/i.test(change.path.slice(path.length + 1));
 }
 
 /** Changes that can alter what the page shows: its own files, not hidden ones or real visitors' data. */
