@@ -107,9 +107,13 @@ import {
   nativeTabMenuItems,
   parseNativeTabMenuRequest,
   type NativeTabMenuCommand,
-  type NativeTabMenuItem,
   type NativeTabMenuRequest,
 } from "./tab-context-menu.js";
+import {
+  nativeWorkFolderMenuItems,
+  parseNativeWorkFolderMenuRequest,
+  type NativeWorkFolderMenuCommand,
+} from "./work-folder-context-menu.js";
 import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
@@ -1354,6 +1358,12 @@ function registerIpc(): void {
     if (process.platform !== "darwin") return Promise.resolve(null);
     return popupNativeTabMenu(parseNativeTabMenuRequest(value));
   });
+  ipcMain.handle("work-fold:work-folder:popup-header-menu", (event, value: unknown): Promise<NativeWorkFolderMenuCommand | null> => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "darwin") return Promise.resolve(null);
+    const request = parseNativeWorkFolderMenuRequest(value);
+    return popupNativeCommandMenu(nativeWorkFolderMenuItems(request), request.point);
+  });
   ipcMain.handle("work-fold:work-folder:set-active-work-folder", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
     if (value !== null && (typeof value !== "string" || !value.trim() || value.length > 512)) {
@@ -2103,28 +2113,38 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
 }
 
 function popupNativeTabMenu(request: NativeTabMenuRequest): Promise<NativeTabMenuCommand | null> {
+  return popupNativeCommandMenu(nativeTabMenuItems(request), request.point);
+}
+
+type NativeCommandMenuItem<Command extends string> =
+  | { type: "separator" }
+  | { type: "item"; label: string; command: Command; sublabel?: string; enabled?: false }
+  | { type: "submenu"; label: string; items: NativeCommandMenuItem<Command>[] };
+
+/** Shows a native menu at a point in the app's CSS pixels; resolves with the chosen command, or null. */
+function popupNativeCommandMenu<Command extends string>(items: NativeCommandMenuItem<Command>[], point: { x: number; y: number }): Promise<Command | null> {
   const window = mainWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
     return Promise.reject(new Error("The work-fold window is not available."));
   }
   return new Promise((resolveCommand) => {
     let settled = false;
-    const finish = (command: NativeTabMenuCommand | null) => {
+    const finish = (command: Command | null) => {
       if (settled) return;
       settled = true;
       resolveCommand(command);
     };
-    const template = (items: NativeTabMenuItem[]): MenuItemConstructorOptions[] => items.map((item) => {
+    const template = (entries: NativeCommandMenuItem<Command>[]): MenuItemConstructorOptions[] => entries.map((item) => {
       if (item.type === "separator") return { type: "separator" };
       if (item.type === "submenu") return { label: item.label, submenu: template(item.items) };
       return { label: item.label, ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
     });
     // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
     const zoom = window.webContents.getZoomFactor() || 1;
-    Menu.buildFromTemplate(template(nativeTabMenuItems(request))).popup({
+    Menu.buildFromTemplate(template(items)).popup({
       window,
-      x: Math.round(request.point.x * zoom),
-      y: Math.round(request.point.y * zoom),
+      x: Math.round(point.x * zoom),
+      y: Math.round(point.y * zoom),
       // The menu can report closing before the chosen item's click runs.
       callback: () => setTimeout(() => finish(null), 0),
     });

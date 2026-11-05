@@ -23198,3 +23198,21 @@ to {
   border-radius: 6px;
   pointer-events: none;
 }
+
+/* The composer's text controls, Commands and the model chip, share one
+   height, type, and rounded hover with the round buttons beside them
+   (2026-11-05). */
+:root[data-theme] .app-shell .composer-capability-bar :is(.composer-command-trigger, .composer-model-chip) {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  padding: 0 9px;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+:root[data-theme] .app-shell .composer-capability-bar .composer-model-chip .composer-model-reasoning {
+  font-weight: 500;
+}
