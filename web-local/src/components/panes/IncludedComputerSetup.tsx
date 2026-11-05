@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Circle, Loader2 } from "lucide-react";
+import { Check, Circle, Loader2 } from "../chrome/icons";
 
 import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
@@ -112,7 +112,7 @@ export function IncludedComputerSetup({ workFolderId, enabled, onStatusChange }:
   const ready = status?.state === "ready";
   const unavailable = status?.state === "unavailable" && status.facts?.supportedOS === false;
   const facts = status?.facts ?? {};
-  const label = !enabled ? "Turned Off" : busy === "request-permissions" ? "Asking macOS…" : watching ? "Waiting for your OK" : includedToolReadiness(status ?? undefined).label;
+  const label = !enabled ? "Turned Off" : busy === "request-permissions" ? "Asking macOS…" : watching ? "Waiting for Your OK" : includedToolReadiness(status ?? undefined).label;
   const permissions: Array<{ key: "accessibility" | "screenRecording"; action: ComputerAction; title: string; detail: string }> = [
     { key: "accessibility", action: "accessibility", title: "Accessibility", detail: "lets it click and type" },
     { key: "screenRecording", action: "screen-recording", title: "Screen Recording", detail: "lets it see the screen" },
@@ -146,18 +146,18 @@ export function IncludedComputerSetup({ workFolderId, enabled, onStatusChange }:
             : <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy)} onClick={() => void allow()}>{busy === "request-permissions" ? "Asking macOS…" : "Allow Computer Control"}</button>}
         </>
       ) : null}
-      {ready ? <div className="included-tool-actions"><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void act("check")}>{busy === "check" ? "Checking…" : "Check again"}</button></div> : null}
+      {ready ? <div className="included-tool-actions"><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void act("check")}>{busy === "check" ? "Checking…" : "Check Again"}</button></div> : null}
       {error ? <p className="included-tool-error" role="alert">{error.message}</p> : null}
       {enabled && !unavailable ? (
         <details className="included-tool-optional">
-          <summary>Technical details</summary>
+          <summary>Technical Details</summary>
           {facts.helper || facts.path ? (
             <dl className="included-tool-facts">
               {facts.helper ? <div><dt>Helper</dt><dd>{String(facts.helper)}</dd></div> : null}
               {facts.path ? <div><dt>Location</dt><dd>{String(facts.path)}</dd></div> : null}
             </dl>
           ) : <p>The helper starts when your Worker first uses Computer Control.</p>}
-          <div className="included-tool-actions"><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void act("recheck")}>{busy === "recheck" ? "Restarting…" : "Restart helper"}</button></div>
+          <div className="included-tool-actions"><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void act("recheck")}>{busy === "recheck" ? "Restarting…" : "Restart Helper"}</button></div>
         </details>
       ) : null}
     </section>

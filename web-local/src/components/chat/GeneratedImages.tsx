@@ -114,7 +114,7 @@ function GeneratedImage({ image, workFolderId, onOpenWorkFolderFile }: {
         {folderPath ? (
           onOpenWorkFolderFile ? <button type="button" onClick={() => onOpenWorkFolderFile(folderPath)}><FolderOpen16Regular aria-hidden="true" />Show in Files</button> : null
         ) : (
-          <button type="button" disabled={busy} onClick={() => void addToFolder()}><FolderAdd16Regular aria-hidden="true" />Add to folder</button>
+          <button type="button" disabled={busy} onClick={() => void addToFolder()}><FolderAdd16Regular aria-hidden="true" />Add to Folder</button>
         )}
       </div>
     </figure>

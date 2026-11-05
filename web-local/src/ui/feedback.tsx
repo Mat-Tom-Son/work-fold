@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { X } from "../components/chrome/icons";
 import { useModalDialog } from "../hooks/useModalDialog";
 
 export type ConfirmTone = "default" | "danger";
@@ -236,7 +236,7 @@ export function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: 
           {toast.actionLabel}
         </button>
       ) : null}
-      <button className="toast-dismiss" type="button" onClick={() => closeToast("dismiss")} aria-label="Dismiss notification" title="Dismiss">
+      <button className="toast-dismiss" type="button" onClick={() => closeToast("dismiss")} aria-label="Dismiss Notification" title="Dismiss">
         <X size={14} />
       </button>
     </div>

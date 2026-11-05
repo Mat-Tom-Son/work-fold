@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check } from "lucide-react";
+import { Check } from "../chrome/icons";
 import type { ChromeSetupAction } from "../../../../src/shared/chrome-connection";
 import type { IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { api, errorText } from "../../lib/api";
@@ -116,7 +116,7 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
   const hasSelection = connection?.hasSelection === true || state === "connected" || state === "profile_conflict";
   const presentation = chromeConnectionReadiness(state, hasSelection, connection?.problem);
   const canConnect = (!hasSelection || state === "update_extension" || connection?.problem === "native_host_unavailable") && !["connected", "connecting", "store_unavailable", "app_not_running", "update_app", "profile_conflict", "busy"].includes(state ?? "");
-  const pendingLabel = action === "check" ? "Checking…" : action === "disconnect-chrome" ? "Disconnecting…" : action === "change-chrome-profile" ? "Changing profile…" : action ? "Connecting…" : null;
+  const pendingLabel = action === "check" ? "Checking…" : action === "disconnect-chrome" ? "Disconnecting…" : action === "change-chrome-profile" ? "Changing Profile…" : action ? "Connecting…" : null;
   const cancelObservation = () => { setWatching(false); readRequest.current?.abort(); };
   const setup = status?.chromeSetup;
   const connected = state === "connected";
@@ -136,13 +136,13 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
       <ol className="setup-steps">
         <li className={extensionAdded ? "done" : ""}>
           <span className="setup-step-mark" aria-hidden="true">{extensionAdded ? <Check size={14} /> : "1"}</span>
-          <div><strong>Add the work-fold extension</strong><span>{extensionAdded ? "Added to Chrome." : "Opens the Chrome Web Store in Chrome. Choose Add to Chrome."}</span>
+          <div><strong>Add the work-fold Extension</strong><span>{extensionAdded ? "Added to Chrome." : "Opens the Chrome Web Store in Chrome. Choose Add to Chrome."}</span>
             {!extensionAdded ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : "Open Chrome Web Store"}</button> : null}
           </div>
         </li>
         <li>
           <span className="setup-step-mark" aria-hidden="true">2</span>
-          <div><strong>Choose Connect in the extension</strong><span>In Chrome, click the puzzle-piece icon in the toolbar, choose work-fold, then Connect. This page updates by itself.</span></div>
+          <div><strong>Choose Connect in the Extension</strong><span>In Chrome, click the puzzle-piece icon in the toolbar, choose work-fold, then Connect. This page updates by itself.</span></div>
         </li>
       </ol>
     </> : null}
@@ -152,9 +152,9 @@ function ChromeSetupSession({ workFolderId, enabled, onStatusChange }: Props) {
     {enabled && hasSelection && state === "not_connected" ? <p>Open Chrome. Your selected profile reconnects automatically.</p> : null}
     {enabled && state === "connection_error" ? <p>{status?.detail}</p> : null}
     <div className="included-tool-actions included-chrome-actions">
-      {canConnect && !showSteps && !needsChrome ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
+      {canConnect && !showSteps && !needsChrome ? <button type="button" className="ui-control ui-control--primary" disabled={!enabled || Boolean(action)} onClick={() => void act("connect-chrome")}>{action === "connect-chrome" ? "Opening Chrome…" : state === "update_extension" ? "Update Extension" : connection?.problem === "native_host_unavailable" ? "Repair Connection" : "Connect Chrome"}</button> : null}
       {hasSelection ? <>
-        <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change profile</button>
+        <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("change-chrome-profile")}>Change Profile</button>
         <button type="button" className="ui-control" disabled={!enabled || Boolean(action)} onClick={() => void act("disconnect-chrome")}>Disconnect</button>
       </> : null}
       {watching && !showSteps ? <button type="button" className="ui-control" disabled={Boolean(action)} onClick={cancelObservation}>Cancel</button> : null}

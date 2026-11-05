@@ -19,6 +19,7 @@ The header keeps Banner, Icon, and Color at the top right. The work-folder name 
 stay in fixed positions; only the controls below scroll. The editor keeps the common path direct:
 
 - use the compact Banner, Icon, and Color sections;
+- choose a banner layout: Card (the original centered banner), Compact, Band, or Cover;
 - choose from 24 labeled accent presets or a custom color without replacing the banner;
 - set a second color under Banner → Pattern colors, shown only while a pattern uses it;
 - choose a bundled image (Tide, Ember, Fold, or Dusk), compact pattern, or safe raster upload;
@@ -42,6 +43,8 @@ work-folder, even when the popup was opened for a work-folder other than the act
 no decorative Worker label or divider. Settings shows a back arrow beside its title only when entered
 through these shortcuts; it returns to the same work-folder and Banner, Icon, or Color section. Closing
 Settings or opening it through a normal entry clears that return path.
+
+`bannerLayout` stores `card`, `compact`, `band`, or `cover` (2026-11-04); a missing value is Card. Compact and Band are shorter and lead with the work-folder icon, Band reduces the banner to a strip over a plain row, and Cover is tall with the name at the bottom left.
 
 `bannerPreset` stores one of the four stable preset ids, never an arbitrary asset URL or a copy of
 the image. A safe uploaded `bannerImage` takes precedence if an imported proposal contains both.
@@ -118,7 +121,7 @@ npm run --silent work-fold:appearance -- resolve client-work.work-fold.json --js
 Use `--created-by claude-code` from Claude Code. `--banner-image <path>` accepts PNG, JPEG, WebP, GIF,
 or BMP, resizes it within 1600×640, and stores a bounded WebP data URL. Run
 `npm run --silent work-fold:appearance -- help` for all options.
-`--banner-preset fold` selects a bundled image; `--frame-x`, `--frame-y`, and `--zoom` set its framing.
+`--banner-layout cover` selects a layout. `--banner-preset fold` selects a bundled image; `--frame-x`, `--frame-y`, and `--zoom` set its framing.
 The same flags can frame an uploaded image. Creating a proposal remains inert and never edits a work-folder.
 
 The result is inert:

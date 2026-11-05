@@ -34,11 +34,11 @@ export function isRecentlyResurfaced(
 export function resolveChatSnoozePresets(now: Date): ChatSnoozePreset[] {
   const presets: ChatSnoozePreset[] = [];
   const inOneHour = new Date(now.getTime() + hourMs);
-  presets.push(preset("hour", "In 1 hour", inOneHour, timeLabel(inOneHour)));
+  presets.push(preset("hour", "In 1 Hour", inOneHour, timeLabel(inOneHour)));
 
   const evening = atHour(now, 18);
   if (evening.getTime() - now.getTime() > hourMs) {
-    presets.push(preset("evening", "This evening", evening, timeLabel(evening)));
+    presets.push(preset("evening", "This Evening", evening, timeLabel(evening)));
   }
 
   const tomorrow = atHour(addDays(now, 1), 9);
@@ -48,7 +48,7 @@ export function resolveChatSnoozePresets(now: Date): ChatSnoozePreset[] {
   const nextWeek = atHour(addDays(now, daysUntilMonday), 9);
   presets.push(preset(
     "next-week",
-    "Next week",
+    "Next Week",
     nextWeek,
     `${nextWeek.toLocaleDateString(undefined, { weekday: "short" })} ${timeLabel(nextWeek)}`,
   ));

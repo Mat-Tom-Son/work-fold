@@ -7,7 +7,7 @@ import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
 import { Add16Regular, ArrowDown20Regular, ArrowUp20Regular, Chat16Regular, ChevronDown16Regular, ChevronLeft16Regular, Desktop20Regular, Search16Regular } from "@fluentui/react-icons";
-import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
+import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "../chrome/icons";
 
 import { chatDraftDebounceMs, genericChatEmptyGreetings, workFolderPathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureConversationSummary } from "../../fixtures/shared";
@@ -1952,7 +1952,7 @@ export function ChatPanel({
                 {queuedSend}
                 {queuedHeld ? <span className="queued-send-held">Not sent: the work was stopped.</span> : null}
               </div>
-              <button type="button" className="queued-send-cancel" aria-label="Cancel queued message" title="Cancel" onClick={returnQueuedSendToComposer}>
+              <button type="button" className="queued-send-cancel" aria-label="Cancel Queued Message" title="Cancel" onClick={returnQueuedSendToComposer}>
                 <X size={13} />
               </button>
             </div>
@@ -2172,7 +2172,7 @@ export function ChatPanel({
               type="button"
               onClick={toggleComposerCommands}
               aria-expanded={commandMenuOpen}
-              title="Browse commands and Skills"
+              title="Browse Commands and Skills"
             >
               <span aria-hidden="true">/</span>
               <span>Commands</span>
@@ -2190,7 +2190,7 @@ export function ChatPanel({
                 <Square size={14} />
               </button>
             ) : (
-              <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send message">
+              <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send Message">
                 <FluentGlyph icon={ArrowUp20Regular} size={17} />
               </button>
             )}
@@ -2273,8 +2273,8 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker, rea
       title={`${title} · Change the model saved for ${workFolderName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
-        {percent !== null ? <circle className="value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
+        <circle className="track" cx="12" cy="12" r="10" />
+        {percent !== null ? <circle className="value" cx="12" cy="12" r="3.75" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
       </svg>
       <span className="conversation-context-model">{modelLabel}</span>
       {percent !== null && percent >= 50 ? (
@@ -2446,7 +2446,7 @@ function ComposerModelPicker({
     : shownModel;
   const filterable = models.length > composerModelFilterThreshold;
   const view = composerModelListView(models, filterable ? query : "", saved);
-  const heading = forNewChats ? "Model for new Chats" : "Model";
+  const heading = forNewChats ? "Model for New Chats" : "Model";
   const noMatches = filterable && query.trim() !== "" && !view.groups.length;
 
   function focusOption(edge: "start" | "end"): boolean {
@@ -2592,18 +2592,18 @@ function ComposerModelPicker({
                   {group.models.map(renderOption)}
                 </div>
               ))}
-              {noMatches ? <div className="composer-model-status" role="status">No matching models</div> : null}
+              {noMatches ? <div className="composer-model-status" role="status">No Matching Models</div> : null}
             </div>
           ) : loading ? (
             <div className="composer-model-status" role="status">Loading models</div>
           ) : !error ? (
-            <div className="composer-model-status" role="status">No connected models</div>
+            <div className="composer-model-status" role="status">No Connected Models</div>
           ) : null}
           {error ? <div className="composer-model-error" role="alert">{error}</div> : null}
           {reasoning ? (
             <div className="composer-reasoning">
               <div className="composer-command-menu-heading" id={`${menuId}-reasoning`}>
-                <span>{reasoning.forThisChat ? "Reasoning for this Chat" : "Reasoning"}</span>
+                <span>{reasoning.forThisChat ? "Reasoning for This Chat" : "Reasoning"}</span>
               </div>
               <div className="composer-reasoning-levels" role="radiogroup" aria-labelledby={`${menuId}-reasoning`}>
                 {reasoning.levels.map((level) => (
@@ -2633,7 +2633,7 @@ function ComposerModelPicker({
               onOpenModelSettings?.();
             }}
           >
-            Model settings
+            Model Settings
           </button>
         </div>
       ) : null}
@@ -2770,11 +2770,11 @@ function ComposerAttachMenu({
         ref={triggerRef}
         className={open ? "composer-attach-trigger active" : "composer-attach-trigger"}
         type="button"
-        aria-label="Attach files"
+        aria-label="Attach Files"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title="Attach files"
+        title="Attach Files"
         onClick={() => setOpen((current) => !current)}
       >
         <Add16Regular aria-hidden="true" />
@@ -2797,7 +2797,7 @@ function ComposerAttachMenu({
         />
       ) : null}
       {open && view === "choose" ? (
-        <div className="composer-command-menu composer-attach-menu" id={menuId} role="menu" aria-label="Attach files">
+        <div className="composer-command-menu composer-attach-menu" id={menuId} role="menu" aria-label="Attach Files">
           <button type="button" role="menuitem" autoFocus onClick={() => setView("files")}>
             <span className="composer-attach-option-icon" style={workFolderIdentityStyle(identity)}><WorkFolderIconGlyph icon={identity.Icon} size={18} /></span>
             <span className="composer-attach-option-copy">
@@ -2848,7 +2848,7 @@ function ComposerAttachMenu({
           </div>
           {error ? <div className="composer-model-error" role="alert">{error}</div>
             : !files ? <div className="composer-model-status" role="status">Loading files</div>
-              : !visible.length ? <div className="composer-model-status" role="status">{query.trim() ? "No matching files" : "No files yet"}</div>
+              : !visible.length ? <div className="composer-model-status" role="status">{query.trim() ? "No Matching Files" : "No Files Yet"}</div>
                 : (
                   <div
                     className="composer-attach-options"
@@ -2885,7 +2885,7 @@ function commandSourceLabel(source: AgentCommand["source"]): string {
   if (source === "skill") return "Skill";
   if (source === "prompt") return "Prompt";
   if (source === "extension") return "Extension";
-  return "Built-in";
+  return "Built-In";
 }
 
 function formatTokenCount(value: number | null): string {

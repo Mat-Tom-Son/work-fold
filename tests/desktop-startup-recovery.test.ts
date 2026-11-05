@@ -24,7 +24,7 @@ test("newer local state produces update recovery without treating corruption as 
     reason: "newer-local-state",
     actualVersion: 6,
     supportedVersion: 5,
-    title: "work-fold update required",
+    title: "work-fold Update Required",
     message: "This version of work-fold cannot safely open newer local data.",
   });
   assert.equal(workFoldStartupRecoveryPlan(new RestrictedAppRegistryVersionUnsupportedError(5, 5)), null);

@@ -119,14 +119,15 @@ test("reordering preserves tab identities, active restoration, and tabs added du
   assert.equal(reorderSurfaceTabList(next, next.map((tab) => tab.id)), next);
 });
 
-test("file tabs upsert as one retargeting tab per work-folder", () => {
+test("each file opens its own tab, and opening an open file selects its tab", () => {
   const first = fileSurfaceTab(workFolder, "Notes/Draft.md");
   const second = fileSurfaceTab(workFolder, "Notes/Final.md");
-  const tabs = upsertSurfaceTab(upsertSurfaceTab([], first), second);
+  const tabs = upsertSurfaceTab(upsertSurfaceTab(upsertSurfaceTab([], first), second), fileSurfaceTab(workFolder, "Notes/Draft.md"));
 
-  assert.equal(tabs.length, 1);
-  assert.deepEqual(tabs[0], {
-    id: "file:work-folder-1",
+  assert.equal(tabs.length, 2);
+  assert.deepEqual(tabs.map((tab) => tab.id), ["file:work-folder-1:Notes/Draft.md", "file:work-folder-1:Notes/Final.md"]);
+  assert.deepEqual(tabs[1], {
+    id: "file:work-folder-1:Notes/Final.md",
     kind: "file",
     workFolderId: "work-folder-1",
     path: "Notes/Final.md",
@@ -143,6 +144,10 @@ test("file tabs follow moved paths and close when their file is deleted", () => 
 
   assert.equal(moved[0]?.path, "Archive/Notes/Draft.md");
   assert.equal(moved[0]?.title, "Draft.md");
+  assert.equal(moved[0]?.id, "file:work-folder-1:Archive/Notes/Draft.md", "a tab's id follows its file");
+  // A moved file landing on a path already open in another tab leaves one tab for it.
+  const merged = retargetFileSurfaceTabs([fileSurfaceTab(workFolder, "a.md"), fileSurfaceTab(workFolder, "b.md")], workFolder.id, "a.md", "b.md");
+  assert.deepEqual(merged.map((tab) => tab.id), ["file:work-folder-1:b.md"]);
   assert.deepEqual(
     closeFileSurfaceTabs(moved, workFolder.id, new Set(["Archive/Notes/Draft.md"])).map((tab) => tab.id),
     ["chat:work-folder-1:new"],
@@ -212,7 +217,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
   }), {
     tabs: [
       { id: "chat:work-folder-1:new", kind: "chat", workFolderId: "work-folder-1", conversationId: null, title: "New Chat" },
-      { id: "file:work-folder-1", kind: "file", workFolderId: "work-folder-1", path: "Notes.md", title: "Notes.md" },
+      { id: "file:work-folder-1:Notes.md", kind: "file", workFolderId: "work-folder-1", path: "Notes.md", title: "Notes.md" },
       { id: "history:work-folder-1", kind: "history", workFolderId: "work-folder-1", checkpointId: undefined, title: "History" },
       { id: "app-studio:work-folder-1", kind: "app-studio", workFolderId: "work-folder-1", title: "Renamed Studio" },
       { id: "checks:work-folder-1", kind: "checks", workFolderId: "work-folder-1", title: "Checks" },
@@ -221,7 +226,7 @@ test("tab restore accepts only known, well-formed surface types", () => {
       { id: "extension:work-folder-1:inbox:overview", kind: "extension", workFolderId: "work-folder-1", surfaceId: "inbox", surfaceExecution: "full-trust-pi", viewId: "overview", title: "Overview" },
       { id: restrictedAppSurfaceTabId("work-folder-1", "mail", "a".repeat(64), "message:release", "feature-installation_original"), kind: "restricted-app", featureInstallationId: "feature-installation_original", workFolderId: "work-folder-1", appId: "mail", digest: "a".repeat(64), appTabId: "message:release", route: "/message/release", state: { selected: true }, title: "Release checklist" },
     ],
-    activeTabId: "file:work-folder-1",
+    activeTabId: "file:work-folder-1:Notes.md",
   });
 });
 

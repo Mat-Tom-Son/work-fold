@@ -329,7 +329,7 @@ export function BrowserTabPanel({
         <button className="browser-tab-button" type="button" disabled={!page?.canGoForward} onClick={() => command("forward")} aria-label="Forward" title="Forward">
           <ArrowRight20Regular />
         </button>
-        <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={() => command(loading ? "stop" : "reload")} aria-label={loading ? "Stop loading" : "Reload"} title={loading ? "Stop loading" : "Reload"}>
+        <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={() => command(loading ? "stop" : "reload")} aria-label={loading ? "Stop Loading" : "Reload"} title={loading ? "Stop Loading" : "Reload"}>
           {loading ? <Dismiss20Regular /> : <ArrowClockwise20Regular />}
         </button>
         <div className="browser-tab-address-field">
@@ -340,13 +340,13 @@ export function BrowserTabPanel({
                   className={connection === "insecure" ? "browser-tab-site-button insecure" : "browser-tab-site-button"}
                   type="button"
                   onClick={() => setSiteSettingsOpen((open) => !open)}
-                  aria-label={`Site information: ${connectionText}`}
+                  aria-label={`Site Information: ${connectionText}`}
                   aria-haspopup="menu"
                   aria-expanded={siteSettingsOpen}
-                  title="Site information"
+                  title="Site Information"
                 >
                   {connection === "secure" ? <LockClosed16Regular /> : connection === "insecure" ? <Warning16Regular /> : <Info16Regular />}
-                  {connection === "insecure" ? <span className="browser-tab-site-label">Not secure</span> : null}
+                  {connection === "insecure" ? <span className="browser-tab-site-label">Not Secure</span> : null}
                 </button>
                 {siteSettingsOpen ? (
                   <div className="browser-tab-site-menu" role="menu" aria-label={`Settings for ${siteHost(url)}`} data-native-view-occluder="true">
@@ -363,7 +363,7 @@ export function BrowserTabPanel({
                           onClick={() => { void desktop.command(tab.pageId, { type: "forget-permission", kind: item.kind }); }}
                           title="The site asks again the next time it needs this"
                         >
-                          Ask again
+                          Ask Again
                         </button>
                       </div>
                     ))}
@@ -397,7 +397,7 @@ export function BrowserTabPanel({
               />
             </label>
             {page && page.zoomPercent !== 100 ? (
-              <button className="browser-tab-zoom" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "zoom-reset" }); }} title="Reset zoom" aria-label={`Zoom ${page.zoomPercent}%. Reset zoom`}>
+              <button className="browser-tab-zoom" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "zoom-reset" }); }} title="Reset Zoom" aria-label={`Zoom ${page.zoomPercent}%. Reset zoom`}>
                 {page.zoomPercent}%
               </button>
             ) : null}
@@ -437,10 +437,10 @@ export function BrowserTabPanel({
             ) : null}
           </div>
         ) : null}
-        <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={openFind} aria-label="Find in page" title="Find in page">
+        <button className="browser-tab-button" type="button" disabled={!hasPage} onClick={openFind} aria-label="Find in Page" title="Find in Page">
           <Search16Regular />
         </button>
-        <button className="browser-tab-button" type="button" disabled={!external} onClick={() => { void window.workFoldDesktop?.shell.openExternal(url).catch((caught) => onError(caught instanceof Error ? caught.message : "The page could not open.")); }} aria-label="Open in your web browser" title="Open in your web browser">
+        <button className="browser-tab-button" type="button" disabled={!external} onClick={() => { void window.workFoldDesktop?.shell.openExternal(url).catch((caught) => onError(caught instanceof Error ? caught.message : "The page could not open.")); }} aria-label="Open in Your Web Browser" title="Open in Your Web Browser">
           <Open20Regular />
         </button>
       </header>
@@ -468,8 +468,8 @@ export function BrowserTabPanel({
         <div className="browser-tab-bar browser-tab-popup" role="status">
           <WindowNew16Regular aria-hidden="true" />
           <span className="browser-tab-bar-text">Pop-up blocked{page.blockedPopup.origin ? ` from ${siteHost(page.blockedPopup.origin)}` : ""}: <span className="browser-tab-popup-url">{page.blockedPopup.url}</span></span>
-          <button className="ui-control compact no-margin" type="button" disabled={!page.blockedPopup.origin} onClick={() => { void desktop.command(tab.pageId, { type: "allow-popups" }); }}>Always allow on this site</button>
-          <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "open-blocked-popup" }); }}>Open it</button>
+          <button className="ui-control compact no-margin" type="button" disabled={!page.blockedPopup.origin} onClick={() => { void desktop.command(tab.pageId, { type: "allow-popups" }); }}>Always Allow on This Site</button>
+          <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "open-blocked-popup" }); }}>Open It</button>
           <button className="browser-tab-button" type="button" onClick={() => { void desktop.command(tab.pageId, { type: "dismiss-blocked-popup" }); }} aria-label="Dismiss" title="Dismiss">
             <Dismiss16Regular />
           </button>
@@ -490,15 +490,15 @@ export function BrowserTabPanel({
             onKeyDown={findKeyDown}
           />
           <span className="browser-tab-find-count" aria-live="polite">
-            {findText && findResult ? (findResult.matches ? `${findResult.activeMatch} of ${findResult.matches}` : "No matches") : ""}
+            {findText && findResult ? (findResult.matches ? `${findResult.activeMatch} of ${findResult.matches}` : "No Matches") : ""}
           </span>
-          <button className="browser-tab-button" type="button" disabled={!findResult?.matches} onClick={() => find(findText, { forward: false, newSearch: false })} aria-label="Previous match" title="Previous match">
+          <button className="browser-tab-button" type="button" disabled={!findResult?.matches} onClick={() => find(findText, { forward: false, newSearch: false })} aria-label="Previous Match" title="Previous Match">
             <ChevronUp16Regular />
           </button>
-          <button className="browser-tab-button" type="button" disabled={!findResult?.matches} onClick={() => find(findText, { forward: true, newSearch: false })} aria-label="Next match" title="Next match">
+          <button className="browser-tab-button" type="button" disabled={!findResult?.matches} onClick={() => find(findText, { forward: true, newSearch: false })} aria-label="Next Match" title="Next Match">
             <ChevronDown16Regular />
           </button>
-          <button className="browser-tab-button" type="button" onClick={closeFind} aria-label="Close find" title="Close find">
+          <button className="browser-tab-button" type="button" onClick={closeFind} aria-label="Close Find" title="Close Find">
             <Dismiss16Regular />
           </button>
         </div>
@@ -521,14 +521,14 @@ export function BrowserTabPanel({
                   void desktop.clearHistory().then(() => setRecent([])).catch((caught) => onError(caught instanceof Error ? caught.message : "History could not be cleared."));
                 }}
               >
-                Clear browsing history
+                Clear Browsing History
               </button>
             </div>
           </div>
         ) : !hasPage ? (
           <div className="browser-tab-state">
             <FluentGlyph icon={BrowserTabIcon} size={32} filled={false} />
-            <strong>Search or type a web address</strong>
+            <strong>Search or Type a Web Address</strong>
             <span>This browser is shared by every work-folder, and your Workers can use its tabs too.</span>
           </div>
         ) : page?.crashed ? (

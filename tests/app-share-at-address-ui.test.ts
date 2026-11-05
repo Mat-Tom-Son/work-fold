@@ -127,7 +127,7 @@ test("an app's details offer Share at your address only when eligible, share on 
 
   for (const title of ["App preview", "App no-viewer"]) {
     await openDetails(title);
-    assert.equal(buttons("Share at your address").length, 0, `${title} is not offered for sharing`);
+    assert.equal(buttons("Share at Your Address").length, 0, `${title} is not offered for sharing`);
     assert.equal(document.querySelector(".restricted-app-share-note"), null);
     await closeDetails();
   }
@@ -135,7 +135,7 @@ test("an app's details offer Share at your address only when eligible, share on 
   await openDetails("App release");
   const dialog = document.querySelector('[role="dialog"]')!;
   const lifecycle = Array.from(dialog.querySelectorAll(".restricted-app-lifecycle")).find((section) => section.querySelector("h3")?.textContent === "Lifecycle");
-  assert.match(lifecycle?.textContent ?? "", /Share at your address/, "the button sits in Lifecycle");
+  assert.match(lifecycle?.textContent ?? "", /Share at Your Address/, "the button sits in Lifecycle");
   assert.match(dialog.querySelector(".restricted-app-share-note")?.textContent ?? "",
     /Sharing shows viewer\.html to anyone with the link\. Viewers can read public\/ in this app's data, and never write, act, or reach connections\./);
 
@@ -143,7 +143,7 @@ test("an app's details offer Share at your address only when eligible, share on 
   // stays inside the dialog, which keeps everything behind it (the toast
   // included) out of reach.
   noAddress = true;
-  await dom.act(() => buttons("Share at your address")[0]!.click());
+  await dom.act(() => buttons("Share at Your Address")[0]!.click());
   await dom.waitFor(() => document.body.textContent?.includes("Set up web access before sharing an app.") === true);
   await dom.waitFor(() => Boolean(lifecycleButton("Web Access")));
   await dom.act(() => lifecycleButton("Web Access")!.click());
@@ -154,11 +154,11 @@ test("an app's details offer Share at your address only when eligible, share on 
   noAddress = false;
   opened.length = 0;
   await openDetails("App release");
-  await dom.act(() => buttons("Share at your address")[0]!.click());
+  await dom.act(() => buttons("Share at Your Address")[0]!.click());
   await dom.waitFor(() => document.body.textContent?.includes("App release is at your address. Show its link in Settings → Shared Pages.") === true);
   assert.deepEqual(shares.at(-1), { workFolderId: workFolder.id, instance: eligible.featureInstallationId });
   await dom.waitFor(() => Boolean(lifecycleButton("Open Shared Pages")));
-  assert.equal(buttons("Share at your address").length, 0, "a shared app opens Shared Pages instead of sharing again");
+  assert.equal(buttons("Share at Your Address").length, 0, "a shared app opens Shared Pages instead of sharing again");
   await dom.act(() => lifecycleButton("Open Shared Pages")!.click());
   assert.ok(opened.includes("shared-pages"));
   assert.equal(shares.length, 2, "each click is one call; nothing asked first");

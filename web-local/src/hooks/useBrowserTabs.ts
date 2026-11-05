@@ -21,7 +21,7 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
   tabsRef.current = tabs;
   const browserTabs = tabs.surfaceTabs.filter((tab): tab is Extract<WorkFolderSurfaceTab, { kind: "browser" }> => tab.kind === "browser");
   /** Closed browser tabs, newest last, for Reopen Closed Tab; kept for this window's life. */
-  const closedRef = useRef<Array<{ url: string; title: string }>>([]);
+  const closedRef = useRef<Array<{ url: string; title: string; at: number }>>([]);
   const knownRef = useRef(new Map<string, { url: string; title: string }>());
   for (const tab of browserTabs) knownRef.current.set(tab.pageId, { url: tab.url, title: tab.title });
   const viewingPageId = browserTabs.find((tab) => tab.id === tabs.activeSurfaceTabId)?.pageId ?? null;
@@ -104,7 +104,7 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
     for (const pageId of closed) {
       const known = knownRef.current.get(pageId);
       knownRef.current.delete(pageId);
-      if (known?.url) closedRef.current = [...closedRef.current, known].slice(-25);
+      if (known?.url) closedRef.current = [...closedRef.current, { ...known, at: Date.now() }].slice(-25);
     }
     for (const pageId of closed) void desktop.close(pageId).catch(() => undefined);
     setPages((existing) => {
@@ -160,6 +160,8 @@ export function useBrowserTabs(tabs: ReturnType<typeof useSurfaceTabs>) {
     newTab: () => tabs.openBrowserSurfaceTab(),
     reload: (pageId: string) => { void desktop?.command(pageId, { type: "reload" }); },
     reopenClosed,
+    /** When the last browser tab closed; 0 when none can be reopened. */
+    lastClosedAt: () => closedRef.current.at(-1)?.at ?? 0,
     openTabMenu,
   };
 }

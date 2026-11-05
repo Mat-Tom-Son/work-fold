@@ -841,10 +841,10 @@ async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise
   const unverifiedBrowserLabel = JSON.stringify(pairing.label);
   const options = {
     type: "question" as const,
-    title: "Confirm remote browser",
+    title: "Confirm Remote Browser",
     message: "Pair this remote browser?",
     detail: `Unverified browser-supplied label: ${unverifiedBrowserLabel}\n\nConfirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
-    buttons: ["Pair browser", "Decline"],
+    buttons: ["Pair Browser", "Decline"],
     defaultId: 0,
     cancelId: 1,
     noLink: true,
@@ -1169,7 +1169,7 @@ async function openModelContextWindow(): Promise<void> {
     if (quitting) return;
     modelContextWindow ??= new ModelContextWindow({
       url: `${appProtocol}://app/index.html?dev-context`,
-      title: `Inspect context — ${productName}`,
+      title: `Inspect Context — ${productName}`,
       preload: join(dirnameFromFile(currentFile), "model-context-preload.cjs"),
       createWindow: (options) => new BrowserWindow(options),
       request: async ({ path, method, body }) => {
@@ -1229,8 +1229,8 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:work-folder:choose-folder", async (event) => {
     assertTrustedRenderer(event);
     const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder", properties: ["openDirectory", "createDirectory"] })
-      : await dialog.showOpenDialog({ title: "Choose a folder", properties: ["openDirectory", "createDirectory"] });
+      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a Folder", properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ title: "Choose a Folder", properties: ["openDirectory", "createDirectory"] });
     const workFolderRoot = result.filePaths[0];
     if (result.canceled || !workFolderRoot) return null;
     return { path: workFolderRoot, folderGrantId: createFolderGrant(workFolderRoot) };
@@ -1672,8 +1672,8 @@ function buildApplicationMenuTemplate(): MenuItemConstructorOptions[] {
 function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemConstructorOptions[] {
   if (menuId === "file") {
     const items: MenuItemConstructorOptions[] = [
-      { label: "Create new work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-work-folder") },
-      { label: "Use existing folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
+      { label: "Create New work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-work-folder") },
+      { label: "Use Existing Folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
       ...(process.platform === "darwin" ? [{
         label: "Open Recent",
         role: "recentDocuments" as const,
@@ -2667,7 +2667,7 @@ function buildEditableContextMenuTemplate(window: BrowserWindow, params: Context
     template.push(...(suggestions.length ? suggestions.map((suggestion) => ({
       label: suggestion,
       click: () => window.webContents.replaceMisspelling(suggestion),
-    })) : [{ label: "No suggestions", enabled: false }]));
+    })) : [{ label: "No Suggestions", enabled: false }]));
     template.push({ label: "Add to Dictionary", click: () => window.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }, { type: "separator" });
   }
   template.push(

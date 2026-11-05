@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
 import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
+import { createFixtureAutomationReads } from "../../fixtures/settings-fixture";
+import { showToast } from "../../ui/feedback";
+import { folderAutomations } from "../../ui-contract";
 import {
   automationCatchUpSentence,
   formatAutomationDateTime as formatDateTime,
@@ -185,8 +188,10 @@ const emptyHistory: AutomationHistoryResponse = { runs: [], truncated: false, da
  * Settings-only projection over the host automation service. The renderer never
  * parses declarations or receipt JSONL itself: the host resolves work-folder names,
  * safe details, run groups, and evidence identifiers before they arrive here.
+ * The browser preview (`?fixture=work-folder`) reads sample automations
+ * instead and changes nothing.
  */
-export function AutomationsPane() {
+export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean } = {}) {
   const [data, setData] = useState<AutomationsResponse | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AutomationDetailView | null>(null);
@@ -201,20 +206,22 @@ export function AutomationsPane() {
   const [proposals, setProposals] = useState<AutomationProposalView[]>([]);
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const fixtureReads = useMemo(() => fixtureMode ? createFixtureAutomationReads() : null, [fixtureMode]);
+  const reads = useCallback(() => fixtureReads ?? automationBridge(), [fixtureReads]);
 
   // Pending proposal files are a desktop-only read; without the bridge the
   // section is simply absent and the load error line explains why.
   const loadProposals = useCallback(async () => {
-    const scan = window.workFoldDesktop?.automations?.proposals;
+    const scan = fixtureReads?.proposals ?? window.workFoldDesktop?.automations?.proposals;
     if (!scan) return;
     const next = await scan();
     setProposals((current) => sameProposals(current, next.proposals) ? current : next.proposals);
-  }, []);
+  }, [fixtureReads]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      const scan = window.workFoldDesktop?.automations?.proposals;
+      const scan = fixtureReads?.proposals ?? window.workFoldDesktop?.automations?.proposals;
       if (!scan) return;
       void scan()
         .then((next) => {
@@ -230,7 +237,7 @@ export function AutomationsPane() {
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, []);
+  }, [fixtureReads]);
 
   const selectAutomation = useCallback((automationId: string | null) => {
     selectedIdRef.current = automationId;
@@ -238,7 +245,7 @@ export function AutomationsPane() {
   }, []);
 
   const loadList = useCallback(async () => {
-    const next = await automationBridge().list();
+    const next = await reads().list();
     setData(next);
     setLoadError(null);
     const current = selectedIdRef.current;
@@ -246,22 +253,22 @@ export function AutomationsPane() {
       ? current
       : next.automations[0]?.automationId ?? null);
     return next;
-  }, [selectAutomation]);
+  }, [reads, selectAutomation]);
 
   const loadSelected = useCallback(async (automationId: string) => {
     const [nextDetail, nextHistory] = await Promise.all([
-      automationBridge().show(automationId),
-      automationBridge().history(automationId),
+      reads().show(automationId),
+      reads().history(automationId),
     ]);
     if (selectedIdRef.current !== automationId) return;
     setDetail(nextDetail.automation);
     setHistory(nextHistory);
     setDetailError(null);
-  }, []);
+  }, [reads]);
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.resolve().then(() => automationBridge().list())
+    void Promise.resolve().then(() => reads().list())
       .then((next) => {
         if (cancelled) return;
         setData(next);
@@ -273,7 +280,7 @@ export function AutomationsPane() {
       })
       .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, [selectAutomation]);
+  }, [reads, selectAutomation]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -288,8 +295,8 @@ export function AutomationsPane() {
     setHistory(emptyHistory);
     setDetailError(null);
     void Promise.resolve().then(() => Promise.all([
-      automationBridge().show(selectedId),
-      automationBridge().history(selectedId),
+      reads().show(selectedId),
+      reads().history(selectedId),
     ]))
       .then(([nextDetail, nextHistory]) => {
         if (cancelled) return;
@@ -299,7 +306,7 @@ export function AutomationsPane() {
       })
       .catch((caught) => { if (!cancelled) setDetailError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, [selectedId]);
+  }, [reads, selectedId]);
 
   const hasActiveRun = Boolean(data?.automations.some((automation) => automation.activeRun))
     || pending.some((key) => key.startsWith("run:"))
@@ -320,7 +327,7 @@ export function AutomationsPane() {
               continue;
             }
             if (automation.activeRun) continue;
-            const recent = await automationBridge().history(automationId).catch(() => null);
+            const recent = await reads().history(automationId).catch(() => null);
             if (recent?.runs.some((run) => run.outcome !== "accepted" && (
               watch.runId ? run.runId === watch.runId : Date.parse(run.startedAt) >= watch.startedAt - 1_000
             ))) {
@@ -336,7 +343,7 @@ export function AutomationsPane() {
         .catch(() => undefined);
     }, 1_500);
     return () => window.clearInterval(timer);
-  }, [hasActiveRun, hasFileWatch, loadList, loadSelected, runWatches, selectedId]);
+  }, [hasActiveRun, hasFileWatch, loadList, loadSelected, reads, runWatches, selectedId]);
 
   const selectedSummary = useMemo(
     () => data?.automations.find((automation) => automation.automationId === selectedId) ?? null,
@@ -345,6 +352,10 @@ export function AutomationsPane() {
 
   async function runAction(key: string, operation: () => Promise<string | null>) {
     if (pending.includes(key)) return;
+    if (fixtureMode) {
+      showToast({ text: folderAutomations.previewDisabled, tone: "info" });
+      return;
+    }
     const watchedAutomationId = key.startsWith("run:") ? key.slice("run:".length) : null;
     if (watchedAutomationId) {
       setRunWatches((current) => ({ ...current, [watchedAutomationId]: { startedAt: Date.now() } }));
@@ -445,7 +456,7 @@ export function AutomationsPane() {
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
       {proposals.length ? (
         <section className="automation-proposals" aria-labelledby="automation-proposals-title">
-          <h5 id="automation-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to turn on" : "Automation files"}</h5>
+          <h5 id="automation-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to Turn On" : "Automation Files"}</h5>
           <ul>
             {proposals.map((proposal) => proposal.valid ? (
               <li className="automation-proposal" key={proposal.path}>
@@ -464,14 +475,14 @@ export function AutomationsPane() {
                     return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
                   })}
                 >
-                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning on…" : "Turn On"}
+                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning On…" : "Turn On"}
                 </button>
               </li>
             ) : (
               <li className="automation-proposal invalid" key={proposal.path} title={proposal.problem}>
                 <div>
                   <strong>{proposal.fileName}</strong>
-                  <small>Can&apos;t be turned on</small>
+                  <small>Can&apos;t Be Turned On</small>
                 </div>
               </li>
             ))}
@@ -559,9 +570,9 @@ export function AutomationsPane() {
                 ) : null}
 
                 {detail.trigger.kind === "files-changed" ? <section className="automation-detail-section">
-                  <h5>Watched folder</h5>
+                  <h5>Watched Folder</h5>
                   <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
-                  <p>Observer: {detail.fileWatch?.state ?? "off"}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
+                  <p>{watchStateLabel(detail.fileWatch?.state)}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
                   {detail.trigger.ifMissed === "run" ? <>
                     <p className="automation-catch-up">
                       Catches up after work-fold was closed: files added or changed while work-fold was closed, the computer was asleep, or this automation was off start one run when work-fold is back.
@@ -577,12 +588,12 @@ export function AutomationsPane() {
                         : "none yet"}
                     </p>
                     {detail.fileWatch?.notice ? <p className="automation-catch-up-notice">{detail.fileWatch.notice}</p> : null}
-                    <p>Changes made while an automation is running are not replayed.</p>
-                  </> : <p>Changes during automation work, sleep, or restart are not replayed.</p>}
+                    <p>Changes made while an Automation is running are skipped.</p>
+                  </> : <p>Changes made while an Automation runs, the computer sleeps, or work-fold restarts are skipped.</p>}
                 </section> : null}
                 <dl className="automation-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
-                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome, detail.lastRun.partial)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
+                  <div><dt>Last Run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome, detail.lastRun.partial)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
                 </dl>
 
                 <section className="automation-detail-section" aria-labelledby="automation-steps-title">
@@ -595,6 +606,7 @@ export function AutomationsPane() {
 
                 <AutomationActions
                   automation={detail}
+                  fixtureMode={fixtureMode}
                   pending={pending}
                   storeUnavailable={storeUnavailable}
                   wideningUnavailable={wideningUnavailable}
@@ -630,8 +642,9 @@ export function AutomationsPane() {
   );
 }
 
-function AutomationActions({ automation, pending, storeUnavailable, wideningUnavailable, runQueued, onRun, onRunAdmitted, onDeleted }: {
+function AutomationActions({ automation, fixtureMode, pending, storeUnavailable, wideningUnavailable, runQueued, onRun, onRunAdmitted, onDeleted }: {
   automation: AutomationDetailView;
+  fixtureMode: boolean;
   pending: string[];
   storeUnavailable: boolean;
   wideningUnavailable: boolean;
@@ -659,7 +672,7 @@ function AutomationActions({ automation, pending, storeUnavailable, wideningUnav
               return "Run Requested";
             })}
           >
-            {pending.includes(`run:${automation.automationId}`) || runQueued ? "Starting…" : "Run a copy now"}
+            {pending.includes(`run:${automation.automationId}`) || runQueued ? "Starting…" : "Run a Copy Now"}
           </button>
         ) : null}
         {isRunning ? (
@@ -685,7 +698,7 @@ function AutomationActions({ automation, pending, storeUnavailable, wideningUnav
               return "Automation turned off";
             })}
           >
-            {pending.includes(`disable:${automation.automationId}`) ? "Turning off…" : "Turn Off"}
+            {pending.includes(`disable:${automation.automationId}`) ? "Turning Off…" : "Turn Off"}
           </button>
         ) : null}
         {automation.health === "disabled" || automation.health === "suspended" ? (
@@ -698,7 +711,7 @@ function AutomationActions({ automation, pending, storeUnavailable, wideningUnav
               return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
             })}
           >
-            {pending.includes(`enable:${automation.automationId}`) ? "Turning on…" : "Turn On"}
+            {pending.includes(`enable:${automation.automationId}`) ? "Turning On…" : "Turn On"}
           </button>
         ) : null}
         {canDelete ? (
@@ -707,7 +720,7 @@ function AutomationActions({ automation, pending, storeUnavailable, wideningUnav
             type="button"
             disabled={storeUnavailable || anyPending}
             onClick={() => {
-              if (!window.confirm(`Delete “${automation.title}”? Its run history will remain.`)) return;
+              if (!fixtureMode && !window.confirm(`Delete “${automation.title}”? Its run history will remain.`)) return;
               onRun(`delete:${automation.automationId}`, async () => {
                 await automationBridge().delete(automation.automationId);
                 onDeleted();
@@ -753,7 +766,7 @@ function AutomationResiduals({ steps }: { steps: AutomationStepView[] }) {
   if (!handoffs.length && !hasChat) return null;
   return (
     <div className="automation-residuals">
-      <h6>While this automation is on</h6>
+      <h6>While This Automation Is On</h6>
       <ul>
         {handoffs.map((handoff) => (
           <li key={`residual-${handoff.id}`}>
@@ -860,7 +873,7 @@ function workFolderLabel(workFolder: AutomationWorkFolderRef): string {
 
 /** A succeeded run or step whose Worker reported finishing only partly reads "Partly done". */
 function outcomeLabel(outcome: AutomationsPaneOutcome, partial?: true): string {
-  if (partial && outcome === "succeeded") return "Partly done";
+  if (partial && outcome === "succeeded") return "Partly Done";
   return ({
     accepted: "Started",
     succeeded: "Succeeded",
@@ -870,6 +883,15 @@ function outcomeLabel(outcome: AutomationsPaneOutcome, partial?: true): string {
     skipped: "Skipped",
     lapsed: "Missed",
   })[outcome];
+}
+
+/** The folder watch in plain words. */
+function watchStateLabel(state: "starting" | "watching" | "paused" | "error" | undefined): string {
+  if (state === "watching") return "Watching for changes";
+  if (state === "starting") return "Starting to watch";
+  if (state === "paused") return "Paused while an Automation runs";
+  if (state === "error") return "Can't watch this folder";
+  return "Not watching";
 }
 
 function hopLabel(kind: AutomationHistoryHopView["kind"]): string {

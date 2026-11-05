@@ -38,7 +38,7 @@ export async function openFileWithPickedApp(platform: NodeJS.Platform, dependenc
 }
 
 export function openWithDialogOptions(platform: NodeJS.Platform, env: NodeJS.ProcessEnv = process.env): OpenWithDialogOptions {
-  const base = { title: "Choose an app", properties: ["openFile"] as ["openFile"] };
+  const base = { title: "Choose an App", properties: ["openFile"] as ["openFile"] };
   if (platform === "darwin") {
     return { ...base, defaultPath: "/Applications", filters: [{ name: "Applications", extensions: ["app"] }] };
   }

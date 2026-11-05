@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
+import { ArrowRight, ChevronRight, Loader2, SharedOnWeb } from "../chrome/icons";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
@@ -328,7 +328,7 @@ export function FileTree({
 
 /** The at-a-glance mark for a file shared as a page (Files rows and file tabs). */
 export function SharedPageGlyph({ className }: { className: string }) {
-  return <span className={className} title={fileSharing.sharedMarkTooltip} aria-hidden="true"><Share2 size={12} /></span>;
+  return <span className={className} title={fileSharing.sharedMarkTooltip} aria-hidden="true"><SharedOnWeb size={12} /></span>;
 }
 
 /** Files' first load: nothing that looks like files, and a quiet line only if the wait is noticeable. */

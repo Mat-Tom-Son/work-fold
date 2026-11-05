@@ -21,6 +21,9 @@ export type WorkFolderAppearanceBannerImagePosition = "top" | "center" | "bottom
 export const workFolderAppearanceBannerPresetIds = ["tide", "ember", "fold", "dusk"] as const;
 export type WorkFolderAppearanceBannerPresetId = typeof workFolderAppearanceBannerPresetIds[number];
 export interface WorkFolderAppearanceBannerFraming { x: number; y: number; zoom: number }
+/** How the banner sits above the work-folder's pane. Card is the original. */
+export const workFolderAppearanceBannerLayouts = ["card", "compact", "band", "cover"] as const;
+export type WorkFolderAppearanceBannerLayout = typeof workFolderAppearanceBannerLayouts[number];
 
 export function normalizeWorkFolderAppearanceBannerFraming(value: unknown): WorkFolderAppearanceBannerFraming | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -51,6 +54,7 @@ export interface WorkFolderAppearanceCustomization {
   bannerImagePosition?: WorkFolderAppearanceBannerImagePosition;
   bannerPreset?: WorkFolderAppearanceBannerPresetId;
   bannerFraming?: WorkFolderAppearanceBannerFraming;
+  bannerLayout?: WorkFolderAppearanceBannerLayout;
 }
 
 export type WorkFolderAppearanceCustomizationMap = Record<string, WorkFolderAppearanceCustomization>;
@@ -195,6 +199,9 @@ export function normalizeWorkFolderAppearanceCustomization(
   }
   const framing = normalizeWorkFolderAppearanceBannerFraming(record.bannerFraming);
   if (framing) customization.bannerFraming = framing;
+  if (workFolderAppearanceBannerLayouts.includes(record.bannerLayout as WorkFolderAppearanceBannerLayout)) {
+    customization.bannerLayout = record.bannerLayout as WorkFolderAppearanceBannerLayout;
+  }
 
   return hasWorkFolderAppearanceCustomization(customization) ? customization : {};
 }
@@ -252,7 +259,8 @@ export function hasWorkFolderAppearanceCustomization(
     || customization.bannerImage
     || customization.bannerImagePosition
     || customization.bannerPreset
-    || customization.bannerFraming,
+    || customization.bannerFraming
+    || customization.bannerLayout,
   );
 }
 
@@ -399,6 +407,7 @@ export function upgradeWorkFolderAppearanceCustomization(
     ...(normalized.bannerImagePosition ? { bannerImagePosition: normalized.bannerImagePosition } : {}),
     ...(normalized.bannerPreset ? { bannerPreset: normalized.bannerPreset } : {}),
     ...(normalized.bannerFraming ? { bannerFraming: normalized.bannerFraming } : {}),
+    ...(normalized.bannerLayout ? { bannerLayout: normalized.bannerLayout } : {}),
   };
   return upgraded;
 }

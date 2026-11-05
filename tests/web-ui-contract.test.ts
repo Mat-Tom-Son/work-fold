@@ -30,8 +30,8 @@ test("work-folder navigation separates the active work-folder from its surfaces"
     ["history", "History"],
   ]);
   assert.deepEqual(welcomeActions, {
-    create: "Create new work-folder",
-    linkFolder: "Use existing folder",
+    create: "Create New work-folder",
+    linkFolder: "Use Existing Folder",
   });
 });
 

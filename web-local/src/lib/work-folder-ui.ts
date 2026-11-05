@@ -2,7 +2,7 @@ import type { WorkFolderSummary } from "../types";
 
 export function workFolderHeaderSourceBadgeLabel(workFolder: WorkFolderSummary): string {
   if (workFolder.location.providerHint === "google-drive") return "Google Drive";
-  return workFolder.location.storage === "linked" ? "Linked folder" : "On this computer";
+  return workFolder.location.storage === "linked" ? "Linked Folder" : "On This Computer";
 }
 export function surfaceDomIdSuffix(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, (character) => `-${character.charCodeAt(0).toString(16)}-`);

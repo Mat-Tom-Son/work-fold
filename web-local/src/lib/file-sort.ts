@@ -10,7 +10,7 @@ export const fileSortStorageKey = "work-fold.work-folder.file-sort.v1";
 /** The menu's choices, in order, with the direction each starts in. */
 export const fileSortOptions: ReadonlyArray<{ key: FileSortKey; label: string; firstDirection: FileSortDirection }> = [
   { key: "name", label: "Name", firstDirection: "asc" },
-  { key: "modified", label: "Date modified", firstDirection: "desc" },
+  { key: "modified", label: "Date Modified", firstDirection: "desc" },
   { key: "size", label: "Size", firstDirection: "desc" },
   { key: "kind", label: "Kind", firstDirection: "asc" },
 ];

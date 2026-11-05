@@ -137,7 +137,7 @@ test("a last run its Worker reported as partly done says so", () => {
     lastRun,
     roles: ["chats-here"],
   });
-  assert.match(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "succeeded", partial: true })), /· Partly done$/);
+  assert.match(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "succeeded", partial: true })), /· Partly Done$/);
   assert.doesNotMatch(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "succeeded" })), /·/);
   assert.match(lastRunText(view({ at: "2026-10-11T12:00:00.000Z", outcome: "failed" })), /· Failed$/);
 });

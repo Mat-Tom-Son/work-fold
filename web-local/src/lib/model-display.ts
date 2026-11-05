@@ -11,5 +11,5 @@ export function displayModelLabel(provider: string, model: string): string {
   const modelLabel = displayModelIdentifier(model);
   return providerLabel && modelLabel
     ? `${providerLabel} · ${modelLabel}`
-    : modelLabel || providerLabel || "Choose model";
+    : modelLabel || providerLabel || "Choose Model";
 }

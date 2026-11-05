@@ -1167,7 +1167,7 @@ test("pairing copy treats the browser label as unverified data", async () => {
   const prompt = main.slice(start, end);
 
   assert.match(prompt, /message: "Pair this remote browser\?"/);
-  assert.match(prompt, /buttons: \["Pair browser", "Decline"\]/);
+  assert.match(prompt, /buttons: \["Pair Browser", "Decline"\]/);
   assert.match(prompt, /Unverified browser-supplied label/);
   assert.match(prompt, /JSON\.stringify\(pairing\.label\)/);
   assert.doesNotMatch(prompt, /message:\s*`[^`]*\$\{pairing\.label\}/);

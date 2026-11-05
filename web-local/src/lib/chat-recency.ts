@@ -13,8 +13,8 @@ export function groupChatsByRecency<T extends { updatedAt: string }>(chats: T[],
     day.setHours(0, 0, 0, 0);
     const label = day.getTime() === startOfToday.getTime() ? "Today"
       : day.getTime() === startOfYesterday.getTime() ? "Yesterday"
-        : day >= startOfWeek ? "Earlier this week"
-          : day >= startOfLastWeek ? "Last week" : "Older";
+        : day >= startOfWeek ? "Earlier This Week"
+          : day >= startOfLastWeek ? "Last Week" : "Older";
     groups.set(label, [...(groups.get(label) ?? []), chat]);
   }
   return Array.from(groups.entries());

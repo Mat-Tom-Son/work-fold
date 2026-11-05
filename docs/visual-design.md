@@ -24,15 +24,18 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
 - Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
 - Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px; Settings → Apps uses **Layout Panel Left** and Web Access uses **Globe Code** at 20px (2026-10-08). These requested icons use a 1.5px stroke to match the neighboring Fluent outlines and inherit the same control colors; other shell controls retain Fluent icons.
-- Keep icon-library exceptions limited to those named controls. The work-folder glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and work-folder-bound tabs. The banner itself is name-first.
+- Keep icon-library exceptions limited to those named controls. The work-folder glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and work-folder-bound tabs. The Card banner is name-first; the Compact, Band, and Cover layouts lead with the work-folder icon (2026-11-04).
 - work-folder color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
 ## Typography and spacing
 
-- Every platform defaults to the bundled brand fonts: Inter Variable for body copy and controls, Poppins SemiBold (600) for interface headings. Markdown-rendered conversation and document content keeps the body face. Body copy is 15px with weights 400, 600, and 700; the fonts ship with the app and the web client, never from a CDN.
+- Every platform defaults to the bundled brand fonts: Inter Variable for body copy and controls, Poppins SemiBold (600) for interface headings. Markdown-rendered conversation and document content keeps the body face. Body copy is 15px; interface weights are 400, 500, 600, and 700 only; the fonts ship with the app and the web client, never from a CDN.
+- Every interface font size is one step of the type scale in `web-local/src/brand.css` (`--work-fold-type-2xs` through `--work-fold-type-2xl`: 11, 12, 13, 14, 15, 17, 20, and 24px at Standard). The steps are in rem, so Text Size scales the whole interface. Nothing renders below 11px, which is reserved for badges, keycaps, and small labels; metadata and captions are 12px; section and dialog titles are 17px and page titles 20px (2026-11-04).
+- Headings, navigation, tab labels, menu items, buttons, field labels, options, and status words are Title Case; sentences, hints, placeholders, toasts, and errors are sentence case. `work-fold`, `work-folder`, and `work-fold agent` keep their own casing inside Title Case (2026-11-04).
 - User-selected fonts and text sizes may change type, but must not change shell geometry or push controls out of bounds.
-- Use the 4, 8, 12, 16, 24, and 32px spacing scale.
-- Compact toolbar controls are 30px tall with 5px radii; primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
+- Use the 4, 8, 12, 16, 24, and 32px spacing scale, with 2, 6, 10, and 20px half-steps inside dense controls.
+- Text colors come from the palette (`--ui-text`, `--ui-text-muted`), not hard-coded grays. Muted text keeps at least 4.6:1 contrast on every surface it sits on, in every palette and theme; disabled controls stay legible (about 3.5:1) instead of fading.
+- Controls come in three heights (`--work-fold-control-sm/md/lg` in `brand.css`): 24px small icon actions, 30px buttons, toolbar icons, and pane search fields, and 36px form fields and search in dialogs and Settings, with 5px radii. Primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
 - Avoid all-caps labels, weight 800+, text shadows, ornamental whole-app gradients, and oversized hero headers.
 
 ## Layout

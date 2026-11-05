@@ -42,7 +42,7 @@ function canOpenDirectly(path: string): boolean {
 function revealInFileManagerLabel(platform: DesktopPlatform = desktopPlatform()): string {
   if (platform === "win32") return "Show in File Explorer";
   if (platform === "darwin") return "Show in Finder";
-  return "Show in file manager";
+  return "Show in File Manager";
 }
 
 function hasNativeFiles(event: React.DragEvent<HTMLElement>): boolean {

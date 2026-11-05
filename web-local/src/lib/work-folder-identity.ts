@@ -9,6 +9,7 @@ import {
   type WorkFolderAppearanceMode,
   type ResolverGround,
   type WorkFolderAppearanceBannerFraming,
+  type WorkFolderAppearanceBannerLayout,
   type WorkFolderAppearanceBannerPresetId,
 } from "../../../src/shared/work-folder-appearance";
 import { maxWorkFolderBannerImageDataUrlLength, maxWorkFolderBannerImageFileBytes } from "../constants";
@@ -101,6 +102,7 @@ interface WorkFolderIdentity {
   bannerImagePosition: WorkFolderBannerImagePosition;
   bannerPreset: WorkFolderAppearanceBannerPresetId | null;
   bannerFraming: WorkFolderAppearanceBannerFraming;
+  bannerLayout: WorkFolderAppearanceBannerLayout;
   iconName: string;
   iconLabel: string;
   Icon: WorkFolderIconOption["Icon"];
@@ -144,6 +146,7 @@ function workFolderIdentityFor(workFolder: WorkFolderSummary, customizations: Wo
     bannerFraming: normalizeWorkFolderAppearanceBannerFraming(custom.bannerFraming) ?? {
       x: 50, y: custom.bannerImagePosition === "top" ? 0 : custom.bannerImagePosition === "bottom" ? 100 : 50, zoom: 1,
     },
+    bannerLayout: custom.bannerLayout ?? "card",
     iconName: iconOption.name,
     iconLabel: iconOption.label,
     Icon: iconOption.Icon,

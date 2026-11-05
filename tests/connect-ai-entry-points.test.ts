@@ -33,7 +33,7 @@ test("a turn that stopped for want of a model offers Connect AI instead of repea
     workFolderId: "w", workFolderRoot: "/synthetic/w", onCopyMessage: () => {},
   }));
   const card = document.querySelector<HTMLElement>('[aria-label="Worker setup needed"]')!;
-  assert.equal(card.querySelector("strong")?.textContent, "Connect your AI to continue");
+  assert.equal(card.querySelector("strong")?.textContent, "Connect Your AI to Continue");
   assert.doesNotMatch(card.textContent!, /Settings → AI Models/, "the card adds a way forward, not the reply's sentence again");
   await dom.act(() => card.querySelector("button")!.click());
   assert.equal(requests.length, 1);

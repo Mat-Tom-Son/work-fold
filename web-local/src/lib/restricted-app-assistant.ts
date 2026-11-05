@@ -9,7 +9,7 @@ export function restrictedAppAssistantTaskStatusLabel(
     case "dispatching": return "Starting";
     case "running": return "Running";
     case "waiting": return "Waiting";
-    case "succeeded": return task.result?.outcome === "partial" ? "Partly finished" : task.result?.outcome === "failed" ? "Couldn’t finish" : "Done";
+    case "succeeded": return task.result?.outcome === "partial" ? "Partly Finished" : task.result?.outcome === "failed" ? "Couldn’t Finish" : "Done";
     case "failed": return "Failed";
     case "cancelled": return "Stopped";
     case "interrupted": return "Interrupted";

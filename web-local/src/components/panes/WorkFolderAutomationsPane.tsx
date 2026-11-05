@@ -89,8 +89,10 @@ export function WorkFolderAutomationsPane({
   return (
     <div className="work-folder-pane-content capabilities-pane folder-automations-pane professional-surface professional-setup">
       <header className="skills-extensions-header">
-        <div>
+        <div className="folder-automations-title">
           <h1>{automationId ? single?.title ?? copy.tab : copy.heading(workFolder.name)}</h1>
+          {/* An Automation's own tab states whether it is on beside its name. */}
+          {automationId && single ? <span className={`automation-health ${stateClass(single.state)}`}>{copy.states[single.state]}</span> : null}
         </div>
       </header>
       {automations && !automations.length ? (
@@ -100,10 +102,10 @@ export function WorkFolderAutomationsPane({
         <ul className="folder-automations-list" aria-label={copy.heading(workFolder.name)}>
           {automations.map((automation) => (
             <li className="folder-automation-row" key={automation.automationId}>
-              <div className="folder-automation-heading">
-                {automationId ? null : <strong>{automation.title}</strong>}
+              {automationId ? null : <div className="folder-automation-heading">
+                <strong>{automation.title}</strong>
                 <span className={`automation-health ${stateClass(automation.state)}`}>{copy.states[automation.state]}</span>
-              </div>
+              </div>}
               <p className="folder-automation-trigger">{automation.triggerSummary}</p>
               {automation.roles.length ? <p className="folder-automation-roles">{folderAutomationRoleSentence(automation.roles)}</p> : null}
               <small className="folder-automation-last-run">{lastRunText(automation)}</small>

@@ -249,7 +249,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         body: destination.target.kind === "loopback-http"
           ? `${app.manifest.title} will be able to use ${destination.methods.join(", ")} requests to this exact loopback address. work-fold verifies the address, but does not yet verify which local process owns the port.`
           : `${app.manifest.title} will be able to use ${destination.methods.join(", ")} requests to this exact origin through work-fold's network broker.`,
-        confirmLabel: "Allow access",
+        confirmLabel: "Allow Access",
       });
       if (!confirmed) return;
     }
@@ -320,7 +320,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       const confirmed = await requestConfirm({
         title: `Allow ${permission.access === "read-write" ? "changes to" : "reading"} ${root}?`,
         body: `${app.manifest.title} will be limited to this ${permission.target} inside the work-folder. work-fold metadata, Pi configuration, links, and paths outside the work-folder remain blocked.`,
-        confirmLabel: "Allow file access",
+        confirmLabel: "Allow File Access",
       });
       if (!confirmed) return;
     }
@@ -340,7 +340,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       const confirmed = await requestConfirm({
         title: `Allow “${permission.title}” notifications?`,
         body: `${app.manifest.title} may show this exact notification only during an enabled automation while work-fold is running.\n\nTitle: work-fold · ${app.manifest.title} — ${permission.title}\nBody: ${permission.description}`,
-        confirmLabel: "Allow notifications",
+        confirmLabel: "Allow Notifications",
       });
       if (!confirmed) return;
     }
@@ -402,7 +402,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
   }
 
   async function clearStorage() {
-    const confirmed = await requestConfirm({ title: `Clear ${app.manifest.title} app data?`, body: "Clears app data. You can undo this until the app changes it again.", confirmLabel: "Clear app data", tone: "danger" });
+    const confirmed = await requestConfirm({ title: `Clear ${app.manifest.title} app data?`, body: "Clears app data. You can undo this until the app changes it again.", confirmLabel: "Clear App Data", tone: "danger" });
     if (!confirmed) return;
     setActionBusy("storage");
     try {
@@ -435,7 +435,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
       const confirmed = await requestConfirm({
         title: file ? `Restore ${app.manifest.title} data?` : "Undo the last data change?",
         body: file ? "Replaces current app data. You can undo this until the app changes it again." : "Restores the data from before the last clear or restore.",
-        confirmLabel: file ? "Restore data" : "Undo change",
+        confirmLabel: file ? "Restore Data" : "Undo Change",
       });
       if (!confirmed) return;
       const usage = await restoreRestrictedAppData(app, expectedRevision, file ? { backup } : { recoveryId: recoveryId! });
@@ -457,7 +457,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
 
   return <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
     <section ref={dialogRef} tabIndex={-1} className="capability-dialog restricted-app-details-dialog" role="dialog" aria-modal="true" aria-labelledby="restricted-app-details-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Feature in installed App"} · This work-folder · Restricted runtime</p></div><button className="ui-control ui-control--icon" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close app details"><Dismiss20Regular /></button></div>
+      <div className="modal-title"><div><h2 id="restricted-app-details-title">{app.manifest.title}</h2><p>{app.runtimeInstanceKind === "development" ? "Local Preview" : "Feature in installed App"} · This work-folder · Restricted runtime</p></div><button className="ui-control ui-control--icon" type="button" disabled={busy || Boolean(actionBusy)} onClick={onClose} aria-label="Close App Details"><Dismiss20Regular /></button></div>
       <div className="capability-dialog-body">
         <p className="capability-details-summary">{app.manifest.description}</p>
         {app.manifest.assistantActions?.length ? <RestrictedAppAssistantTasks key={`${app.featureInstallationId}:${app.digest}`} app={app} disabled={busy || Boolean(actionBusy) || fixtureMode} onOpenFile={async (workFolderId, path) => { await onOpenResultFile(workFolderId, path); onClose(); }} onOpenChat={onOpenBuildChat ? async (workFolderId, conversationId) => { await onOpenBuildChat(workFolderId, conversationId); onClose(); } : undefined} /> : null}
@@ -468,7 +468,7 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         <section className="restricted-app-access-overview" aria-label="App access overview">
           <div className="restricted-app-access-overview-heading">
             <ShieldCheckmark20Regular aria-hidden="true" />
-            <div><strong>{access.enabled ? access.label : "Access is off"}</strong></div>
+            <div><strong>{access.enabled ? access.label : "Access Is Off"}</strong></div>
           </div>
           <div className="restricted-app-access-overview-counts">
             {accessSummary.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.enabled}/{item.total}</strong></div>)}
@@ -512,8 +512,8 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             const granted = app.notificationGrants.includes(permission.id);
             return <article className="restricted-app-destination-card" key={permission.id}>
               <div className="restricted-app-destination-heading"><div><strong>work-fold · {app.manifest.title} — {permission.title}</strong><span>{permission.description}</span></div><code>{permission.id}</code></div>
-              <div className="restricted-app-destination-states"><span className={granted ? "enabled" : ""}>Access: <strong>{granted ? "Allowed" : "Off"}</strong></span><span>Copy: <strong>Fixed to this reviewed revision</strong></span></div>
-              <div className="restricted-app-destination-actions"><button className={granted ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={Boolean(actionBusy)} onClick={() => void changeNotificationGrant(permission, !granted)}>{actionBusy === `notification:${permission.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke notifications" : "Allow notifications"}</button></div>
+              <div className="restricted-app-destination-states"><span className={granted ? "enabled" : ""}>Access: <strong>{granted ? "Allowed" : "Off"}</strong></span><span>Copy: <strong>Fixed to this version</strong></span></div>
+              <div className="restricted-app-destination-actions"><button className={granted ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={Boolean(actionBusy)} onClick={() => void changeNotificationGrant(permission, !granted)}>{actionBusy === `notification:${permission.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke Notifications" : "Allow Notifications"}</button></div>
             </article>;
           })}
           <RestrictedAppNotificationHistory key={`notifications:${app.featureInstallationId}`} app={app} disabled={fixtureMode} />
@@ -537,12 +537,12 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
         </section> : null}
         <section className="restricted-app-lifecycle"><div><h3>App Data</h3><p>{storageUsage ? `${formatBytes(storageUsage.usageBytes)} · Saved on this computer` : "Checking usage…"}</p></div><div className="restricted-app-lifecycle-actions">
           <input ref={restoreInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void restoreData(file); }} />
-          <button className="ui-control" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => void exportData()}>Export data</button>
+          <button className="ui-control" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => void exportData()}>Export Data</button>
           <button className="ui-control" type="button" disabled={fixtureMode || Boolean(actionBusy) || !storageUsage} onClick={() => restoreInputRef.current?.click()}>Restore…</button>
-          {dataRecovery?.available ? <button className="ui-control ui-control--quiet" type="button" disabled={Boolean(actionBusy)} onClick={() => void restoreData()}>Undo data change</button> : null}
-          <button className="ui-control ui-control--quiet" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear data</button>
+          {dataRecovery?.available ? <button className="ui-control ui-control--quiet" type="button" disabled={Boolean(actionBusy)} onClick={() => void restoreData()}>Undo Data Change</button> : null}
+          <button className="ui-control ui-control--quiet" type="button" disabled={Boolean(actionBusy) || !storageUsage?.keyCount} onClick={() => void clearStorage()}>{actionBusy === "storage" ? <ArrowSync16Regular className="spin" /> : null}Clear Data</button>
         </div></section>
-        <details className="restricted-app-package-details"><summary>Package & Runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Installed revision</dt><dd><code>{shortDigest(app.digest)}</code></dd></div>{buildContext?.sourcePath ? <div><dt>Source folder</dt><dd><code>{buildContext.sourcePath}</code></dd></div> : null}<div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
+        <details className="restricted-app-package-details"><summary>Package & Runtime</summary><dl className="capability-review-facts"><div><dt>Package</dt><dd>{app.packageName} {app.version}</dd></div><div><dt>Version ID</dt><dd><code>{shortDigest(app.digest)}</code></dd></div>{buildContext?.sourcePath ? <div><dt>Source Folder</dt><dd><code>{buildContext.sourcePath}</code></dd></div> : null}<div><dt>Runtime</dt><dd>Protected local web app</dd></div><div><dt>UI Entry</dt><dd>{app.manifest.runtime.entry}</dd></div><div><dt>Worker</dt><dd>{app.manifest.runtime.worker ?? "None"}</dd></div></dl></details>
         <section className="restricted-app-lifecycle">
           <div>
             <h3>Lifecycle</h3>
@@ -552,9 +552,9 @@ function RestrictedAppDetailsDialog({ app, busy, fixtureMode, onAppChanged, onRe
             {app.manifest.viewer && appCanBeSharedAtAddress(app) ? <p className="restricted-app-share-note">{appSharing.viewerNote(app.manifest.viewer.entry, app.manifest.viewer.readable)}</p> : null}
           </div>
           <div className="restricted-app-lifecycle-actions">
-            <button className="ui-control" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => onOpenAppStudio(buildContext?.updateTargetRuntimeInstanceId ?? (app.runtimeInstanceKind === "app" ? app.runtimeInstanceId : undefined))}>{buildContext?.updateTargetRuntimeInstanceId || app.runtimeInstanceKind === "app" ? "Review updates" : "Open App Studio"}</button>
+            <button className="ui-control" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => onOpenAppStudio(buildContext?.updateTargetRuntimeInstanceId ?? (app.runtimeInstanceKind === "app" ? app.runtimeInstanceId : undefined))}>{buildContext?.updateTargetRuntimeInstanceId || app.runtimeInstanceKind === "app" ? "Review Updates" : "Open App Studio"}</button>
             {appCanBeSharedAtAddress(app) ? <ShareAppAtAddressButton app={app} disabled={busy || Boolean(actionBusy)} fixtureMode={fixtureMode} onOpenSharedPages={onOpenSharedPages} onOpenWebAccess={onOpenWebAccess} onError={onError} /> : null}
-            {buildContext?.buildConversationId && onOpenBuildChat ? <button className="ui-control ui-control--quiet" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => void openBuildChat()}>Open build Chat</button> : null}
+            {buildContext?.buildConversationId && onOpenBuildChat ? <button className="ui-control ui-control--quiet" type="button" disabled={busy || Boolean(actionBusy)} onClick={() => void openBuildChat()}>Open Build Chat</button> : null}
             {app.runtimeInstanceKind === "development" ? <button className="ui-control professional-button-danger" type="button" disabled={busy || Boolean(actionBusy)} onClick={onRemove}><Delete16Regular />Remove Preview</button> : null}
           </div>
         </section>
@@ -644,12 +644,12 @@ function AppAutomationCard({ app, automation, state, runs, runsLoading, runsErro
     <div className="restricted-app-destination-states">
       <span className={enabled ? "enabled" : ""}>Schedule: <strong>{enabled ? "On" : "Off"}</strong></span>
       <span>Frequency: <strong>{formatAppAutomationSchedule(automation)}</strong></span>
-      <span>Next: <strong>{enabled ? state?.nextRunAt ? formatTimestamp(state.nextRunAt) : "Pending" : "Not scheduled"}</strong></span>
-      <span>Last run: <strong>{state?.lastRunAt ? formatTimestamp(state.lastRunAt) : "Not Run Yet"}</strong></span>
+      <span>Next: <strong>{enabled ? state?.nextRunAt ? formatTimestamp(state.nextRunAt) : "Pending" : "Not Scheduled"}</strong></span>
+      <span>Last Run: <strong>{state?.lastRunAt ? formatTimestamp(state.lastRunAt) : "Not Run Yet"}</strong></span>
     </div>
-    <p className="restricted-app-oauth-note"><strong>Power subset:</strong> {appAutomationPowerSummary(app.manifest, automation)} · {appAutomationGrantedPowerSummary(app, automation)}</p>
-    <p className="restricted-app-oauth-note">Worker handler <code>{automation.handler}</code> · {automation.catchUp === "latest" ? "Latest missed occurrence runs after resume" : "Missed occurrences are not run"} · Overlapping runs are skipped.</p>
-    {state?.lastError ? <div className="restricted-app-oauth-note restricted-app-last-error"><strong>Last error:</strong> <AppErrorText text={state.lastError} /></div> : null}
+    <p className="restricted-app-oauth-note"><strong>Uses:</strong> {appAutomationPowerSummary(app.manifest, automation)} · {appAutomationGrantedPowerSummary(app, automation)}</p>
+    <p className="restricted-app-oauth-note">Handler <code>{automation.handler}</code> · {automation.catchUp === "latest" ? "Catches up once after a missed run" : "Skips missed runs"} · Never runs twice at once</p>
+    {state?.lastError ? <div className="restricted-app-oauth-note restricted-app-last-error"><strong>Last Error:</strong> <AppErrorText text={state.lastError} /></div> : null}
     <div className="restricted-app-destination-actions">
       <button className="ui-control" type="button" disabled={busy} onClick={onRun}>{activeBusyKey === `app-automation-run:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}Run Now</button>
       <button className={enabled ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy} onClick={() => onEnabledChange(!enabled)}>{activeBusyKey === `automation:${automation.id}` ? <ArrowSync16Regular className="spin" /> : null}{enabled ? "Disable" : "Enable"}</button>
@@ -679,7 +679,7 @@ export function AppErrorText({ text }: { text: string }) {
   const long = text.length > appErrorFoldCharacters || text.split("\n").length > appErrorFoldLines;
   return <span className={`restricted-app-error-text${long && !open ? " folded" : ""}`}>
     <span className="restricted-app-error-body">{text}</span>
-    {long ? <button className="app-studio-text-button restricted-app-error-toggle" type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? "Show less" : "Show all"}</button> : null}
+    {long ? <button className="app-studio-text-button restricted-app-error-toggle" type="button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>{open ? "Show Less" : "Show All"}</button> : null}
   </span>;
 }
 
@@ -695,15 +695,15 @@ function FilePermissionCard({ permission, grant, busy, active, onChange }: {
   const wholeWorkFolder = grant?.root === ".";
   const rootChanged = Boolean(grant) && root.trim() !== "" && root.trim() !== grant?.root;
   return <article className="restricted-app-destination-card">
-    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and write" : "Read"} one {permission.target}</strong><span>{grant ? wholeWorkFolder ? "Whole work-folder" : `Granted: ${grant.root}` : "Choose a path inside this work-folder"}</span></div><code>{permission.id}</code></div>
+    <div className="restricted-app-destination-heading"><div><strong>{permission.access === "read-write" ? "Read and Write" : "Read"} One {permission.target === "directory" ? "Directory" : "File"}</strong><span>{grant ? wholeWorkFolder ? "Whole work-folder" : `Granted: ${grant.root}` : "Choose a path inside this work-folder"}</span></div><code>{permission.id}</code></div>
     <div className="restricted-app-credential-fields"><label><span>work-folder-relative path</span><input value={root} disabled={busy} onChange={(event) => setRoot(event.target.value)} placeholder={permission.target === "directory" ? "data (or . for the whole work-folder)" : "data/report.json"} /></label></div>
     <div className="restricted-app-destination-actions">
       {/* An editable path needs a way to apply it: a granted folder can be
           narrowed or moved, and a granted single file can be pointed at a
           different file. Without this the field would accept an edit the
           neighbouring Revoke button silently discards. */}
-      {grant && rootChanged ? <button className="ui-control" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeWorkFolder ? "Limit to folder" : "Change folder" : "Change file"}</button> : null}
-      <button className={grant ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke access" : "Allow access"}</button>
+      {grant && rootChanged ? <button className="ui-control" type="button" disabled={busy} onClick={() => onChange(root.trim(), true)}>{active ? <ArrowSync16Regular className="spin" /> : null}{permission.target === "directory" ? wholeWorkFolder ? "Limit to Folder" : "Change Folder" : "Change File"}</button> : null}
+      <button className={grant ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy || (!grant && !root.trim())} onClick={() => onChange(grant?.root ?? root.trim(), !grant)}>{active && !rootChanged ? <ArrowSync16Regular className="spin" /> : null}{grant ? "Revoke Access" : "Allow Access"}</button>
     </div>
   </article>;
 }
@@ -729,11 +729,11 @@ function DestinationCard({ destination, granted, status, loading, busy, activeBu
     <div className="restricted-app-destination-states"><span className={granted ? "enabled" : ""}>Access: <strong>{granted ? "Allowed" : "Off"}</strong></span><span className={status?.configured ? "enabled" : ""}>Connection: <strong>{loading ? "Checking…" : connectionLabel(destination, status, unsupportedOnly)}</strong></span></div>
     {oauth ? <OAuthDeclarationDetails auth={oauth} /> : null}
     {status?.diagnostics?.length ? <aside className="restricted-app-oauth-diagnostics" role="status">
-      <strong>Provider compatibility {status.diagnostics.length === 1 ? "note" : "notes"}</strong>
+      <strong>Provider Compatibility {status.diagnostics.length === 1 ? "Note" : "Notes"}</strong>
       <ul>{status.diagnostics.map((diagnostic) => <li key={diagnostic.code}>{diagnostic.message}</li>)}</ul>
     </aside> : null}
-    <div className="restricted-app-destination-actions"><button className={granted ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy || loading} onClick={() => onGrantChange(!granted)}>{activeBusyKey === `grant:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke access" : "Allow access"}</button>{!loading && oauth ? <button className="ui-control" type="button" disabled={busy} onClick={onOAuth}>{activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{status?.kind === "oauth2-pkce" ? "Reconnect in browser" : "Connect in browser"}</button> : null}{!loading && status?.configured && status.kind !== "none" ? <button className="ui-control" type="button" disabled={busy} onClick={onDisconnect}>{activeBusyKey === `credential:${destination.id}` || activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}Disconnect</button> : null}</div>
-    {!loading && supportedAuth.length ? <details className="restricted-app-connect-details"><summary>{status?.configured ? "Replace connection" : "Connect"}</summary><CredentialForm destination={destination} supportedAuth={supportedAuth} configuredKind={status?.kind} busy={busy} onSave={onSave} /></details> : null}
+    <div className="restricted-app-destination-actions"><button className={granted ? "ui-control" : "ui-control ui-control--primary"} type="button" disabled={busy || loading} onClick={() => onGrantChange(!granted)}>{activeBusyKey === `grant:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{granted ? "Revoke Access" : "Allow Access"}</button>{!loading && oauth ? <button className="ui-control" type="button" disabled={busy} onClick={onOAuth}>{activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}{status?.kind === "oauth2-pkce" ? "Reconnect in Browser" : "Connect in Browser"}</button> : null}{!loading && status?.configured && status.kind !== "none" ? <button className="ui-control" type="button" disabled={busy} onClick={onDisconnect}>{activeBusyKey === `credential:${destination.id}` || activeBusyKey === `oauth:${destination.id}` ? <ArrowSync16Regular className="spin" /> : null}Disconnect</button> : null}</div>
+    {!loading && supportedAuth.length ? <details className="restricted-app-connect-details"><summary>{status?.configured ? "Replace Connection" : "Connect"}</summary><CredentialForm destination={destination} supportedAuth={supportedAuth} configuredKind={status?.kind} busy={busy} onSave={onSave} /></details> : null}
     {unsupportedOnly ? <p className="restricted-app-oauth-note">{destination.auth.map(authLabel).join(" or ")} is not supported by this work-fold version.</p> : null}
     {destination.target.kind === "loopback-http" ? <p className="restricted-app-oauth-note">Local process ownership is not verified. Allow this only while you recognize the service listening on this port.</p> : null}
   </article>;
@@ -768,9 +768,9 @@ function CredentialForm({ destination, supportedAuth, configuredKind, busy, onSa
     }
   }
   return <form className="restricted-app-credential-form" onSubmit={(event) => void submit(event)} autoComplete="off">
-    <div className="restricted-app-credential-heading"><strong>{configuredKind ? "Replace connection" : "Connect"}</strong>{supportedAuth.length > 1 ? <label><span className="sr-only">Authentication type</span><select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setSecret(""); setUsername(""); setPassword(""); }}>{supportedAuth.map((auth) => <option key={auth.kind} value={auth.kind}>{authLabel(auth)}</option>)}</select></label> : <span>{authLabel(selected)}</span>}</div>
-    {kind === "basic" ? <div className="restricted-app-credential-fields"><label><span>Username</span><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" /></label><label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label></div> : <label className="restricted-app-secret-field"><span>{kind === "api-key" ? `API key · ${selected.kind === "api-key" ? selected.header : "manifest header"}` : "Bearer token"}</span><input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" /></label>}
-    <div><button className="ui-control" type="submit" disabled={busy || !ready}>{configuredKind ? "Replace connection" : "Connect"}</button></div>
+    <div className="restricted-app-credential-heading"><strong>{configuredKind ? "Replace Connection" : "Connect"}</strong>{supportedAuth.length > 1 ? <label><span className="sr-only">Authentication Type</span><select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setSecret(""); setUsername(""); setPassword(""); }}>{supportedAuth.map((auth) => <option key={auth.kind} value={auth.kind}>{authLabel(auth)}</option>)}</select></label> : <span>{authLabel(selected)}</span>}</div>
+    {kind === "basic" ? <div className="restricted-app-credential-fields"><label><span>Username</span><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="off" /></label><label><span>Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label></div> : <label className="restricted-app-secret-field"><span>{kind === "api-key" ? `API Key · ${selected.kind === "api-key" ? selected.header : "manifest header"}` : "Bearer Token"}</span><input type="password" value={secret} onChange={(event) => setSecret(event.target.value)} autoComplete="new-password" /></label>}
+    <div><button className="ui-control" type="submit" disabled={busy || !ready}>{configuredKind ? "Replace Connection" : "Connect"}</button></div>
   </form>;
 }
 
@@ -783,11 +783,11 @@ function isManualCredentialKind(kind: RestrictedAppConnectionStatus["kind"]): ki
 }
 
 function authLabel(auth: RestrictedAppAuthDeclaration): string {
-  if (auth.kind === "api-key") return `API key (${auth.header})`;
-  if (auth.kind === "bearer") return "Bearer token";
-  if (auth.kind === "basic") return "Username and password";
-  if (auth.kind === "none") return "No sign-in";
-  return `OAuth browser sign-in (${new URL(auth.issuer).hostname})`;
+  if (auth.kind === "api-key") return `API Key (${auth.header})`;
+  if (auth.kind === "bearer") return "Bearer Token";
+  if (auth.kind === "basic") return "Username and Password";
+  if (auth.kind === "none") return "No Sign-In";
+  return `OAuth Browser Sign-In (${new URL(auth.issuer).hostname})`;
 }
 
 function OAuthDeclarationDetails({ auth }: {
@@ -805,10 +805,10 @@ function OAuthDeclarationDetails({ auth }: {
     <div><dt>Scopes</dt><dd className="restricted-app-oauth-values">{auth.scopes.map((scope) => <code key={scope}>{scope}</code>)}</dd></div>
     <div><dt>Discovery</dt><dd>{discoveryLabel}</dd></div>
     {discovery === "pinned" ? <>
-      <div><dt>Authorize at</dt><dd><code>{auth.authorizationEndpoint}</code></dd></div>
-      <div><dt>Exchange at</dt><dd><code>{auth.tokenEndpoint}</code></dd></div>
+      <div><dt>Authorization URL</dt><dd><code>{auth.authorizationEndpoint}</code></dd></div>
+      <div><dt>Token URL</dt><dd><code>{auth.tokenEndpoint}</code></dd></div>
     </> : null}
-    <div><dt>Extra parameters</dt><dd className="restricted-app-oauth-values">
+    <div><dt>Extra Parameters</dt><dd className="restricted-app-oauth-values">
       {auth.authorizationParameters?.length
         ? auth.authorizationParameters.map((parameter) => <code key={parameter.name}>{parameter.name}={parameter.value}</code>)
         : <span>None</span>}
@@ -817,14 +817,14 @@ function OAuthDeclarationDetails({ auth }: {
 }
 
 function connectionLabel(destination: RestrictedAppNetworkDestination, status: RestrictedAppConnectionStatus | undefined, unsupportedOnly: boolean): string {
-  if (destination.auth.some((auth) => auth.kind === "none")) return "No sign-in required";
+  if (destination.auth.some((auth) => auth.kind === "none")) return "No Sign-In Required";
   if (status?.configured) {
-    if (status.kind === "api-key") return "Connected with API key";
-    if (status.kind === "bearer") return "Connected with bearer token";
-    if (status.kind === "basic") return "Connected with username and password";
+    if (status.kind === "api-key") return "Connected with API Key";
+    if (status.kind === "bearer") return "Connected with Bearer Token";
+    if (status.kind === "basic") return "Connected with Username and Password";
     if (status.kind === "oauth2-pkce") return "Connected with OAuth";
   }
-  return unsupportedOnly ? "Sign-in unavailable" : "Not Connected";
+  return unsupportedOnly ? "Sign-In Unavailable" : "Not Connected";
 }
 
 function destinationLabel(destination: RestrictedAppNetworkDestination): string {

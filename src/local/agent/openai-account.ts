@@ -109,7 +109,7 @@ function positiveInteger(value: unknown, allowZero = false): number | null {
 }
 function changedAccount(empty: ProviderAccountDetails, current: Credential | undefined): ProviderAccountDetails {
   return current?.type === "oauth" ? { ...empty, connected: true,
-    error: "The OpenAI connection changed while details were loading. Refresh account details to see the current account." } : empty;
+    error: "The OpenAI connection changed while details were loading. Choose Refresh Account Details to see the current account." } : empty;
 }
 function savedAccount(credential: OAuthCredential, provider: ProviderAccountDetails["provider"]) {
   const identity = record(credential.identity);

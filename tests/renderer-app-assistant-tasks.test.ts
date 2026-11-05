@@ -99,14 +99,14 @@ test("opening an app task Chat closes its retained Apps dialog and restores shel
   assert.ok(summary.includes(`Details over the ${restrictedAppLimitSize(restrictedAppAssistantLimits.resultBytes)} result limit are left out there too.`));
   assert.doesNotMatch(summary, /KiB/, "the note spells its numbers the way the Limits rows do");
   assert.equal(
-    Array.from(document.querySelectorAll(".professional-status-badge")).map((item) => item.textContent).includes("Partly finished"),
+    Array.from(document.querySelectorAll(".professional-status-badge")).map((item) => item.textContent).includes("Partly Finished"),
     true,
     "an outcome the agent did not call a success is visible beside the status",
   );
   assert.match(document.querySelector('[aria-label="Worker result details"]')!.textContent!, /"cheapest": "North"/);
   assert.deepEqual(
     Array.from(document.querySelectorAll('[aria-label="Worker result files"] li')).map((item) => item.textContent),
-    ["exports/comparison.md2 KB · Open file"],
+    ["exports/comparison.md2 KB · Open File"],
     "deliverables are listed by work-folder-relative path and size",
   );
   const filesOpened: unknown[] = [];

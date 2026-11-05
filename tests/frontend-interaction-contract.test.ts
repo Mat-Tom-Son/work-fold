@@ -89,7 +89,7 @@ test("Settings keeps older page ids landing on the tab that now holds their cont
   }
   const settings = desktopDialogs[0] ?? "";
   assert.doesNotMatch(settings, /label: "Desktop"/);
-  assert.match(settings, /<AutomationsPane \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
+  assert.match(settings, /<AutomationsPane fixtureMode=\{fixtureMode\} \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} fixtureMode=\{fixtureMode\} \/>/);
   assert.match(settings, /interfaceExtra=\{closeWindowControl\}/);
 });
 
@@ -206,7 +206,7 @@ test("a file tab's header is a labeled toolbar with Copy for text and a More men
   // never a row of unlabeled icons.
   assert.match(pane, /<span className="file-details-action-label">Attach to Chat<\/span>/);
   assert.doesNotMatch(pane, /className="ui-control ui-control--icon" type="button" title=\{revealLabel\}/);
-  for (const item of ["Open with", "Copy File Path", "Version History", "Rename"]) assert.match(pane, new RegExp(`label: "${item}"`));
+  for (const item of ["Open With", "Copy File Path", "Version History", "Rename"]) assert.match(pane, new RegExp(`label: "${item}"`));
   assert.match(pane, /aria-haspopup="menu" aria-expanded=\{open\}/);
   assert.match(pane, /className="context-menu file-details-menu" role="menu"/);
   // Narrow tabs drop the words before they wrap the row.
@@ -218,7 +218,7 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
     read("web-local/src/components/tree/FileTree.tsx"),
     read("web-local/src/styles.css"),
   ]);
-  // Files: one 12px Share2 glyph after the name, files only, with the
+  // Files: one 12px globe after the name (shared on the web), files only, with the
   // check-attention dot still in place beside it.
   assert.match(fileTree, /sharedPaths\?: ReadonlySet<string>;/);
   assert.match(fileTree, /const shared = entry\.kind === "file" && sharedPaths\.has\(entry\.path\);/);
@@ -227,7 +227,7 @@ test("a shared file carries a quiet mark in Files and on its tab", async () => {
   assert.match(fileTree, /sharedPaths=\{sharedPaths\}/, "nested folders keep the mark");
   assert.match(fileTree, /aria-label=\{rowLabel\}/);
   assert.match(fileTree, /\$\{shared \? ` · \$\{fileSharing\.sharedMarkLabel\}` : ""\}/);
-  assert.match(fileTree, /<span className=\{className\} title=\{fileSharing\.sharedMarkTooltip\} aria-hidden="true"><Share2 size=\{12\} \/><\/span>/);
+  assert.match(fileTree, /<span className=\{className\} title=\{fileSharing\.sharedMarkTooltip\} aria-hidden="true"><SharedOnWeb size=\{12\} \/><\/span>/);
   assert.match(app, /const sharedPaths = useMemo\(\(\) => sharedPathsForWorkFolder\(sharedPages, workFolder\.id\), \[sharedPages, workFolder\.id\]\);/);
   assert.match(app, /checkAttentionPaths=\{checks\.attentionPaths\} sharedPaths=\{sharedPaths\}/);
   // File tabs: the same glyph before the close button, inside the tab's
@@ -272,7 +272,7 @@ test("Manage folders has a Done exit and an Escape exit back to the previous mod
   // trigger, marks Manage folders as current.
   assert.match(workFolderChrome, /aria-current=\{managingWorkFolders \? "true" : undefined\}/);
   assert.doesNotMatch(workFolderChrome, /managingWorkFolders \? "page"/);
-  assert.match(workFolderChrome, /aria-label=\{saving \? "Saving name" : undefined\}/);
+  assert.match(workFolderChrome, /aria-label=\{saving \? "Saving Name" : undefined\}/);
 });
 
 test("file attachment requests stay bound to one work-folder-owned Chat tab", () => {

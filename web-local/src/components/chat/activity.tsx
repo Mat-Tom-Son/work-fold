@@ -153,7 +153,7 @@ function ToolStep({
         </div>
         {entry.edit && entry.toolName === "edit" && entry.phase === "complete" ? (
           <details className="work-step-edit">
-            <summary>View edit{entry.edit.firstChangedLine ? ` at line ${entry.edit.firstChangedLine}` : ""}</summary>
+            <summary>View Edit{entry.edit.firstChangedLine ? ` at Line ${entry.edit.firstChangedLine}` : ""}</summary>
             <p className="work-step-evidence-note">Captured when this edit completed.{entry.edit.truncated ? " This edit preview is incomplete." : ""}</p>
             <pre aria-label={`Captured edit to ${entry.edit.path}`}><code>{diffLines.map((line, index) => (
               <span className={line.startsWith("+") ? "added" : line.startsWith("-") ? "removed" : undefined} key={index}>{line}{index < diffLines.length - 1 ? "\n" : ""}</span>

@@ -24,7 +24,7 @@ test("History modal keyboard navigation reaches disclosures and skips text in cl
     workFolder: { id: "folder", name: "Folder" } as WorkFolderSummary, filePath: "note.txt", fileName: "note.txt", onClose() {}, onRestored() {},
   }));
   await dom.act(() => [...dom.container.querySelectorAll("button")].find((button) => button.textContent === "Compare")!.click());
-  const close = dom.container.querySelector<HTMLButtonElement>('[aria-label="Close version history"]')!;
+  const close = dom.container.querySelector<HTMLButtonElement>('[aria-label="Close Version History"]')!;
   const details = dom.container.querySelector<HTMLDetailsElement>(".history-file-comparison > details")!;
   const summary = details.querySelector<HTMLElement>(":scope > summary")!;
   assert.equal(details.open, false);

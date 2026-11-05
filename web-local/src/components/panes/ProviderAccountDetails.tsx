@@ -55,9 +55,9 @@ export function ProviderAccountDetails({ provider, scope, workFolderId, revision
       </dl>
       {account?.source === "saved_sign_in" ? <p className="professional-field-hint">Details from the saved sign-in.</p> : null}
       {account?.identityNeedsReconnect ? <p className="professional-field-hint">This connection was saved without your account identity. Reconnect once to load your email.</p> : null}
-      {account?.identityNeedsReconnect && onReconnect ? <button className="ui-control" type="button" disabled={busy} onClick={onReconnect}>Reconnect to load email</button> : null}
+      {account?.identityNeedsReconnect && onReconnect ? <button className="ui-control" type="button" disabled={busy} onClick={onReconnect}>Reconnect to Load Email</button> : null}
       {account?.limits?.length ? <section className="ai-models-account-usage" aria-label="Codex subscription usage">
-        <h4>Codex usage</h4>
+        <h4>Codex Usage</h4>
         {account.limits.map(limit => <div className="ai-models-account-limit" key={limit.id}>
           <strong>{limit.name}</strong>
           {[limit.primary, limit.secondary].map((window, index) => window ? <UsageWindow key={index} window={window} /> : null)}
@@ -70,11 +70,11 @@ export function ProviderAccountDetails({ provider, scope, workFolderId, revision
       {error ? <p className="professional-field-hint" role="status">{error}</p> : null}
     </>}
     {provider === "openai" ? <p className="professional-field-hint">This sign-in provides identity and direct ChatGPT plan access. Workspace, plan usage limits and reset times are available through a separate Codex subscription connection.</p>
-      : account?.limitsAvailability !== "available" && !loading ? <p className="professional-field-hint">Usage limits are currently unavailable. Refresh account details to try again.</p> : null}
+      : account?.limitsAvailability !== "available" && !loading ? <p className="professional-field-hint">Usage limits are currently unavailable. Choose Refresh Account Details to try again.</p> : null}
     <div className="ai-models-connection-controls">
-      <a href={provider === "openai-codex" ? "https://chatgpt.com/codex/settings/usage" : "https://chatgpt.com/settings/usage"} target="_blank" rel="noreferrer">Manage usage in ChatGPT</a>
-      {provider === "openai" && onSelectCodex ? <button className="ui-control" type="button" disabled={busy} onClick={onSelectCodex}>View Codex connection</button> : null}
-      <button className="ui-control" type="button" disabled={loading || busy || !active || fixtureMode} onClick={() => setAttempt(value => value + 1)}>Refresh account details</button>
+      <a href={provider === "openai-codex" ? "https://chatgpt.com/codex/settings/usage" : "https://chatgpt.com/settings/usage"} target="_blank" rel="noreferrer">Manage Usage in ChatGPT</a>
+      {provider === "openai" && onSelectCodex ? <button className="ui-control" type="button" disabled={busy} onClick={onSelectCodex}>View Codex Connection</button> : null}
+      <button className="ui-control" type="button" disabled={loading || busy || !active || fixtureMode} onClick={() => setAttempt(value => value + 1)}>Refresh Account Details</button>
     </div>
   </div>;
 }

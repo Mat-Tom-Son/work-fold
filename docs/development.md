@@ -14,9 +14,21 @@ model credentials, Apple signing credentials, and Railway access are separate.
 | Surface | Command | What to expect |
 |---|---|---|
 | Browser UI + local API | `npm run local:dev` | Vite at `http://localhost:5173`, local API at `http://127.0.0.1:4327`; live renderer updates |
+| Inert UI preview | `npm run local:dev`, then open `http://localhost:5173/?fixture=work-folder` | Sample work-folders drawn as the Mac app shows them; no API or model needed |
 | Native, unpackaged Electron | `npm run desktop:smoke` | Builds and verifies the desktop, then opens Electron; restart after native changes |
 | Optional hosted relay | See [Bridge development](../services/bridge/README.md#local-development) | Separate dependencies and local PostgreSQL; unnecessary for ordinary desktop work |
 | Packaged Mac candidate | See [Mac build lanes](macos-build.md) | Packaging, signing, and publication are separate from everyday development |
+
+The inert UI preview is the fastest loop for layout and styling. It reads
+sample data from `web-local/src/fixtures/` and never calls the local API, so
+Vite alone (`npx vite --config vite.local.config.ts`) is enough. It imitates
+the Mac app—Mac words and key glyphs, the traffic-light inset, and a stand-in
+for the window material—unless `&platform=browser` asks for the plain browser
+rendering. `/popover.html?fixture=agent` previews the menu-bar popover.
+`&agentState=running` and `&agentEvents=1` show a running Chat and its live
+steps; in development, `&script=fixture-chat-1` replays a Chat
+(`&scriptDelay=` sets the pause in milliseconds). Actions that would change
+files, settings, or History explain that they are disabled in the preview.
 
 The browser preview cannot prove native dialogs, secure storage, preloads, or
 restricted-app WebContentsView behavior. Use the native lane for those changes.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Settings24Regular } from "@fluentui/react-icons";
-import { AlertTriangle, CirclePlus, Download, Loader2, Search, X } from "lucide-react";
+import { AlertTriangle, CirclePlus, Download, Loader2, Search, X } from "./components/chrome/icons";
 import {
   accentIdentityFromHex,
   normalizeWorkFolderAppearanceCustomization,
@@ -167,7 +167,7 @@ export function App() {
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | null>(null);
   const handleRestrictedAppError = useCallback((caught: unknown) => setError(errorText(caught)), []);
   // Installed apps live above the work-folder view so Settings → Apps and the rail read one list.
-  const restrictedAppsState = useRestrictedApps({ activeWorkFolderId: boot ? activeWorkFolderId : "", workFolders: boot?.workFolders, fixtureMode: Boolean(fixture), onError: handleRestrictedAppError });
+  const restrictedAppsState = useRestrictedApps({ activeWorkFolderId: boot ? activeWorkFolderId : "", workFolders: boot?.workFolders, fixtureMode: fixtureRequested, onError: handleRestrictedAppError });
   const showDesktopTitleBar = window.workFoldDesktop?.app.platform === "win32";
 
   const openSettings = useCallback((page: SettingsPage = "appearance", modelScope?: ModelScope, focusAiModel = false, workerWorkFolderId?: string, focusWorkerInstructions = false, backToCustomization?: () => void) => {
@@ -583,6 +583,15 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   watchedChatKeysRef.current = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "chat" && tab.conversationId ? [chatActivityKey(tab.workFolderId, tab.conversationId)] : []));
   const conversationGroupsRef = useRef(conversationGroups);
   conversationGroupsRef.current = conversationGroups;
+  const workFoldersRef = useRef(workFolders);
+  workFoldersRef.current = workFolders;
+  /** Reopen Closed Tab: whichever tab the person closed last, browser or not. */
+  function reopenClosedTab(): boolean {
+    if (browser.lastClosedAt() > tabs.lastClosedSurfaceTabAt()) return browser.reopenClosed();
+    return tabs.reopenClosedSurfaceTab((tab) => workFoldersRef.current.some((item) => item.id === tab.workFolderId)
+      && (tab.kind !== "chat" || !tab.conversationId || Boolean(conversationGroupsRef.current[tab.workFolderId]?.some((chat) => chat.id === tab.conversationId))))
+      || browser.reopenClosed();
+  }
   useEffect(() => {
     if (fixture) return;
     let disposed = false;
@@ -637,6 +646,11 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const restrictedAppsState = restrictedAppsStore;
   const [skillsExtensionsView, setSkillsExtensionsView] = useState<SkillsExtensionsView | null>(null);
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
+  // Each file has its own tab, so switching file tabs selects that file in Files.
+  const activeFilePath = activeTab?.kind === "file" && activeTab.workFolderId === workFolder.id ? activeTab.path : null;
+  useEffect(() => {
+    if (activeFilePath) tree.setSelectedPath(activeFilePath);
+  }, [activeFilePath]);
   const checks = useWorkFolderChecks(workFolder, Boolean(fixture), activeTab?.kind !== "checks");
   const folderAutomations = useFolderAutomations(workFolder.id, Boolean(fixture));
   const hasFolderAutomations = (folderAutomations.byWorkFolder[workFolder.id]?.length ?? 0) > 0;
@@ -848,7 +862,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
     else if (desktopAction.command === "toggle-sidebar") setSidebarHidden(!sidebarCollapsedRef.current);
     else if (desktopAction.command === "toggle-agent-panel") toggleAgentPanel();
-    else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
+    else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId, true);
   }, [desktopAction?.id, openCommandPalette]);
   // The desktop View menu owns Cmd/Ctrl+B and Cmd/Ctrl+J; a browser gets the same keys here.
   useEffect(() => {
@@ -878,9 +892,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         if (next) tabs.setActiveSurfaceTabId(next.id);
         return;
       }
-      // Cmd/Ctrl+Shift+T brings back the browser tab closed last.
+      // Cmd/Ctrl+Shift+T brings back the tab closed last.
       if (command && event.shiftKey && event.key.toLocaleLowerCase() === "t") {
-        if (browser.reopenClosed()) event.preventDefault();
+        if (reopenClosedTab()) event.preventDefault();
         return;
       }
       if (!command || event.shiftKey) return;
@@ -892,7 +906,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       if (!isMacOS() && event.key.toLocaleLowerCase() === "w") {
         if (!tabs.activeSurfaceTabId) return;
         event.preventDefault();
-        tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
+        tabs.closeSurfaceTab(tabs.activeSurfaceTabId, true);
         return;
       }
       if (event.key >= "1" && event.key <= "9") {
@@ -1255,14 +1269,17 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       : { x: Math.round(event.clientX), y: Math.round(event.clientY) };
     const snooze = resolveChatSnoozePresets(new Date());
     const others = tabId ? tabs.surfaceTabs.filter((tab) => tab.id !== tabId) : [];
+    const toRight = tabId ? tabs.surfaceTabs.slice(tabs.surfaceTabs.findIndex((tab) => tab.id === tabId) + 1) : [];
     try {
       const command = await popupTabMenu({
         ...(conversation ? { chat: { lifecycle: conversationLifecycleView(conversation), snooze: snooze.map(({ id, label, detail }) => ({ id, label, detail })) } } : {}),
-        ...(tabId ? { tab: { hasOthers: others.length > 0 } } : {}),
+        ...(tabId ? { tab: { hasOthers: others.length > 0, hasRight: toRight.length > 0, canReopen: tabs.lastClosedSurfaceTabAt() > 0 || browser.lastClosedAt() > 0 } } : {}),
         point,
       });
-      if (command === "close") { if (tabId) tabs.closeSurfaceTab(tabId); return; }
-      if (command === "close-others") { for (const other of others) tabs.closeSurfaceTab(other.id); return; }
+      if (command === "close") { if (tabId) tabs.closeSurfaceTab(tabId, true); return; }
+      if (command === "close-others") { for (const other of others) tabs.closeSurfaceTab(other.id, true); return; }
+      if (command === "close-right") { for (const other of toRight) tabs.closeSurfaceTab(other.id, true); return; }
+      if (command === "reopen") { reopenClosedTab(); return; }
       if (!command || !conversation) return;
       if (command === "rename") setChatActions({ workFolder: targetWorkFolder, conversation, x: point.x, y: point.y, returnFocusTarget: anchor, view: "rename" });
       else if (command === "copy") await copyChat(targetWorkFolder, conversation);
@@ -1716,13 +1733,13 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   }
 
   const commands = useMemo<CommandPaletteCommand[]>(() => [
-    ...(["files", "chats", "history"] as WorkFolderPane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go to", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
-    { id: "go:work-folder-apps", groupId: "go-to" as const, groupLabel: "Go to", label: "Apps", defaultVisible: true, run: () => onOpenSettings("apps") },
-    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go to", label: "Skills & Extensions", defaultVisible: true, run: () => setSkillsExtensionsView("installed") },
-    ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go to", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : undefined, defaultVisible: true, run: () => tabs.openChecksSurfaceTab(workFolder) }]),
+    ...(["files", "chats", "history"] as WorkFolderPane[]).map((mode) => ({ id: `go:${mode}`, groupId: "go-to" as const, groupLabel: "Go", label: mode[0]!.toUpperCase() + mode.slice(1), defaultVisible: true, run: () => selectRailMode(mode) })),
+    { id: "go:work-folder-apps", groupId: "go-to" as const, groupLabel: "Go", label: "Apps", defaultVisible: true, run: () => onOpenSettings("apps") },
+    { id: "go:assistant-tools", groupId: "go-to" as const, groupLabel: "Go", label: "Skills & Extensions", defaultVisible: true, run: () => setSkillsExtensionsView("installed") },
+    ...([{ id: "go:checks", groupId: "go-to" as const, groupLabel: "Go", label: "Checks", detail: checks.status?.needsAttention ? `${checks.status.needsAttention} need attention` : undefined, defaultVisible: true, run: () => tabs.openChecksSurfaceTab(workFolder) }]),
     { id: "action:discover-skills-extensions", groupId: "actions" as const, groupLabel: "Actions", label: "Discover Skills & Extensions", keywords: ["capabilities", "discover", "install", "tools", "browse"], run: () => setSkillsExtensionsView("discover") },
-    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go to", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This work-folder only" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
-    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go to", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This work-folder", run: () => selectRailMode(restrictedAppRailMode(workFolder.id, app.manifest.id, app.featureInstallationId)) })),
+    ...surfaces.map((surface) => ({ id: `app:${surface.key}`, groupId: "go-to" as const, groupLabel: "Go", label: surface.title, detail: surface.scope === "project" ? "Pi Extension · This work-folder only" : "Pi Extension · Everywhere", run: () => selectRailMode(`app:${surface.key}`) })),
+    ...restrictedApps.map((app) => ({ id: `restricted-app:${app.featureInstallationId}`, groupId: "go-to" as const, groupLabel: "Go", label: restrictedAppRailLabel(app, restrictedApps), detail: "App · This work-folder", run: () => selectRailMode(restrictedAppRailMode(workFolder.id, app.manifest.id, app.featureInstallationId)) })),
     ...workFolders.map((item) => ({ id: `work-folder:${item.id}`, groupId: "switch-work-folder" as const, groupLabel: "Switch work-folder", label: item.name, detail: workFolderHeaderSourceBadgeLabel(item), matchTargets: [item.name, item.workFolderRoot], run: () => onSwitchWorkFolder(item) })),
     ...Object.entries(conversationGroups).flatMap(([workFolderId, conversations]) => conversations.map((conversation) => {
       const lifecycle = conversationLifecycleView(conversation);
@@ -1744,12 +1761,12 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     }),
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(workFolder, null) },
     ...(browser.available ? [
-      { id: "action:new-browser-tab", groupId: "actions" as const, groupLabel: "Actions", label: "New browser tab", keywords: ["browser", "web", "website", "internet", "page"], defaultVisible: true, run: browser.newTab },
-      { id: "action:reopen-closed-tab", groupId: "actions" as const, groupLabel: "Actions", label: "Reopen closed tab", keywords: ["browser", "undo", "restore", "closed"], run: () => { if (!browser.reopenClosed()) showToast({ text: "No closed browser tab to reopen", tone: "info" }); } },
+      { id: "action:new-browser-tab", groupId: "actions" as const, groupLabel: "Actions", label: "New Browser Tab", keywords: ["browser", "web", "website", "internet", "page"], defaultVisible: true, run: browser.newTab },
     ] : []),
+    { id: "action:reopen-closed-tab", groupId: "actions", groupLabel: "Actions", label: "Reopen Closed Tab", keywords: ["browser", "undo", "restore", "closed", "tab"], run: () => { if (!reopenClosedTab()) showToast({ text: "No closed tab to reopen", tone: "info" }); } },
     ...(!fixture ? [
-      { id: "action:set-up", groupId: "actions" as const, groupLabel: "Actions", label: "Set up for me", keywords: ["organize", "tidy", "setup", "banner", "instructions"], run: () => { void startSetUp("full"); } },
-      { id: "action:just-the-look", groupId: "actions" as const, groupLabel: "Actions", label: "Just the look", keywords: ["banner", "icon", "color", "appearance", "customize"], run: () => { void startSetUp("look"); } },
+      { id: "action:set-up", groupId: "actions" as const, groupLabel: "Actions", label: "Set Up for Me", keywords: ["organize", "tidy", "setup", "banner", "instructions"], run: () => { void startSetUp("full"); } },
+      { id: "action:just-the-look", groupId: "actions" as const, groupLabel: "Actions", label: "Just the Look", keywords: ["banner", "icon", "color", "appearance", "customize"], run: () => { void startSetUp("look"); } },
     ] : []),
     ...(!fixture ? [{ id: "action:save-restore-point", groupId: "actions" as const, groupLabel: "Actions", label: "Save Restore Point", keywords: ["history", "checkpoint", "backup"], defaultVisible: true, run: () => { void saveRestorePoint(); } }] : []),
     // Files has no toolbar buttons (2026-10-01): its actions live in the
@@ -1757,13 +1774,13 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     { id: "action:files-new-subfolder", groupId: "files", groupLabel: "Files", label: "New Folder in Files", keywords: ["mkdir", "directory", "subfolder"], run: () => { selectRailMode("files"); requestNewFolder(); } },
     { id: "action:files-add", groupId: "files", groupLabel: "Files", label: "Add Files", keywords: ["upload", "import", "drop"], run: () => { selectRailMode("files"); chooseUpload(""); } },
     { id: "action:files-refresh", groupId: "files", groupLabel: "Files", label: "Refresh Files", keywords: ["reload", "rescan"], run: () => { void tree.refresh(false); } },
-    { id: "action:new-work-folder", groupId: "actions", groupLabel: "Actions", label: "Create new work-folder", defaultVisible: true, run: onCreateWorkFolder },
-    { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Use existing folder", defaultVisible: true, run: onOpenFolder },
+    { id: "action:new-work-folder", groupId: "actions", groupLabel: "Actions", label: "Create New work-folder", defaultVisible: true, run: onCreateWorkFolder },
+    { id: "action:open-folder", groupId: "actions", groupLabel: "Actions", label: "Use Existing Folder", defaultVisible: true, run: onOpenFolder },
     { id: "action:settings", groupId: "actions", groupLabel: "Actions", label: "Settings", defaultVisible: true, run: onOpenSettings },
-    { id: "action:toggle-sidebar", groupId: "actions", groupLabel: "Actions", label: sidebarCollapsed ? "Show sidebar" : "Hide sidebar", keywords: ["navigation", "pane", "files", "collapse"], run: () => setSidebarHidden(!sidebarCollapsed) },
+    { id: "action:toggle-sidebar", groupId: "actions", groupLabel: "Actions", label: sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar", keywords: ["navigation", "pane", "files", "collapse"], run: () => setSidebarHidden(!sidebarCollapsed) },
     { id: "action:toggle-agent-panel", groupId: "actions", groupLabel: "Actions", label: agentPanelOpen ? "Close work-fold agent" : "Open work-fold agent", keywords: ["agent", "chat", "panel"], run: toggleAgentPanel },
     { id: "action:shortcuts", groupId: "actions", groupLabel: "Actions", label: "Shortcut Keys", run: onOpenShortcuts },
-    ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use device theme" : `Use ${preference} theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
+    ...(["light", "dark", "system"] as AppThemePreference[]).map((preference) => ({ id: `theme:${preference}`, groupId: "actions" as const, groupLabel: "Actions", label: preference === "system" ? "Use Device Theme" : `Use ${preference === "light" ? "Light" : "Dark"} Theme`, detail: themePreference === preference ? "Current" : undefined, keywords: ["appearance", "color", "mode"], run: () => onThemePreferenceChange(preference) })),
   ], [agentPanelOpen, browser.available, checks.status, conversationGroups, fixture, restrictedApps, sidebarCollapsed, surfaces, themePreference, tree.selectedPath, tree.tree, workFolders, workFolder.id]);
 
   const layoutStyle = { ...(workFolderIdentityStyle(identity)), ...(paneResize.sidebarWidth ? { "--work-folder-sidebar-width": `${paneResize.sidebarWidth}px` } : {}), "--agent-panel-width": `${agentPanel.width}px` } as CSSProperties;
@@ -1785,7 +1802,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const layoutClassName = ["work-folder-layout", paneResize.sidebarResizing || agentPanelResizing ? "resizing" : "", sidebarCollapsed ? "sidebar-collapsed" : "", agentPanelOpen ? "agent-panel-open" : ""].filter(Boolean).join(" ");
   return <main className={layoutClassName} ref={paneResize.workFolderLayoutRef} style={layoutStyle}>
     <WindowChromeControls sidebarCollapsed={sidebarCollapsed} onToggleSidebar={() => setSidebarHidden(!sidebarCollapsed)} agentPanelOpen={agentPanelOpen} onToggleAgentPanel={toggleAgentPanel} agentControlsRef={setAgentControlsTarget} />
-    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: !sidebarCollapsed && activeMode === "automations" } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
+    <WorkFolderModeRail activeMode={activeMode} paneHidden={sidebarCollapsed} workFolder={workFolder} surfaces={surfaces} apps={restrictedApps} appAttention={(app) => appAttention.get(restrictedAppAttentionKey(app.workFolderId, app.manifest.id, app.featureInstallationId)) ?? 0} onModeChange={selectRailMode} onOpenSkillsExtensions={setSkillsExtensionsView} accountControl={<button className="work-folder-rail-account-button" type="button" onClick={() => onOpenSettings()} aria-label="Settings" title="Settings"><Settings24Regular aria-hidden="true" /></button>} automations={hasFolderAutomations ? { active: !sidebarCollapsed && activeMode === "automations" } : null} updateControl={updateStatus && updateNeedsAttention(updateStatus) ? <DesktopUpdateButton status={updateStatus} onClick={onUpdateAction} /> : undefined} />
     <section ref={modePaneRef} className={`work-folder-mode-pane work-folder-mode-pane-${activeMode}`} id="work-folder-file-panel" onKeyDown={activeMode === "work-folders" ? leaveManageFoldersOnEscape : undefined}>
       <WorkFolderPaneHeader workFolder={workFolder} identity={identity} workFolders={workFolders} workFolderCustomizations={customizations} folderStatuses={folderStatuses} onSwitchWorkFolder={onSwitchWorkFolder} onCreateWorkFolder={onCreateWorkFolder} onOpenFolder={onOpenFolder} onManageWorkFolders={() => setActiveMode("work-folders")} managingWorkFolders={activeMode === "work-folders"} onNewChat={() => openChat(workFolder, null)} onOpenAppearance={() => openWorkFolderAppearance(workFolder)} {...(!fixture && typeof window.workFoldDesktop?.workFolder.revealFolder === "function" ? { onRevealFolder: () => void openLocalPath("", "reveal") } : {})} {...(!fixture ? { onSetUp: (mode: WorkFolderSetUpMode) => void startSetUp(mode) } : {})} />
       {setUpOffered ? <WorkFolderSetUpCard workFolderName={workFolder.name} onSetUp={(mode) => { onCloseSetUpOffer(); void startSetUp(mode); }} onDismiss={onCloseSetUpOffer} /> : null}
@@ -1819,11 +1836,11 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
                 }
               }}
             />
-            {tree.query ? <button type="button" onClick={() => tree.setQuery("")} aria-label="Clear file search" title="Clear file search"><X size={14} /></button> : null}
+            {tree.query ? <button type="button" onClick={() => tree.setQuery("")} aria-label="Clear File Search" title="Clear File Search"><X size={14} /></button> : null}
           </label>
           <FileSortMenu sort={fileSort} onChange={changeFileSort} />
           {tree.query ? <span className="file-tree-search-count">{tree.searchHydrating ? "Searching" : formatItemCount(tree.matchCount, "match", "matches")}</span> : null}
-          {tree.treeTruncated ? <span className="file-tree-truncated" title="This work-folder holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial list</span> : null}
+          {tree.treeTruncated ? <span className="file-tree-truncated" title="This work-folder holds more items than Files lists at once. Open a folder to see its contents, or search by name or contents.">Partial List</span> : null}
           <ChecksToolbarButton status={checks.status} loading={checks.loading} unavailable={checks.unavailable} onClick={() => tabs.openChecksSurfaceTab(workFolder)} />
         </div>
         <div
@@ -1836,9 +1853,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
           onClick={(event) => { if (!(event.target as HTMLElement).closest("[data-tree-row]")) tree.setSelectedPath(null); }}
           onKeyDown={(event) => { if (event.key === "Escape" && tree.selectedPath) { event.preventDefault(); tree.setSelectedPath(null); } }}
         >
-          {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding files</div> : null}
-          {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
+          {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding Files</div> : null}
+          {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating Files</span></div> : null}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1850,7 +1867,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       </div> : null}
       {activeMode === "chats" ? <ChatsPane workFolder={workFolder} workFolders={workFolders} conversations={conversationGroups} customizations={customizations} activityStatuses={chatActivity.statuses} activeConversationId={activeTab?.kind === "chat" ? activeTab.conversationId ?? undefined : undefined} onOpen={(target, conversation) => openChat(target, conversation)} onNew={(target) => openChat(target, null)} onActions={(target, chat, event) => void openChatMenu(target, chat, event)} /> : null}
       {activeMode === "automations" ? <WorkFolderAutomationsNavigator automations={folderAutomations.byWorkFolder[workFolder.id]} activeAutomationId={activeTab?.kind === "work-folder-automation" && activeTab.workFolderId === workFolder.id ? activeTab.automationId : null} onOpen={(automation) => tabs.openWorkFolderAutomationSurfaceTab(workFolder, automation)} onOpenAllAutomations={() => onOpenSettings("automations")} /> : null}
-      {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, restorePointTitle(item))} onError={onError} /> : null}
+      {activeMode === "history" ? <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={workFolder} fixtureItems={fixture?.checkpoints[workFolder.id]} fixtureRestorePoints={fixture?.restorePoints} refreshRequest={historyRefreshRequest} onOpen={(item) => tabs.openHistorySurfaceTab(workFolder, item.checkpointId, restorePointTitle(item))} onError={onError} /> : null}
       {activeSurface ? <ExtensionSurfacePane surface={activeSurface} activeViewId={activeTab?.kind === "extension" && surfaceMatchesTab(activeSurface, activeTab) ? activeTab.viewId : null} onOpenView={(view) => tabs.openExtensionSurfaceTab(workFolder, activeSurface, view)} /> : null}
       {activeRestrictedApp ? <RestrictedAppViewport
         key={`${activeRestrictedApp.featureInstallationId}:${activeRestrictedApp.digest}`}
@@ -1863,9 +1880,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         active
       /> : null}
     </section>
-    <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
+    <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize Panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">
-      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
+      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={(tabId) => tabs.closeSurfaceTab(tabId, true)} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         if (tab.kind === "browser") {
           // A browser tab belongs to no work-folder; every work-folder shows it.
@@ -1887,7 +1904,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         return (
           <div className="work-folder-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workFolderIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
-              <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} shareRequestId={shareRequest && shareRequest.workFolderId === targetWorkFolder.id && shareRequest.path === tab.path ? shareRequest.id : undefined} onOpenSettings={openSharingSettings} />
+              <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} fixtureText={fixture?.fileContents[targetWorkFolder.id]?.[tab.path]} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} shareRequestId={shareRequest && shareRequest.workFolderId === targetWorkFolder.id && shareRequest.path === tab.path ? shareRequest.id : undefined} onOpenSettings={openSharingSettings} />
             ) : tab.kind === "work-folder-automations" || tab.kind === "work-folder-automation" ? (
               <WorkFolderAutomationsPane
                 workFolder={targetWorkFolder}
@@ -1934,20 +1951,20 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
                 onError={onError}
               />
             ) : tab.kind === "history" ? (
-              <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={targetWorkFolder} fixtureItems={fixture?.checkpoints[targetWorkFolder.id]} refreshRequest={targetWorkFolder.id === workFolder.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkFolder, item.checkpointId, restorePointTitle(item))} onError={onError} />
+              <HistoryPane onRestored={async () => { setHistoryRefreshRequest((value) => value + 1); await tree.refresh(false); await checks.refresh(); }} workFolder={targetWorkFolder} fixtureItems={fixture?.checkpoints[targetWorkFolder.id]} fixtureRestorePoints={fixture?.restorePoints} refreshRequest={targetWorkFolder.id === workFolder.id ? historyRefreshRequest : 0} selectedCheckpointId={tab.checkpointId} onOpen={(item) => tabs.openHistorySurfaceTab(targetWorkFolder, item.checkpointId, restorePointTitle(item))} onError={onError} />
             ) : tab.kind === "extension" ? (() => {
               const targetSurfaceInventoryKnown = Object.prototype.hasOwnProperty.call(surfaceCatalogs, targetWorkFolder.id);
-              if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app view" text="Checking the tools installed for this work-folder." />;
+              if (!targetSurfaceInventoryKnown) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading App View" text="Checking the tools installed for this work-folder." />;
               const targetSurfaces = contributedSurfaces(targetWorkFolder.id, surfaceCatalogs[targetWorkFolder.id] ?? []);
               const surface = targetSurfaces.find((item) => surfaceMatchesTab(item, tab));
               const view = surface?.views.find((item) => item.id === tab.viewId);
               return surface && view ? <ExtensionSurfaceView surface={surface} view={view} /> : <ExtensionSurfaceUnavailable surfaceId={tab.surfaceId} viewId={tab.viewId} execution={tab.surfaceExecution} />;
             })() : tab.kind === "restricted-app" ? (() => {
-              if (!restrictedAppsState.knownWorkFolderIds.has(targetWorkFolder.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading app" text="Checking the apps installed for this work-folder." />;
+              if (!restrictedAppsState.knownWorkFolderIds.has(targetWorkFolder.id)) return <CenteredState icon={<Loader2 className="spin" size={24} />} title="Loading App" text="Checking the apps installed for this work-folder." />;
               const app = restrictedAppsState.appsByWorkFolder[targetWorkFolder.id]?.find((item) => item.manifest.id === tab.appId && item.digest === tab.digest && item.featureInstallationId === tab.featureInstallationId);
               return app
                 ? <RestrictedAppViewport app={app} placement="tab" appTabId={tab.appTabId} route={tab.route} state={tab.state} active={active} />
-                : <CenteredState icon={<AlertTriangle size={24} />} title="App unavailable" text="This tab belongs to an app revision that is no longer installed in this work-folder." />;
+                : <CenteredState icon={<AlertTriangle size={24} />} title="App Unavailable" text="This tab belongs to an app revision that is no longer installed in this work-folder." />;
             })() : tab.kind === "chat" ? (
               <ChatPanel surfaceTabId={tab.id} workFolder={targetWorkFolder} workFolderCustomizations={customizations} modelConfigurationRevision={modelConfigurationRevision} active={active} targetConversationId={tab.conversationId ?? null} lifecycleView={targetConversationLifecycle} onResumeConversation={targetConversation ? () => updateChatLifecycle(targetWorkFolder, targetConversation, targetConversationLifecycle === "archived" ? { archived: false } : { snoozedUntil: null }).then(() => {}).catch((caught) => onError(errorText(caught))) : undefined} contextPathRequest={chatContextRequestForTab(contextRequest, targetWorkFolder.id, tab.id)} draftRequest={chatDraftRequestForTab(draftRequest, targetWorkFolder.id, tab.id)} onAddPathToChatContext={active && targetWorkFolder.id === workFolder.id ? attachToChat : undefined} onUploadDroppedFiles={active && targetWorkFolder.id === workFolder.id ? uploadDroppedFilesForChat : undefined} onOpenWorkFolderFile={active && targetWorkFolder.id === workFolder.id ? (path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); } : undefined} onConversationActivated={(conversation) => tabs.handleTabConversationActivated(tab.id, targetWorkFolder, conversation)} onConversationsChanged={(conversations) => setConversationGroups((current) => ({ ...current, [targetWorkFolder.id]: conversations }))} onRunningChange={(conversationId, running) => chatActivity.setRunning(chatActivityKey(targetWorkFolder.id, conversationId), running)} onSettled={(conversationId, needsAttention) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), needsAttention)} onViewed={(conversationId) => chatActivity.setAttention(chatActivityKey(targetWorkFolder.id, conversationId), false)} onAgentFinished={() => targetWorkFolder.id === workFolder.id ? tree.refresh() : undefined} onOpenModelSettings={() => onOpenSettings("ai-models", "work-folder", true, targetWorkFolder.id)} onOpenConversation={(conversation) => openChat(targetWorkFolder, conversation)} onRestrictedAppProposalRequested={() => tabs.setActiveSurfaceTabId(tab.id)} onRestrictedAppInstalled={(app) => openInstalledRestrictedApp(targetWorkFolder, app)} fixtureMode={Boolean(fixture)} fixtureConversations={fixture && (tab.conversationId || tab.id === `chat:${targetWorkFolder.id}:new`) ? fixture.conversations[targetWorkFolder.id] : undefined} fixtureTreeEntries={fixture?.trees[targetWorkFolder.id]} mentionFolders={mentionFoldersFor(targetWorkFolder)} />
             ) : null}
@@ -2059,12 +2076,12 @@ function DesktopUpdateButton({ status, onClick }: { status: DesktopUpdateStatus;
 function updateNeedsAttention(status: DesktopUpdateStatus) { return ["available", "downloading", "ready", "error"].includes(status.phase); }
 function updateActionLabel(status: DesktopUpdateStatus) {
   if (status.phase === "available") return `Download work-fold ${status.availableVersion ?? "update"}`;
-  if (status.phase === "downloading") return status.progressPercent === null ? "Downloading update" : `Downloading update · ${Math.round(status.progressPercent)}%`;
-  if (status.phase === "ready") return `Restart and install work-fold ${status.availableVersion ?? "update"}`;
-  if (status.phase === "installing") return "Restarting to install update";
-  if (status.phase === "error") return "Retry update";
+  if (status.phase === "downloading") return status.progressPercent === null ? "Downloading Update" : `Downloading Update · ${Math.round(status.progressPercent)}%`;
+  if (status.phase === "ready") return `Restart and Install work-fold ${status.availableVersion ?? "update"}`;
+  if (status.phase === "installing") return "Restarting to Install Update";
+  if (status.phase === "error") return "Retry Update";
   if (status.phase === "not_available") return "work-fold is up to date";
-  return "Check for updates";
+  return "Check for Updates";
 }
 
 function isCommandPaletteShortcut(event: KeyboardEvent) {

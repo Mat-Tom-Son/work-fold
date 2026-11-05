@@ -14,7 +14,7 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
   if (unavailable) {
     return {
       icon: "unhealthy",
-      label: "Check status unavailable",
+      label: "Check Status Unavailable",
       title: "work-fold could not refresh Checks; this does not label your files as clear or failed",
       tone: "unhealthy",
       count: null,
@@ -41,7 +41,7 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
   if (status.state === "blocked" || status.state === "check-error") {
     return {
       icon: "unhealthy",
-      label: "Check issue",
+      label: "Check Issue",
       title: "A Check needs review; this is not a problem label on your files",
       tone: "unhealthy",
       count: null,
@@ -50,7 +50,7 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
   if (status.state === "not-configured" || status.enabled === 0) {
     return {
       icon: "current",
-      label: "Check proposals",
+      label: "Check Proposals",
       title: "No Checks are enabled; open to review proposed expectations",
       tone: "quiet",
       count: null,
@@ -60,7 +60,7 @@ export function checksToolbarPresentation(status: ChecksStatus | null, unavailab
     const mixedFreshness = status.neverRun > 0 && status.stale > 0;
     return {
       icon: "stale",
-      label: status.neverRun && !mixedFreshness ? "Checks not run" : "Results not current",
+      label: status.neverRun && !mixedFreshness ? "Checks Not Run" : "Results Not Current",
       title: mixedFreshness
         ? `${formatItemCount(status.neverRun, "Check")} not run; ${formatItemCount(status.stale, "result")} changed since its last run`
         : "Open Checks to review results; Checks run only when requested",

@@ -52,7 +52,7 @@ test("management history renames the selected chat and handles deletion failure 
   await click('[aria-controls="agent-chat-history"]');
   await click('[aria-label="Actions for New Chat"]');
   await dom.act(() => [...dom.container.querySelectorAll<HTMLButtonElement>(".agent-chat-actions button")].find((el) => el.textContent === "Rename")!.click());
-  const input = dom.container.querySelector<HTMLInputElement>('[aria-label="Chat title"]')!;
+  const input = dom.container.querySelector<HTMLInputElement>('[aria-label="Chat Title"]')!;
   await dom.act(() => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "Workshop plan");
     input.dispatchEvent(new Event("input", { bubbles: true }));

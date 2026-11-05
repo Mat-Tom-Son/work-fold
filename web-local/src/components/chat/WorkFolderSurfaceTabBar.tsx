@@ -353,13 +353,17 @@ export function WorkFolderSurfaceTabBar({
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
       </span>
     );
   }
+
+  // Two open files with one name each show their folder.
+  const fileTitleCounts = new Map<string, number>();
+  for (const tab of tabs) if (tab.kind === "file") fileTitleCounts.set(tab.title, (fileTitleCounts.get(tab.title) ?? 0) + 1);
 
   function renderSurfaceTab(tab: WorkFolderSurfaceTab, grouped: boolean) {
     if (tab.kind === "browser") return renderBrowserTab(tab, grouped);
@@ -377,6 +381,9 @@ export function WorkFolderSurfaceTabBar({
       : undefined;
     const activityLabel = activity === "running" ? "Worker is working" : activity === "attention" ? "Worker finished" : "";
     const shared = tab.kind === "file" && Boolean(isSharedFile?.(tab.workFolderId, tab.path));
+    const folderDetail = tab.kind === "file" && (fileTitleCounts.get(tab.title) ?? 0) > 1
+      ? tab.path.split("/").slice(0, -1).at(-1) || workFolderName
+      : null;
     return (
       <span
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
@@ -414,7 +421,7 @@ export function WorkFolderSurfaceTabBar({
         >
           {grouped ? null : <span className="surface-tab-icon" aria-hidden="true"><WorkFolderIconGlyph icon={Icon} size={15} /></span>}
           <span className="surface-tab-copy">
-            <span className="surface-tab-title">{tab.title}</span>
+            <span className="surface-tab-title">{tab.title}{folderDetail ? <span className="surface-tab-detail">{folderDetail}</span> : null}</span>
           </span>
           {activity ? <TabActivityDot status={activity} /> : null}
           {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}
@@ -424,7 +431,7 @@ export function WorkFolderSurfaceTabBar({
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
@@ -485,8 +492,8 @@ export function WorkFolderSurfaceTabBar({
               setWorkFolderMenuOpen(false);
               onNewBrowserTab();
             }}
-            aria-label="Open a browser tab"
-            title="New browser tab"
+            aria-label="Open a Browser Tab"
+            title="New Browser Tab"
           >
             <FluentGlyph icon={NewBrowserTabIcon} size={18} />
           </button>
@@ -507,8 +514,8 @@ export function WorkFolderSurfaceTabBar({
                 const current = workFolders.find((item) => item.id === newChatWorkFolderId);
                 if (current) onNewChatInWorkFolder(current); else setWorkFolderMenuOpen(true);
               }}
-              aria-label="Start a new Chat"
-              title="New Chat in this work-folder"
+              aria-label="Start a New Chat"
+              title="New Chat in This work-folder"
             >
               <FluentGlyph icon={NewChatIcon} size={18} />
             </button>
@@ -532,12 +539,12 @@ export function WorkFolderSurfaceTabBar({
               id="new-chat-work-folder-menu"
               className="surface-tab-work-folder-menu"
               role="menu"
-              aria-label="Tab actions"
+              aria-label="Tab Actions"
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
               onKeyDown={handleWorkFolderMenuKeyDown}
             >
-              <span className="surface-tab-work-folder-menu-heading">New Chat in</span>
+              <span className="surface-tab-work-folder-menu-heading">Choose a work-folder</span>
               {menuWorkFolders.map((item) => {
                 const identity = workFolderIdentityFor(item, workFolderCustomizations);
                 const Icon = identity.Icon;
@@ -605,7 +612,7 @@ export function WorkFolderSurfaceTabBar({
                 </>
               ) : null}
               <span className="surface-tab-work-folder-menu-separator" role="separator" />
-              <span className="surface-tab-work-folder-menu-heading">Tab layout</span>
+              <span className="surface-tab-work-folder-menu-heading">Tab Layout</span>
               <button
                 className="surface-tab-group-toggle"
                 type="button"
