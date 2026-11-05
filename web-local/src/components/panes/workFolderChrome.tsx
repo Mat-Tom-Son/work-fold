@@ -52,6 +52,7 @@ import { workFolderBannerOptions } from "../../constants";
 import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import { revealInFileManagerLabel } from "../../lib/file-actions";
+import { isMacOS } from "../../lib/platform";
 import { normalizeWorkFolderCustomizations } from "../../lib/work-folder-customization";
 import { normalizeWorkFolderColor, processWorkFolderBannerImageFile, workFolderColorOptions, workFolderIdentityStyle, workFolderBannerImageStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import { WorkFolderBannerPreview } from "../chrome/WorkFolderBannerPreview";
@@ -389,6 +390,22 @@ function WorkFolderPaneHeader({
     };
   }, [switcherOpen]);
 
+  /** The Mac app uses the native menu, like every other right-click there; elsewhere the in-app menu. */
+  async function openHeaderMenu(point: { x: number; y: number }) {
+    const popupHeaderMenu = window.workFoldDesktop?.workFolder.popupHeaderMenu;
+    if (!isMacOS() || !popupHeaderMenu) { setContextMenu(point); return; }
+    const command = await popupHeaderMenu({
+      actions: { newChat: Boolean(onNewChat), customize: Boolean(onOpenAppearance), setUp: Boolean(onSetUp), reveal: Boolean(onRevealFolder) },
+      point: { x: Math.round(point.x), y: Math.round(point.y) },
+    }).catch(() => null);
+    if (command === "new-chat") onNewChat?.();
+    else if (command === "customize") onOpenAppearance?.();
+    else if (command === "set-up") onSetUp?.("full");
+    else if (command === "look") onSetUp?.("look");
+    else if (command === "reveal") onRevealFolder?.();
+    else if (command === "manage") onManageWorkFolders();
+  }
+
   function toggleSwitcher() {
     if (!switcherEnabled) return;
     setSwitcherOpen((current) => !current);
@@ -419,7 +436,7 @@ function WorkFolderPaneHeader({
           if (!onNewChat && !onOpenAppearance && !onRevealFolder && !onSetUp) return;
           event.preventDefault();
           setSwitcherOpen(false);
-          setContextMenu({ x: event.clientX, y: event.clientY });
+          void openHeaderMenu({ x: event.clientX, y: event.clientY });
         }}
       >
         {identity.bannerImage ? (

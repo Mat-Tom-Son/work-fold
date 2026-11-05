@@ -56,6 +56,13 @@ type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-pa
 
 type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | "close-right" | "reopen" | `snooze:${string}`;
 
+type WorkFoldDesktopHeaderMenuCommand = "new-chat" | "customize" | "set-up" | "look" | "reveal" | "manage";
+
+interface WorkFoldDesktopHeaderMenuRequest {
+  actions: { newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean };
+  point: { x: number; y: number };
+}
+
 interface WorkFoldDesktopTabMenuRequest {
   chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
   tab?: { hasOthers: boolean; hasRight: boolean; canReopen: boolean };
@@ -182,6 +189,8 @@ declare global {
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
         /** A work-folder tab's or a Chat's right-click menu (macOS). */
         popupTabMenu?: (request: WorkFoldDesktopTabMenuRequest) => Promise<WorkFoldDesktopTabMenuCommand | null>;
+        /** The work-folder header's right-click menu (macOS). */
+        popupHeaderMenu?: (request: WorkFoldDesktopHeaderMenuRequest) => Promise<WorkFoldDesktopHeaderMenuCommand | null>;
         setActiveWorkFolder: (workFolderId: string | null) => Promise<void>;
         onOpenWorkFolder: (listener: (workFolderId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
