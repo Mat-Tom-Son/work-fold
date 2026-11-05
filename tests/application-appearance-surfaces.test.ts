@@ -170,8 +170,8 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         });
         feedbackDoc.getElementById('tabMain').setAttribute('data-test-hover','');
         result.tabMainHover = feedback('#tabMain').backgroundColor;
-        result.floating = ['.chat-rename-popover','.file-share-popover','.surface-tab-work-folder-menu','.composer-mention-menu','.composer-menu','.work-folder-header-switcher','.model-catalog-popover'].map(selector=>{ const el=feedbackDoc.createElement('div');el.className=selector.slice(1); feedbackDoc.querySelector('.app-shell').append(el);const c=feedback(selector);return {selector,background:c.backgroundColor,shadow:c.boxShadow}; });
-        result.settingsFrames = ['ai-models-scope-control','ai-models-connection-panel','publication-list','publication-row'].map(name=>{ const window=feedbackDoc.createElement('section');window.className='settings-window';const el=feedbackDoc.createElement(name==='ai-models-scope-control'?'fieldset':'div');el.className=name;window.append(el);feedbackDoc.querySelector('.app-shell').append(window);return feedback('.'+name).borderTopWidth; });
+        result.floating = ['.chat-rename-popover','.surface-tab-work-folder-menu','.composer-mention-menu','.composer-menu','.work-folder-header-switcher','.model-catalog-popover'].map(selector=>{ const el=feedbackDoc.createElement('div');el.className=selector.slice(1); feedbackDoc.querySelector('.app-shell').append(el);const c=feedback(selector);return {selector,background:c.backgroundColor,shadow:c.boxShadow}; });
+        result.settingsFrames = ['ai-models-scope-control','ai-models-connection-panel'].map(name=>{ const window=feedbackDoc.createElement('section');window.className='settings-window';const el=feedbackDoc.createElement(name==='ai-models-scope-control'?'fieldset':'div');el.className=name;window.append(el);feedbackDoc.querySelector('.app-shell').append(window);return feedback('.'+name).borderTopWidth; });
         result.feedbackExpected = {hover:color('var(--ui-surface-hover)'),pressed:color('var(--ui-control-pressed)'),primaryHover:color('var(--ui-primary-hover)'),primaryPressed:color('var(--ui-primary-pressed)'),danger:color('var(--ui-danger)'),sendHover:color('color-mix(in srgb,'+scenario.identity.solid+' 28%,var(--ui-surface))'),sendPressed:color('color-mix(in srgb,'+scenario.identity.solid+' 38%,var(--ui-surface))')};
         results.push(result);
       }
@@ -265,7 +265,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         if(neutralControls.has(target.id)) assert.equal(target.hover.transform,'none',label+' never lifts or scales');
         if(target.id!=='disabled') assert.equal(target.focus.outline,'solid',label+' keeps keyboard focus distinct from hover');
       }
-      assert.deepEqual(item.settingsFrames,Array(4).fill('0px'),item.name+' Settings uses spacing rather than retained frames');
+      assert.deepEqual(item.settingsFrames,Array(2).fill('0px'),item.name+' Settings uses spacing rather than retained frames');
       for(const floating of item.floating) { assert.equal(floating.background,expected['--ui-surface'],item.name+'/'+floating.selector+' is an opaque menu above content'); assert.notEqual(floating.shadow,'none'); }
       assert.equal(item.tabMainHover,'rgba(0, 0, 0, 0)',item.name+' the whole tab owns hover, including dark mode');
       assert.match(item.design.documentFont, /Georgia/); assert.equal(item.design.documentSize, "22px"); assert.equal(item.design.documentParagraph, "22px");

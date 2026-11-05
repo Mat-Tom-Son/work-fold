@@ -75,14 +75,8 @@ export function buildFixture(name, { running = false } = {}) {
       workFolderApps: new Map([["work-folder-2", []], ["work-folder-1", [{ workFolderId: "work-folder-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       conversations,
       conversationsLoaded: true,
-      sharedPagesAvailable: true,
       // Current desktops take a message into running work.
       steerAvailable: true,
-      fixtureSharedPages: [
-        { publicationId: "fixture-quarterly", title: "Quarterly overview", kind: "page", health: { state: "live" } },
-        { publicationId: "fixture-trip", title: "Montréal weekend", kind: "page", health: { state: "live" } },
-        { publicationId: "fixture-reading", title: "Reading notes", kind: "page", health: { state: "live" } },
-      ],
       selectedConversationId,
       fixtureThreads,
       ...structuredClone(fixtureThreads.get(selectedConversationId)),

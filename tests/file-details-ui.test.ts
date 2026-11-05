@@ -19,7 +19,6 @@ async function fileHarness(t: TestContext, initialPath = "notes.txt", initialCon
   const api = async (path: string) => {
     if (path.includes("/file-info?")) return { name: new URL(path, "http://localhost").searchParams.get("path"), modifiedAt: new Date(1_700_000_000_000 + preview.sizeBytes).toISOString(), sizeBytes: preview.sizeBytes };
     if (path.includes("/file-preview?")) return { preview: { ...preview } };
-    if (path === "/api/settings/publications") return { publications: [] };
     throw new Error(`Unexpected request: ${path}`);
   };
   const scope = globalThis as unknown as Record<string, unknown>;

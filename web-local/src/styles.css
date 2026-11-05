@@ -3802,10 +3802,6 @@ to {
   margin-right: 1px;
 }
 
-.surface-tab-shared-marker {
-  margin-right: 1px;
-}
-
 .surface-tab-icon {
   width: 22px;
   height: 22px;
@@ -4251,25 +4247,6 @@ to {
   flex-basis: 5px;
   opacity: 0.72;
   box-shadow: none;
-}
-
-/* A file shared as a page: the mark sits right after the name, and the
-   check-attention dot (if any) keeps the far edge. */
-
-.file-row-entry.is-shared {
-  grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr);
-}
-
-.file-shared-marker,
-.surface-tab-shared-marker {
-  display: inline-grid;
-  place-items: center;
-  flex: 0 0 auto;
-  color: var(--ui-text-muted, #5c6460);
-}
-
-.file-shared-marker {
-  margin-left: -3px;
 }
 
 .file-row-entry {
@@ -7086,11 +7063,6 @@ to {
     repeating-linear-gradient(135deg, #334155 0 3px, #0f172a 3px 6px);
 }
 
-.app-shell[data-theme="dark"] .file-shared-marker,
-.app-shell[data-theme="dark"] .surface-tab-shared-marker {
-  color: #8b97aa;
-}
-
 .app-shell[data-theme="dark"] .surface-tab-work-folder {
   color: #94a3b8;
 }
@@ -8976,206 +8948,6 @@ to {
   font-weight: 500;
 }
 
-.publication-list {
-  display: grid;
-}
-
-.publication-row {
-  display: grid;
-  gap: 6px;
-  padding-bottom: 8px;
-}
-
-.publication-row + .publication-row {
-  border-top: 1px solid #e4e9ef;
-  padding-top: 8px;
-}
-
-.publication-row .remote-browser-row {
-  border-top: none;
-  padding: 0;
-}
-
-.publication-row .settings-actions {
-  flex-wrap: wrap;
-}
-
-.publication-row .settings-actions .ui-control {
-  min-width: 0;
-}
-
-.publication-link {
-  display: grid;
-  gap: 6px;
-}
-
-.publication-link .remote-access-url {
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-.publication-link small {
-  color: var(--ui-text-muted, #5c6460);
-  font-size: var(--work-fold-type-xs);
-}
-/* One compact row: two labeled number fields and Save; wraps only when the pane is too narrow for all three. */
-
-.publication-budgets {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px 12px;
-  border-top: 1px dashed #e4e9ef;
-  padding-top: 8px;
-}
-
-.publication-budgets .settings-field {
-  flex: 0 0 140px;
-  width: 140px;
-  min-width: 0;
-}
-
-.publication-budgets .settings-field input {
-  min-height: 36px;
-  height: 36px;
-}
-
-.publication-budgets .settings-actions {
-  flex: 0 0 auto;
-}
-
-.publication-budgets .settings-actions .ui-control--primary {
-  min-width: 0;
-}
-
-.publication-summary {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.publication-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.publication-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  padding: 0 8px;
-  color: var(--ui-text-muted, #4b5a70);
-  font-weight: 600;
-  cursor: default;
-}
-
-.publication-state.live {
-  color: #17684f;
-}
-
-.publication-state.resting {
-  color: #8a5a00;
-}
-
-.publication-state.not-available {
-  color: #9b2c2c;
-}
-
-.publication-sleep-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--work-fold-type-xs);
-}
-
-.publication-empty {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.publication-empty .ui-control {
-  width: auto;
-}
-
-.file-share-anchor {
-  position: relative;
-  display: inline-flex;
-}
-
-.file-share-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 45;
-  width: min(440px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-  box-sizing: border-box;
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  color: #253044;
-  background: #ffffff;
-  border: 1px solid #cfd8e3;
-  border-radius: 8px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.14);
-}
-
-.file-share-popover p {
-  margin: 0;
-  font-size: var(--work-fold-type-xs);
-}
-
-.file-share-popover .file-share-meaning {
-  color: var(--ui-text-muted, #5c6460);
-  font-size: var(--work-fold-type-xs);
-}
-/* The link stays on one line: ellipsis at rest, scrolls sideways when focused. */
-
-.file-share-link {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  height: 30px;
-  padding: 0 8px;
-  overflow-x: auto;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font: 0.74rem ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: inherit;
-  background: #f4f6f9;
-  border: 1px solid #dde3ea;
-  border-radius: 6px;
-}
-
-.file-share-link:focus {
-  outline: 2px solid rgba(24, 78, 119, 0.18);
-  border-color: #9fc6dc;
-  text-overflow: clip;
-}
-
-.file-share-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.file-share-actions .ui-control.compact {
-  width: auto;
-  gap: 6px;
-  font-size: var(--work-fold-type-xs);
-}
-
-.file-share-loading {
-  color: var(--ui-text-muted, #5c6460);
-}
-
 /* Settings → Automations. The list is the selector; the right side is
    one plain inspector, so the operational surface stays dense without turning
    every fact or step into a card. */
@@ -9735,52 +9507,6 @@ to {
   flex-direction: column;
   gap: 2px;
 }
-}
-
-.app-shell[data-theme="dark"] .publication-row + .publication-row {
-  border-top-color: #303a48;
-}
-
-.app-shell[data-theme="dark"] .publication-budgets {
-  border-top-color: #303a48;
-}
-
-.app-shell[data-theme="dark"] .publication-state {
-  color: #cbd5e1;
-}
-
-.app-shell[data-theme="dark"] .publication-state.live {
-  color: #8fe0c0;
-}
-
-.app-shell[data-theme="dark"] .publication-state.resting {
-  color: #f0cb7a;
-}
-
-.app-shell[data-theme="dark"] .publication-state.not-available {
-  color: #f4a0a0;
-}
-
-.app-shell[data-theme="dark"] .file-share-popover {
-  color: #e5edf7;
-  background: rgba(17, 24, 39, 0.98);
-  border-color: rgba(148, 163, 184, 0.24);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
-}
-
-.app-shell[data-theme="dark"] .file-share-popover .file-share-meaning,
-.app-shell[data-theme="dark"] .file-share-loading {
-  color: #94a3b8;
-}
-
-.app-shell[data-theme="dark"] .file-share-link {
-  background: #202733;
-  color: #e5edf7;
-  border-color: #3c4655;
-}
-
-.app-shell[data-theme="dark"] .publication-link small {
-  color: #94a3b8;
 }
 
 .app-shell[data-theme="dark"] .automations-empty {
@@ -13757,11 +13483,6 @@ textarea:focus-visible,
 .restricted-app-lifecycle > div:first-child {
   min-width: 0;
   flex: 1 1 260px;
-}
-
-.restricted-app-lifecycle .restricted-app-share-note {
-  max-width: 60ch;
-  line-height: 1.4;
 }
 
 .restricted-app-credential-heading {
@@ -18328,135 +18049,6 @@ to {
   grid-column: 1 / -1;
 }
 
-/* Shared pages keep their information together, with a separate action row. */
-
-.app-shell .settings-window .publication-list {
-  min-width: 0;
-  display: grid;
-  border: 1px solid var(--ui-border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.app-shell .settings-window .publication-row {
-  min-width: 0;
-  gap: 16px;
-}
-
-.app-shell[data-theme] .settings-window .publication-row + .publication-row {
-  padding-top: 20px;
-  border-top: 1px solid var(--ui-border);
-}
-
-.app-shell .settings-window .publication-summary {
-  gap: 4px;
-}
-
-.app-shell .settings-window .publication-title {
-  gap: 8px 12px;
-  margin-bottom: 3px;
-}
-
-.app-shell .settings-window .publication-title strong {
-  color: var(--ui-text);
-  font-size: var(--work-fold-type-md);
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.app-shell .settings-window .publication-summary small {
-  color: var(--ui-text-muted);
-  font-size: var(--work-fold-type-xs);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.app-shell .settings-window .publication-usage {
-  margin-top: 6px;
-}
-
-.app-shell[data-theme] .settings-window .publication-state {
-  color: var(--ui-text-muted);
-}
-
-.app-shell[data-theme] .settings-window .publication-state.live {
-  color: var(--ui-success);
-}
-
-.app-shell[data-theme] .settings-window .publication-state.resting {
-  color: var(--ui-attention);
-}
-
-.app-shell[data-theme] .settings-window .publication-state.not-available {
-  color: var(--ui-danger);
-}
-
-.app-shell .settings-window .publication-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 16px;
-  min-width: 0;
-}
-
-.app-shell .settings-window .publication-actions {
-  display: flex;
-  margin-left: auto;
-  gap: 8px;
-}
-
-.app-shell .settings-window .publication-actions .ui-control {
-  width: auto;
-  min-width: 0;
-}
-
-.app-shell .settings-window .publication-actions .danger {
-  color: var(--ui-danger);
-}
-
-.app-shell .settings-window .publication-sleep-copy {
-  min-height: 34px;
-  gap: 8px;
-  color: var(--ui-text-muted);
-  font-size: var(--work-fold-type-xs);
-  cursor: default;
-}
-
-.app-shell .settings-window .publication-sleep-copy input {
-  margin: 0;
-  accent-color: var(--ui-accent);
-}
-
-.app-shell .settings-window .publication-link {
-  gap: 10px;
-  min-width: 0;
-}
-
-.app-shell .settings-window .publication-link .remote-access-url {
-  max-width: 100%;
-}
-
-.app-shell[data-theme] .settings-window .publication-link small {
-  color: var(--ui-text-muted);
-  font-size: var(--work-fold-type-xs);
-  line-height: 1.55;
-}
-
-.app-shell[data-theme] .settings-window .publication-budgets {
-  padding-top: 16px;
-  border-top-color: var(--ui-border);
-  gap: 12px;
-}
-
-.app-shell .settings-window .publication-budgets .settings-field {
-  flex: 1 1 140px;
-  width: auto;
-}
-
-.app-shell .settings-window .publication-budgets .settings-actions {
-  margin-left: auto;
-}
-
 .app-shell .settings-window :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
@@ -18502,14 +18094,6 @@ to {
 .app-shell .settings-window .settings-title {
   min-height: 52px;
   padding: 10px 14px 10px 18px;
-}
-
-.app-shell .settings-window .publication-row {
-  padding: 16px;
-}
-
-.app-shell[data-theme] .settings-window .publication-row + .publication-row {
-  padding-top: 16px;
 }
 
 .app-shell .settings-window .update-settings-section {
@@ -19375,7 +18959,7 @@ to {
   font-weight: 500;
 }
 
-:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.work-folder-icon-picker) {
+:root[data-theme] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher,.work-folder-icon-picker) {
   border: 0;
   border-radius: 8px;
   background: var(--ui-surface);
@@ -19752,21 +19336,10 @@ to {
   padding-top: 24px;
 }
 
-:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.remote-browser-list,.remote-browser-row,.publication-list,.publication-row) {
+:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.remote-browser-list,.remote-browser-row) {
   border: 0;
   background: transparent;
   box-shadow: none;
-}
-
-:root[data-theme] .app-shell .settings-window .publication-row {
-  padding: 18px 0;
-}
-
-:root[data-theme] .app-shell .settings-window .publication-state {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-size: var(--work-fold-type-xs);
 }
 
 :root[data-theme] .app-shell .settings-window .remote-browser-row {
@@ -20179,7 +19752,7 @@ to {
   color: var(--ui-accent);
 }
 
-:is(.command-palette-search,.command-palette-footer,.publish-review-heading,.text-input-modal-footer,.create-work-folder-footer,.file-share-actions) {
+:is(.command-palette-search,.command-palette-footer,.publish-review-heading,.text-input-modal-footer,.create-work-folder-footer) {
   border: 0;
   box-shadow: none;
 }
@@ -22838,7 +22411,7 @@ to {
 
 /* Popovers in dark mode get a hairline edge and a deeper shadow, so they read
    as containers above the window (2026-11-05). */
-:root[data-theme="dark"] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher) {
+:root[data-theme="dark"] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher) {
   box-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 14px 36px rgb(0 0 0 / .5);
 }
 

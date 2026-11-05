@@ -19,20 +19,11 @@ plaintext persistence, not an untrusted-origin guarantee: the service also
 serves the browser JavaScript, so the hosted client and bridge are trusted parts
 of this alpha's full-authority boundary.
 
-The `pages-*` labels under the base domain are the viewer namespace for the
-publishing ladder, which a desktop that shares pages now drives end to end.
+The `pages` and `pages-*` labels under the base domain are reserved.
 Enrollment rejects the exact slug `pages` and any slug beginning `pages-` as
-real prefix logic, and a `pages-*` host is diverted before personal-slug
-resolution: it serves viewer routes or nothing — never the management client,
-its sign-in, its cookies, or the device lane. Durable `bridge_publications`
-and `bridge_publication_snapshots` rows are content-free slot records —
-identifiers, budgets, aggregate served-byte counters, revocation state, and
-bounded snapshot ciphertext only for publications that explicitly opted in;
-never titles, file names, source paths, or page bytes. The device-token-
-authenticated `PUT`/`DELETE /api/device/publications/:id` and snapshot routes
-are idempotent by operation id and are driven by the desktop's publication
-store as pages are shared, narrowed, and revoked. Viewer operation names never enter the management operation allowlist,
-and no viewer endpoint exists on the management origin.
+real prefix logic, and such a host is answered before personal-slug resolution
+with a plain not-found response — never the management client, its sign-in,
+its cookies, or the device lane.
 
 Unauthenticated password work has its own process-local admission boundary.
 Malformed or reserved addresses are rejected before password verification;
@@ -78,25 +69,13 @@ needed, with Attach and Send/Stop at its edges. Navigation, menus and secondary
 actions use the same restrained hover surface. On phones the same sidebar
 becomes a focus-trapped drawer.
 
-**Shared pages** replaces the work-folder picker in the sidebar footer. Its
-popup reads up to 32 active publications through capability-advertised
-`pages.list`, carrying only title, kind, health and publication identity. Clicking
-one calls `pages.link` to reveal its current key, then opens the exact isolated
-`pages-<slug>` viewer origin with the key in the fragment and no window opener.
-The encrypted desktop response supplies the viewer origin; the relay and list
-never receive plaintext keys. Links stay transient and are not stored. Closing,
-revocation or disconnect fences late replies. This is navigation to existing
-shares; sharing and management remain in the desktop.
-
 ## Local development
 
 The inert `?fixture=chat` preview opens a finished conversation. Four saved Chats
 have distinct transcripts and keep their own drafts; Rename/Delete only change
 the in-memory fixture. Use `activity=running` explicitly to review streaming and
 Stop, or `work=question|saved-answer|partial|interrupted` for the durable-question
-states. The Shared pages popup has three distinct sample documents; a local
-`pages-casey.localhost` viewer preview with `fixture=1` is inert. Fixture
-navigation never calls the desktop or relay API.
+states. Fixture navigation never calls the desktop or relay API.
 
 Use Node 24 (matching the root `.nvmrc`) and a local PostgreSQL database.
 Run these commands from the repository root:

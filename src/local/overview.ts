@@ -41,7 +41,6 @@ export const WORKFOLD_OVERVIEW_SOURCES = [
   "app-automation-receipts",
   "app-automation-schedule",
   "automation-runs",
-  "viewer-grants",
 ] as const;
 
 export type WorkFoldOverviewSource = (typeof WORKFOLD_OVERVIEW_SOURCES)[number];
@@ -68,9 +67,7 @@ export type WorkFoldOverviewItemKind =
   | "check-run-settled"
   | "act-performed"
   | "app-automation-run-settled"
-  | "automation-run-settled"
-  | "viewer-grant-changed"
-  | "publication-state";
+  | "automation-run-settled";
 
 export interface WorkFoldOverviewItemRef {
   taskId?: string;
@@ -82,7 +79,6 @@ export interface WorkFoldOverviewItemRef {
   questionId?: string;
   automationId?: string;
   runId?: string;
-  publicationId?: string;
 }
 
 export interface WorkFoldOverviewItem {
@@ -317,23 +313,6 @@ export interface WorkFoldOverviewAutomationRunRecord {
 }
 
 /**
- * One event from the publication grant store. `created`/`revoked` are the
- * grant-lifecycle events; `not-available` and `resting` project the record's
- * bounded publisher-facing health note (docs/shared-pages.md, "Honest
- * states"): the viewer saw a deliberately vague page, and the precise reason
- * belongs here — to the publisher — as a change item. A health event carries
- * the recorded page title and reason for its deterministic headline.
- */
-export interface WorkFoldOverviewViewerGrantEventRecord {
-  publicationId: string;
-  event: "created" | "revoked" | "not-available" | "resting";
-  at: string;
-  workFolderId?: string;
-  title?: string;
-  reason?: string;
-}
-
-/**
  * The closed source-reader interface. Every method is optional: an absent
  * reader renders its item kinds as absent. A reader that throws marks its
  * source unavailable for this composition; its kinds are omitted and the
@@ -351,7 +330,6 @@ export interface WorkFoldOverviewSourceReaders {
   appAutomationRunReceipts?(): Promise<WorkFoldOverviewAppAutomationReceiptRecord[]>;
   appAutomationRuns?(): Promise<WorkFoldOverviewAppAutomationRunRecord[]>;
   automationRuns?(): Promise<WorkFoldOverviewAutomationRunRecord[]>;
-  viewerGrants?(): Promise<WorkFoldOverviewViewerGrantEventRecord[]>;
 }
 
 export interface WorkFoldOverviewComposeInput {
@@ -404,7 +382,6 @@ export async function composeWorkFoldOverview(input: WorkFoldOverviewComposeInpu
   const appAutomationReceipts = await readSource("app-automation-receipts", sources.appAutomationRunReceipts, unavailable);
   const appAutomationRuns = await readSource("app-automation-schedule", sources.appAutomationRuns, unavailable);
   const automationRuns = await readSource("automation-runs", sources.automationRuns, unavailable);
-  const viewerGrants = await readSource("viewer-grants", sources.viewerGrants, unavailable);
 
   // A request in `waiting` is not running: what it waits on is in Needs you.
   const runningRequests = (requests ?? []).filter(
@@ -448,7 +425,6 @@ export async function composeWorkFoldOverview(input: WorkFoldOverviewComposeInpu
     actReceipts: actReceipts ?? [],
     appAutomationReceipts: appAutomationReceipts ?? [],
     automationRuns: automationRuns ?? [],
-    viewerGrants: viewerGrants ?? [],
     workFolderNames,
   });
   const checkRows = composeCheckRows(checks);
@@ -665,7 +641,6 @@ function composeChanges(input: {
   actReceipts: WorkFoldCliActReceipt[];
   appAutomationReceipts: WorkFoldOverviewAppAutomationReceiptRecord[];
   automationRuns: WorkFoldOverviewAutomationRunRecord[];
-  viewerGrants: WorkFoldOverviewViewerGrantEventRecord[];
   workFolderNames: Map<string, string>;
 }): { items: WorkFoldOverviewItem[]; truncated: boolean } {
   const byKind = new Map<WorkFoldOverviewItemKind, WorkFoldOverviewItem[]>();
@@ -799,29 +774,6 @@ function composeChanges(input: {
       ref: { automationId: run.automationId, runId: run.runId },
     }));
   }
-  for (const event of input.viewerGrants.slice(0, maxSourceRecords)) {
-    if (event.event === "not-available" || event.event === "resting") {
-      // The audience got the vague page; the publisher gets the precise
-      // reason. The item id carries the note's timestamp so a recurrence
-      // after recovery is a new item, while an unchanged note stays one.
-      add(overviewItem({
-        id: `viewer-grants:${event.publicationId}:problem:${event.at}`,
-        at: event.at,
-        kind: "publication-state",
-        ...(event.workFolderId ? { workFolderId: event.workFolderId, workFolderNames: input.workFolderNames } : {}),
-        headline: publicationStateHeadline(event),
-        ref: { publicationId: event.publicationId },
-      }));
-      continue;
-    }
-    add(overviewItem({
-      id: `viewer-grants:${event.publicationId}:${event.event}`,
-      at: event.at,
-      kind: "viewer-grant-changed",
-      ...(event.workFolderId ? { workFolderId: event.workFolderId, workFolderNames: input.workFolderNames } : {}),
-      headline: event.event === "created" ? "Started sharing a page" : "Stopped sharing a page",
-    }));
-  }
 
   // Bounded twice: per kind first so one chatty source cannot evict every
   // other kind, then in total, newest first.
@@ -938,10 +890,10 @@ export function workFoldOverviewChatRecordFromMessages(
 
 // --- Tolerant readers over recorded stores ---
 //
-// The automation receipts journal and the publication store are read from
-// their documented machine-local locations. These readers tolerate a missing file, a
-// damaged file, or an unknown version by omission, never by error: while a
-// store does not exist, its kinds are simply absent from the digest. The
+// The automation receipts journal is read from its documented machine-local
+// location. These readers tolerate a missing file, a damaged file, or an
+// unknown version by omission, never by error: while a store does not exist,
+// its kinds are simply absent from the digest. The
 // local-API wiring may replace a file reader with a service-backed one.
 
 export interface WorkFoldOverviewStoreReaderOptions {
@@ -954,10 +906,6 @@ export function workFoldOverviewAutomationReceiptsFile(stateRoot = workFoldState
 
 export function workFoldOverviewAutomationReceiptsRotatedFile(stateRoot = workFoldStateRoot()): string {
   return join(stateRoot, "automations", "receipts.1.jsonl");
-}
-
-export function workFoldOverviewPublicationsFile(stateRoot = workFoldStateRoot()): string {
-  return join(stateRoot, "shared-pages", "publications.json");
 }
 
 export function createWorkFoldOverviewAutomationRunReader(
@@ -982,60 +930,6 @@ export function createWorkFoldOverviewAutomationRunReader(
       }
     }
     return [...runs.values()];
-  };
-}
-
-export function createWorkFoldOverviewViewerGrantReader(
-  options: WorkFoldOverviewStoreReaderOptions = {},
-): () => Promise<WorkFoldOverviewViewerGrantEventRecord[]> {
-  const path = workFoldOverviewPublicationsFile(options.stateRoot);
-  return async () => {
-    const parsed = await readJsonStore(path);
-    if (parsed === null) return [];
-    const entries = Array.isArray(parsed)
-      ? parsed
-      : storeRecordArray(parsed, "publications");
-    if (!entries) return [];
-    const events: WorkFoldOverviewViewerGrantEventRecord[] = [];
-    for (const entry of entries.slice(0, maxStoreRecords)) {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
-      const record = entry as {
-        publicationId?: unknown;
-        workFolderId?: unknown;
-        title?: unknown;
-        createdAt?: unknown;
-        revokedAt?: unknown;
-        lastProblem?: unknown;
-      };
-      if (!isRecordId(record.publicationId) || !isIsoTimestamp(record.createdAt)) continue;
-      const workFolderId = isRecordId(record.workFolderId) ? { workFolderId: record.workFolderId } : {};
-      events.push({ publicationId: record.publicationId, event: "created", at: record.createdAt, ...workFolderId });
-      if (isIsoTimestamp(record.revokedAt)) {
-        events.push({ publicationId: record.publicationId, event: "revoked", at: record.revokedAt, ...workFolderId });
-      }
-      // The record's one bounded health note (docs/shared-pages.md,
-      // "Honest states"): the publisher-facing side of a vague viewer page.
-      const problem = record.lastProblem as { state?: unknown; reason?: unknown; at?: unknown } | null | undefined;
-      if (
-        problem && typeof problem === "object" && !Array.isArray(problem)
-        && (problem.state === "not-available" || problem.state === "resting")
-        && isIsoTimestamp(problem.at)
-      ) {
-        events.push({
-          publicationId: record.publicationId,
-          event: problem.state,
-          at: problem.at,
-          ...workFolderId,
-          ...(typeof record.title === "string" && record.title.length > 0 && record.title.length <= 512
-            ? { title: record.title }
-            : {}),
-          ...(typeof problem.reason === "string" && problem.reason.length > 0 && problem.reason.length <= 512
-            ? { reason: problem.reason }
-            : {}),
-        });
-      }
-    }
-    return events;
   };
 }
 
@@ -1109,23 +1003,12 @@ function pruneRef(ref: WorkFoldOverviewItemRef): WorkFoldOverviewItemRef | undef
     ...(ref.questionId ? { questionId: ref.questionId } : {}),
     ...(ref.automationId ? { automationId: ref.automationId } : {}),
     ...(ref.runId ? { runId: ref.runId } : {}),
-    ...(ref.publicationId ? { publicationId: ref.publicationId } : {}),
   };
   return Object.keys(pruned).length ? pruned : undefined;
 }
 
 function newestFirst(left: WorkFoldOverviewItem, right: WorkFoldOverviewItem): number {
   return compareTimestamps(right.at, left.at) || compareStrings(left.id, right.id);
-}
-
-function publicationStateHeadline(event: WorkFoldOverviewViewerGrantEventRecord): string {
-  const subject = event.title !== undefined
-    ? `"${clampText(event.title, maxTitleInHeadline)}"`
-    : "A shared page";
-  if (event.event === "resting") {
-    return `${subject} is resting${event.reason ? ` — ${event.reason}` : " — its viewer budget is used up"}`;
-  }
-  return `${subject} isn't reaching viewers${event.reason ? ` — ${event.reason}` : ""}`;
 }
 
 function chatLifecycleHeadline(title: string, event: WorkFoldOverviewChatLifecycleEvent): string {
@@ -1190,25 +1073,6 @@ async function readStoreText(path: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-async function readJsonStore(path: string): Promise<unknown | null> {
-  const text = await readStoreText(path);
-  if (text === null) return null;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-/** Accepts `{ version: 1, <key>: [...] }`; an unknown store version is omitted whole. */
-function storeRecordArray(parsed: unknown, key: string): unknown[] | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const record = parsed as Record<string, unknown>;
-  if (record.version !== undefined && record.version !== 1) return null;
-  const entries = record[key];
-  return Array.isArray(entries) ? entries : null;
 }
 
 const automationRunTerminalOutcomes = new Map<string, WorkFoldOverviewAutomationRunState>([

@@ -89,34 +89,9 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     assert.match(workFoldAgentContext, /a local state transition — nothing is uploaded, hosted, or granted/);
     assert.match(workFoldAgentContext, /apps uninstall --work-folder <id> --instance <id> --retain-data\|--purge-data/);
     assert.match(workFoldAgentContext, /The disposition flag is never defaulted/);
-    assert.match(workFoldAgentContext, /pages share --work-folder <id> --path "<work-folder-path>" --title/);
-    assert.match(workFoldAgentContext, /pages status --publication <id>/);
-    assert.match(workFoldAgentContext, /pages narrow --publication <id> --serve-rate <per-minute>\|--byte-budget <bytes-per-day>/);
-    assert.match(workFoldAgentContext, /pages snapshot-off --publication <id>/);
-    // Widening in place (docs/shared-pages.md, amended 2026-09-24): budgets
-    // and snapshot change under a receipt while the link stays; re-exposing
-    // is still a fresh share, and a share with no address refuses.
-    assert.match(workFoldAgentContext, /Widening in place keeps the slot, key, and link: `pages widen --publication <id> \[--serve-rate <per-minute>\] \[--byte-budget <bytes-per-day>\] \[--snapshot\]`/);
-    assert.match(workFoldAgentContext, /Re-exposing a revoked page is a fresh `pages share` with a new link\./);
-    assert.match(workFoldAgentContext, /Sharing needs web access set up/);
-    // Hosted-app exposure (docs/shared-pages.md, rung 3) rides the same
-    // pages family: `pages share-app` shares on the call, `--instance` accepts
-    // either installed-instance id, the pins resolve host-side from the app's
-    // declared manifest, one instance holds one exposure, and apps have no
-    // snapshot lane — asleep is the only offline state.
-    assert.match(workFoldAgentContext, /pages share-app --work-folder <id> --instance <id>/);
-    assert.match(workFoldAgentContext, /accepts the App Instance id or, like `apps uninstall`, the Runtime Instance id/);
-    assert.match(workFoldAgentContext, /resolve host-side from the app's declared manifest, never from your flags/);
-    assert.match(workFoldAgentContext, /An instance holds at most one exposure/);
-    assert.match(workFoldAgentContext, /re-exposing after a revoke is a fresh `pages share-app`/);
-    assert.match(workFoldAgentContext, /Apps take no `--snapshot` — an offline desktop is an honestly asleep app/);
-    // Publishing top-up (docs/shared-pages.md): publication problems reach
-    // the person as overview change items with the precise reason, and
-    // Settings → Automations and Recently deleted hold the person's own direct controls — the share
-    // link never rides the work-fold agent's lane.
-    assert.match(workFoldAgentContext, /Page problems show in Settings → Shared pages and the overview/);
-    assert.match(workFoldAgentContext, /Share links are revealed only in Settings → Shared pages/);
-    assert.match(workFoldAgentContext, /never enter this lane's output or receipts/);
+    // The work-fold agent is never taught the retired desktop-served sharing
+    // verbs or a Shared pages surface.
+    assert.doesNotMatch(workFoldAgentContext, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|help pages|Shared pages/);
     assert.match(workFoldAgentContext, /agent overview --json/);
     // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
     // runs on the first call and returns a receipt, destruction is reversible
@@ -248,7 +223,7 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     // The manage-work-folders Skill teaches the same surface and etiquette.
     const skillContent = await readFile(join(workFoldAgentRootPath, ".pi", "skills", "manage-work-folders", "SKILL.md"), "utf8");
     assert.match(skillContent, /Every verb runs on the first call and returns a receipt/);
-    assert.match(skillContent, /## Tools, apps, and pages/);
+    assert.match(skillContent, /## Tools and apps/);
     assert.match(skillContent, /work-folder apps come up able to work/);
     assert.match(skillContent, /grant each declared folder permission over the whole work-folder/);
     assert.match(skillContent, /bind a Check-result slot when the work-folder has exactly one Check/);
@@ -273,10 +248,7 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     assert.match(skillContent, /report the receipt/);
     assert.match(skillContent, /an automation's `agent` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
-    assert.match(skillContent, /pages status\|revoke\|narrow\|snapshot-off --publication <id>/);
-    // The pages line teaches `pages share-app` with its boundaries: either
-    // instance id, one exposure per instance, and no snapshot lane for apps.
-    assert.match(skillContent, /`pages share-app` \(an installed App Instance at the person's address — `--instance` accepts the App Instance id or the Runtime Instance id, one exposure per instance, and never `--snapshot`: apps have no sleep copy\)/);
+    assert.doesNotMatch(skillContent, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|Shared pages/);
     assert.match(skillContent, /agent overview --json/);
     assert.match(skillContent, /files move --work-folder <id>/);
     assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);
@@ -301,12 +273,10 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
       /\bpoll(ing)? (until|every)\b|\bsleep \d/i,
       "the manage-work-folders Skill is never taught to busy-wait",
     );
-    // Needs-you, paired-browser seen markers, publication problems in the
-    // overview, and the help topics reach the Skill too.
+    // Needs-you, paired-browser seen markers, and the help topics reach the
+    // Skill too.
     assert.match(skillContent, /never work waiting to be let through/);
     assert.match(skillContent, /remote:<grantId>/);
-    assert.match(skillContent, /overview change items with the precise reason/);
-    assert.match(skillContent, /revealed only in Settings → Shared pages/);
     assert.match(skillContent, /work-fold help <family>/);
     assert.doesNotMatch(
       skillContent,

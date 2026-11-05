@@ -1,5 +1,3 @@
-import { WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE, WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
-
 export const primaryNavigation = [
   { id: "files", label: "Files" },
   { id: "chats", label: "Chats" },
@@ -9,89 +7,6 @@ export const primaryNavigation = [
 export const welcomeActions = {
   create: "Create New work-folder",
   linkFolder: "Use Existing Folder",
-} as const;
-
-/**
- * Settings → Shared Pages (docs/shared-pages.md, rung 2): the
- * publications list with its budgets, tallies, and page state, the
- * transient share-link reveal, stop sharing, and the in-place Budgets and
- * Sleep copy controls (amended 2026-09-24) that narrow or widen under a
- * receipt while the link stays the same. A new page starts from a file's
- * tab. Copy never says host, hosting, or website, and "publish" stays
- * reserved for App Studio's local Release transition.
- */
-export const publicationsSettings = {
-  heading: "Shared Pages",
-  linkMeaning: "Anyone with the link can read this page.",
-  /** App rows: the viewer reads; it never writes, acts, or reaches connections. */
-  appLinkMeaning: "Anyone with the link can view this app.",
-  revealLink: "Show Link",
-  hideLink: "Hide Link",
-  copyLink: "Copy Link",
-  noAddress: "Set up web access to show links.",
-  snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
-  sleepCopy: "Sleep Copy",
-  budgets: "Budgets",
-  servesPerMinute: "Serves per Minute",
-  mibPerDay: "MiB per Day",
-  saveBudgets: "Save",
-  saved: "Saved",
-  budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
-  stopSharing: "Stop Sharing",
-  stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
-  stopSharingAppConfirm: "Stop sharing this app? Every copy of its link stops working, and sharing again mints a new link.",
-  emptyNoAddress: "Set up web access to share pages.",
-  webAccess: "Web Access",
-  empty: "No pages are shared. Share a file from its tab.",
-  previewDisabled: "Changing shared pages is disabled in the preview",
-  states: {
-    live: "Live",
-    asleep: "Asleep",
-    resting: "Resting",
-    "not-available": "Not Available",
-    stopped: "Stopped",
-  },
-} as const;
-
-/**
- * Sharing a file from its tab or the Files menu (docs/shared-pages.md,
- * amended 2026-09-24): the click shares and says so; the popover holds the
- * link. No confirmation — sharing is receipted and Stop sharing undoes it.
- */
-export const fileSharing = {
-  share: "Share",
-  shared: "Shared",
-  sharedToast: (title: string) => `Shared "${title}"`,
-  stoppedToast: (title: string) => `Stopped sharing "${title}"`,
-  linkCopied: "Link Copied",
-  linkInSettings: "Show the link in Settings → Shared Pages.",
-  openSharedPages: "Open Shared Pages",
-  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
-  webAccess: "Web Access",
-  previewDisabled: "Sharing is disabled in the preview",
-  /** The at-a-glance mark on a shared file's Files row and tab. */
-  sharedMarkLabel: "Shared as a Page",
-  sharedMarkTooltip: "Shared as a page. Anyone with the link can read it.",
-} as const;
-
-/**
- * Putting an installed app at the person's address from its details in
- * Settings → Apps (docs/shared-pages.md, rung 3). Like sharing a file, the
- * click shares and says so; the link itself is revealed in Settings → Shared
- * Pages, and Stop Sharing there undoes it.
- */
-export const appSharing = {
-  share: "Share at Your Address",
-  shared: "At Your Address",
-  sharedToast: (title: string) => `${title} is at your address. Show its link in Settings → Shared Pages.`,
-  openSharedPages: "Open Shared Pages",
-  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
-  webAccess: "Web Access",
-  previewDisabled: "Sharing is disabled in the preview",
-  /** What the share exposes, from the app's reviewed viewer declaration. */
-  viewerNote: (entry: string, readable: readonly string[]) => readable.length
-    ? `Sharing shows ${entry} to anyone with the link. Viewers can read ${readable.join(", ")} in this app's data, and never write, act, or reach connections.`
-    : `Sharing shows ${entry} to anyone with the link. Viewers read none of this app's data, and never write, act, or reach connections.`,
 } as const;
 
 /**

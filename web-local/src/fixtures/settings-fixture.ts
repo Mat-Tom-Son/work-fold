@@ -9,7 +9,6 @@ import type {
 } from "../components/modals/AutomationsPane";
 import type { RecentlyDeletedResponse } from "../components/modals/RecentlyDeletedPane";
 import type { DesktopUpdateStatus } from "../types";
-import { fixtureViewerOrigin } from "./work-folder-fixture";
 
 /**
  * Sample Settings data for the browser preview (`?fixture=work-folder`): the
@@ -279,7 +278,6 @@ export function createFixtureRemoteAccess(): RemoteAccessBridge {
     connection: "connected",
     slug: "you",
     url: "https://you.work-fold.com",
-    viewerOrigin: fixtureViewerOrigin,
     lastError: null,
     approvedBrowsers: [
       { id: "grant-fixture-iphone", browserId: "browser-fixture-iphone", label: "Safari on iPhone", approvedAt: "2026-10-18T19:40:00.000Z" },

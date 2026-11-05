@@ -27,13 +27,13 @@ test("private browser views use reviewed bytes and selected data without creatin
     await writeFile(join(source, "agent-app.json"), JSON.stringify({ version: 2, id: "web-view-qa", title: "Quote board", runtime: { kind: "sandboxed-web", entry: "index.html" }, ui: {}, tools: [], permissions: { network: [], files: [], notifications: [] }, automations: [], viewer: { entry: "web.html", readable: ["quotes/"] } }));
     await writeFile(join(source, "index.html"), "<!doctype html><p>Desktop UI</p>");
     await writeFile(join(source, "web.html"), "<!doctype html><p>Reviewed web view</p>");
-    // A browser view reads assets under the same per-asset bound as a published viewer.
+    // A browser view reads each asset under the viewer's per-asset bound.
     await writeFile(join(source, "too-large.txt"), Buffer.alloc(RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES + 1, 0x78));
     const input = { workFolderId: "work-folder-one", workFolderRoot: join(root, "work-folder"), sourcePath: "app" };
     const review = await service.inspect(input);
     let app = await service.install({ ...input, expectedDigest: review.digest });
     const scope = scopeFor(app);
-    assert.equal(app.runtimeInstanceKind, "development", "private preview does not require publishing a Release or a viewer link");
+    assert.equal(app.runtimeInstanceKind, "development", "private preview does not require publishing a Release");
     await storage.set(ownerFor(app), "quotes/north", { unitPrice: 42 });
     await storage.set(ownerFor(app), "private/secret", "not shared");
     const entry = await service.readBrowserView(scope, { kind: "entry" });

@@ -163,16 +163,15 @@ export interface RestrictedAppAutomationDeclaration {
 }
 
 /**
- * The reviewed viewer surface for "an app at your address"
- * (docs/shared-pages.md, rung 3). `entry` names the packaged document the
- * viewer plane serves to link holders; `readable` names the exact
- * instance-owned storage key prefixes ("collections") viewers may read.
- * This declaration is the complete viewer-readable surface: the desktop
- * viewer adapter refuses every read outside it, and every write, action,
- * network, connection, notification, file, automation, OAuth, or host-UI
- * call regardless of it. Because the field is reviewed, it appears in review
- * copy and is pinned by the outward-exposure act; an update that widens
- * `readable` or changes `entry` needs a fresh receipted exposure.
+ * The reviewed viewer surface: the read-only web view a paired browser may
+ * open for an installed app. `entry` names the packaged document that view
+ * serves; `readable` names the exact instance-owned storage key prefixes
+ * ("collections") it may read. This declaration is the complete
+ * viewer-readable surface: the desktop reader
+ * (src/local/agent/restricted-app-viewer.ts) refuses every read outside it,
+ * and every write, action, network, connection, notification, file,
+ * automation, OAuth, or host-UI call regardless of it. Because the field is
+ * reviewed, it appears in review copy.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;
@@ -410,10 +409,9 @@ export function parseRestrictedAppJsonSchema(value: unknown, label = "Restricted
 }
 
 /**
- * The reviewed viewer surface (docs/shared-pages.md, rung 3). The entry is
- * a packaged HTML document like the runtime entry; readable prefixes are a
- * bounded, deduplicated, sorted list so the declaration — and therefore the
- * exposure pins derived from it — has exactly one canonical spelling.
+ * The reviewed viewer surface. The entry is a packaged HTML document like the
+ * runtime entry; readable prefixes are a bounded, deduplicated, sorted list so
+ * the declaration has exactly one canonical spelling.
  */
 function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration | undefined {
   if (value === undefined) return undefined;
@@ -432,17 +430,6 @@ function parseViewerDeclaration(value: unknown): RestrictedAppViewerDeclaration 
       });
   assertUnique(readable, "Restricted app viewer readable prefix");
   return { entry, readable: [...readable].sort((left, right) => left.localeCompare(right)) };
-}
-
-/**
- * The complete viewer-readable surface as exposure pins
- * (`publish.viewer.expose`, hosted-app shape; docs/shared-pages.md): one
- * canonical string list the review copy can render and a serve-time recheck
- * can compare exactly. An app without a viewer declaration has no viewer
- * surface and cannot be put at an address.
- */
-export function restrictedAppViewerSurfacePins(viewer: RestrictedAppViewerDeclaration): string[] {
-  return [`entry:${viewer.entry}`, ...viewer.readable.map((prefix) => `data:${prefix}`)];
 }
 
 function parseAppAutomationDeclaration(

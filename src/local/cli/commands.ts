@@ -654,35 +654,6 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
     ].join("\n");
   }
-  if (normalizedTopic === "pages" || normalizedTopic?.startsWith("pages ")) {
-    return [
-      header,
-      "",
-      `Usage: ${executable} pages share --work-folder <id-or-name> --path <work-folder-path> --title <page-title> [--snapshot] [--json]`,
-      `       ${executable} pages share-app --work-folder <id-or-name> --instance <app-instance-id> [--json]`,
-      `       ${executable} pages list [--json]`,
-      `       ${executable} pages status --publication <id> [--json]`,
-      `       ${executable} pages revoke --publication <id> [--json]`,
-      `       ${executable} pages narrow --publication <id> [--serve-rate <per-minute>] [--byte-budget <bytes-per-day>] [--json]`,
-      `       ${executable} pages widen --publication <id> [--serve-rate <per-minute>] [--byte-budget <bytes-per-day>] [--snapshot] [--json]`,
-      `       ${executable} pages snapshot-off --publication <id> [--json]`,
-      "",
-      "Publish one work-folder file as a read-only page served live from this",
-      "desktop at your work-fold address. pages share shares the page",
-      "immediately and records a receipt; share-app puts one installed App",
-      "Instance at the address instead: viewers get the app's reviewed",
-      "entry, prepared assets, and manifest-declared viewer-readable data,",
-      "read-only, over a desktop-enforced broker subset — never",
-      "actions, network, connections, files, or writes. --snapshot is an",
-      "explicitly labeled opt-in that lets a page survive desktop sleep;",
-      "apps have no snapshot and sleep honestly. revoke, narrow, and",
-      "snapshot-off only reduce exposure and run immediately. widen raises",
-      "a page's budgets (up to 600 serves per minute and 1 GiB per day) or",
-      "turns --snapshot on in place with a receipt; the link stays the same.",
-      "Needs the work-fold app running.",
-      "",
-    ].join("\n");
-  }
   if (normalizedTopic === "recently-deleted" || normalizedTopic?.startsWith("trash ")) {
     return [
       header,
@@ -741,8 +712,6 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     `  apps <verb>         Restricted apps and App Studio (see '${executable} help apps')`,
     "  automations enable|list|show|run|stop|disable|delete|receipts",
     "                      Declared steps that run across work-folders on a trigger",
-    "  pages share|share-app|list|status|revoke|narrow|widen|snapshot-off",
-    "                      Read-only pages served from this desktop",
     "  recently-deleted list|restore",
     "                      Bring back what was deleted",
     `  requests list|show  Follow one piece of work across work-folders (see '${executable} help collaborate')`,

@@ -57,7 +57,6 @@ product keeps for its own sake. The overview never causes a record to exist.
 | App automation run receipts | `RestrictedAppAutomationRunReceipt` in `src/local/agent/restricted-app-service.ts` | Durable registry state | Named job, App Instance, outcome, timestamps; the app's and automation's titles are read from the installation |
 | App automation scheduler state | `WorkFoldSchedulerService` | In-memory, app run | Active and pending named jobs, feeding "Running now" |
 | Automation runs | `src/local/automations/automation-store.ts` | Durable | Running and settled automation runs with per-hop outcomes |
-| Viewer grants | `src/local/publications.ts` | Durable | Publication created/revoked events and page health (not-available, resting) |
 
 Durability is disclosed, not papered over. In-memory sources live for the
 app run only; after a restart the digest recomputes from durable records
@@ -123,9 +122,7 @@ read the results handed back through `requests show` — a result's summary,
 structured data, and files are never in the digest), `chat-lifecycle`,
 `chat-renamed`, `check-run-settled`, `act-performed` (every receipted verb,
 including the ones that install code, widen a power, or delete),
-`app-automation-run-settled`, `automation-run-settled`, `viewer-grant-changed`, and
-`publication-state` (page health: not-available and resting reach the person
-here with the precise reason viewers never see). An answered question adds
+`app-automation-run-settled`, and `automation-run-settled`. An answered question adds
 no kind of its own: it simply leaves **Needs you**, and the request's own
 settle carries the story. Bounded
 twice: at most 128 items per kind and 512 total. The `cursor` identifies the
@@ -197,7 +194,7 @@ answer indicator in the saved-chat list. There is no Needs you destination or
 receipt feed. The current client neither requests nor acknowledges the overview.
 The signed `management.glance`/`management.glanceSeen` host operations remain
 compatible with older paired clients, with their existing 64 KB bound and
-per-grant marker isolation. Viewers never receive the overview.
+per-grant marker isolation.
 
 **Not the main window.** The compact "Since you last looked" panel that hung off
 the work-folder header was removed (2026-09-23). The main window neither requests nor
@@ -272,9 +269,6 @@ The plan items shipped as follows:
   digest turn, no notification that "the work-fold agent has news." Agency on a
   schedule lives in work-folders; above work-folders only declared deterministic glue
   runs unattended, and narration is neither.
-- **A viewer-facing overview.** Viewers are read-only strangers to the
-  work-fold agent; the overview crosses only to paired browsers under the
-  existing full-trust grant.
 - **Marker sync across machines.** Markers are machine-local like every
   other acknowledgement preference; a second computer has its own eyes.
 - **A durable cross-source event store or subscription API.** Extensions

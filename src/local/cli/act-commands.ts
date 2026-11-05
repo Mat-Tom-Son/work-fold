@@ -143,14 +143,6 @@ export type WorkFoldCliActCommandName =
   | "automations.disable"
   | "automations.delete"
   | "automations.receipts"
-  | "pages.share"
-  | "pages.share-app"
-  | "pages.list"
-  | "pages.status"
-  | "pages.revoke"
-  | "pages.narrow"
-  | "pages.widen"
-  | "pages.snapshot-off"
   | "recently-deleted.list"
   | "recently-deleted.restore"
   // Reads of the request graph above all work-folders (docs/collaboration-contract.md,
@@ -244,14 +236,6 @@ export interface WorkFoldCliActParsedCommand {
   retained?: string;
   /** Explicit apps.uninstall data disposition; deliberately never defaulted. */
   disposition?: "retain-data" | "purge-data";
-  /** Snapshot-caching opt-in for pages.share and pages.widen; an explicitly labeled choice, never defaulted on. */
-  snapshot?: boolean;
-  /** Publication id for the pages management verbs. */
-  publication?: string;
-  /** Serve-rate budget for pages.narrow (lower) or pages.widen (higher). */
-  serveRatePerMinute?: number;
-  /** Daily byte budget for pages.narrow (lower) or pages.widen (higher). */
-  byteBudgetPerDay?: number;
   /** Recently deleted item id for recently-deleted.restore. */
   entry?: string;
   /** Absolute destination for `recently-deleted restore --to`, the "save a copy" path for app data. */
@@ -330,7 +314,7 @@ export interface WorkFoldCliActExecutorOptions {
    * Validates an explicitly named work-fold agent parent while its turn is active.
    * When that request arrived through Web Access, the paired browser
    * identity rides along and is stamped on the accepted and terminal receipts
-   * (docs/receipts-not-gates.md, F19; docs/shared-pages.md).
+   * (docs/receipts-not-gates.md, F19).
    */
   resolveLineageParent?: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
 }
@@ -428,12 +412,9 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--operation",
     "--retained",
     "--automation",
-    "--publication",
     "--provider",
     "--model",
     "--instructions",
-    "--serve-rate",
-    "--byte-budget",
     "--entry",
     "--summary",
     "--summary-file",
@@ -464,7 +445,7 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "--action",
     "--ref",
   ]);
-  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--snapshot", "--clear", "--running", "--asynchronous", "--interactive", "--service", "--eof"]);
+  const booleanFlags = new Set(["--new", "--message-from-payload", "--retain-data", "--purge-data", "--clear", "--running", "--asynchronous", "--interactive", "--service", "--eof"]);
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index] ?? "";
@@ -549,7 +530,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "history diff",
     "history restore-file",
     "apps grant",
-    "pages share",
   ]);
   if (!pathCommands.has(command) && pathValues.length) {
     throw usageError(`--path cannot be used with '${command || "(none)"}'.`);
@@ -790,12 +770,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "automations stop",
     "automations disable",
     "automations delete",
-    "pages share",
-    "pages share-app",
-    "pages revoke",
-    "pages narrow",
-    "pages widen",
-    "pages snapshot-off",
     "recently-deleted restore",
     "jobs input",
     "worktrees manage",
@@ -1832,104 +1806,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
       const automation = optionalBoundedFlag("--automation", "automation-id");
       return { name: "automations.receipts", output, ...(automation ? { automation } : {}) };
     }
-    case "pages share":
-      // Outward exposure (docs/shared-pages.md): the page slot's pins are
-      // the work-folder id, exact relative path, title, budgets, and the snapshot
-      // flag. Snapshot caching is an explicitly labeled opt-in.
-      allowOnlyFlags("--work-folder", "--title", "--snapshot", "--parent-task");
-      return {
-        name: "pages.share",
-        output,
-        workFolder: requireWorkFolder(),
-        path: requireSinglePath("work-folder-path"),
-        title: requireBoundedFlag("--title", "page-title"),
-        ...(flags.get("--snapshot") === true ? { snapshot: true } : {}),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    case "pages share-app":
-      // Hosted-app exposure (docs/shared-pages.md, rung 3): the pins —
-      // App Instance id, exact Release digest, viewer entry, complete
-      // viewer-readable surface — are resolved host-side from the installed
-      // Instance's reviewed manifest, never supplied here. Snapshot caching
-      // does not exist for apps: asleep is the only offline state.
-      allowOnlyFlags("--work-folder", "--instance", "--parent-task");
-      return {
-        name: "pages.share-app",
-        output,
-        workFolder: requireWorkFolder(),
-        instance: requireBoundedFlag("--instance", "instance-id"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    case "pages list":
-      allowOnlyFlags();
-      return { name: "pages.list", output };
-    case "pages status":
-      allowOnlyFlags("--publication");
-      return { name: "pages.status", output, publication: requireBoundedFlag("--publication", "publication-id") };
-    case "pages revoke":
-    case "pages snapshot-off":
-      // Narrowing verbs (docs/shared-pages.md): revoking and turning
-      // snapshot caching off never need a click; turning the sleep copy
-      // back on is `pages widen --snapshot`, and a revoked page shares again
-      // only as a fresh `pages share` with a new link.
-      allowOnlyFlags("--publication", "--parent-task");
-      return {
-        name: command === "pages revoke" ? "pages.revoke" : "pages.snapshot-off",
-        output,
-        publication: requireBoundedFlag("--publication", "publication-id"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    case "pages widen": {
-      // Widening in place (docs/shared-pages.md, amended 2026-09-24): the
-      // slot, key, and link stay; raised budgets are capped host-side at the
-      // publication ceilings, and --snapshot turns the sleep copy on.
-      allowOnlyFlags("--publication", "--serve-rate", "--byte-budget", "--snapshot", "--parent-task");
-      const requirePositiveInteger = (flag: string, label: string): number | undefined => {
-        const raw = stringFlag(flag);
-        if (raw === undefined) return undefined;
-        const value = Number(raw);
-        if (!Number.isInteger(value) || value < 1) throw usageError(`${flag} must be a positive integer (${label}).`);
-        return value;
-      };
-      const serveRatePerMinute = requirePositiveInteger("--serve-rate", "serves per minute");
-      const byteBudgetPerDay = requirePositiveInteger("--byte-budget", "bytes per day");
-      const snapshot = flags.get("--snapshot") === true;
-      if (serveRatePerMinute === undefined && byteBudgetPerDay === undefined && !snapshot) {
-        throw usageError("Provide --serve-rate <per-minute>, --byte-budget <bytes-per-day>, and/or --snapshot to widen.");
-      }
-      return {
-        name: "pages.widen",
-        output,
-        publication: requireBoundedFlag("--publication", "publication-id"),
-        ...(serveRatePerMinute !== undefined ? { serveRatePerMinute } : {}),
-        ...(byteBudgetPerDay !== undefined ? { byteBudgetPerDay } : {}),
-        ...(snapshot ? { snapshot: true } : {}),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    }
-    case "pages narrow": {
-      allowOnlyFlags("--publication", "--serve-rate", "--byte-budget", "--parent-task");
-      const requirePositiveInteger = (flag: string, label: string): number | undefined => {
-        const raw = stringFlag(flag);
-        if (raw === undefined) return undefined;
-        const value = Number(raw);
-        if (!Number.isInteger(value) || value < 1) throw usageError(`${flag} must be a positive integer (${label}).`);
-        return value;
-      };
-      const serveRatePerMinute = requirePositiveInteger("--serve-rate", "serves per minute");
-      const byteBudgetPerDay = requirePositiveInteger("--byte-budget", "bytes per day");
-      if (serveRatePerMinute === undefined && byteBudgetPerDay === undefined) {
-        throw usageError("Provide --serve-rate <per-minute> and/or --byte-budget <bytes-per-day> to narrow.");
-      }
-      return {
-        name: "pages.narrow",
-        output,
-        publication: requireBoundedFlag("--publication", "publication-id"),
-        ...(serveRatePerMinute !== undefined ? { serveRatePerMinute } : {}),
-        ...(byteBudgetPerDay !== undefined ? { byteBudgetPerDay } : {}),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    }
     // Background jobs (docs/background-jobs.md). start needs the caller's own
     // running turn, as chat report does; every verb names the job's work-folder.
     case "jobs start": {
@@ -2846,22 +2722,6 @@ async function runActCommand(
         ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
         requestId: request.id,
       }));
-    case "pages.share":
-      return toChecksJson(await facade.pagesShare({
-        workFolder: command.workFolder!,
-        path: command.path!,
-        title: command.title!,
-        ...(command.snapshot ? { snapshot: true } : {}),
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "pages.share-app":
-      return toChecksJson(await facade.pagesShareApp({
-        workFolder: command.workFolder!,
-        instance: command.instance!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
     case "apps.install-preview":
       // The host creates the review record over the named package and installs
       // it through the same `app.review.install` kind a Chat proposal uses —
@@ -2914,42 +2774,6 @@ async function runActCommand(
     case "automations.receipts":
       return toChecksJson(await facade.automationsReceipts({
         ...(command.automation ? { automation: command.automation } : {}),
-      }));
-    // Publication management verbs (docs/shared-pages.md): list/status are
-    // act reads; revoke and the narrowing verbs are direct, with the service
-    // journaling its own accepted/terminal pair under a derived request id.
-    case "pages.list":
-      return toChecksJson(await facade.pagesList());
-    case "pages.status":
-      return toChecksJson(await facade.pagesStatus({ publication: command.publication! }));
-    case "pages.revoke":
-      return toChecksJson(await facade.pagesRevoke({
-        publication: command.publication!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "pages.narrow":
-      return toChecksJson(await facade.pagesNarrow({
-        publication: command.publication!,
-        ...(command.serveRatePerMinute !== undefined ? { serveRatePerMinute: command.serveRatePerMinute } : {}),
-        ...(command.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: command.byteBudgetPerDay } : {}),
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "pages.widen":
-      return toChecksJson(await facade.pagesWiden({
-        publication: command.publication!,
-        ...(command.serveRatePerMinute !== undefined ? { serveRatePerMinute: command.serveRatePerMinute } : {}),
-        ...(command.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: command.byteBudgetPerDay } : {}),
-        ...(command.snapshot ? { snapshot: true } : {}),
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
-      }));
-    case "pages.snapshot-off":
-      return toChecksJson(await facade.pagesSnapshotOff({
-        publication: command.publication!,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-        requestId: request.id,
       }));
   }
 }
@@ -3768,15 +3592,6 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
           + `'automations run --automation ${terminalText(record.automationId)}' starts a copy now and `
           + `'automations disable --automation ${terminalText(record.automationId)}' turns it off.`
           + `${typeof record.stoppedRunId === "string" ? ` The run ${terminalText(record.stoppedRunId)} that was executing the previous declaration was stopped.` : ""}\n`;
-    case "pages.share": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      return `Sharing "${terminalText(publication.title)}" (${terminalText(publication.relativePath)}) from ${workFolderLabel} at ${terminalText(publication.viewerPath)}. `
-        + "Reveal the link in Settings → Shared pages.\n";
-    }
-    case "pages.share-app": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      return `Sharing "${terminalText(publication.title)}" (App Instance ${terminalText(publication.appInstanceId)}) from ${workFolderLabel} at ${terminalText(publication.viewerPath)}.\n`;
-    }
     case "recently-deleted.list": {
       const entries = (Array.isArray(record.entries) ? record.entries : []) as Array<{
         id?: unknown;
@@ -4033,82 +3848,6 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
       const truncated = record.truncated === true ? "\nThe journal read stopped at its bound; older receipts were omitted." : "";
       return `${receipts.length} automation receipt${receipts.length === 1 ? "" : "s"}:\n${lines.join("\n")}${omitted}${truncated}${damaged}\n`;
     }
-    case "pages.list": {
-      const publications = (Array.isArray(record.publications) ? record.publications : []) as Array<{
-        publicationId?: unknown;
-        kind?: unknown;
-        title?: unknown;
-        state?: unknown;
-        live?: unknown;
-        workFolderName?: unknown;
-        workFolderId?: unknown;
-        relativePath?: unknown;
-        appInstanceId?: unknown;
-        viewerPath?: unknown;
-        snapshotEnabled?: unknown;
-      }>;
-      if (!publications.length) return "No pages are shared.\n";
-      const lines = publications.slice(0, 50).map((publication) => {
-        const source = publication.kind === "app"
-          ? `app instance ${terminalText(publication.appInstanceId)}`
-          : terminalText(publication.relativePath);
-        const where = typeof publication.workFolderName === "string"
-          ? `${terminalText(publication.workFolderName)}:${source}`
-          : `[${terminalText(publication.workFolderId)}]:${source}`;
-        const liveness = publication.state === "active" ? (publication.live === true ? "live" : "active, bridge sync pending") : terminalText(publication.state);
-        return `- "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}] — ${where} — ${liveness}${publication.snapshotEnabled === true ? " — snapshot on" : ""}`;
-      });
-      return `${publications.length} shared page${publications.length === 1 ? "" : "s"}:\n${lines.join("\n")}\n`;
-    }
-    case "pages.status": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      const sourceLabel = publication.kind === "app"
-        ? `App Instance ${terminalText(publication.appInstanceId)} at Release ${terminalText(publication.releaseDigest)} — `
-          + `viewer entry ${terminalText(publication.viewerEntry)}; viewer-readable surface: `
-          + `${Array.isArray(publication.viewerSurface) ? publication.viewerSurface.map(terminalText).join(", ") : "(none)"}`
-        : terminalText(publication.relativePath);
-      const lines = [
-        `${publication.kind === "app" ? "App" : "Page"} "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]`,
-        `Source: ${typeof publication.workFolderName === "string" ? `${terminalText(publication.workFolderName)} ` : ""}[${terminalText(publication.workFolderId)}] ${sourceLabel}`,
-        `State: ${terminalText(publication.state)}${publication.state === "active" ? (publication.live === true ? " (live)" : " (bridge sync pending; not presented as live)") : ""}`,
-        `Viewer path: ${terminalText(publication.viewerPath)} — the full link and its key are shown only transiently in the app, never here`,
-        `Budgets: ${terminalText(publication.serveRatePerMinute)}/min serve rate, ${terminalText(publication.byteBudgetPerDay)} bytes/day`,
-        `Snapshot caching: ${publication.snapshotEnabled === true ? "on" : "off"}`,
-        ...(typeof publication.expiresAt === "string" ? [`Expires: ${terminalText(publication.expiresAt)}`] : []),
-        ...(typeof publication.revokedAt === "string" ? [`Revoked: ${terminalText(publication.revokedAt)}${publication.bridgeCleanup === "pending" ? " — bridge cleanup pending, retried on reconnect" : ""}`] : []),
-      ];
-      return `${lines.join("\n")}\n`;
-    }
-    case "pages.revoke": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      const cleanup = publication.bridgeCleanup === "ok"
-        ? "The bridge slot and any snapshot were deleted."
-        : "Bridge cleanup is pending and is retried on reconnect and at startup; the desktop already refuses every new serve.";
-      const already = record.alreadyRevoked === true ? " It was already revoked; revocation is idempotent." : "";
-      return `Stopped sharing "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}].${already}\n`
-        + `${cleanup} Old links stay dead; sharing again mints a new slot, key, and link.\n`;
-    }
-    case "pages.narrow": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      return `Narrowed budgets of "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
-        + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
-        + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day. `
-        + `Raise it again with 'pages widen'.\n`;
-    }
-    case "pages.widen": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      return `Widened "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}]: `
-        + `serve rate ${terminalText(record.priorServeRatePerMinute)} -> ${terminalText(publication.serveRatePerMinute)}/min, `
-        + `byte budget ${terminalText(record.priorByteBudgetPerDay)} -> ${terminalText(publication.byteBudgetPerDay)}/day, `
-        + `snapshot caching ${record.priorSnapshotEnabled === true ? "on" : "off"} -> ${publication.snapshotEnabled === true ? "on" : "off"}. `
-        + `The link is unchanged; narrow again with 'pages narrow' or 'pages snapshot-off'.\n`;
-    }
-    case "pages.snapshot-off": {
-      const publication = (record.publication ?? {}) as Record<string, unknown>;
-      const already = record.wasEnabled === false ? " Snapshot caching was already off." : "";
-      return `Turned snapshot caching off for "${terminalText(publication.title)}" [${terminalText(publication.publicationId)}].${already} `
-        + `The stored relay copy is deleted${publication.bridgeSlot === "confirmed" ? "" : " once the bridge sync completes"}; turn it back on with 'pages widen --snapshot'.\n`;
-    }
     default:
       return `${terminalText(name)} completed.\n`;
   }
@@ -4326,30 +4065,10 @@ function actReceiptDetail(
     automationId?: unknown;
     declarationDigest?: unknown;
     alreadyEnabled?: unknown;
-    relativePath?: unknown;
-    appInstanceId?: unknown;
-    viewerEntry?: unknown;
-    viewerSurface?: unknown;
-    snapshotEnabled?: unknown;
-    serveRatePerMinute?: unknown;
-    byteBudgetPerDay?: unknown;
     stoppedRunId?: unknown;
     runId?: unknown;
     finalHealth?: unknown;
     replacesInstalled?: unknown;
-    publication?: {
-      publicationId?: unknown;
-      relativePath?: unknown;
-      appInstanceId?: unknown;
-      releaseDigest?: unknown;
-      serveRatePerMinute?: unknown;
-      byteBudgetPerDay?: unknown;
-      bridgeCleanup?: unknown;
-      bridgeSlot?: unknown;
-    };
-    alreadyRevoked?: unknown;
-    priorServeRatePerMinute?: unknown;
-    priorByteBudgetPerDay?: unknown;
     contentDigest?: unknown;
     version?: unknown;
     packageId?: unknown;
@@ -4489,11 +4208,6 @@ function actReceiptDetail(
       return `automation.enable; automation ${String(record.automationId)}; digest ${String(record.declarationDigest)}`
         + `${record.alreadyEnabled === true ? "; already enabled" : ""}`
         + `${typeof record.stoppedRunId === "string" ? `; stopped run ${String(record.stoppedRunId)}` : ""}`;
-    case "pages.share":
-      return `publish.viewer.expose; source ${boundedReceiptText(String(record.publication?.relativePath))}; publication ${String(record.publication?.publicationId)}`;
-    case "pages.share-app":
-      return `publish.viewer.expose; appInstanceId ${String(record.publication?.appInstanceId)}; `
-        + `releaseDigest ${String(record.publication?.releaseDigest)}; publication ${String(record.publication?.publicationId)}`;
     default:
       break;
   }
@@ -4600,9 +4314,8 @@ function actReceiptDetail(
         : "";
       return `instance ${record.runtimeInstanceId}${retainedLabel}`;
     }
-    // Automation and shared-page receipts carry identifiers and outcomes only,
-    // per the automations five-questions table and the shared-pages
-    // mutation ledger — the owning journals hold the per-hop and ordering
+    // Automation receipts carry identifiers and outcomes only, per the
+    // automations five-questions table — the owning journal holds the per-hop
     // evidence.
     case "automations.run":
       return typeof record.automationId === "string" && typeof record.run?.runId === "string"
@@ -4619,22 +4332,6 @@ function actReceiptDetail(
     case "automations.delete":
       return typeof record.automationId === "string"
         ? `automation ${record.automationId}; digest ${String(record.digest)}; final health ${String(record.finalHealth)}`
-        : undefined;
-    case "pages.revoke":
-      return typeof record.publication?.publicationId === "string"
-        ? `publicationId=${record.publication.publicationId} bridgeCleanup=${String(record.publication.bridgeCleanup ?? "pending")}`
-          + `${record.alreadyRevoked === true ? " (already revoked)" : ""}`
-        : undefined;
-    case "pages.narrow":
-      return typeof record.publication?.publicationId === "string"
-        ? `publicationId=${record.publication.publicationId} `
-          + `serveRatePerMinute=${String(record.priorServeRatePerMinute)}->${String(record.publication.serveRatePerMinute)} `
-          + `byteBudgetPerDay=${String(record.priorByteBudgetPerDay)}->${String(record.publication.byteBudgetPerDay)}`
-        : undefined;
-    case "pages.snapshot-off":
-      return typeof record.publication?.publicationId === "string"
-        ? `publicationId=${record.publication.publicationId} snapshot=off`
-          + `${record.wasEnabled === false ? " (already off)" : ""}`
         : undefined;
     default:
       return undefined;
@@ -4670,7 +4367,6 @@ function actUndoRef(
     priorPresentationRef?: unknown;
     release?: { releaseDigest?: unknown };
     operation?: { operationId?: unknown };
-    publication?: { publicationId?: unknown };
     automationId?: unknown;
     declaration?: unknown;
     destination?: unknown;
@@ -4777,13 +4473,8 @@ function actUndoRef(
         : undefined;
     // The formerly gated verbs (docs/receipts-not-gates.md, F19): each undo
     // reference names the identifier its narrowing inverse takes —
-    // `pages revoke`, `automations disable`, `apps revoke|disconnect`,
+    // `automations disable`, `apps revoke|disconnect`,
     // `apps automation disable`, `tools remove`.
-    case "pages.share":
-    case "pages.share-app":
-      return typeof record.publication?.publicationId === "string"
-        ? { kind: "publicationId", value: record.publication.publicationId }
-        : undefined;
     case "automations.enable":
       return typeof record.automationId === "string" ? { kind: "automation-id", value: record.automationId } : undefined;
     case "apps.grant":

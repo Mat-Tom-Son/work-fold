@@ -65,8 +65,8 @@ work presentation. Each work-folder tab retains its identity.
 The paired browser uses the same host projection through its encrypted remote
 lane. Detailed work, answers, continuation, and Stop remain limited to the
 browser's own work-fold agent requests and their descendants. Other overview items
-remain summaries and direct the person to the desktop. Public viewers and
-sandboxed App bridges gain no request-graph or question access.
+remain summaries and direct the person to the desktop. Sandboxed App bridges
+gain no request-graph or question access.
 
 ## Acceptance
 
@@ -112,14 +112,5 @@ the selected Chat. Result files and apps remain available through a collapsed
 disclosure. This does not grant access to another browser’s request. The current
 web client neither reads nor acknowledges the overview; host operations remain
 compatible with older clients. Old Files/work-folder links return to New chat.
-
-**Shared pages** sits beside Settings in the sidebar footer. It opens a compact
-popup of up to 32 active publications from the desktop, refreshed on each open.
-A click reveals that publication’s current key transiently through the existing
-encrypted paired-browser lane, validates its exact isolated viewer origin and
-path, and opens it in a new tab with no opener. Titles and health travel without
-keys; links are never saved in browser storage. Empty, offline, unsupported,
-blocked-popup, and failed-read states remain inside the popup. Closing or losing
-the connection discards late reads. This reads existing shares only; desktop
-Settings → Shared pages continues to own sharing controls. Chat result previews
-retain their bounded inert file broker and exact app installation fences.
+Chat result previews retain their bounded inert file broker and exact app
+installation fences.

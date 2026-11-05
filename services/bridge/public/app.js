@@ -10,7 +10,6 @@ import { renderLanding } from "./landing.js";
 import { renderMarkdown } from "./markdown.js";
 import { createFilePreview } from "./file-preview.js";
 import { createBrowserAppView } from "./browser-app.js";
-import { createSharedPages } from "./shared-pages.js";
 import { requestResultLinks, unnamedWorkFolderLabel } from "./request-results.js";
 import { assertPairingRelay, pairingCodeForKeys } from "./pairing-code.js";
 import { normalizeChatTitle, replaceHtmlIfChanged } from "./rendering.js";
@@ -97,7 +96,6 @@ const state = {
   filePreviewAvailable: false,
   // The desktop says it can take a message into a running turn (2026-10-27).
   steerAvailable: false,
-  sharedPagesAvailable: false,
   workFolderApps: new Map(),
   transcriptLoading: false,
   sessionRebooting: false,
@@ -114,31 +112,11 @@ const state = {
 };
 
 let filePreview = null;
-let sharedPages = null;
-
-function initializeSharedPages() {
-  sharedPages?.destroy();
-  sharedPages = createSharedPages({
-    button: document.querySelector("#shared-pages-toggle"), popup: document.querySelector("#shared-pages-popup"),
-    online: () => Boolean(state.session?.desktopOnline), available: () => state.sharedPagesAvailable,
-    slug: () => state.session?.slug ?? state.context?.slug, preview: Boolean(fixtureName),
-    load: async () => fixtureName ? { pages: state.fixtureSharedPages } : remote("pages.list"),
-    reveal: async (publicationId) => fixtureName
-      ? { viewerOrigin: `${location.protocol}//pages-casey.localhost${location.port ? `:${location.port}` : ""}`, viewerPath: `/p/${publicationId}`, key: "A".repeat(43) }
-      : remote("pages.link", { publicationId }),
-    onOpened: () => closeDrawer({ restoreFocus: false }),
-  });
-}
 
 function updateCapabilities(capabilities) {
   if (!capabilities) return;
   state.filePreviewAvailable = capabilities.filePreview === true;
   state.steerAvailable = capabilities.steer === true;
-  const available = capabilities.sharedPages === true;
-  if (state.sharedPagesAvailable !== available) {
-    state.sharedPagesAvailable = available;
-    sharedPages?.capabilityChanged();
-  }
 }
 function openFilePreview(reference) {
   filePreview ??= createFilePreview({
@@ -597,7 +575,6 @@ function installDocumentListeners() {
   document.addEventListener("click", (event) => {
     closeAccountMenus();
     if (!event.target.closest?.(".chat-menu-shell")) closeChatMenu();
-    if (!event.target.closest?.(".shared-pages-shell")) sharedPages?.close();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Tab" && state.drawerOpen) return trapDrawerFocus(event);
@@ -605,11 +582,6 @@ function installDocumentListeners() {
     if (document.querySelector("#chat-menu")?.hidden === false) {
       event.preventDefault();
       closeChatMenu({ restoreFocus: true });
-      return;
-    }
-    if (document.querySelector("#shared-pages-popup")?.hidden === false) {
-      event.preventDefault();
-      sharedPages?.close({ restoreFocus: true });
       return;
     }
     const openMenu = [...document.querySelectorAll(".account-menu")].find((menu) => menu.hidden === false);
@@ -674,16 +646,6 @@ function renderApplication() {
         </div>
         <div class="sidebar-foot">
           <div class="sidebar-footer-actions">
-            <div class="shared-pages-shell">
-              <button id="shared-pages-toggle" class="sidebar-item" type="button" data-tip="Shared pages" aria-label="Shared pages" aria-controls="shared-pages-popup" aria-expanded="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6Z"/><path d="M14 3.5v4h4M9 12h6M9 16h6"/></svg><span class="sidebar-label">Shared pages</span>
-              </button>
-              <section id="shared-pages-popup" class="shared-pages-popup" role="dialog" aria-label="Shared pages" hidden>
-                <header><h2>Shared pages</h2><button class="shared-pages-refresh" type="button" aria-label="Refresh shared pages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 6a8 8 0 0 1 13.2 3M4.7 15a8 8 0 0 0 13.2 3"/></svg></button></header>
-                <div class="shared-pages-list" aria-live="polite"></div>
-                <p class="shared-pages-note">Shared from your desktop</p>
-              </section>
-            </div>
             <div class="rail-account">
               <button id="account-settings" class="account-settings" type="button" aria-label="Settings" data-tip="Settings" aria-controls="account-menu" aria-expanded="false" data-account-toggle="account-menu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
@@ -871,7 +833,6 @@ function renderApplication() {
     state.banner = "";
     renderBanner();
   });
-  initializeSharedPages();
   syncSidebarChrome();
   syncComposer();
   renderConversationChrome();
@@ -2204,7 +2165,6 @@ function scheduleSessionReboot() {
   state.session = null;
   filePreview?.connectionChanged(false);
   browserApp?.connectionChanged(false);
-  sharedPages?.connectionChanged(false);
   if (state.refreshTimer) clearTimeout(state.refreshTimer);
   state.refreshTimer = null;
   state.eventSource?.close();
@@ -2243,9 +2203,7 @@ function clearGrantFromIdentity() {
 function updateConnection(online = state.session?.desktopOnline) {
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) { filePreview?.connectionChanged(Boolean(online)); }
   if (Boolean(online) !== Boolean(state.session?.desktopOnline)) browserApp?.connectionChanged(Boolean(online));
-  const connectionChanged = Boolean(online) !== Boolean(state.session?.desktopOnline);
   if (state.session) state.session.desktopOnline = Boolean(online);
-  if (connectionChanged) sharedPages?.connectionChanged();
   if (online && state.banner === "Your work-fold desktop is offline.") {
     state.banner = "";
     renderBanner();
@@ -2261,7 +2219,6 @@ function renderBanner() {
 
 function renderAuth({ eyebrow, headline, supporting, panel }, afterRender) {
   closeFilePreview();
-  sharedPages?.destroy(); sharedPages = null;
   browserApp?.destroy(); browserApp = null; state.workFolderApps.clear();
   app.innerHTML = `<main class="auth-shell">
     <header class="auth-top"><span class="brand" role="img" aria-label="work-fold"><img class="brand-lockup brand-lockup-black" src="/brand-lockup-black.png" alt="" /><img class="brand-lockup brand-lockup-white" src="/brand-lockup-white.png" alt="" /></span></header>

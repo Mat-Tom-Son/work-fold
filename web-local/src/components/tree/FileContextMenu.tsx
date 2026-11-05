@@ -1,10 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Share2, Trash2, Upload } from "../chrome/icons";
+import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Trash2, Upload } from "../chrome/icons";
 import { canOpenDirectly, nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
-import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
-import { useSharedPages } from "../../hooks/useSharedPages";
 import type { FileContextMenuState } from "../../types";
-import { fileSharing } from "../../ui-contract";
 import { fileSelectionLabel } from "../../../../src/shared/file-selection";
 
 export function FileContextMenu({
@@ -26,9 +23,6 @@ export function FileContextMenu({
   onDelete,
   onDeleteSelection,
   canDelete = true,
-  onShare,
-  shareWorkFolderId,
-  fixtureMode = false,
   onClose,
 }: {
   state: FileContextMenuState;
@@ -52,19 +46,11 @@ export function FileContextMenu({
   onDeleteSelection?: (paths: string[]) => void | Promise<void>;
   /** False for a folder that holds a nested work-folder, which cannot be deleted from here. */
   canDelete?: boolean;
-  /** Shares a shareable file, or opens its link when it is already shared. */
-  onShare?: (path: string) => void;
-  /** The work-folder the menu's entries belong to, for the Share / Shared label. */
-  shareWorkFolderId?: string;
-  fixtureMode?: boolean;
   onClose: () => void;
 }) {
   const { entry } = state;
   // Several rows selected together get only the actions that make sense for all of them.
   const selection = state.selection && state.selection.length > 1 ? state.selection : null;
-  const sharedPages = useSharedPages(fixtureMode);
-  const shareable = Boolean(onShare && shareWorkFolderId && entry.kind === "file" && isShareablePath(entry.path));
-  const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareWorkFolderId!, entry.path));
   const openLabel = nativeOpenLabel(entry);
   const menuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path, selection?.length]);
@@ -105,7 +91,6 @@ export function FileContextMenu({
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPath(entry.path))}><Copy size={15} />Copy {entry.kind === "folder" ? "Folder" : "File"} Path</button>
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAddToChatContext(entry.path))}><CirclePlus size={15} />Attach to Chat</button> : null}
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShowVersionHistory(entry.path))}><History size={15} />Version History</button> : null}
-      {shareable && onShare ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShare(entry.path))}><Share2 size={15} />{alreadyShared ? fileSharing.shared : fileSharing.share}</button> : null}
       {entry.kind === "folder" && (onNewFolder || onNewFile || onUploadHere || onRefresh) ? <div className="context-menu-separator" role="separator" /> : null}
       {entry.kind === "folder" && onNewFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFolder(entry.path))}><FolderPlus size={15} />New Folder Here</button> : null}
       {entry.kind === "folder" && onNewFile ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFile(entry.path))}><FilePlus2 size={15} />New File Here</button> : null}

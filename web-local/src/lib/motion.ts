@@ -52,7 +52,7 @@ type ExitKind = "dialog" | "menu" | "toast" | "collapse" | "collapse-inline";
 const exitSelectors: ReadonlyArray<readonly [ExitKind, string]> = [
   ["dialog", ".modal-backdrop, .publish-review-backdrop"],
   ["menu", [
-    ".context-menu", ".composer-command-menu", ".chat-rename-popover", ".file-share-popover",
+    ".context-menu", ".composer-command-menu", ".chat-rename-popover",
     ".surface-tab-work-folder-menu", ".model-catalog-popover", ".work-folder-pane-breadcrumb-menu",
     ".browser-tab-site-menu", ".work-folder-header-switcher",
   ].join(", ")],

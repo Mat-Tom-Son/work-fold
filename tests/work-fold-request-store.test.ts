@@ -696,6 +696,36 @@ test("a damaged journal line degrades the view instead of keeping the app from s
   await reopened.flush();
 });
 
+test("a record written while page sharing existed still loads, without its retired sharing actions", async (t) => {
+  const root = await temporaryRoot(t);
+  const clock = clockFrom("2026-09-11T09:00:00.000Z");
+  const store = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  const request = await store.beginRoot({ kind: "agent", owner: workFoldAgentOwner, surface: "popover", taskId: "task-1" });
+  await store.recordAction("task-1", { command: "files.add", at: clock.now().toISOString(), workFolderId: "work-folder-audits", workFolderName: "Audits", copied: ["report.md"] });
+  await store.flush();
+
+  // An older build recorded `pages share` and `pages share-app` in the same
+  // action trail; those verbs no longer exist.
+  const journalPath = join(root, "requests.jsonl");
+  const lines = (await readFile(journalPath, "utf8")).trim().split("\n").map((line) => {
+    const record = JSON.parse(line) as { actions: Array<Record<string, unknown>> };
+    record.actions.push(
+      { command: "pages.share", at: "2026-09-11T09:01:00.000Z", workFolderId: "work-folder-audits", workFolderName: "Audits" },
+      { command: "pages.share-app", at: "2026-09-11T09:02:00.000Z", workFolderId: "work-folder-audits" },
+    );
+    return JSON.stringify(record);
+  });
+  await writeFile(journalPath, `${lines.join("\n")}\n`, "utf8");
+
+  const reopened = await WorkFoldRequestStore.open({ rootPath: root, now: clock.now });
+  assert.equal(reopened.damagedRecordCount(), 0, "a retired action never makes the record read as damaged");
+  const recovered = reopened.get(request.requestId);
+  assert.deepEqual(recovered?.actions.map((action) => action.command), ["files.add"]);
+  assert.equal(reopened.byTaskId("task-1")?.requestId, request.requestId);
+
+  await reopened.flush();
+});
+
 test("only a torn final line, however many blank lines follow it, reads as an interrupted append", async (t) => {
   const root = await temporaryRoot(t);
   const clock = clockFrom("2026-09-11T09:00:00.000Z");

@@ -50,7 +50,7 @@ history word; no shipped contract, copy, or test should introduce it.
   | `app.connection.save` | The ledger's connection row: the secret is entered by the person in Settings → Apps, once per destination |
   | `app.automation.enable` | `apps automation enable` (re-enable after a disable; declared automations run from install) |
   | `routing.enable` | `routings enable --proposal <path>` |
-  | `publish.viewer.expose` | The `pages` share verbs in [Publishing](../shared-pages.md) |
+  | `publish.viewer.expose` | The `pages` share verbs in [Publishing](shared-pages.md) |
   | `space.delete-folder` | `spaces delete` — the folder moves into Recently deleted |
   | `app.data.purge`, `app.storage.clear` | `apps retained purge`, `apps storage clear` — a recovery export lands in Recently deleted first |
   | `files.destroy` | Removed; `files delete` covers every path |

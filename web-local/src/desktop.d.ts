@@ -27,8 +27,6 @@ interface WorkFoldRemoteAccessStatus {
   connection: "stopped" | "connecting" | "connected" | "error";
   slug: string | null;
   url: string | null;
-  /** The pages-<slug> origin share links compose against; null until an address exists. */
-  viewerOrigin: string | null;
   lastError: string | null;
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
@@ -52,7 +50,7 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
 
 type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | "close-right" | "reopen" | `snooze:${string}`;
 
@@ -80,8 +78,6 @@ interface WorkFoldDesktopFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
-    share: boolean;
-    shared: boolean;
     worker?: boolean;
   };
   /** Several rows selected together: the menu offers only what applies to all of them. */

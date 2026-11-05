@@ -22,8 +22,7 @@ paths.
 `work-folders.filePreview` with explicit `workFolderId` and `path`.
 This is a paired-browser read through the existing signed encrypted lane.
 It neither publishes a file nor attaches it to a Chat, invokes a model, grants
-an app access, or changes the conversation target. Shared viewers cannot call
-it or load the management client.
+an app access, or changes the conversation target.
 
 The desktop re-resolves the registered work-folder and reads only visible regular
 files. Traversal, reserved metadata, ignored paths, symbolic links and nested

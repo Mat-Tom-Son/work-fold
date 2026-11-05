@@ -163,8 +163,7 @@ The complete definitions and journey tests live in
     [work-folder apps in paired browsers](browser-apps.md).
     Its separate browser-action foundation journals declared worker intents,
     acceptance under a live browser fence and executes admitted actions immediately.
-    That lane cannot author grants or invoke arbitrary code, and shared viewers
-    remain read-only.
+    That lane cannot author grants or invoke arbitrary code.
 15. **Legacy product state is outside the platform.** work-fold does not import,
     migrate, parse, mutate, or delete the legacy Workspace profile, portable
     metadata, registries, app storage, connections, receipts, or artifacts.

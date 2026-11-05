@@ -31,7 +31,6 @@ import {
   type FileRestrictedAppStorage,
   type RestrictedAppDataBackup,
   type RestrictedAppDataRecovery,
-  type RestrictedAppStorageJsonValue,
   type RestrictedAppStorageOwner,
   type RestrictedAppStorageUsage,
 } from "./restricted-app-storage.js";
@@ -759,42 +758,6 @@ export class RestrictedAppService {
     const entry = this.#registry.installations.find((item) => item.workFolderId === workFolderId
       && item.featureInstallationId === featureInstallationId);
     return entry ? this.#copyInstalled(entry) : undefined;
-  }
-
-  /**
-   * Machine-wide App Instance lookup for the viewer plane
-   * (docs/shared-pages.md, rung 3): a hosted-at-address exposure names an
-   * App Instance id alone, so its staging, decision recheck, and every serve
-   * resolve it across all registered work-folders. Returns the same
-   * staging-root-verified descriptor shape as `runtimeDescriptor`, so the
-   * caller can re-hash staged bytes against the install receipt. A read,
-   * never a mutation.
-   */
-  async findByFeatureInstallationAnywhere(featureInstallationId: string): Promise<RestrictedAppRuntimeDescriptor | undefined> {
-    this.#assertOpen();
-    await this.#queue.catch(() => undefined);
-    const entry = this.#registry.installations.find((item) => item.featureInstallationId === featureInstallationId);
-    if (!entry) return undefined;
-    await assertRestrictedAppStagingRoot(this.#stagingPath);
-    return { ...this.#copyInstalled(entry), stagedRoot: this.#digestRoot(entry.digest) };
-  }
-
-  /**
-   * The bounded read lane the viewer adapter is allowed to reach: key listing
-   * and single-key reads only, no usage, no writes, no clear. Null when this
-   * process has no desktop storage — headless viewer serves then refuse data
-   * reads honestly while assets keep working.
-   */
-  viewerStorageReads(): {
-    keys(owner: RestrictedAppStorageOwner, prefix?: string): Promise<string[]>;
-    get(owner: RestrictedAppStorageOwner, key: string): Promise<RestrictedAppStorageJsonValue | undefined>;
-  } | null {
-    const storage = this.#storage;
-    if (!storage) return null;
-    return {
-      keys: (owner, prefix) => storage.keys(owner, prefix),
-      get: (owner, key) => storage.get(owner, key),
-    };
   }
 
   async declareLocalAppProject(input: {
