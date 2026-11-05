@@ -11250,6 +11250,12 @@ textarea:focus-visible,
 .ai-models-account-details dt { color: var(--ui-text-muted); }
 .ai-models-account-details dd { margin: 0; overflow-wrap: anywhere; }
 .ai-models-account-details p { margin: 0; }
+.ai-models-account-usage { display: grid; gap: 12px; }
+.ai-models-account-usage h4 { margin: 0; font-size: inherit; }
+.ai-models-account-limit { display: grid; gap: 8px; }
+.ai-models-account-window { display: grid; gap: 4px; }
+.ai-models-account-window > div { display: flex; justify-content: space-between; gap: 16px; }
+.ai-models-account-window progress { width: 100%; height: 6px; accent-color: var(--ui-accent); }
 
 .professional-setup .ai-models-remove-credential {
   min-height: 34px;

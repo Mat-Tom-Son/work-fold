@@ -46,10 +46,16 @@ export async function verifyPackagedPiRecovery(archivePath) {
   return `PASS packaged Pi ${entry.version}: reviewed overflow recovery runtime`;
 }
 
+export async function verifyPackagedPiIdentity(archivePath) {
+  const entry = await verifyPackagedPatch(archivePath, "@earendil-works/pi-ai", "Pi identity");
+  return `PASS packaged Pi identity ${entry.version}: reviewed ID-token validation and retention`;
+}
+
 /** Exercise the complete built bytes, with no model, accounts or production app launch. */
 export async function verifyPackagedNativeTools(archivePath) {
   const security = await verifyPackagedImageSize(archivePath);
   const recovery = await verifyPackagedPiRecovery(archivePath);
+  const identity = await verifyPackagedPiIdentity(archivePath);
   const temporary = await mkdtemp(join(tmpdir(), "workfold-built-native-tools-"));
   try {
     const archive = join(temporary, "application", "app.asar");
@@ -77,7 +83,7 @@ export async function verifyPackagedNativeTools(archivePath) {
       child.once("error", error => { clearTimeout(timer); reject(error); });
       child.once("close", code => { clearTimeout(timer); code === 0 && text.includes("PASS full built-ASAR native tools") ? resolveOutput(text) : reject(new Error(`Packaged native tool smoke ${timedOut ? "timed out" : "failed"}:\n${text}`)); });
     });
-    return `${security}\n${recovery}\n${output}`;
+    return `${security}\n${recovery}\n${identity}\n${output}`;
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
