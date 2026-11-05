@@ -398,9 +398,11 @@ import {
   beginWorkFolderRemoval,
   copyPathIntoWorkFolder,
   createManagedWorkFolder,
+  checkWorkFolderMoves,
   createWorkFolderFolder,
   createWorkFolderTextFile,
   deleteWorkFolderEntry,
+  ensureSafeWorkFolderRoot,
   finalizeWorkFolderRemoval,
   findExistingWorkFolderFilePaths,
   getWorkFolder,
@@ -411,6 +413,7 @@ import {
   managedWorkFolderDeletionPinIssue,
   markWorkFolderRemovalAppStateRemoved,
   moveWorkFolderEntry,
+  outermostWorkFolderPaths,
   readWorkFolderTextFile,
   renameWorkFolderEntry,
   registerLinkedWorkFolder,
@@ -426,6 +429,7 @@ import {
   touchWorkFolderRoot,
   writeWorkFolderTextFile,
   writeUploadedFiles,
+  type WorkFolderMovedEntry,
   type WorkFolderRemovalIo,
   type WorkFolderRemovalResult,
   type WorkFolderSummary,
@@ -2650,6 +2654,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Several Files rows into one folder under one restore point (2026-11-05).
+  const moveManyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/move-local-entries$/);
+  if (method === "POST" && moveManyMatch) {
+    const workFolder = await getWorkFolder(moveManyMatch[1]);
+    const body = await readJsonBody<{ sourcePaths?: unknown; targetFolderPath?: unknown }>(state, req);
+    const sourcePaths = workFolderPathList(body.sourcePaths, "Select files or folders to move.");
+    if (body.targetFolderPath !== undefined && typeof body.targetFolderPath !== "string") throw badRequest("Choose a folder to move them into.");
+    const result = await moveWorkFolderEntriesWithHistory(workFolder, sourcePaths, body.targetFolderPath ?? "");
+    sendJson(res, result);
+    return;
+  }
+
   const renameMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/rename-local-entry$/);
   if (method === "POST" && renameMatch) {
     const workFolder = await getWorkFolder(renameMatch[1]);
@@ -2724,6 +2740,28 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       ...(recovery.kind === "recently-deleted"
         ? { recentlyDeleted: { entryId: recovery.entryId, restoreBy: recovery.restoreBy, uncoveredCount: recovery.uncovered.length } }
         : {}),
+    });
+    return;
+  }
+
+  // Several Files rows under one restore point (2026-11-05): each row still
+  // gets its own receipt and its own History or Recently deleted recovery.
+  const deleteManyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/local-files$/);
+  if (method === "DELETE" && deleteManyMatch) {
+    const workFolder = await getWorkFolder(deleteManyMatch[1]);
+    const body = await readJsonBody<{ paths?: unknown }>(state, req);
+    const paths = workFolderPathList(body.paths, "Select files or folders to delete.");
+    const result = await deleteWorkFolderEntriesWithRecovery(state, workFolder, paths);
+    sendJson(res, {
+      deleted: result.deleted.map(({ recovery, ...row }) => ({
+        ...row,
+        ...(recovery.kind === "recently-deleted"
+          ? { recentlyDeleted: { entryId: recovery.entryId, restoreBy: recovery.restoreBy, uncoveredCount: recovery.uncovered.length } }
+          : {}),
+      })),
+      safetyCheckpointId: result.safetyCheckpointId,
+      historySkippedPaths: result.deleted.flatMap((row) => row.recovery.kind === "recently-deleted" ? row.recovery.uncovered.map((file) => file.path) : []),
+      ...(result.failed ? { failed: result.failed, notDeleted: result.notDeleted } : {}),
     });
     return;
   }
@@ -10110,44 +10148,246 @@ async function deleteSettledWorkFolderEntryWithRecovery(
     reason: "pre_delete",
     label: `Before deleting ${target}`,
   });
-  return runWithHistorySafety(workFolder.workFolderRoot, safety.checkpointId, async () => {
-    if (!safety.skippedFiles.length) {
-      const deleted = await deleteWorkFolderEntry(workFolder.workFolderRoot, target);
-      return { ...deleted, safetyCheckpointId: safety.checkpointId, recovery: { kind: "history" as const } };
-    }
-    const entry = await resolveWorkFolderDeleteTarget(workFolder.workFolderRoot, target);
-    const uncovered: WorkFoldRecentlyDeletedUncoveredPath[] = safety.skippedFiles.map((file) => ({
-      path: file.path,
-      reason: file.reason,
-    }));
-    let trashed: WorkFoldRecentlyDeletedEntry;
-    try {
-      trashed = await state.recentlyDeleted.moveTreeToRecentlyDeleted({
-        kind: entry.kind,
-        reason: "files.delete",
-        sourcePath: entry.absolutePath,
-        workFolderId: workFolder.id,
-        workFolderName: workFolder.name,
-        originalPath: entry.path,
-        receiptId: context.receiptId,
-        uncovered,
-      });
-    } catch (error) {
-      throw new WorkFoldCliError(
-        "failure",
-        `work-fold could not move ${entry.path} to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
-        { cause: error },
-      );
-    }
-    await touchWorkFolderRoot(workFolder.workFolderRoot).catch(() => undefined);
-    return {
-      deleted: true as const,
-      path: entry.path,
+  return runWithHistorySafety(workFolder.workFolderRoot, safety.checkpointId, () => applyWorkFolderDelete(
+    state,
+    workFolder,
+    target,
+    safety.skippedFiles.map((file) => ({ path: file.path, reason: file.reason })),
+    safety.checkpointId,
+    context,
+  ));
+}
+
+/**
+ * One delete under a restore point already taken: erased when History kept a
+ * copy of all of it, else moved whole into Recently deleted with the files
+ * History could not keep. One row and each row of a several-row delete run it.
+ */
+async function applyWorkFolderDelete(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  target: string,
+  uncovered: WorkFoldRecentlyDeletedUncoveredPath[],
+  safetyCheckpointId: string,
+  context: { receiptId: string | null },
+): Promise<WorkFoldDeleteResult> {
+  if (!uncovered.length) {
+    const deleted = await deleteWorkFolderEntry(workFolder.workFolderRoot, target);
+    return { ...deleted, safetyCheckpointId, recovery: { kind: "history" as const } };
+  }
+  const entry = await resolveWorkFolderDeleteTarget(workFolder.workFolderRoot, target);
+  let trashed: WorkFoldRecentlyDeletedEntry;
+  try {
+    trashed = await state.recentlyDeleted.moveTreeToRecentlyDeleted({
       kind: entry.kind,
-      safetyCheckpointId: safety.checkpointId,
-      recovery: { kind: "recently-deleted" as const, entryId: trashed.id, restoreBy: trashed.restoreBy, uncovered },
-    };
+      reason: "files.delete",
+      sourcePath: entry.absolutePath,
+      workFolderId: workFolder.id,
+      workFolderName: workFolder.name,
+      originalPath: entry.path,
+      receiptId: context.receiptId,
+      uncovered,
+    });
+  } catch (error) {
+    throw new WorkFoldCliError(
+      "failure",
+      `work-fold could not move ${entry.path} to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
+      { cause: error },
+    );
+  }
+  await touchWorkFolderRoot(workFolder.workFolderRoot).catch(() => undefined);
+  return {
+    deleted: true as const,
+    path: entry.path,
+    kind: entry.kind,
+    safetyCheckpointId,
+    recovery: { kind: "recently-deleted" as const, entryId: trashed.id, restoreBy: trashed.restoreBy, uncovered },
+  };
+}
+
+/** A JSON list of work-folder paths from a request body. */
+function workFolderPathList(value: unknown, emptyMessage: string): string[] {
+  if (!Array.isArray(value) || !value.length) throw badRequest(emptyMessage);
+  if (value.some((path) => typeof path !== "string" || !path.trim())) throw badRequest("Each item must be a work-folder path.");
+  return value as string[];
+}
+
+export interface WorkFoldBatchDeleteResult {
+  deleted: Array<WorkFoldDeleteResult & { receiptId: string }>;
+  safetyCheckpointId: string;
+  /** Set when a row failed after earlier rows were deleted; the restore point still covers every row. */
+  failed?: { path: string; error: string };
+  notDeleted?: string[];
+}
+
+/**
+ * Several rows deleted under one History restore point (2026-11-05). Each row
+ * keeps what one delete has: the busy refusal and the shared active-work
+ * reservation held through every effect, the same path checks, its own
+ * receipt, and History or Recently deleted for whatever History cannot keep.
+ *
+ * Every row is checked before anything is deleted. If a row still fails
+ * partway, the rows already deleted stay deleted, the rest are left alone, and
+ * the one restore point, which covers every row, brings back what was
+ * deleted. When the first row fails, nothing was deleted and the restore point
+ * is discarded, exactly as for one row. A row inside another row is deleted
+ * with it.
+ */
+async function deleteWorkFolderEntriesWithRecovery(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  targets: readonly string[],
+): Promise<WorkFoldBatchDeleteResult> {
+  reserveCapabilityMutation(state, workFolder.id, "project", workFolder.id);
+  try {
+    return await runSettledWorkFolderDeletion(state, workFolder.id, () => deleteSettledWorkFolderEntries(state, workFolder, targets));
+  } finally {
+    state.capabilityMutations.delete(workFolder.id);
+  }
+}
+
+async function deleteSettledWorkFolderEntries(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  targets: readonly string[],
+): Promise<WorkFoldBatchDeleteResult> {
+  const root = workFolder.workFolderRoot;
+  const paths = outermostWorkFolderPaths(targets);
+  if (!paths.length) throw badRequest("Select files or folders to delete.");
+  const entries: Array<{ absolutePath: string; path: string; kind: "file" | "folder" }> = [];
+  for (const path of paths) entries.push(await resolveWorkFolderDeleteTarget(root, path));
+  const safety = await createWorkFolderMutationCheckpoint(root, {
+    paths: entries.map((entry) => entry.path),
+    reason: "pre_delete",
+    label: entries.length === 1 ? `Before deleting ${entries[0]!.path}` : `Before deleting ${entries.length} items`,
   });
+  // History names the files it could not keep the way it names its capture
+  // roots; each one belongs to exactly one row.
+  const historyRoot = ensureSafeWorkFolderRoot(root);
+  const capturedAs = entries.map((entry) => relative(historyRoot, entry.absolutePath).split(sep).join("/"));
+  const uncovered = entries.map((): WorkFoldRecentlyDeletedUncoveredPath[] => []);
+  for (const file of safety.skippedFiles) {
+    const row = capturedAs.findIndex((path) => file.path === path || file.path.startsWith(`${path}/`));
+    if (row < 0) {
+      await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+      throw new WorkFoldCliError("failure", `work-fold could not tell which item ${file.path} belongs to. Nothing was deleted.`);
+    }
+    uncovered[row]!.push({ path: file.path, reason: file.reason });
+  }
+  const deleted: WorkFoldBatchDeleteResult["deleted"] = [];
+  for (const [index, entry] of entries.entries()) {
+    try {
+      const row = await runDesktopSettingsAct(state, "files.delete", async (requestId) => {
+        const value = await applyWorkFolderDelete(state, workFolder, entry.path, uncovered[index]!, safety.checkpointId, { receiptId: requestId });
+        return {
+          value,
+          detail: value.recovery.kind === "recently-deleted"
+            ? `work-folder ${workFolder.id}; trash ${value.recovery.entryId}`
+            : `work-folder ${workFolder.id}; checkpoint ${value.safetyCheckpointId}`,
+        };
+      });
+      deleted.push({ ...row.value, receiptId: row.requestId });
+    } catch (error) {
+      if (!deleted.length) {
+        await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+        throw error;
+      }
+      return {
+        deleted,
+        safetyCheckpointId: safety.checkpointId,
+        failed: { path: entry.path, error: errorMessage(error) },
+        notDeleted: entries.slice(index + 1).map((item) => item.path),
+      };
+    }
+  }
+  return { deleted, safetyCheckpointId: safety.checkpointId };
+}
+
+export interface WorkFoldBatchMoveResult {
+  moved: WorkFolderMovedEntry[];
+  safetyCheckpointId: string;
+  historySkippedPaths: string[];
+  /** Set when an item failed after others had moved; the restore point then names exactly the moves that happened. */
+  failed?: { path: string; error: string };
+  notMoved?: string[];
+}
+
+/**
+ * Several items moved into one folder under one History restore point
+ * (2026-11-05). Every item passes every check one move makes before any of
+ * them moves, then each runs through `moveWorkFolderEntry`, the move one item
+ * takes. If one still fails partway, the items already moved stay moved, the
+ * rest stay put, and the restore point is replaced by one that names exactly
+ * the moves that happened, so restoring it undoes them. When the first item
+ * fails, nothing moved and the restore point is discarded, as for one item.
+ * An item inside another item moves with it.
+ */
+async function moveWorkFolderEntriesWithHistory(
+  workFolder: WorkFolderSummary,
+  sourcePaths: readonly string[],
+  targetFolderPath: string,
+): Promise<WorkFoldBatchMoveResult> {
+  const root = workFolder.workFolderRoot;
+  const sources = outermostWorkFolderPaths(sourcePaths);
+  if (!sources.length) throw badRequest("Select files or folders to move.");
+  const plans = await checkWorkFolderMoves(root, sources, targetFolderPath);
+  const label = plans.length === 1 ? `Before moving ${plans[0]!.fromPath}` : `Before moving ${plans.length} items`;
+  const safety = await createWorkFolderMutationCheckpoint(root, {
+    movesOnRestore: plans.map((plan) => ({ fromPath: plan.toPath, toPath: plan.fromPath })),
+    reason: "pre_move",
+    label,
+  });
+  const moved: WorkFolderMovedEntry[] = [];
+  for (const [index, plan] of plans.entries()) {
+    try {
+      moved.push(await moveWorkFolderEntry(root, { sourcePath: plan.fromPath, targetFolderPath }));
+    } catch (error) {
+      if (!moved.length) {
+        await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+        throw error;
+      }
+      const kept = await restorePointForMoves(root, moved, label, safety.checkpointId, error);
+      return {
+        moved,
+        safetyCheckpointId: kept.checkpointId,
+        historySkippedPaths: kept.skippedLargeFiles,
+        failed: { path: plan.fromPath, error: errorMessage(error) },
+        notMoved: plans.slice(index + 1).map((item) => item.fromPath),
+      };
+    }
+  }
+  return { moved, safetyCheckpointId: safety.checkpointId, historySkippedPaths: safety.skippedLargeFiles };
+}
+
+/**
+ * The restore point for a several-item move that stopped partway: it names
+ * only the moves that happened, because History will not undo a move whose
+ * item is not where the move put it. If that record cannot be written, the
+ * moves are put back so nothing is left moved without a restore point.
+ */
+async function restorePointForMoves(
+  root: string,
+  moved: readonly WorkFolderMovedEntry[],
+  label: string,
+  plannedCheckpointId: string,
+  cause: unknown,
+): Promise<Awaited<ReturnType<typeof createWorkFolderMutationCheckpoint>>> {
+  try {
+    const kept = await createWorkFolderMutationCheckpoint(root, {
+      movesOnRestore: moved.map((item) => ({ fromPath: item.path, toPath: item.fromPath })),
+      reason: "pre_move",
+      label,
+    });
+    await discardWorkFolderCheckpoint(root, plannedCheckpointId).catch(() => undefined);
+    return kept;
+  } catch (recordError) {
+    for (const item of [...moved].reverse()) {
+      const parent = item.fromPath.includes("/") ? item.fromPath.slice(0, item.fromPath.lastIndexOf("/")) : "";
+      await moveWorkFolderEntry(root, { sourcePath: item.path, targetFolderPath: parent });
+    }
+    await discardWorkFolderCheckpoint(root, plannedCheckpointId).catch(() => undefined);
+    throw new WorkFoldCliError("failure", `${errorMessage(cause)} History could not record the moves (${errorMessage(recordError)}), so they were put back.`, { cause });
+  }
 }
 
 /**

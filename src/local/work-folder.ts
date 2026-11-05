@@ -699,11 +699,11 @@ export async function findExistingWorkFolderFilePaths(workFolderRoot: string, re
   return [...existing].sort((left, right) => left.localeCompare(right));
 }
 
-export async function moveWorkFolderEntry(
-  workFolderRoot: string,
+/** Every check a move makes before it renames anything; `moveWorkFolderEntry` and a several-item move both run it. */
+async function prepareWorkFolderMove(
+  root: string,
   input: { sourcePath: string; targetFolderPath?: string },
-): Promise<WorkFolderMovedEntry> {
-  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+): Promise<{ sourcePath: string; source: string; destination: string }> {
   const sourcePath = normalizeRelative(input.sourcePath);
   const targetFolderPath = normalizeRelative(input.targetFolderPath ?? "");
   if (!sourcePath || sourcePath === ".") throw new Error("Select a file or folder to move.");
@@ -713,12 +713,59 @@ export async function moveWorkFolderEntry(
   const source = resolveWorkFolderPath(root, sourcePath);
   if (samePath(source, root)) throw new Error("The work-folder root cannot be moved.");
   const sourceInfo = await stat(source).catch(() => null);
-  if (!sourceInfo || (!sourceInfo.isFile() && !sourceInfo.isDirectory())) throw notFound("work-folder item not found.");
+  if (!sourceInfo || (!sourceInfo.isFile() && !sourceInfo.isDirectory())) throw notFound(`work-folder item not found: ${sourcePath}`);
   const targetFolder = resolveWorkFolderPath(root, targetFolderPath || ".");
   if (!(await stat(targetFolder)).isDirectory()) throw new Error("Move items into a folder.");
-  if (dirname(source) === targetFolder) throw new Error("That item is already in the selected folder.");
+  if (dirname(source) === targetFolder) throw new Error(`${basename(source)} is already in the selected folder.`);
   const destination = join(targetFolder, basename(source));
   if (existsSync(destination)) throw new Error(`A file or folder named ${basename(source)} already exists there.`);
+  return { sourcePath, source, destination };
+}
+
+/**
+ * Several items into one folder, checked together before any of them moves:
+ * each passes every check one move makes, and no two share a name. Returns
+ * each item's work-folder-relative source and destination, in order.
+ */
+export async function checkWorkFolderMoves(
+  workFolderRoot: string,
+  sourcePaths: readonly string[],
+  targetFolderPath: string,
+): Promise<Array<{ fromPath: string; toPath: string }>> {
+  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+  const plans: Array<{ fromPath: string; toPath: string }> = [];
+  const named = new Map<string, string>();
+  for (const sourcePath of sourcePaths) {
+    const plan = await prepareWorkFolderMove(root, { sourcePath, targetFolderPath });
+    const name = basename(plan.destination);
+    const other = named.get(name);
+    if (other) throw new Error(`${other} and ${plan.sourcePath} have the same name, so they cannot go into one folder.`);
+    named.set(name, plan.sourcePath);
+    plans.push({ fromPath: plan.sourcePath, toPath: normalizeRelative(relative(root, plan.destination)) });
+  }
+  return plans;
+}
+
+/** The items a several-item move or delete acts on, in order: an item inside another one listed goes with it. */
+export function outermostWorkFolderPaths(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths.map(normalizeRelative))].filter((path) => path && path !== ".");
+  const sorted = [...unique].sort((left, right) => left.replaceAll("/", "\u0000") < right.replaceAll("/", "\u0000") ? -1 : 1);
+  const kept = new Set<string>();
+  let last: string | null = null;
+  for (const path of sorted) {
+    if (last !== null && path.startsWith(`${last}/`)) continue;
+    kept.add(path);
+    last = path;
+  }
+  return unique.filter((path) => kept.has(path));
+}
+
+export async function moveWorkFolderEntry(
+  workFolderRoot: string,
+  input: { sourcePath: string; targetFolderPath?: string },
+): Promise<WorkFolderMovedEntry> {
+  const root = ensureSafeWorkFolderRoot(workFolderRoot);
+  const { sourcePath, source, destination } = await prepareWorkFolderMove(root, input);
   await rename(source, destination);
   const movedInfo = await stat(destination);
   await touchWorkFolder(root);
