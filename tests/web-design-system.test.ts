@@ -440,7 +440,7 @@ test("the left header is inherited work-folder identity on every mode, not a sur
   assert.doesNotMatch(headerIdentityProps, /switchable=/, "the work-folder menu must remain available on management and custom surfaces");
   assert.doesNotMatch(headerIdentityProps, /title=|paneTitle|onCustomize/);
 
-  assert.match(workFolderChromeSource, /<strong>\{workFolder\.name\}<\/strong>/);
+  assert.match(workFolderChromeSource, /<WorkFolderBannerTitle identity=\{identity\} name=\{workFolder\.name\} caret=\{switcherEnabled\} \/>/);
   assert.match(workFolderChromeSource, /<span className="sr-only">\{detail\}<\/span>/);
   assert.match(workFolderChromeSource, /className="work-folder-pane-switch-trigger"/);
   assert.match(workFolderChromeSource, /aria-haspopup="menu"/);
@@ -469,7 +469,8 @@ test("every left-pane mode keeps content padding below the shared work-folder ba
 
 test("the appearance preview mirrors the work-folder header rather than the active surface", () => {
   // Compact, Band and Cover lead with the icon tile; every layout shows the work-folder's own name.
-  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy">(?:\{identity\.bannerLayout !== "card" \|\| showIcon \? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity\.Icon \/><\/span> : null\})?<strong>\{name\}<\/strong>/);
+  // The preview renders the header's own title component (2026-11-05).
+  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy"><WorkFolderBannerTitle identity=\{identity\} name=\{name\} \/><\/span>/);
   assert.doesNotMatch(workFolderChromeSource, /work-folder-appearance-preview-copy"><strong>Files<\/strong>/);
   assert.match(customizationCss, /\.work-folder-appearance-preview\s*\{[\s\S]*?min-height:\s*112px;/);
 });
@@ -537,3 +538,22 @@ function stripCssComments(css: string): string {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+test("controls keep the arrow pointer like a desktop app; only links in Chat show the hand", async () => {
+  const sheets = ["web-local/src/styles.css", "web-local/src/panels.css", "web-local/src/popover/popover.css", "web-local/src/components/chat/model-context-inspector.css", "web-local/src/components/chat/work-steps.css", "web-local/src/components/panes/included-tool-setup.css"];
+  for (const sheet of sheets) {
+    const root = postcss.parse(await readFile(join(process.cwd(), sheet), "utf8"));
+    root.walkDecls("cursor", (declaration: { value: string; parent: { selector?: string } }) => {
+      assert.notEqual(declaration.value, "not-allowed", `${sheet}: ${declaration.parent.selector} shows a web-style disabled cursor`);
+      if (declaration.value !== "pointer") return;
+      assert.match(declaration.parent.selector ?? "", /\.message-body [^,]*link/, `${sheet}: ${declaration.parent.selector} uses the hand pointer`);
+    });
+  }
+});
+
+test("text buttons have a visible shape at rest in light and dark", async () => {
+  const css = await readFile(join(process.cwd(), "web-local/src/styles.css"), "utf8");
+  assert.match(css, /:root \{\s*--ui-button-fill: #ffffff;\s*--ui-button-edge:/);
+  assert.match(css, /:root\[data-theme="dark"\] \{\s*--ui-button-fill: color-mix\(in srgb, #ffffff 9%, var\(--ui-surface\)\);\s*--ui-button-edge: rgb\(255 255 255 \/ \.1\);/);
+  assert.match(css, /\.ui-control:not\(\.ui-control--primary\):not\(\.ui-control--icon\),[\s\S]*?\.checks-manual-button\s*\) \{\s*color: var\(--ui-text\);\s*background: var\(--ui-button-fill\);\s*border: 0;\s*box-shadow: inset 0 0 0 1px var\(--ui-button-edge\);/);
+});

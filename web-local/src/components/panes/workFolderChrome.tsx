@@ -44,6 +44,8 @@ import {
   parseWorkFolderAppearanceProposal,
   upgradeWorkFolderAppearanceCustomization,
   type WorkFolderAppearanceBannerLayout,
+  type WorkFolderAppearanceBannerIconStyle,
+  type WorkFolderAppearanceBannerTitleFill,
 } from "../../../../src/shared/work-folder-appearance";
 import { filterWorkFolderIconOptions, knownWorkFolderIconOption, workFolderIconOptions, workFolderIconGroups, type WorkFolderIconGroupId } from "../../work-folder-icons";
 import { workFolderBannerOptions } from "../../constants";
@@ -53,6 +55,7 @@ import { revealInFileManagerLabel } from "../../lib/file-actions";
 import { normalizeWorkFolderCustomizations } from "../../lib/work-folder-customization";
 import { normalizeWorkFolderColor, processWorkFolderBannerImageFile, workFolderColorOptions, workFolderIdentityStyle, workFolderBannerImageStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import { WorkFolderBannerPreview } from "../chrome/WorkFolderBannerPreview";
+import { WorkFolderBannerTitle } from "../chrome/WorkFolderBannerTitle";
 import { workFolderBannerPresets } from "../../lib/work-folder-banner-presets";
 import { readableTextColorOn } from "../../lib/color-contrast";
 import { surfaceDomIdSuffix, workFolderHeaderSourceBadgeLabel } from "../../lib/work-folder-ui";
@@ -220,6 +223,20 @@ const bannerLayoutOptions: ReadonlyArray<{ id: WorkFolderAppearanceBannerLayout;
   { id: "cover", label: "Cover" },
 ];
 
+const bannerTitleFillOptions: ReadonlyArray<{ id: WorkFolderAppearanceBannerTitleFill; label: string }> = [
+  { id: "frosted", label: "Frosted" },
+  { id: "solid", label: "Solid" },
+  { id: "accent", label: "Accent" },
+  { id: "none", label: "None" },
+];
+
+const bannerIconStyleOptions: ReadonlyArray<{ id: WorkFolderAppearanceBannerIconStyle; label: string }> = [
+  { id: "none", label: "None" },
+  { id: "plain", label: "Plain" },
+  { id: "square", label: "Square" },
+  { id: "circle", label: "Circle" },
+];
+
 function WorkFolderPaneHeader({
   workFolder,
   identity,
@@ -380,8 +397,7 @@ function WorkFolderPaneHeader({
   const identityLockup = (
     <span className="work-folder-pane-current-copy work-folder-identity-header-copy">
       <span className="work-folder-pane-current-lockup">
-        {identity.bannerLayout !== "card" ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}
-        <strong>{workFolder.name}</strong>
+        <WorkFolderBannerTitle identity={identity} name={workFolder.name} caret={switcherEnabled} />
       </span>
       <span className="sr-only">{detail}</span>
     </span>
@@ -424,19 +440,7 @@ function WorkFolderPaneHeader({
             onClick={toggleSwitcher}
             title="Switch work-folder"
           >
-            {identity.bannerImage ? (
-              // Over a picture the name and its arrow sit together on a frosted
-              // pill, readable on any image without a text shadow (2026-10-27).
-              <span className="work-folder-pane-title-pill">
-                {identityLockup}
-                <ChevronDown20Regular className="work-folder-pane-switch-caret" aria-hidden="true" />
-              </span>
-            ) : (
-              <>
-                {identityLockup}
-                <ChevronDown20Regular className="work-folder-pane-switch-caret" aria-hidden="true" />
-              </>
-            )}
+            {identityLockup}
             {nestedStatus ? <span className="work-folder-pane-nested-activity"><ActivityDot status={nestedStatus} /></span> : null}
           </button>
         ) : identityLockup}
@@ -794,7 +798,6 @@ function WorkFolderNameEditor({
 export const workFolderIconPageSize = 96;
 
 function WorkFolderAppearancePanel({
-  activeSection,
   workFolder,
   identity,
   customization,
@@ -804,7 +807,6 @@ function WorkFolderAppearancePanel({
   onUndoWorkFolder,
   onResetWorkFolder,
 }: {
-  activeSection: "banner" | "icon" | "color";
   workFolder: WorkFolderSummary;
   identity: WorkFolderIdentity;
   customization?: WorkFolderCustomization;
@@ -923,10 +925,12 @@ function WorkFolderAppearancePanel({
       </div>
       <input ref={proposalFileInputRef} className="work-folder-banner-file-input" type="file" accept=".json,application/json" onChange={(event) => void importAppearanceProposal(event)} tabIndex={-1} aria-hidden="true" />
       {proposalImportError ? <div className="work-folder-appearance-import-error" role="alert">{proposalImportError}</div> : null}
-      <WorkFolderBannerPreview identity={identity} name={workFolder.name} editable={activeSection === "banner"} showIcon={activeSection === "icon"} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />
+      <WorkFolderBannerPreview identity={identity} name={workFolder.name} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />
       {!appearancePasses ? <div className="work-folder-appearance-audit warning" role="status"><Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span></div> : null}
-      <div className="work-folder-appearance-tab-panel" key={activeSection} role="tabpanel" id={`folder-appearance-panel-${activeSection}`} aria-labelledby={`folder-appearance-tab-${activeSection}`}>
-        {activeSection === "banner" ? <>
+      {/* One page with a section each (2026-11-05); the previews above stay in view. */}
+      <div className="work-folder-appearance-sections">
+        <section className="work-folder-appearance-section" id="folder-appearance-section-banner" aria-labelledby="folder-appearance-heading-banner">
+          <h3 id="folder-appearance-heading-banner">Banner</h3>
           <div className="work-folder-banner-section-heading"><strong>Layout</strong></div>
           <div className="work-folder-banner-layouts" role="group" aria-label="Banner Layout">
             {bannerLayoutOptions.map((option) => <button key={option.id} type="button" className={identity.bannerLayout === option.id ? "active" : ""} aria-pressed={identity.bannerLayout === option.id} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerLayout: option.id })}>
@@ -938,7 +942,10 @@ function WorkFolderAppearancePanel({
             {workFolderBannerPresets.map((preset) => <button key={preset.id} type="button" className={identity.bannerPreset === preset.id ? "active" : ""} aria-pressed={identity.bannerPreset === preset.id} aria-label={`Use ${preset.label} Image`} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerPreset: preset.id, bannerImage: undefined, bannerFraming: undefined, bannerImagePosition: undefined })}>
               <span><img src={preset.thumbnail} alt="" draggable={false} />{identity.bannerPreset === preset.id ? <Checkmark20Regular /> : null}</span><strong>{preset.label}</strong>
             </button>)}
-            {customization?.bannerImage ? <button type="button" className={!identity.bannerPreset ? "active" : ""} aria-label="Replace Custom Banner Image" onClick={() => bannerFileInputRef.current?.click()}><span><img src={customization.bannerImage} alt="" /></span><strong>Your Image</strong></button> : null}
+            {/* The fifth slot is always there: empty until an image is uploaded. */}
+            <button type="button" className={customization?.bannerImage ? (!identity.bannerPreset ? "active" : "") : "empty"} aria-pressed={Boolean(customization?.bannerImage && !identity.bannerPreset)} aria-label={customization?.bannerImage ? "Replace Your Image" : "Upload an Image"} disabled={bannerUploadBusy} onClick={() => bannerFileInputRef.current?.click()}>
+              <span>{customization?.bannerImage ? <><img src={customization.bannerImage} alt="" draggable={false} />{!identity.bannerPreset ? <Checkmark20Regular /> : null}</> : <ImageAdd20Regular className="work-folder-banner-image-empty" />}</span><strong>Your Image</strong>
+            </button>
           </div>
           <input ref={bannerFileInputRef} className="work-folder-banner-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onChange={(event) => void handleBannerFileChange(event)} tabIndex={-1} aria-hidden="true" />
           {bannerUploadError ? <span className="work-folder-banner-upload-error" role="alert">{bannerUploadError}</span> : null}
@@ -983,46 +990,22 @@ function WorkFolderAppearancePanel({
               ) : null}
             </div>
           </div> : null}
-        </> : activeSection === "color" ? <>
-      <div className="work-folder-appearance-row colors">
-        <div className="work-folder-color-section-heading"><strong>Accent</strong>
-          <div className="work-folder-color-wheels">
-            <span className="work-folder-custom-color-label">Custom Color</span>
-            <label className="work-folder-color-picker" style={workFolderIdentityStyle(identity)}>
-              <span className="work-folder-color-wheel" aria-hidden="true">
-                <span className="work-folder-color-wheel-current" />
-              </span>
-              <input
-                type="color"
-                value={identity.color}
-                onInput={(event) => onCustomizeWorkFolder(workFolderId, { color: normalizeWorkFolderColor(event.currentTarget.value) })}
-                aria-label="Choose work-folder Color"
-              />
-              <span className="work-folder-color-value">{identity.color.toUpperCase()}</span>
-            </label>
+        </section>
+        <section className="work-folder-appearance-section" id="folder-appearance-section-title" aria-labelledby="folder-appearance-heading-title">
+          <h3 id="folder-appearance-heading-title">Title</h3>
+          <div className="work-folder-title-options">
+            <span id="folder-appearance-title-fill">Background</span>
+            <div className="work-folder-segmented" role="radiogroup" aria-labelledby="folder-appearance-title-fill">
+              {bannerTitleFillOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={identity.bannerTitleFill === option.id} className={identity.bannerTitleFill === option.id ? "active" : ""} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerTitleFill: option.id })}>{option.label}</button>)}
+            </div>
+            <span id="folder-appearance-icon-style">Icon Style</span>
+            <div className="work-folder-segmented" role="radiogroup" aria-labelledby="folder-appearance-icon-style">
+              {bannerIconStyleOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={identity.bannerIconStyle === option.id} className={identity.bannerIconStyle === option.id ? "active" : ""} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerIconStyle: option.id })}>{option.label}</button>)}
+            </div>
           </div>
-        </div>
-        <div className="work-folder-color-controls">
-          <div className="work-folder-color-swatches" role="group" aria-label="work-folder color presets">
-            {workFolderColorOptions.map((option) => (
-              <button
-                className={identity.color === option.color ? "work-folder-color-swatch active" : "work-folder-color-swatch"}
-                key={option.label}
-                type="button"
-                style={{ "--swatch-color": option.color, "--swatch-soft": option.soft, "--swatch-ink": readableTextColorOn(option.color) } as CSSProperties}
-                onClick={() => onCustomizeWorkFolder(workFolderId, { color: option.color })}
-                aria-label={`Use ${option.label} Color`}
-                aria-pressed={identity.color === option.color}
-                title={option.label}
-              >
-                <span className="work-folder-color-dot" aria-hidden="true">{identity.color === option.color ? <Checkmark20Regular /> : null}</span>
-                <span>{option.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-        </> : <>
+        </section>
+        <section className="work-folder-appearance-section" id="folder-appearance-section-icon" aria-labelledby="folder-appearance-heading-icon">
+          <h3 id="folder-appearance-heading-icon">Icon</h3>
         <div className="work-folder-icon-picker">
           <label className="work-folder-icon-search">
             <Search20Regular aria-hidden="true" />
@@ -1069,7 +1052,49 @@ function WorkFolderAppearancePanel({
               <button type="button" onClick={() => setIconPage((current) => Math.min(iconPageCount - 1, current + 1))} disabled={iconPage >= iconPageCount - 1} aria-label="Next Icon Page"><ChevronRight20Regular /></button>
             </div>
           ) : null}
-        </div>        </>}
+        </div>
+        </section>
+        <section className="work-folder-appearance-section" id="folder-appearance-section-color" aria-labelledby="folder-appearance-heading-color">
+          <h3 id="folder-appearance-heading-color">Color</h3>
+      <div className="work-folder-appearance-row colors">
+        <div className="work-folder-color-section-heading"><strong>Accent</strong>
+          <div className="work-folder-color-wheels">
+            <span className="work-folder-custom-color-label">Custom Color</span>
+            <label className="work-folder-color-picker" style={workFolderIdentityStyle(identity)}>
+              <span className="work-folder-color-wheel" aria-hidden="true">
+                <span className="work-folder-color-wheel-current" />
+              </span>
+              <input
+                type="color"
+                value={identity.color}
+                onInput={(event) => onCustomizeWorkFolder(workFolderId, { color: normalizeWorkFolderColor(event.currentTarget.value) })}
+                aria-label="Choose work-folder Color"
+              />
+              <span className="work-folder-color-value">{identity.color.toUpperCase()}</span>
+            </label>
+          </div>
+        </div>
+        <div className="work-folder-color-controls">
+          <div className="work-folder-color-swatches" role="group" aria-label="work-folder color presets">
+            {workFolderColorOptions.map((option) => (
+              <button
+                className={identity.color === option.color ? "work-folder-color-swatch active" : "work-folder-color-swatch"}
+                key={option.label}
+                type="button"
+                style={{ "--swatch-color": option.color, "--swatch-soft": option.soft, "--swatch-ink": readableTextColorOn(option.color) } as CSSProperties}
+                onClick={() => onCustomizeWorkFolder(workFolderId, { color: option.color })}
+                aria-label={`Use ${option.label} Color`}
+                aria-pressed={identity.color === option.color}
+                title={option.label}
+              >
+                <span className="work-folder-color-dot" aria-hidden="true">{identity.color === option.color ? <Checkmark20Regular /> : null}</span>
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+        </section>
       </div>
     </div>
   );

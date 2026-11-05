@@ -123,6 +123,28 @@ test("context usage updates during a turn and late runtime reads cannot restore 
   assert.match(meter().title, /Estimated 1k/);
 });
 
+test("the context ring opens its own popover, and Compact Chat compacts this Chat", async (t) => {
+  const full = { ...runtime, usage: { ...runtime.usage, contextTokens: 9000, contextPercent: 90, totalTokens: 42000 } };
+  const compacts: Array<string | undefined> = [];
+  const { dom, emit } = await chatHarness(t, undefined, (path, options) => {
+    if (path.endsWith("/runtime")) return { runtime: full };
+    if (path.endsWith("/conversations/chat/compact")) { compacts.push(options.method); return { compacted: true }; }
+  });
+  await emit({ type: "runtime", runtime: full });
+  const meter = dom.container.querySelector<HTMLButtonElement>(".conversation-context-meter")!;
+  assert.equal(meter.closest(".composer-model-control"), null, "the ring is not part of the model chip");
+  assert.doesNotMatch(dom.container.querySelector<HTMLElement>(".composer-model-chip")!.title, /context/i);
+  await dom.act(() => meter.click());
+  const popover = dom.container.querySelector<HTMLElement>(".composer-context-menu")!;
+  assert.match(popover.textContent!, /90%9k of 10k tokens/);
+  assert.match(popover.textContent!, /42k tokens processed in this Chat/);
+  assert.equal(dom.container.querySelector(".composer-model-menu"), null, "the model menu stays closed");
+  const compact = [...popover.querySelectorAll("button")].find(button => button.textContent === "Compact Chat")!;
+  await dom.act(async () => { compact.click(); await Promise.resolve(); });
+  await dom.settle();
+  assert.deepEqual(compacts, ["POST"]);
+});
+
 test("compaction notices appear once, survive delayed transcript reads, and reopen from storage", async (t) => {
   let release!: (value: { messages: ChatMessage[] }) => void;
   let held = false;

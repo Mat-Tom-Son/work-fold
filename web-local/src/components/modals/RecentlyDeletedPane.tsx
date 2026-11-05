@@ -258,7 +258,7 @@ export function RecentlyDeletedPane({ fixtureMode = false }: { fixtureMode?: boo
                     </button>
                   ) : null}
                   <button
-                    className="ui-control"
+                    className="ui-control danger"
                     type="button"
                     disabled={Boolean(busy) || Boolean(entry.held)}
                     title={entry.held ? recentlyDeletedSettings.heldNote : undefined}

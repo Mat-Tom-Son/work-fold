@@ -557,7 +557,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   if (loadError) return <div className="ai-models-settings-section"><AiModelsOperationStatus feedback={{ error: true, text: loadError }} /><button className="ui-control" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try Again</button></div>;
 
   return <>
-    {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
+    {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ui-control ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
     {!connectedModels.length && providerCatalog.length ? <section className="ai-models-settings-section ai-models-connect" aria-labelledby="ai-models-connect-heading">
       <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect Your AI</h3></div>
       <p className="professional-field-hint">Sign in with an account you already have, or paste an API key. Every Worker shares the connection.</p>
@@ -595,9 +595,9 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
         <div className="ai-models-connection-row">
           <div><p>{foundryErrors[provider] ? "Saved key · connection setup needed" : providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
           <div className="ai-models-connection-controls">
-            {catalog?.refreshable ? <button className="ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} Models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
+            {catalog?.refreshable ? <button className="ui-control ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} Models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="ai-models-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
-            {removableAuth ? <button className="ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
+            {removableAuth ? <button className="ui-control danger ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
         </div>
         {authConfigured && providerAuth?.authType === "oauth" && (provider === "openai" || provider === "openai-codex") ? <ProviderAccountDetails

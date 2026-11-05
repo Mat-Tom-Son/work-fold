@@ -43,6 +43,8 @@ export interface WorkFolderCustomization {
   bannerPreset?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerPresetId;
   bannerFraming?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerFraming;
   bannerLayout?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerLayout;
+  bannerIconStyle?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerIconStyle;
+  bannerTitleFill?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerTitleFill;
 }
 
 export type WorkFolderCustomizationMap = Record<string, WorkFolderCustomization>;

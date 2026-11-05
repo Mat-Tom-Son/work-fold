@@ -21,8 +21,11 @@ so the requested deliverable contract remains available alongside corrections.
 
 The Chat composer's context circle updates during a turn as text and tool results
 arrive, using Pi's context estimate and its estimator for a response still
-streaming. Finalized provider usage replaces that streaming estimate. Its tooltip
-remains available while model changes are disabled. After successful manual,
+streaming. Finalized provider usage replaces that streaming estimate. The circle
+is its own button beside the model chip (2026-11-05): it opens a **Context**
+popover with the share used, tokens of the window, tokens processed in the
+Chat, and **Compact Chat**, which takes the same route as `/compact` and waits
+for the turn to end. After successful manual,
 automatic, or background compaction, a quiet saved Chat notice says that earlier
 messages were summarized and the chat history remains available. Cancelled or
 failed compactions never claim success. Context pressure clears until Pi has

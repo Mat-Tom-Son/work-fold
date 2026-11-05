@@ -43,11 +43,12 @@ test("Customize work-folder isolates its popup and routes edits to the work-fold
   await dom.render(screen(true));
   const dialog = document.querySelector('[role="dialog"]')!;
   assert.equal(dialog.getAttribute("aria-modal"), "true");
-  assert.ok(dialog.querySelector('header [role="tablist"]'), "tabs stay in the fixed modal header");
+  // One page with a section each (2026-11-05), no tabs.
+  assert.equal(dialog.querySelector('[role="tablist"]'), null);
+  assert.deepEqual([...dialog.querySelectorAll('.work-folder-appearance-section > h3')].map((heading) => heading.textContent), ["Banner", "Title", "Icon", "Color"]);
   assert.equal(document.activeElement?.getAttribute("aria-label"), "Close Customize work-folder");
   assert.equal(document.getElementById("work")!.getAttribute("aria-hidden"), "true");
   assert.equal(document.getElementById("work")!.inert, true);
-  await dom.act(() => document.querySelector<HTMLButtonElement>('[role="tab"][id="folder-appearance-tab-color"]')!.click());
   await dom.act(() => document.querySelector<HTMLButtonElement>('[aria-label="Use Blue Color"]')!.click());
   await dom.act(() => document.querySelector<HTMLButtonElement>('[title="Undo the last appearance change"]')!.click());
   await dom.act(() => {
@@ -100,7 +101,11 @@ test("banner framing, image/pattern switching, accent colors and icon categories
   assert.equal(document.querySelector('[aria-label="Banner Zoom"]'), null, "framing is on demand");
   await click('.work-folder-framing-trigger');
   assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Banner Vertical Position"]')!.value, "100");
+  // Your Image is the fifth slot; it stays as an empty upload slot once a built-in image replaces it.
+  assert.equal(document.querySelector('[aria-label="Replace Your Image"]')!.getAttribute("aria-pressed"), "true");
   await click('[aria-label="Use Fold Image"]');
+  assert.ok(document.querySelector('.work-folder-banner-image-gallery > button.empty[aria-label="Upload an Image"]'));
+  assert.equal(document.querySelectorAll('.work-folder-banner-image-gallery > button').length, 5);
   assert.equal(saved.bannerPreset, "fold");
   assert.equal(saved.bannerImage, undefined);
   assert.equal(saved.color, "#0e7490");
@@ -112,7 +117,6 @@ test("banner framing, image/pattern switching, accent colors and icon categories
   assert.equal(changes.length, 2, "one keyboard framing edit commits once");
   await click('[aria-label="Reset Banner Framing"]');
   assert.deepEqual(saved.bannerFraming, { x: 50, y: 50, zoom: 1 });
-  await click('#folder-appearance-tab-color');
   assert.equal(document.querySelector('[aria-label="Folder color pairs"]'), null);
   assert.equal(document.querySelector('[aria-label="Choose Second Banner Color"]'), null, "image colors are not exposed as editable pattern colors");
   await click('[aria-label="Use Blue Color"]');
@@ -127,7 +131,6 @@ test("banner framing, image/pattern switching, accent colors and icon categories
   for (const character of target.id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   assert.equal(defaultWorkFolderColor(target.id).color, originalColors[hash % originalColors.length], "updating the picker preserves default work-folder identities");
   assert.equal(document.querySelectorAll('.work-folder-color-dot').length, 24);
-  await click('#folder-appearance-tab-icon');
   assert.equal(document.querySelectorAll('.work-folder-icon-option').length, filterWorkFolderIconOptions("", "popular").length);
   const nature = [...document.querySelectorAll<HTMLButtonElement>('.work-folder-icon-categories button')].find(button => button.textContent === "Nature")!;
   await dom.act(() => nature.click());
@@ -135,7 +138,6 @@ test("banner framing, image/pattern switching, accent colors and icon categories
   assert.equal(saved.iconName, "leaf");
   for (const group of workFolderIconGroups) if (group.id !== "all") assert.equal(filterWorkFolderIconOptions("", group.id).length, group.names.length, `${group.label} has no missing icons`);
   assert.equal(filterWorkFolderIconOptions("camping")[0].name, "tent");
-  await click('#folder-appearance-tab-banner');
   await click('[aria-label="Use Classic Banner"]');
   assert.ok(document.querySelector('[aria-label="Choose Second Banner Color"]'));
   assert.equal(document.querySelector<HTMLButtonElement>('.work-folder-framing-trigger')!.disabled, true);
@@ -150,11 +152,25 @@ test("banner framing, image/pattern switching, accent colors and icon categories
   assert.equal(saved.bannerPreset, undefined);
   assert.equal(saved.bannerFraming, undefined);
   assert.equal(document.querySelector('[aria-label="Banner Zoom"]'), null);
-  await click('#folder-appearance-tab-color');
+  // Title: the name's background and the icon beside it, shown exactly as the header shows them.
+  const option = (group: string, label: string) => [...document.querySelectorAll<HTMLButtonElement>(`[aria-labelledby="${group}"] button`)].find((button) => button.textContent === label)!;
+  assert.equal(option("folder-appearance-icon-style", "None").getAttribute("aria-checked"), "true", "Card starts without an icon");
+  await dom.act(() => option("folder-appearance-title-fill", "Accent").click());
+  await dom.act(() => option("folder-appearance-icon-style", "Circle").click());
+  assert.equal(saved.bannerTitleFill, "accent");
+  assert.equal(saved.bannerIconStyle, "circle");
+  for (const title of document.querySelectorAll('.work-folder-appearance-preview .work-folder-banner-title')) {
+    assert.match(title.className, /fill-accent icon-circle/);
+    assert.ok(title.querySelector('.work-folder-banner-title-icon'));
+  }
+  // Settings returns to the section at the top of the page.
+  const tops: Record<string, number> = { banner: -900, title: -400, icon: 10, color: 500 };
+  for (const [section, top] of Object.entries(tops)) document.getElementById(`folder-appearance-section-${section}`)!.getBoundingClientRect = () => ({ top } as DOMRect);
+  document.querySelector<HTMLElement>('.work-folder-appearance-sections')!.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
   const shortcutBar = document.querySelector('.work-folder-customize-worker')!;
   assert.equal(shortcutBar.querySelector('span'), null, "the Worker label and robot have been removed");
   const workerButtons = [...document.querySelectorAll<HTMLButtonElement>('.work-folder-customize-worker button')];
   await dom.act(() => workerButtons[0].click());
   await dom.act(() => workerButtons[1].click());
-  assert.deepEqual(shortcuts, ["target-folder:model:color", "target-folder:instructions:color"]);
+  assert.deepEqual(shortcuts, ["target-folder:model:icon", "target-folder:instructions:icon"]);
 });
