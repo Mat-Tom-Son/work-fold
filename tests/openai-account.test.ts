@@ -21,25 +21,25 @@ async function runtime(t: TestContext, provider = "openai", saved = credential()
   return { credentials, modelRuntime };
 }
 
-test("an explicit account read returns only selected OpenAI profile fields and preserves native auth", async t => {
-  const host = await runtime(t);
+test("the direct grant's live subject-only UserInfo shape uses the identity retained at sign-in", async t => {
+  const host = await runtime(t, "openai", credential({ identity: { issuer: "https://auth.openai.com", subject: "person", clientId: "issued-client", email: "person@example.test", emailVerified: true } }));
   let calls = 0;
   globalThis.fetch = async (url, init) => {
     calls++;
     assert.equal(String(url), userInfo);
     assert.equal(init?.redirect, "error");
     assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${credential().access}`);
-    return Response.json({ sub: "person", email: "person@example.test", workspace: { id: "workspace-b", name: "Research" }, plan_type: "pro",
-      access_token: "must-not-escape", profile: { private: "unrelated-data" } });
+    return Response.json({ sub: "person" });
   };
   const account = await readOpenAiAccount(host, "openai");
   assert.equal(calls, 1);
   assert.equal(account.email, "person@example.test");
-  assert.equal(account.workspaceName, "Research");
-  assert.equal(account.workspaceId, "workspace-b");
-  assert.equal(account.plan, "pro");
-  assert.equal(account.source, "provider");
-  assert.equal(account.limitsAvailability, "not_provided");
+  assert.equal(account.workspaceName, null);
+  assert.equal(account.workspaceId, null);
+  assert.equal(account.plan, null);
+  assert.equal(account.source, "saved_sign_in");
+  assert.equal(account.identityNeedsReconnect, false);
+  assert.equal(account.limitsAvailability, "unsupported");
   assert.ok(account.checkedAt);
   assert.doesNotMatch(JSON.stringify(account), /synthetic|must-not-escape|unrelated-data|issued-client/);
   assert.equal((await host.credentials.read("openai"))?.refresh, "synthetic-refresh");
@@ -70,17 +70,24 @@ test("legacy sign-ins label saved metadata and match the selected workspace inst
   assert.doesNotMatch(JSON.stringify(account), /private-upstream-body|synthetic-refresh|Wrong/);
 });
 
-test("a profile's default workspace cannot override the workspace selected by a legacy connection", async t => {
+test("Codex reads select the connected workspace and refuse another workspace's usage", async t => {
   const saved = credential({ accountId: "selected", access: jwt({ sub: "person", "https://api.openai.com/auth": {
     chatgpt_plan_type: "business", organizations: [{ id: "selected", title: "Selected workspace" }],
   } }) });
   const host = await runtime(t, "openai-codex", saved);
-  globalThis.fetch = async () => Response.json({ sub: "person", email: "person@example.test", workspace: { id: "default", name: "Wrong workspace" }, plan_type: "free" });
+  globalThis.fetch = async (url, init) => {
+    assert.equal(new Headers(init?.headers).get("chatgpt-account-id"), "selected");
+    return String(url).endsWith("/accounts/check") ? Response.json({ accounts: [
+      { id: "default", name: "Wrong workspace", plan_type: "free" }, { id: "selected", name: "Selected workspace", plan_type: "business" },
+    ] }) : Response.json({ account_id: "default", plan_type: "free", rate_limit: { primary_window: { used_percent: 99, limit_window_seconds: 18000, reset_at: 1794449000 } } });
+  };
   const account = await readOpenAiAccount(host, "openai-codex");
-  assert.equal(account.email, "person@example.test");
+  assert.equal(account.email, null);
   assert.equal(account.workspaceId, "selected");
   assert.equal(account.workspaceName, "Selected workspace");
   assert.equal(account.plan, "business");
+  assert.deepEqual(account.limits, []);
+  assert.equal(account.limitsAvailability, "unavailable");
 });
 
 for (const change of ["disconnect", "reconnect", "token rotation"] as const) {
@@ -128,7 +135,9 @@ for (const failure of ["oversized", "malformed", "wrong-subject", "redirect"] as
 }
 
 test("native refresh rotates the token once and profile reads use the resulting credential", async t => {
-  const host = await runtime(t, "openai", credential({ expires: 0 }));
+  const host = await runtime(t, "openai", credential({ expires: 0, idToken: "synthetic-private-id-token", identity: {
+    issuer: "https://auth.openai.com", subject: "person", clientId: "issued-client", email: "refreshed@example.test", emailVerified: true,
+  } }));
   let refreshes = 0;
   globalThis.fetch = async (input, init) => {
     if (String(input) === "https://auth.openai.com/api/accounts/oauth/token") {
@@ -139,12 +148,83 @@ test("native refresh rotates the token once and profile reads use the resulting 
     }
     assert.equal(String(input), userInfo);
     assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${jwt({ sub: "person", jti: "new" })}`);
-    return Response.json({ sub: "person", email: "refreshed@example.test" });
+    return Response.json({ sub: "person" });
   };
   const accounts = await Promise.all([readOpenAiAccount(host, "openai"), readOpenAiAccount(host, "openai")]);
   assert.equal(refreshes, 1);
   assert.ok(accounts.every(account => account.email === "refreshed@example.test"));
   assert.equal((await host.credentials.read("openai"))?.refresh, "replacement-refresh");
+  assert.equal((await host.credentials.read("openai"))?.idToken, "synthetic-private-id-token");
+  assert.doesNotMatch(JSON.stringify(accounts), /synthetic-private-id-token/);
+});
+
+test("old direct connections request a reconnect instead of claiming OpenAI did not provide an email", async t => {
+  const host = await runtime(t);
+  globalThis.fetch = async () => Response.json({ sub: "person" });
+  const account = await readOpenAiAccount(host, "openai");
+  assert.equal(account.identityNeedsReconnect, true);
+  assert.equal(account.email, null);
+  assert.equal(account.error, null);
+});
+
+for (const identity of [
+  { issuer: "https://unrelated.test", subject: "person", clientId: "issued-client" },
+  { issuer: "https://auth.openai.com", subject: "other-person", clientId: "issued-client" },
+  { issuer: "https://auth.openai.com", subject: "person", clientId: "different-client" },
+]) test(`cached identity must match the credential: ${JSON.stringify(identity)}`, async t => {
+  const host = await runtime(t, "openai", credential({ identity: { ...identity, email: "wrong@example.test" } }));
+  globalThis.fetch = async () => Response.json({ sub: "person" });
+  const account = await readOpenAiAccount(host, "openai");
+  assert.equal(account.email, null);
+  assert.equal(account.identityNeedsReconnect, true);
+});
+
+for (const map of [false, true]) test(`Codex workspace and real quota fields are projected from the ${map ? "map" : "list"} account shape`, async t => {
+  const saved = credential({ accountId: "selected", access: jwt({ sub: "person", "https://api.openai.com/profile": { email: "person@example.test" }, "https://api.openai.com/auth": { chatgpt_plan_type: "team" } }) });
+  const host = await runtime(t, "openai-codex", saved);
+  globalThis.fetch = async (url, init) => {
+    assert.equal(init?.redirect, "error");
+    assert.equal(new Headers(init?.headers).get("chatgpt-account-id"), "selected");
+    assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${saved.access}`);
+    if (String(url).endsWith("/accounts/check")) return Response.json({ accounts: map
+      ? { selected: { account: { account_id: "selected", name: "Synthetic workspace", plan_type: "team" } }, other: { account: { account_id: "other", name: "Wrong" } } }
+      : [{ id: "other", name: "Wrong" }, { id: "selected", name: "Synthetic workspace", plan_type: "team" }] });
+    assert.equal(String(url), "https://chatgpt.com/backend-api/wham/usage");
+    return Response.json({ account_id: "selected", plan_type: "team", rate_limit: {
+      primary_window: { used_percent: 0, limit_window_seconds: 604800, reset_at: 1794449000 }, secondary_window: null,
+    }, rate_limit_reset_credits: { available_count: 3, applicable_available_count: 0 }, access_token: "must-not-escape", additional_rate_limits: [
+      { metered_feature: "other-bucket", limit_name: "Other bucket", rate_limit: { primary_window: { used_percent: 42, limit_window_seconds: 18000, reset_at: 1794440000 } } },
+    ] });
+  };
+  const account = await readOpenAiAccount(host, "openai-codex");
+  assert.equal(account.email, "person@example.test");
+  assert.equal(account.workspaceName, "Synthetic workspace");
+  assert.equal(account.plan, "team");
+  assert.equal(account.limitsAvailability, "available");
+  assert.deepEqual(account.limits?.[0], { id: "codex", name: "Codex", primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1794449000 }, secondary: null });
+  assert.equal(account.limits?.[1]?.primary?.usedPercent, 42);
+  assert.equal(account.availableResets, 3);
+  assert.equal(account.applicableResets, 0);
+  assert.equal(account.error, null);
+  assert.doesNotMatch(JSON.stringify(account), /must-not-escape|synthetic-signature|Wrong/);
+});
+
+test("a Codex disconnect while both metadata reads are pending returns no account or quota", async t => {
+  const host = await runtime(t, "openai-codex", credential({ accountId: "selected" }));
+  let finish!: () => void;
+  const pending = new Promise<void>(resolve => { finish = resolve; });
+  let calls = 0;
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  globalThis.fetch = async () => { if (++calls === 2) started(); await pending; return Response.json({ accounts: [{ id: "selected", name: "Old" }], account_id: "selected", rate_limit: { primary_window: { used_percent: 88 } } }); };
+  const read = readOpenAiAccount(host, "openai-codex");
+  await ready;
+  await host.credentials.delete("openai-codex");
+  finish();
+  const result = await read;
+  assert.equal(result.connected, false);
+  assert.equal(result.workspaceName, null);
+  assert.deepEqual(result.limits, []);
 });
 
 test("API-key connections do not send account-profile requests", async t => {

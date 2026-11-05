@@ -57,8 +57,13 @@ test("connected tab motion retargets, settles on layout changes and honors reduc
         result.reduced={count:chrome.getAnimations().length,boxes:[box(chrome),box(tabs[2])],style:chrome.getAttribute('style'),transform:getComputedStyle(chrome).transform};
         document.documentElement.dataset.appearanceMotion='system';
         select(0);
+        const resized = new Promise((resolve,reject) => {
+          const observer = new ResizeObserver(() => { clearTimeout(deadline); observer.disconnect(); resolve(); });
+          const deadline = setTimeout(() => { observer.disconnect(); reject(new Error('Chromium did not deliver the tab resize')); },800);
+          observer.observe(tabs[0]);
+        });
         strip.style.width='500px'; tabs[0].style.width='135px';
-        await new Promise(resolve=>setTimeout(resolve,40));
+        await resized;
         result.resize={count:chrome.getAnimations().length,boxes:[box(chrome),box(tabs[0])]};
         tabs[0].remove(); motion.select(null);
         result.empty={visible:getComputedStyle(chrome).visibility,enhanced:strip.dataset.activeChrome,count:chrome.getAnimations().length};

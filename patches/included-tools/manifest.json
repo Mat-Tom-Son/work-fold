@@ -258,5 +258,20 @@
         "after": "2256b06d3ec6835d9afcadf6a1ad7279efa809115ceaf784c94e7448283e14a6"
       }
     ]
+  },
+  {
+    "package": "@earendil-works/pi-ai",
+    "version": "1.1.0",
+    "source": "https://github.com/earendil-works/pi/tree/v1.1.0/packages/ai",
+    "license": "MIT",
+    "patch": "pi-ai-1.1.0.patch",
+    "sha256": "a48f8449ccc7983cee721ae2dee8a29ec5d5290fda7cefb7742a1fee326af37c",
+    "files": [
+      {
+        "path": "dist/auth/oauth/openai-chatgpt.js",
+        "before": "4cf9fc758a07ffe4ee022326404b5dcc86767ee4154945c0417c7f95eaecdcc2",
+        "after": "7baa1f343c9de65c4ef7e5a935fdaea88b11a6eda4453e10a7a7e1bb5a92a8ae"
+      }
+    ]
   }
 ]

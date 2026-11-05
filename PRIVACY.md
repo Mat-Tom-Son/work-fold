@@ -20,22 +20,32 @@ needed. In the product, a registered work-folder is presented as a **work-folder
 agent as a **Worker**, the management agent as the **work-fold agent**,
 and deterministic automations as **Automations**.
 
-Last updated: November 3, 2026
+Last updated: November 4, 2026
 
 work-fold is a local-first desktop application. Core work-folder use does not require a work-fold account; a person may optionally create a private work-fold Web Access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
 This document describes the behavior of the open-source work-fold application. Model providers, GitHub, package hosts, cloud-sync software, and third-party Skills or Extensions have their own privacy terms.
 
-Opening an OpenAI account connection in Settings → AI Models reads its account
-profile directly from OpenAI's published OIDC user-info endpoint using the
-existing Pi-managed sign-in. Only selected email, workspace and plan fields
-reach that Settings view. The read is bounded, follows no redirects, and
-rechecks that the connection has not changed before returning. Profile details
-are not persisted separately, sent to a model, or included in portable Chats,
-CLI snapshots or the paired-web surface. Legacy sign-ins can display labeled
-metadata already present in the protected credential. **Manage usage in
-ChatGPT** opens ChatGPT settings; work-fold does not infer subscription limits
-or reset times from its local token totals.
+Direct OpenAI sign-in retains the validated ID token and selected identity metadata
+inside the Pi-managed protected credential, using the same encrypted desktop
+storage as its access and refresh tokens. Only the email and display metadata
+reach Settings → AI Models; raw tokens, subjects and claims do not. Opening a
+direct OpenAI connection checks the published OIDC user-info endpoint. Its
+subject-only response does not erase the saved identity. Older credentials
+without identity require one explicit reconnect to capture it.
+
+The distinct **OpenAI (Codex subscription)** connection can also read its
+selected workspace and subscription usage directly from OpenAI's Codex account
+endpoints on chatgpt.com. Those bounded, redirect-free reads carry the connection's
+selected workspace id and reject quota data for another or unspecified workspace.
+Only selected workspace/plan fields, quota windows, usage percentages, reset
+times and available reset counts reach Settings. The details refresh every
+minute while open and on focus. The UI never consumes an available reset.
+Reads recheck that the connection has not changed before returning. Account and
+quota details are not persisted separately, sent to a model, or included in
+portable Chats, CLI snapshots or the paired-web surface. **Manage usage in
+ChatGPT** opens the corresponding settings page; work-fold does not infer
+subscription limits from local token totals.
 
 Live Pi Extension questions and answers pass through the local
 UI adapter without being written to a transcript or its event replay log.
