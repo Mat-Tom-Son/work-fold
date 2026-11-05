@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  deleteFolderConfirm,
   fileSharing,
   publicationsSettings,
   primaryNavigation,
@@ -138,6 +139,8 @@ test("Recently deleted says what is waiting, how long, and what work-fold never 
   assert.equal(recentlyDeletedSettings.restore, "Restore");
   assert.equal(recentlyDeletedSettings.saveCopy, "Save a Copy");
   assert.equal(recentlyDeletedSettings.deleteNow, "Delete Now");
+  // Deleting a plain folder in Files says "Folder", not "work-folder".
+  assert.equal(deleteFolderConfirm.confirmLabel, "Delete Folder");
   assert.match(recentlyDeletedSettings.deleteNowConfirm, /cannot be brought back/i);
   assert.match(recentlyDeletedSettings.retentionLabel, /^Keep Deleted Items For$/);
   assert.match(recentlyDeletedSettings.heldNote, /legacy Workspace records/i);
