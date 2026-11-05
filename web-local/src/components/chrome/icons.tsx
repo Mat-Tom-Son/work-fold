@@ -29,6 +29,7 @@ import {
   DocumentAdd16Regular, DocumentAdd20Regular,
   DocumentCheckmark16Regular, DocumentCheckmark20Regular,
   Edit16Regular, Edit20Regular,
+  Filter16Regular, Filter20Regular,
   ErrorCircle16Regular, ErrorCircle20Regular,
   Folder16Regular, Folder20Regular,
   FolderAdd16Regular, FolderAdd20Regular,
@@ -36,6 +37,7 @@ import {
   Globe16Regular, Globe20Regular,
   History16Regular, History20Regular,
   Key16Regular, Key20Regular,
+  LayoutColumnThree16Regular, LayoutColumnThree20Regular,
   Link16Regular, Link20Regular,
   MoreHorizontal16Regular, MoreHorizontal20Regular,
   Open16Regular, Open20Regular,
@@ -43,6 +45,7 @@ import {
   SpinnerIos16Regular, SpinnerIos20Regular,
   Square16Regular, Square20Regular,
   Warning16Regular, Warning20Regular,
+  WebAsset16Regular, WebAsset20Regular,
   Window16Regular, Window20Regular,
   type FluentIcon,
 } from "@fluentui/react-icons";
@@ -98,6 +101,7 @@ export const Copy = icon("Copy", Copy16Regular, Copy20Regular);
 export const Download = icon("Download", ArrowDownload16Regular, ArrowDownload20Regular);
 export const ExternalLink = icon("ExternalLink", Open16Regular, Open20Regular);
 export const File = icon("File", Document16Regular, Document20Regular);
+export const Filter = icon("Filter", Filter16Regular, Filter20Regular);
 export const FileCheck2 = icon("FileCheck2", DocumentCheckmark16Regular, DocumentCheckmark20Regular);
 export const FilePlus2 = icon("FilePlus2", DocumentAdd16Regular, DocumentAdd20Regular);
 export const Folder = icon("Folder", Folder16Regular, Folder20Regular);
@@ -110,6 +114,8 @@ export const Link2 = icon("Link2", Link16Regular, Link20Regular);
 export const Loader2 = icon("Loader2", SpinnerIos16Regular, SpinnerIos20Regular);
 export const MoreHorizontal = icon("MoreHorizontal", MoreHorizontal16Regular, MoreHorizontal20Regular);
 export const MousePointerClick = icon("MousePointerClick", CursorClick20Regular);
+/** A page made for other people (docs/pages.md): Files' page folders and the page tab. */
+export const PageIcon = icon("PageIcon", WebAsset16Regular, WebAsset20Regular);
 export const Pencil = icon("Pencil", Edit16Regular, Edit20Regular);
 export const PencilLine = icon("PencilLine", Edit16Regular, Edit20Regular);
 export const RefreshCw = icon("RefreshCw", ArrowClockwise16Regular, ArrowClockwise20Regular);
@@ -117,6 +123,7 @@ export const RotateCcw = icon("RotateCcw", ArrowCounterclockwise16Regular, Arrow
 export const Search = icon("Search", Search16Regular, Search20Regular);
 export const Square = icon("Square", Square16Regular, Square20Regular);
 export const SquarePen = icon("SquarePen", Compose16Regular, Compose20Regular);
+export const TableColumns = icon("TableColumns", LayoutColumnThree16Regular, LayoutColumnThree20Regular);
 export const Trash2 = icon("Trash2", Delete16Regular, Delete20Regular);
 export const Undo2 = icon("Undo2", ArrowUndo16Regular, ArrowUndo20Regular);
 export const Upload = icon("Upload", ArrowUpload16Regular, ArrowUpload20Regular);

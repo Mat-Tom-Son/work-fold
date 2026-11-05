@@ -1,7 +1,9 @@
 # Online pages
 
-> **Status:** Plan, 2026-11-05. Nothing here is built yet except stage 0
-> (removing the old sharing). Decisions marked **Owner decision** were made
+> **Status:** Plan, 2026-11-05. Stage 0 (removing the old sharing) and
+> stage 1 (page folders, locally; contract in [Pages](pages.md)) are built.
+> "Ask the Worker about this data" waits for stage 2, when the data is in the
+> page folder. Decisions marked **Owner decision** were made
 > by Mat on 2026-11-05; the rest is the proposed approach and can change as
 > the build teaches us something.
 
@@ -110,10 +112,25 @@ a raw `.sqlite` file.
 
 ## Hosting
 
-- **Page files** are stored as static assets behind a per-page link.
-- **Page data** lives in one Cloudflare Durable Object per page. That is
-  trusted work-fold code holding the page's SQLite database. Page code never
-  runs on our servers, so there is no untrusted server code to sandbox.
+**Owner decision (2026-11-05):** pages are hosted on Railway, in a new
+service next to the bridge. No second provider.
+
+- **One small service** serves the page shell, each page's files, and its
+  page calls. It runs the same rules code as the preview in work-fold
+  (`src/shared/pages` on Node's built-in SQLite), so the online page behaves
+  exactly like the one you tested. Page code never runs on our servers, so
+  there is no untrusted server code to sandbox.
+- **Page data** is one SQLite file per page on a Railway volume; page files sit
+  beside it. The service is separate from the bridge, so a bridge restart
+  doesn't take pages down.
+- **Backups are ours to run.** Railway's built-in volume backups appear to
+  need the Pro plan, so the service copies each changed page database to a
+  Railway storage bucket every few minutes. Each owner's `data.sqlite` in their
+  own folder is a second copy.
+- **One server in one region.** If it is down, pages are down. That's
+  acceptable for an invited group; growing past it is a later decision.
+- **Cost:** for a small group this should stay near the Hobby plan's included
+  $5 of usage. Watch it once real visitors arrive.
 - **Visitors' browsers** run the page in an opaque sandboxed frame inside a
   work-fold shell, the pattern shared apps already used. The sandbox keeps
   pages apart from each other and from work-fold. The shell carries a
@@ -199,17 +216,19 @@ invited people.
 - Single-file publishing (removed; see above).
 - A separate content domain and Public Suffix List entry. The sandboxed frame
   does that job.
-- PostgreSQL and a database comparison. One Durable Object per page fits the
-  one-database-per-page model.
+- A second hosting provider. Cloudflare comes back only if pages need their
+  own server code (stage 4, which needs a sandbox for untrusted code) or
+  protection from heavy traffic (its free proxy can sit in front of Railway
+  without moving anything).
+- PostgreSQL and a database comparison. One SQLite file per page fits the
+  one-database-per-page model and reuses the stage 1 code.
 - Passkeys and an encrypted key vault. The existing work-fold.com sign-in is the
   publisher account.
 - Any page code running on our servers, until stage 4.
 
 ## Open decisions
 
-- The exact `page.json` format and how much of the restricted-app package
-  format it reuses.
 - The page link's domain.
 - How much the Data tab edits online data beyond delete and simple edits.
-- Durable Objects means taking on Cloudflare next to Railway. Confirm before
-  stage 2 hosting work starts.
+- How often to copy page databases to the bucket, and how long to keep the
+  copies.

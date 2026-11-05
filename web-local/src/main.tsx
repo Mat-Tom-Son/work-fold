@@ -12,6 +12,7 @@ import "./components/chat/work-steps.css";
 import "../../services/bridge/public/work-request.css";
 import "../../services/bridge/public/extension-questions.css";
 import "./components/chat/model-context-inspector.css";
+import "./components/pages/pages.css";
 import "./popover/popover.css";
 import "./panels.css";
 import "./application-appearance.css";

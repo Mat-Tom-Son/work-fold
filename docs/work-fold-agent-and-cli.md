@@ -217,6 +217,7 @@ work-fold tools disable --path <resource-path> --kind extensions --scope everywh
 work-fold tools enable --path <resource-path> --kind extensions --scope work-folder --work-folder "Home" --json
 work-fold recently-deleted list --json
 work-fold recently-deleted restore --entry <recently-deleted-id> --json
+work-fold pages validate --work-folder "Home" --page "Garden Party RSVP" --json
 ```
 
 `tools enable|disable` uses Pi's resource filters for `extensions`, `skills`,
@@ -267,6 +268,41 @@ stop jobs; a restart records a running job `interrupted` and wakes nothing.
 Output lives under the state root's `jobs/` directory and follows the request
 retention window. Deletion, registration removal, and whole-work-folder
 History restore wait for running jobs; Skills & Extensions changes do not.
+
+`work-fold pages validate --work-folder <id> --page <path> [--json]` checks one
+page folder ([Pages](pages.md)) exactly as its page tab does: `page.json`,
+the entry file, every file the page refers to (nothing may load from the
+internet or from outside the folder), the file limits (500 files, 10 MiB each,
+25 MiB in all), and page folders nested inside it. `--page` is the page
+folder's work-folder-relative path. It changes nothing, records an ordinary
+act receipt (`page <path>; valid` or `page <path>; <n> errors`), and exits 0
+whenever it could check the page; a folder without `page.json` is `notFound`
+and a path that leaves the work-folder is `usage`. The `--json` result is a
+stable shape:
+
+```json
+{
+  "workFolder": { "id": "space-…", "name": "Home", "workFolderRoot": "/…" },
+  "page": "Garden Party RSVP",
+  "valid": false,
+  "summary": {
+    "title": "Garden Party RSVP",
+    "entry": "index.html",
+    "tables": [{ "name": "rsvps", "columns": ["name", "email"], "visitors": ["add", "see-own"], "limit": 50 }],
+    "files": 4,
+    "bytes": 18211
+  },
+  "problems": [{ "file": "index.html", "message": "Loads \"https://…\" from the internet. …", "severity": "error" }]
+}
+```
+
+`valid` is true when no problem is an error; warnings (such as an unused
+`.html` file) never make a page invalid. Problem files are relative to the
+page folder, and `""` means the page folder itself. `summary.tables` is empty
+while `page.json` has errors. Pages themselves never reach the act lane: their
+test entries and the Data view live behind the local API's
+`/api/work-folders/:id/pages` routes, and later publishing verbs join this
+family ([Online pages](online-pages-plan.md)).
 
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
@@ -666,6 +702,8 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | Restricted app review, grants, lifecycle, and storage | `src/local/agent/restricted-app-*.ts` | `tests/restricted-app-*.test.ts` |
 | Machine-wide restricted-app automation scheduling | `src/local/agent/work-fold-scheduler-service.ts` | `tests/work-fold-scheduler-service.test.ts` plus restricted-app service/API tests |
 | Prepared acts (prepare, pin, journal, execute) | `src/local/prepared-acts.ts` | `tests/prepared-acts.test.ts`, `tests/work-fold-cli-act-receipts.test.ts` |
+| Pages: page.json, rules engine, schema, and Data view | `src/shared/pages/` | `tests/page-declaration.test.ts`, `tests/page-rules-engine.test.ts` |
+| Page folders, assembly, preview databases, routes, and `pages validate` | `src/local/pages/` | `tests/page-folders.test.ts`, `tests/page-routes.test.ts`, `tests/work-fold-cli-pages-verbs.test.ts` |
 | Recently deleted (trash store, retention, restore) | `src/local/recently-deleted-store.ts` | `tests/work-fold-recently-deleted-store.test.ts`, `tests/work-fold-cli-recently-deleted-verbs.test.ts`, `tests/recently-deleted-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/agent-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | work-folder turn context and operations guide | `src/local/agent/work-folder-turn-context.ts`, `src/local/agent/work-folder-operations-guide.ts` | `tests/work-folder-turn-context.test.ts`, `tests/work-folder-operations-guide-prompt.test.ts`, `tests/work-fold-agent-turn-context.test.ts` |

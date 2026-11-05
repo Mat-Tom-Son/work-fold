@@ -1,0 +1,17 @@
+{
+  "format": "work-fold.page/1",
+  "title": "Garden Party RSVP",
+  "description": "RSVP for the garden party on Saturday, June 12. There are 50 spots.",
+  "tables": {
+    "rsvps": {
+      "columns": {
+        "name": { "type": "text", "required": true, "max": 80 },
+        "email": { "type": "email", "required": true, "unique": true },
+        "bringing": { "type": "choice", "options": ["Salad", "Dessert", "Drinks", "Snacks"] },
+        "note": { "type": "long-text", "max": 500 }
+      },
+      "visitors": ["add", "see-own", "delete-own"],
+      "limit": 50
+    }
+  }
+}

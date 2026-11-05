@@ -680,6 +680,27 @@ export interface WorkFoldActAutomationReceipt {
   scheduledRunId?: string;
 }
 
+/**
+ * `pages validate` (docs/pages.md, "For the Worker"): one page folder's
+ * problems and a summary. A stable `--json` shape; problem files are
+ * relative to the page folder, and "" means the page folder itself.
+ */
+export interface WorkFoldActPageValidation {
+  workFolder: WorkFoldActWorkFolderRef;
+  /** The page folder's work-folder-relative path. */
+  page: string;
+  /** True when no problem is an error. Warnings (such as unused .html files) don't make a page invalid. */
+  valid: boolean;
+  summary: {
+    title: string;
+    entry: string;
+    tables: Array<{ name: string; columns: string[]; visitors: string[]; limit: number }>;
+    files: number;
+    bytes: number;
+  };
+  problems: Array<{ file: string; message: string; severity: "error" | "warning" }>;
+}
+
 /** The exact installation an install verb produced. Never resolved by display name. */
 export interface WorkFoldActInstalledAppRef {
   workFolderId: string;
@@ -1027,6 +1048,12 @@ export interface WorkFoldActFacade {
     unchangedFileCount: number;
     skippedLargeFileCount: number;
   }>;
+  /**
+   * Checks one page folder (docs/pages.md): page.json, the entry, every
+   * reference, sizes, and nested pages. Read-only; the page tab shows the
+   * same problems.
+   */
+  pagesValidate(input: { workFolder: string; page: string }): Promise<WorkFoldActPageValidation>;
   historyVersions(input: { workFolder: string; path: string } & HistoryPageOptions): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     path: string;

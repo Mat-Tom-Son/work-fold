@@ -37,6 +37,9 @@ test("propose_space_app exposes only a work-folder-relative path and reports wha
   assert.deepEqual(Object.keys((tool.parameters as any).properties), ["sourcePath"]);
   assert.equal((tool.parameters as any).additionalProperties, false);
   const guidance = tool.promptGuidelines?.join("\n") ?? "";
+  // Something other people open on the web is a page (docs/pages.md), not an app.
+  assert.match(guidance, /An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections\./);
+  assert.match(guidance, /Something other people will open on the web \(a form, sign-up sheet, RSVP, poll, announcement, or a page made from a document\) is a page instead: build a page folder with page\.json/);
   assert.match(guidance, /cornerRadius is an optional whole number from 0 through 24/);
   assert.match(guidance, /agent-app\.json version 2/);
   assert.match(guidance, /workFoldRestrictedApp/);

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ArrowRight, ChevronRight, Loader2 } from "../chrome/icons";
+import { ArrowRight, ChevronRight, Loader2, PageIcon } from "../chrome/icons";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
@@ -10,6 +10,11 @@ import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work
 import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../types";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { EmptyInline, WorkFolderIconGlyph } from "../chrome/common";
+
+/** A page folder (docs/pages.md): it shows a page icon and opens its page tab. */
+export interface PageFolderView {
+  title: string;
+}
 
 /** A work-folder registered inside this one, as Files shows it (2026-10-01). */
 export interface NestedFolderView {
@@ -49,8 +54,13 @@ export function FileTree({
   onDragEndEntry,
   nestedFolders,
   onOpenNestedFolder,
+  pageFolders,
+  onOpenPage,
 }: {
   entries: TreeEntry[];
+  /** Page folders keyed by their path; a plain click or Enter opens the page, the arrow opens the folder. */
+  pageFolders?: ReadonlyMap<string, PageFolderView>;
+  onOpenPage?: (path: string) => void;
   /** Child work-folders keyed by their path here; each row opens that work-folder instead of expanding. */
   nestedFolders?: ReadonlyMap<string, NestedFolderView>;
   onOpenNestedFolder?: (workFolder: WorkFolderSummary) => void;
@@ -107,7 +117,12 @@ export function FileTree({
     if (event.shiftKey && onSelectRange) { onSelectRange(entry.path, toggle); return; }
     if (toggle && onToggleSelected) { onToggleSelected(entry.path); return; }
     if (entry.kind === "file") onSelectFile(entry.path);
+    else if (isPage(entry) && !(event.target as Element).closest?.(".folder-chevron")) onOpenPage!(entry.path);
     else if (!searching) toggleFolder(entry.path, folderCollapsed);
+  }
+
+  function isPage(entry: TreeEntry): boolean {
+    return entry.kind === "folder" && Boolean(onOpenPage && pageFolders?.has(entry.path));
   }
 
   function toggleFolder(path: string, collapsed: boolean) {
@@ -188,7 +203,10 @@ export function FileTree({
     }
     if (entry.kind === "folder") {
       const collapsed = collapsedPaths.has(entry.path) || treeEntryNeedsLazyChildren(entry);
-      if (event.key === "Enter" || event.key === " ") {
+      if (isPage(entry) && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        onOpenPage!(entry.path);
+      } else if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         if (!searching) toggleFolder(entry.path, collapsed);
       } else if (event.key === "ArrowRight") {
@@ -272,7 +290,9 @@ export function FileTree({
         const descendantCheckAttention = entry.kind === "folder" && hasAttentionDescendant(checkAttentionPaths, entry.path);
         const checkAttention = exactCheckAttention || descendantCheckAttention;
         const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
-        const rowLabel = checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name;
+        const page = isPage(entry) ? pageFolders!.get(entry.path)! : null;
+        const rowName = page ? `${entry.name}, page` : entry.name;
+        const rowLabel = checkAttention ? `${rowName}, ${checkAttentionLabel}` : rowName;
         const selected = isSelected(entry.path);
         return (
           <div className="file-tree-item" key={entry.path}>
@@ -280,6 +300,7 @@ export function FileTree({
               className={[
                 "file-row",
                 entry.kind === "folder" ? "folder-row" : "file-row-entry",
+                page ? "page-folder-row" : "",
                 entry.kind === "folder" && entry.path === ".worker" ? "worker-scratch" : "",
                 entry.kind === "folder" && dropTargetFolderPath === entry.path ? "drop-target" : "",
                 isInsideFolder(entry.path, dropTargetFolderPath) ? "drop-descendant" : "",
@@ -294,7 +315,8 @@ export function FileTree({
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
               aria-selected={entry.kind === "file" || selected ? selected : undefined}
               aria-label={rowLabel}
-              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
+              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : page ? `Page: ${page.title}` : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
+              data-page-folder={page ? "true" : undefined}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
@@ -325,7 +347,7 @@ export function FileTree({
               {entry.kind === "folder" ? (
                 <>
                   <ChevronRight className={folderCollapsed ? "folder-chevron" : "folder-chevron open"} size={15} />
-                  <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />
+                  {page ? <span className="file-icon glyph-file-icon page-folder-icon" aria-hidden="true"><PageIcon size={16} /></span> : <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />}
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
               ) : (
@@ -365,6 +387,8 @@ export function FileTree({
                   onDragEndEntry={onDragEndEntry}
                   nestedFolders={nestedFolders}
                   onOpenNestedFolder={onOpenNestedFolder}
+                  pageFolders={pageFolders}
+                  onOpenPage={onOpenPage}
                 />
               </div>
             ) : entry.kind === "folder" && folderLoading ? <FolderLoadingRow /> : null}

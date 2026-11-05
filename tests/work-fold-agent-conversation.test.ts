@@ -92,6 +92,10 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     // The work-fold agent is never taught the retired desktop-served sharing
     // verbs or a Shared pages surface.
     assert.doesNotMatch(workFoldAgentContext, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|help pages|Shared pages/);
+    // Pages (docs/pages.md) are Worker work, delegated like any other, and
+    // nothing offers to publish one yet.
+    assert.match(workFoldAgentContext, /\*\*Pages and apps are built by Workers\.\*\* A page is something other people open on the web/);
+    assert.match(workFoldAgentContext, /delegate building one to that work-folder's Worker\. Pages can't be published yet\./);
     assert.match(workFoldAgentContext, /agent overview --json/);
     // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
     // runs on the first call and returns a receipt, destruction is reversible
@@ -249,6 +253,7 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     assert.match(skillContent, /an automation's `agent` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
     assert.doesNotMatch(skillContent, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|Shared pages/);
+    assert.match(skillContent, /are built by a work-folder's Worker: delegate them\. Pages can't be published yet\./);
     assert.match(skillContent, /agent overview --json/);
     assert.match(skillContent, /files move --work-folder <id>/);
     assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);

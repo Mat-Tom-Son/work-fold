@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Garden Party RSVP</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">You're invited</p>
+      <h1>Garden Party</h1>
+      <p class="when">Saturday, June 12 · 3–7 pm · The back garden, 14 Elm Row</p>
+      <p>Lemonade, long tables under the apple tree, and whatever you feel like bringing. Kids and dogs are welcome.</p>
+    </header>
+
+    <section class="spots" aria-live="polite">
+      <p><strong id="taken">–</strong> of 50 spots taken</p>
+      <div class="meter"><div class="meter-fill" id="meter-fill"></div></div>
+    </section>
+
+    <p class="note" id="status" aria-live="polite"></p>
+
+    <section class="yours" id="yours" hidden>
+      <h2>Your RSVP</h2>
+      <ul id="your-rsvps"></ul>
+      <button type="button" class="quiet" id="another">RSVP for someone else</button>
+    </section>
+
+    <section class="rsvp" id="rsvp">
+      <h2>RSVP</h2>
+      <form id="rsvp-form" data-page-table="rsvps">
+        <label>Your name
+          <input name="name" required maxlength="80" autocomplete="name">
+        </label>
+        <label>Email
+          <input name="email" type="email" required autocomplete="email">
+        </label>
+        <label>Bringing
+          <select name="bringing">
+            <option value="">Just myself</option>
+            <option>Salad</option>
+            <option>Dessert</option>
+            <option>Drinks</option>
+            <option>Snacks</option>
+          </select>
+        </label>
+        <label>Anything we should know?
+          <textarea name="note" rows="3" maxlength="500" placeholder="Allergies, or when you'll arrive"></textarea>
+        </label>
+        <p class="message" data-page-message role="alert"></p>
+        <button type="submit">Count me in</button>
+      </form>
+      <p class="full" id="full" hidden>All 50 spots are taken. Thank you for wanting to come!</p>
+    </section>
+
+    <p class="owner-note" id="owner-note" hidden>You own this page. Everyone's RSVPs are in the Data view.</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -252,6 +252,19 @@ producers are `files delete` for uncoverable paths, `work-folders delete`,
 --purge-data`; the last three write a recovery export into the trash before
 removing live data.
 
+### Pages
+
+A page is a folder in a work-folder that contains `page.json`
+([Pages](pages.md)). Stage 1 is local only; publishing verbs join this family
+in stage 2 ([Online pages](online-pages-plan.md)).
+
+| Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
+|---|---|---|---|---|---|---|---|
+| Check a page folder | the page tab's problem list | none | direct verb (content-bearing act read) | `pages validate --work-folder <id> --page <path>` | page path and `valid` or the error count | n/a — it changes nothing | a folder without `page.json` is `notFound`; a path that leaves the work-folder, names hidden or reserved folders, or crosses a link is `usage`; a nested registered work-folder's page is `notFound` |
+
+Test entries made in a page's preview and the Data view's edits are local-API
+operations on machine-local preview databases, not act verbs.
+
 ### Library (removed)
 
 The desktop Library went on 2026-09-25 and the `library` act family, its

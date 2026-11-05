@@ -77,6 +77,8 @@ function isActCommand(argumentsList) {
   const group = positional[0] || "";
   const actGroups = ["chat", "chats", "files", "agent", "history", "search", "tools", "apps", "automations", "recently-deleted", "requests", "jobs", "worktrees"];
   if (actGroups.includes(group)) return true;
+  // Page folders: only `pages validate` exists so far (docs/pages.md).
+  if (group === "pages") return positional[1] === "validate";
   if (group === "checks") return positional[1] !== "status";
   return group === "work-folders" && positional[1] !== "list";
 }

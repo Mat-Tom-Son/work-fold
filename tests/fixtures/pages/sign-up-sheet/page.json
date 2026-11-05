@@ -1,0 +1,17 @@
+{
+  "format": "work-fold.page/1",
+  "title": "Volunteer Sign-up",
+  "description": "Pick a shift for the spring fair.",
+  "tables": {
+    "signups": {
+      "columns": {
+        "name": { "type": "text", "required": true },
+        "email": { "type": "email", "required": true, "unique": true },
+        "shift": { "type": "choice", "options": ["Morning", "Afternoon"] },
+        "notes": { "type": "long-text", "max": 2000 }
+      },
+      "visitors": ["add", "see-own"],
+      "limit": 3
+    }
+  }
+}
