@@ -22,7 +22,7 @@
   font: inherit;
   font-weight: 600;
   color: #475569;
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-steps-summary:hover .work-steps-label,
@@ -121,7 +121,7 @@
 }
 
 .work-step-toggle {
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-step-toggle:hover .work-step-verb,
@@ -154,7 +154,7 @@
   font: inherit;
   color: #6d8db0;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-step-target.file:hover,
@@ -303,7 +303,7 @@ from {
 }
 
 .work-step-edit summary {
-  cursor: pointer;
+  cursor: default;
   width: fit-content;
 }
 

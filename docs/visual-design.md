@@ -36,6 +36,8 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use the 4, 8, 12, 16, 24, and 32px spacing scale, with 2, 6, 10, and 20px half-steps inside dense controls.
 - Text colors come from the palette (`--ui-text`, `--ui-text-muted`), not hard-coded grays. Muted text keeps at least 4.6:1 contrast on every surface it sits on, in every palette and theme; disabled controls stay legible (about 3.5:1) instead of fading.
 - Controls come in three heights (`--work-fold-control-sm/md/lg` in `brand.css`): 24px small icon actions, 30px buttons, toolbar icons, and pane search fields, and 36px form fields and search in dialogs and Settings, with 5px radii. Primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
+- Controls keep the arrow pointer, as in a native app; hover and press states show they are clickable. Only links inside Chat messages show the pointing hand (2026-11-05).
+- Menus and popovers in dark mode carry a hairline light edge and a deeper shadow so they read as containers above the window.
 - Avoid all-caps labels, weight 800+, text shadows, ornamental whole-app gradients, and oversized hero headers.
 
 ## Layout

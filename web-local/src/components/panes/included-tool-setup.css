@@ -13,7 +13,7 @@
 .included-tool-facts dd { margin: 0; overflow-wrap: anywhere; }
 .included-tool-facts dt { color: var(--ui-text-muted); }
 .included-tool-optional { margin-top: 18px; }
-.included-tool-optional summary { cursor: pointer; padding-block: 8px; color: var(--ui-text-muted); }
+.included-tool-optional summary { cursor: default; padding-block: 8px; color: var(--ui-text-muted); }
 .included-tool-optional > form { margin-top: 10px; }
 .included-tool-optional label { display: grid; gap: 6px; }
 .included-tool-optional input { min-width: 0; width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid var(--border-color, #80808055); border-radius: 6px; background: transparent; color: inherit; }
@@ -28,7 +28,7 @@
 .included-mcp-form :is(input, select, textarea) { min-width: 0; max-width: 100%; font: inherit; }
 .included-mcp-list li > .included-tool-optional { margin-top: 8px; }
 .included-mcp-form input, .included-mcp-form select, .included-mcp-form textarea { width: 100%; box-sizing: border-box; color: inherit; background: transparent; border: 1px solid var(--border-color, #80808055); border-radius: 6px; padding: 8px; }
-.included-mcp-form summary { cursor: pointer; }
+.included-mcp-form summary { cursor: default; }
 .included-mcp-auth { padding: 8px 0; }
 
 /* Computer Control's permission checklist and Chrome's two steps (2026-10-11). */

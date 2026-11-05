@@ -10,6 +10,8 @@ import {
   resolveWorkFolderAppearance,
   workFolderAppearanceBannerNames,
   workFolderAppearanceBannerLayouts,
+  workFolderAppearanceBannerIconStyles,
+  workFolderAppearanceBannerTitleFills,
   workFolderAppearanceBannerPresetIds,
   normalizeWorkFolderAppearanceBannerFraming,
   type WorkFolderAppearanceBannerImagePosition,
@@ -50,6 +52,8 @@ async function createCommand(args: string[]): Promise<void> {
       "banner-image": { type: "string" },
       "banner-preset": { type: "string" },
       "banner-layout": { type: "string" },
+      "icon-style": { type: "string" },
+      "title-fill": { type: "string" },
       "frame-x": { type: "string" },
       "frame-y": { type: "string" },
       zoom: { type: "string" },
@@ -74,6 +78,10 @@ async function createCommand(args: string[]): Promise<void> {
   if (bannerPreset && parsed.values["banner-image"]) throw new Error("Choose --banner-preset or --banner-image.");
   const bannerLayout = workFolderAppearanceBannerLayouts.find((id) => id === parsed.values["banner-layout"]);
   if (parsed.values["banner-layout"] && !bannerLayout) throw new Error(`--banner-layout must be one of: ${workFolderAppearanceBannerLayouts.join(", ")}`);
+  const bannerIconStyle = workFolderAppearanceBannerIconStyles.find((id) => id === parsed.values["icon-style"]);
+  if (parsed.values["icon-style"] && !bannerIconStyle) throw new Error(`--icon-style must be one of: ${workFolderAppearanceBannerIconStyles.join(", ")}`);
+  const bannerTitleFill = workFolderAppearanceBannerTitleFills.find((id) => id === parsed.values["title-fill"]);
+  if (parsed.values["title-fill"] && !bannerTitleFill) throw new Error(`--title-fill must be one of: ${workFolderAppearanceBannerTitleFills.join(", ")}`);
   const hasFraming = parsed.values["frame-x"] !== undefined || parsed.values["frame-y"] !== undefined || parsed.values.zoom !== undefined;
   const bannerFraming = hasFraming ? normalizeWorkFolderAppearanceBannerFraming({ x: Number(parsed.values["frame-x"] ?? 50), y: Number(parsed.values["frame-y"] ?? (position === "top" ? 0 : position === "bottom" ? 100 : 50)), zoom: Number(parsed.values.zoom ?? 1) }) : undefined;
   if (hasFraming && !bannerFraming) throw new Error("Frame coordinates must be between 0 and 100; zoom must be between 1 and 2.");
@@ -98,6 +106,8 @@ async function createCommand(args: string[]): Promise<void> {
       ...(bannerPreset ? { bannerPreset } : {}),
       ...(bannerFraming ? { bannerFraming } : {}),
       ...(bannerLayout ? { bannerLayout } : {}),
+      ...(bannerIconStyle ? { bannerIconStyle } : {}),
+      ...(bannerTitleFill ? { bannerTitleFill } : {}),
     },
     createdBy,
   });
@@ -219,6 +229,8 @@ Create options:
   --banner-image <path>     Safe raster image; resized and encoded as WebP
   --banner-preset fold      tide, ember, fold, or dusk (bundled offline)
   --banner-layout cover     card, compact, band, or cover
+  --icon-style circle       none, plain, square, or circle
+  --title-fill accent       frosted, solid, accent, or none
   --frame-x 50 --frame-y 50 Image framing, each between 0 and 100
   --zoom 1                  Image zoom, between 1 and 2
   --position center         top, center, or bottom

@@ -2,12 +2,11 @@ import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } fr
 import { ArrowReset20Regular, Crop20Regular } from "@fluentui/react-icons";
 import type { WorkFolderAppearanceBannerFraming } from "../../../../src/shared/work-folder-appearance";
 import { workFolderBannerImageStyle, workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
+import { WorkFolderBannerTitle } from "./WorkFolderBannerTitle";
 
-export function WorkFolderBannerPreview({ identity, name, onFrame, editable = true, showIcon = false }: {
+export function WorkFolderBannerPreview({ identity, name, onFrame, editable = true }: {
   identity: WorkFolderIdentity;
   name: string;
-  /** Show the icon even in the Card layout, so choosing one shows somewhere. */
-  showIcon?: boolean;
   onFrame: (framing: WorkFolderAppearanceBannerFraming) => void;
   editable?: boolean;
 }) {
@@ -108,7 +107,8 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
           }}
         >
           {identity.bannerImage ? <span className="work-folder-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={workFolderBannerImageStyle(frame)} /><span /></span> : null}
-          <span className="work-folder-appearance-preview-copy">{identity.bannerLayout !== "card" || showIcon ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}<strong>{name}</strong></span>
+          {/* The header's own title, so the preview is exactly what the header shows. */}
+          <span className="work-folder-appearance-preview-copy"><WorkFolderBannerTitle identity={identity} name={name} /></span>
         </div>
       </div>)}
     </div>

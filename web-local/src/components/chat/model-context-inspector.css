@@ -35,13 +35,13 @@
 .model-context-heading h2 { margin: 0; font-size: var(--work-fold-type-xl); line-height: 1.35; font-weight: 600; letter-spacing: -.025em; }
 .model-context-heading p { margin: 4px 0 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); }
 .model-context-inspector button, .model-context-inspector select, .model-context-inspector input { font: inherit; }
-.model-context-inspector button { cursor: pointer; color: inherit; }
+.model-context-inspector button { cursor: default; color: inherit; }
 .model-context-inspector button:disabled { cursor: default; opacity: .5; }
 .model-context-inspector :is(button, input, select, pre):focus-visible { outline: 2px solid var(--mci-accent); outline-offset: 2px; }
 .model-context-icon { display: grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: transparent; }
 .model-context-icon:hover { background: var(--mci-soft); }
 .model-context-recording { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 0 22px 15px; border-bottom: 1px solid var(--mci-border); }
-.model-context-recording > label { display: flex; align-items: center; gap: 8px; min-height: 30px; cursor: pointer; }
+.model-context-recording > label { display: flex; align-items: center; gap: 8px; min-height: 30px; cursor: default; }
 .model-context-recording input { width: 15px; height: 15px; margin: 0; accent-color: var(--mci-accent); }
 .model-context-recording strong { font-size: var(--work-fold-type-xs); font-weight: 600; }
 .model-context-recording p, .model-context-recording small { grid-column: 1 / -1; margin: 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); line-height: 1.5; }

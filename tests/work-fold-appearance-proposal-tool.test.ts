@@ -17,11 +17,14 @@ test("the inert appearance tool creates bounded built-in banner framing without 
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-banner-proposal-"));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
   const path = join(sandbox, "fold.json");
-  await run(process.execPath, [tsxCli, script, "create", "--name", "Notes", "--color", "#0e7490", "--banner-preset", "fold", "--banner-layout", "cover", "--frame-x", "25", "--frame-y", "72", "--zoom", "1.25", "--out", path], { cwd: sandbox });
+  await run(process.execPath, [tsxCli, script, "create", "--name", "Notes", "--color", "#0e7490", "--banner-preset", "fold", "--banner-layout", "cover", "--icon-style", "circle", "--title-fill", "accent", "--frame-x", "25", "--frame-y", "72", "--zoom", "1.25", "--out", path], { cwd: sandbox });
   const proposal = parseWorkFolderAppearanceProposal(JSON.parse(await readFile(path, "utf8")));
   assert.equal(proposal.customization.bannerPreset, "fold");
   assert.deepEqual(proposal.customization.bannerFraming, { x: 25, y: 72, zoom: 1.25 });
   assert.equal(proposal.customization.bannerLayout, "cover");
+  assert.equal(proposal.customization.bannerIconStyle, "circle");
+  assert.equal(proposal.customization.bannerTitleFill, "accent");
+  await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--title-fill", "glass", "--out", path]));
   await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--banner-layout", "poster", "--out", path]));
   await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--banner-preset", "https://example.test/x.webp", "--out", path]));
   await assert.rejects(run(process.execPath, [tsxCli, script, "create", "--color", "#0e7490", "--zoom", "3", "--out", path]));

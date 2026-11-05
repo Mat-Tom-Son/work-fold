@@ -219,7 +219,7 @@
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
-  cursor: pointer;
+  cursor: default;
 }
 .agent-jump-latest svg { width: 13px; height: 13px; }
 .agent-jump-latest:hover { background: var(--pop-surface-2); }
@@ -298,7 +298,7 @@
   background: none;
   color: var(--pop-text-muted);
   font-size: var(--work-fold-type-md);
-  cursor: pointer;
+  cursor: default;
   /* A comfortably tappable target without growing the chip row. */
   padding: 5px;
   margin: -5px -3px -5px 0;
@@ -368,7 +368,7 @@ textarea:focus { outline: none; }
   field-sizing: content;
   /* The level sits against its chevron, so short words leave no gap. */
   text-align: right;
-  cursor: pointer;
+  cursor: default;
 }
 .composer-model:hover,
 .composer-model:focus-visible,
@@ -411,7 +411,7 @@ textarea:focus { outline: none; }
   color: var(--pop-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 .popover-mention-menu > button.active { background: var(--pop-accent-bg); }
 .popover-mention-menu .composer-mention-icon { display: inline-flex; color: var(--pop-text-muted); }
@@ -447,7 +447,7 @@ button {
   background: var(--pop-surface);
   color: var(--pop-text);
   padding: 6px 12px;
-  cursor: pointer;
+  cursor: default;
 }
 
 button:disabled { opacity: 0.55; cursor: default; }
