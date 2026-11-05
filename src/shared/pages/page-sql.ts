@@ -1,8 +1,8 @@
 /**
  * The small SQL interface the page rules engine runs on (docs/pages.md,
  * "Storage and code layout"). Locally it is `node:sqlite`'s `DatabaseSync`
- * (src/local/pages/page-sqlite.ts); online it can be a Durable Object's SQL
- * storage. Every call is synchronous. Values always travel as bound
+ * (src/local/pages/page-sqlite.ts), and the hosted page service will use the
+ * same adapter. Every call is synchronous. Values always travel as bound
  * parameters; identifiers come only from validated declarations and are
  * quoted with `quotePageIdentifier`.
  */
