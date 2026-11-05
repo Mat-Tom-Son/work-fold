@@ -8810,23 +8810,6 @@ to {
   min-width: 0;
 }
 
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:not(:first-child):not(:disabled),
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:only-child:not(:disabled) {
-  color: var(--ui-danger);
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:disabled {
-  background: transparent;
-  border-color: transparent;
-}
-
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:not(:disabled):hover {
-  background: color-mix(in srgb, var(--ui-danger) 9%, transparent);
-}
-
 .remote-browser-row:has(.recently-deleted-row-actions) {
   align-items: flex-start;
   padding-block: 12px;
@@ -11268,26 +11251,6 @@ textarea:focus-visible,
 .ai-models-account-window > div { display: flex; justify-content: space-between; gap: 16px; }
 .ai-models-account-window progress { width: 100%; height: 6px; accent-color: var(--ui-accent); }
 
-.professional-setup .ai-models-remove-credential {
-  min-height: 34px;
-  padding: 4px 0;
-  border: 0;
-  color: var(--ui-danger);
-  background: transparent;
-  font: inherit;
-  font-size: var(--work-fold-type-xs);
-  cursor: default;
-}
-
-.professional-setup .ai-models-remove-credential:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.professional-setup .ai-models-remove-credential:disabled {
-  opacity: .45;
-  cursor: default;
-}
-
 .professional-setup .ai-models-key-connection {
   display: grid;
   gap: 16px;
@@ -11406,21 +11369,6 @@ textarea:focus-visible,
   color: var(--ui-text);
   font-size: var(--work-fold-type-sm);
   font-weight: 600;
-}
-
-.professional-setup .ai-models-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  color: var(--ui-accent);
-  background: transparent;
-  font-size: var(--work-fold-type-xs);
-}
-
-.professional-setup .ai-models-refresh:disabled {
-  color: var(--ui-text-subtle);
 }
 
 .professional-setup .ai-models-refresh svg {
@@ -22948,6 +22896,7 @@ to {
   color: var(--ui-text-muted);
   background: var(--ui-surface-subtle);
   border-style: dashed;
+  border-color: var(--ui-border-strong, var(--ui-border));
 }
 
 .work-folder-banner-image-gallery > button.empty:hover > span {
@@ -23027,3 +22976,208 @@ to {
   }
 }
 
+/* Buttons (2026-11-05). Every text button has a visible shape at rest: a
+   fill and a hairline edge that read in light and dark, and hover with the
+   same fill as every other control. Icon-only toolbar buttons, rows, tabs,
+   chips, and menu items stay flat until hovered. */
+
+:root {
+  --ui-button-fill: #ffffff;
+  --ui-button-edge: rgb(23 29 26 / .15);
+}
+
+:root[data-theme="dark"] {
+  --ui-button-fill: color-mix(in srgb, #ffffff 9%, var(--ui-surface));
+  --ui-button-edge: rgb(255 255 255 / .1);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+) {
+  color: var(--ui-text);
+  background: var(--ui-button-fill);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--ui-control-hover, var(--ui-surface-hover));
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):active:not(:disabled) {
+  background: var(--ui-control-pressed);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):disabled {
+  color: color-mix(in srgb, var(--ui-text-muted) 80%, var(--ui-surface));
+  background: var(--ui-button-fill);
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+  opacity: .7;
+}
+
+:root[data-theme] .app-shell .ui-control.ui-control.danger:not(:disabled),
+:root[data-theme] .app-shell .ui-control.ui-control.danger:hover:not(:disabled) {
+  color: var(--ui-danger);
+}
+
+/* Skills & Extensions: the icon sits above the name, so long names like
+   Service Connections stay on one line at the minimum window width. */
+.capabilities-included-name {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.capabilities-included-name strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings → Automations: each row is one line per fact; the full title is
+   its tooltip. */
+.automation-list-heading strong,
+.automation-list-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
+
+.automation-list-heading {
+  align-items: center;
+}
+
+.automation-list-heading strong {
+  flex: 1 1 auto;
+}
+
+/* Manage work-folders: the two actions stack, so neither name is cut off. */
+.professional-work-folder-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:root[data-theme] .app-shell .professional-work-folder-action:hover {
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .professional-work-folders .work-folder-card-main:not(.active):hover {
+  background: var(--ui-surface-hover);
+}
+
+/* Disclosure rows answer the pointer too. */
+:root[data-theme] .app-shell :is(.capabilities-packages, .capabilities-core-tools) > summary:hover {
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .capability-technical-details > summary:hover {
+  color: var(--ui-text);
+}
+
+
+/* History → Compare: the heading's text block and Compare Again share a center line. */
+:root[data-theme] .app-shell .history-comparison-heading {
+  align-items: center;
+}
+
+/* Disclosure toggles brighten under the pointer. */
+:root[data-theme] .app-shell :is(.history-file-comparison, .included-tool-setup, .capability-dialog) details > summary:hover {
+  color: var(--ui-text);
+}
+
+/* Settings → Automations: the trigger line runs under the title and the
+   actions, so it keeps one line at the minimum window width. */
+.automation-inspector-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title actions" "trigger trigger";
+  align-items: center;
+  row-gap: 4px;
+}
+
+.automation-inspector-header > div:first-child {
+  display: contents;
+}
+
+.automation-inspector-header h4 {
+  grid-area: title;
+  min-width: 0;
+}
+
+.automation-inspector-header > div:first-child > span {
+  grid-area: trigger;
+}
+
+.automation-inspector-actions {
+  grid-area: actions;
+}
+
+:root[data-theme] .app-shell .history-file-comparison details > summary {
+  color: var(--ui-text-muted);
+}
+
+:root[data-theme] .app-shell .history-file-comparison details > summary:hover {
+  color: var(--ui-text);
+}

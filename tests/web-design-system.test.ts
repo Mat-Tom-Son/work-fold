@@ -550,3 +550,10 @@ test("controls keep the arrow pointer like a desktop app; only links in Chat sho
     });
   }
 });
+
+test("text buttons have a visible shape at rest in light and dark", async () => {
+  const css = await readFile(join(process.cwd(), "web-local/src/styles.css"), "utf8");
+  assert.match(css, /:root \{\s*--ui-button-fill: #ffffff;\s*--ui-button-edge:/);
+  assert.match(css, /:root\[data-theme="dark"\] \{\s*--ui-button-fill: color-mix\(in srgb, #ffffff 9%, var\(--ui-surface\)\);\s*--ui-button-edge: rgb\(255 255 255 \/ \.1\);/);
+  assert.match(css, /\.ui-control:not\(\.ui-control--primary\):not\(\.ui-control--icon\),[\s\S]*?\.checks-manual-button\s*\) \{\s*color: var\(--ui-text\);\s*background: var\(--ui-button-fill\);\s*border: 0;\s*box-shadow: inset 0 0 0 1px var\(--ui-button-edge\);/);
+});
