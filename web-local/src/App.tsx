@@ -637,6 +637,11 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const restrictedAppsState = restrictedAppsStore;
   const [skillsExtensionsView, setSkillsExtensionsView] = useState<SkillsExtensionsView | null>(null);
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
+  // Each file has its own tab, so switching file tabs selects that file in Files.
+  const activeFilePath = activeTab?.kind === "file" && activeTab.workFolderId === workFolder.id ? activeTab.path : null;
+  useEffect(() => {
+    if (activeFilePath) tree.setSelectedPath(activeFilePath);
+  }, [activeFilePath]);
   const checks = useWorkFolderChecks(workFolder, Boolean(fixture), activeTab?.kind !== "checks");
   const folderAutomations = useFolderAutomations(workFolder.id, Boolean(fixture));
   const hasFolderAutomations = (folderAutomations.byWorkFolder[workFolder.id]?.length ?? 0) > 0;

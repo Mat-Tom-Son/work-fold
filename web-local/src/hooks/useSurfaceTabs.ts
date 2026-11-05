@@ -307,6 +307,13 @@ export function useSurfaceTabs({
 
   function retargetFileSurfaceTabsForMove(workFolderId: string, sourcePath: string, movedPath: string): void {
     setSurfaceTabs((current) => retargetFileSurfaceTabs(current, workFolderId, sourcePath, movedPath));
+    // A file tab's id names its path, so the selected tab follows its file.
+    setActiveSurfaceTabId((current) => {
+      if (!current?.startsWith(`file:${workFolderId}:`)) return current;
+      const path = current.slice(`file:${workFolderId}:`.length);
+      const nextPath = retargetMovedPath(path, sourcePath, movedPath);
+      return nextPath && nextPath !== path ? fileSurfaceTabId(workFolderId, nextPath) : current;
+    });
   }
 
   function closeFileSurfaceTabsForDeletedPaths(workFolderId: string, deletedPaths: Set<string>): void {
@@ -407,8 +414,14 @@ function writeStoredSurfaceTabsState(state: SurfaceTabsState): void {
 function normalizeStoredSurfaceTabsValue(parsed: unknown): SurfaceTabsState {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { tabs: [], activeTabId: null };
   const record = parsed as Record<string, unknown>;
-  const activeTabId = typeof record.activeTabId === "string" ? record.activeTabId : null;
+  const storedActiveTabId = typeof record.activeTabId === "string" ? record.activeTabId : null;
   const tabs = Array.isArray(record.tabs) ? normalizeStoredSurfaceTabs(record.tabs) : [];
+  // A restored tab whose id was rebuilt (an older file tab) stays the selected tab.
+  const storedActive = Array.isArray(record.tabs) && storedActiveTabId
+    ? record.tabs.find((tab) => tab && typeof tab === "object" && (tab as Record<string, unknown>).id === storedActiveTabId)
+    : undefined;
+  const rebuiltActive = storedActive ? normalizeStoredSurfaceTab(storedActive) : null;
+  const activeTabId = rebuiltActive?.id ?? storedActiveTabId;
   return normalizeActiveSurfaceTab({ tabs, activeTabId });
 }
 
@@ -445,8 +458,9 @@ function normalizeStoredSurfaceTab(value: unknown): WorkFolderSurfaceTab | null 
   }
   if (record.kind === "file") {
     if (typeof record.path !== "string") return null;
+    // Tabs saved before files had a tab each carry the old per-work-folder id.
     return {
-      id: record.id,
+      id: fileSurfaceTabId(record.workFolderId, record.path),
       kind: "file",
       workFolderId: record.workFolderId,
       path: record.path,
@@ -633,9 +647,10 @@ function historySurfaceTab(workFolder: WorkFolderSummary, checkpointId?: string,
   };
 }
 
+/** Each file opens in its own tab; opening a file that is already open selects its tab. */
 function fileSurfaceTab(workFolder: WorkFolderSummary, path: string): WorkFolderSurfaceTab {
   return {
-    id: fileSurfaceTabId(workFolder.id),
+    id: fileSurfaceTabId(workFolder.id, path),
     kind: "file",
     workFolderId: workFolder.id,
     path,
@@ -643,8 +658,8 @@ function fileSurfaceTab(workFolder: WorkFolderSummary, path: string): WorkFolder
   };
 }
 
-function fileSurfaceTabId(workFolderId: string): string {
-  return `file:${workFolderId}`;
+function fileSurfaceTabId(workFolderId: string, path: string): string {
+  return `file:${workFolderId}:${path}`;
 }
 
 function fileSurfaceTitle(path: string): string {
@@ -797,11 +812,16 @@ function upsertSurfaceTab(tabs: WorkFolderSurfaceTab[], tab: WorkFolderSurfaceTa
 }
 
 function retargetFileSurfaceTabs(tabs: WorkFolderSurfaceTab[], workFolderId: string, sourcePath: string, movedPath: string): WorkFolderSurfaceTab[] {
-  return tabs.map((tab) => {
-    if (tab.kind !== "file" || tab.workFolderId !== workFolderId || !tab.path) return tab;
-    const nextPath = retargetMovedPath(tab.path, sourcePath, movedPath);
-    if (!nextPath || nextPath === tab.path) return tab;
-    return { ...tab, path: nextPath, title: fileSurfaceTitle(nextPath) };
+  const seen = new Set<string>();
+  return tabs.flatMap((tab) => {
+    let next = tab;
+    if (tab.kind === "file" && tab.workFolderId === workFolderId && tab.path) {
+      const nextPath = retargetMovedPath(tab.path, sourcePath, movedPath);
+      if (nextPath && nextPath !== tab.path) next = { ...tab, id: fileSurfaceTabId(workFolderId, nextPath), path: nextPath, title: fileSurfaceTitle(nextPath) };
+    }
+    if (seen.has(next.id)) return [];
+    seen.add(next.id);
+    return [next];
   });
 }
 
