@@ -53,7 +53,7 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
     <section className="settings-section settings-apps" aria-labelledby="settings-apps-title">
       <h3 className="sr-only" id="settings-apps-title">Apps</h3>
       {!foldersWithApps.length && !failedWorkFolders.length ? (
-        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. To make one, open a chat in the work-folder it is for and describe what the app should do. The Worker builds it, and it shows up here."}</p>
+        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. Ask a Worker in a Chat to build one, and it shows up here."}</p>
       ) : null}
       {failedWorkFolders.length ? <p className="settings-section-note" role="status">
         Could not load apps in {failedWorkFolders.map((workFolder) => workFolder.name).join(", ")}.{" "}

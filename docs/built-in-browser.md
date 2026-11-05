@@ -26,8 +26,9 @@ they open appear in the same strip.
   close, Ctrl+Tab and Cmd/Ctrl+1–9 to move between them, and they come back
   after a restart with their address and title. A restored page loads when
   its tab is next shown or a Worker uses it.
-- Cmd/Ctrl+Shift+T, or **Reopen closed tab** in the command palette, brings
-  back the browser tab closed last; the window remembers the last 25.
+- Cmd/Ctrl+Shift+T, or **Reopen Closed Tab** in the command palette, brings
+  back the tab closed last, browser or not; the window remembers the last 25
+  of each.
 - Right-clicking a browser tab offers Reload, Duplicate, Copy Address, Open in
   Your Web Browser, Mute Tab, Print…, Save as PDF…, Close Tab, Close Other
   Browser Tabs, and Reopen Closed Tab. A muted tab shows a crossed-out

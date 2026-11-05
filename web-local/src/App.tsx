@@ -583,6 +583,15 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   watchedChatKeysRef.current = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "chat" && tab.conversationId ? [chatActivityKey(tab.workFolderId, tab.conversationId)] : []));
   const conversationGroupsRef = useRef(conversationGroups);
   conversationGroupsRef.current = conversationGroups;
+  const workFoldersRef = useRef(workFolders);
+  workFoldersRef.current = workFolders;
+  /** Reopen Closed Tab: whichever tab the person closed last, browser or not. */
+  function reopenClosedTab(): boolean {
+    if (browser.lastClosedAt() > tabs.lastClosedSurfaceTabAt()) return browser.reopenClosed();
+    return tabs.reopenClosedSurfaceTab((tab) => workFoldersRef.current.some((item) => item.id === tab.workFolderId)
+      && (tab.kind !== "chat" || !tab.conversationId || Boolean(conversationGroupsRef.current[tab.workFolderId]?.some((chat) => chat.id === tab.conversationId))))
+      || browser.reopenClosed();
+  }
   useEffect(() => {
     if (fixture) return;
     let disposed = false;
@@ -853,7 +862,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
     else if (desktopAction.command === "toggle-sidebar") setSidebarHidden(!sidebarCollapsedRef.current);
     else if (desktopAction.command === "toggle-agent-panel") toggleAgentPanel();
-    else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
+    else if (desktopAction.command === "close-tab" && tabs.activeSurfaceTabId) tabs.closeSurfaceTab(tabs.activeSurfaceTabId, true);
   }, [desktopAction?.id, openCommandPalette]);
   // The desktop View menu owns Cmd/Ctrl+B and Cmd/Ctrl+J; a browser gets the same keys here.
   useEffect(() => {
@@ -883,9 +892,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         if (next) tabs.setActiveSurfaceTabId(next.id);
         return;
       }
-      // Cmd/Ctrl+Shift+T brings back the browser tab closed last.
+      // Cmd/Ctrl+Shift+T brings back the tab closed last.
       if (command && event.shiftKey && event.key.toLocaleLowerCase() === "t") {
-        if (browser.reopenClosed()) event.preventDefault();
+        if (reopenClosedTab()) event.preventDefault();
         return;
       }
       if (!command || event.shiftKey) return;
@@ -897,7 +906,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       if (!isMacOS() && event.key.toLocaleLowerCase() === "w") {
         if (!tabs.activeSurfaceTabId) return;
         event.preventDefault();
-        tabs.closeSurfaceTab(tabs.activeSurfaceTabId);
+        tabs.closeSurfaceTab(tabs.activeSurfaceTabId, true);
         return;
       }
       if (event.key >= "1" && event.key <= "9") {
@@ -1260,14 +1269,17 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       : { x: Math.round(event.clientX), y: Math.round(event.clientY) };
     const snooze = resolveChatSnoozePresets(new Date());
     const others = tabId ? tabs.surfaceTabs.filter((tab) => tab.id !== tabId) : [];
+    const toRight = tabId ? tabs.surfaceTabs.slice(tabs.surfaceTabs.findIndex((tab) => tab.id === tabId) + 1) : [];
     try {
       const command = await popupTabMenu({
         ...(conversation ? { chat: { lifecycle: conversationLifecycleView(conversation), snooze: snooze.map(({ id, label, detail }) => ({ id, label, detail })) } } : {}),
-        ...(tabId ? { tab: { hasOthers: others.length > 0 } } : {}),
+        ...(tabId ? { tab: { hasOthers: others.length > 0, hasRight: toRight.length > 0, canReopen: tabs.lastClosedSurfaceTabAt() > 0 || browser.lastClosedAt() > 0 } } : {}),
         point,
       });
-      if (command === "close") { if (tabId) tabs.closeSurfaceTab(tabId); return; }
-      if (command === "close-others") { for (const other of others) tabs.closeSurfaceTab(other.id); return; }
+      if (command === "close") { if (tabId) tabs.closeSurfaceTab(tabId, true); return; }
+      if (command === "close-others") { for (const other of others) tabs.closeSurfaceTab(other.id, true); return; }
+      if (command === "close-right") { for (const other of toRight) tabs.closeSurfaceTab(other.id, true); return; }
+      if (command === "reopen") { reopenClosedTab(); return; }
       if (!command || !conversation) return;
       if (command === "rename") setChatActions({ workFolder: targetWorkFolder, conversation, x: point.x, y: point.y, returnFocusTarget: anchor, view: "rename" });
       else if (command === "copy") await copyChat(targetWorkFolder, conversation);
@@ -1750,8 +1762,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     { id: "action:new-chat", groupId: "actions", groupLabel: "Actions", label: "New Chat", keywords: ["chat", "conversation", "assistant"], defaultVisible: true, run: () => openChat(workFolder, null) },
     ...(browser.available ? [
       { id: "action:new-browser-tab", groupId: "actions" as const, groupLabel: "Actions", label: "New Browser Tab", keywords: ["browser", "web", "website", "internet", "page"], defaultVisible: true, run: browser.newTab },
-      { id: "action:reopen-closed-tab", groupId: "actions" as const, groupLabel: "Actions", label: "Reopen Closed Tab", keywords: ["browser", "undo", "restore", "closed"], run: () => { if (!browser.reopenClosed()) showToast({ text: "No closed browser tab to reopen", tone: "info" }); } },
     ] : []),
+    { id: "action:reopen-closed-tab", groupId: "actions", groupLabel: "Actions", label: "Reopen Closed Tab", keywords: ["browser", "undo", "restore", "closed", "tab"], run: () => { if (!reopenClosedTab()) showToast({ text: "No closed tab to reopen", tone: "info" }); } },
     ...(!fixture ? [
       { id: "action:set-up", groupId: "actions" as const, groupLabel: "Actions", label: "Set Up for Me", keywords: ["organize", "tidy", "setup", "banner", "instructions"], run: () => { void startSetUp("full"); } },
       { id: "action:just-the-look", groupId: "actions" as const, groupLabel: "Actions", label: "Just the Look", keywords: ["banner", "icon", "color", "appearance", "customize"], run: () => { void startSetUp("look"); } },
@@ -1870,7 +1882,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     </section>
     <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize Panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">
-      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={tabs.closeSurfaceTab} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
+      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={(tabId) => tabs.closeSurfaceTab(tabId, true)} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         if (tab.kind === "browser") {
           // A browser tab belongs to no work-folder; every work-folder shows it.

@@ -12,6 +12,8 @@ export type NativeTabMenuCommand =
   | "delete"
   | "close"
   | "close-others"
+  | "close-right"
+  | "reopen"
   | `snooze:${string}`;
 
 export interface NativeTabMenuSnoozePreset {
@@ -24,7 +26,7 @@ export interface NativeTabMenuRequest {
   /** The Chat's actions; absent for a tab that holds no saved Chat. */
   chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: NativeTabMenuSnoozePreset[] };
   /** The tab strip's actions; absent when the menu opens from the Chats list. */
-  tab?: { hasOthers: boolean };
+  tab?: { hasOthers: boolean; hasRight: boolean; canReopen: boolean };
   point: { x: number; y: number };
 }
 
@@ -36,7 +38,7 @@ export type NativeTabMenuItem =
 const requestKeys = new Set(["chat", "tab", "point"]);
 const chatKeys = new Set(["lifecycle", "snooze"]);
 const presetKeys = new Set(["id", "label", "detail"]);
-const tabKeys = new Set(["hasOthers"]);
+const tabKeys = new Set(["hasOthers", "hasRight", "canReopen"]);
 const pointKeys = new Set(["x", "y"]);
 const lifecycles = new Set(["active", "snoozed", "archived"]);
 
@@ -69,8 +71,10 @@ export function parseNativeTabMenuRequest(value: unknown): NativeTabMenuRequest 
     request.chat = { lifecycle: chat.lifecycle as "active" | "snoozed" | "archived", snooze };
   }
   if (tab !== undefined) {
-    if (!isRecord(tab) || !hasOnlyKeys(tab, tabKeys) || typeof tab.hasOthers !== "boolean") throw new Error("The tab menu request is invalid.");
-    request.tab = { hasOthers: tab.hasOthers };
+    if (!isRecord(tab) || !hasOnlyKeys(tab, tabKeys) || ![tab.hasOthers, tab.hasRight, tab.canReopen].every((flag) => typeof flag === "boolean")) {
+      throw new Error("The tab menu request is invalid.");
+    }
+    request.tab = { hasOthers: tab.hasOthers as boolean, hasRight: tab.hasRight as boolean, canReopen: tab.canReopen as boolean };
   }
   return request;
 }
@@ -101,11 +105,14 @@ export function nativeTabMenuItems(request: NativeTabMenuRequest): NativeTabMenu
   }
   if (tab) {
     if (items.length) items.push({ type: "separator" });
+    const item = (label: string, command: NativeTabMenuCommand, enabled: boolean): NativeTabMenuItem =>
+      enabled ? { type: "item", label, command } : { type: "item", label, command, enabled: false };
     items.push(
-      { type: "item", label: "Close Tab", command: "close" },
-      tab.hasOthers
-        ? { type: "item", label: "Close Other Tabs", command: "close-others" }
-        : { type: "item", label: "Close Other Tabs", command: "close-others", enabled: false },
+      item("Close Tab", "close", true),
+      item("Close Other Tabs", "close-others", tab.hasOthers),
+      item("Close Tabs to the Right", "close-right", tab.hasRight),
+      { type: "separator" },
+      item("Reopen Closed Tab", "reopen", tab.canReopen),
     );
   }
   return items;

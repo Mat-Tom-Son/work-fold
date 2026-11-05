@@ -15626,12 +15626,6 @@ to {
   background: var(--ui-text-subtle);
 }
 
-.capabilities-included-checked {
-  color: var(--ui-text-subtle);
-  font-size: var(--work-fold-type-xs);
-  line-height: 1.3;
-}
-
 .capabilities-included-tile.tone-enabled .capabilities-status-dot {
   background: var(--ui-success);
 }
@@ -22257,13 +22251,19 @@ to {
   min-height: var(--work-fold-control-sm);
 }
 
-:root[data-theme] .app-shell :is(.file-tree-search, .capabilities-search) {
+:root[data-theme] .app-shell .file-tree-search {
   min-height: var(--work-fold-control-md);
   height: var(--work-fold-control-md);
 }
 
+/* Skills & Extensions is a dialog: its search matches the filter and sort beside it. */
+:root[data-theme] .app-shell .capabilities-search {
+  min-height: var(--work-fold-control-lg);
+  height: var(--work-fold-control-lg);
+}
+
 :root[data-theme] .app-shell .capabilities-search input {
-  height: calc(var(--work-fold-control-md) - 2px);
+  height: calc(var(--work-fold-control-lg) - 2px);
   font-size: var(--work-fold-type-sm);
 }
 
@@ -22608,4 +22608,12 @@ to {
 .conversation-context-meter circle.value {
   stroke-width: 7.5;
   stroke-linecap: butt;
+}
+
+/* A file tab whose name another open tab shares shows its folder. */
+.surface-tab-detail {
+  margin-left: 6px;
+  color: var(--ui-text-muted, #5c6460);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 400;
 }

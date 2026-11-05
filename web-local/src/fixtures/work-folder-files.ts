@@ -124,10 +124,17 @@ const itineraryThen = `# Japan trip
 - Kyoto ryokan, nights 4–6
 `;
 
+const gardenIdeas = `# Garden ideas
+
+- Raised bed along the south fence
+- Drip line on a timer
+- Herbs by the back door
+`;
+
 /** Text the preview's file tabs show, by work-folder and path. Other files show their type icon. */
 export function buildFixtureFileContents(homeId: string, tripId: string): Record<string, Record<string, string>> {
   return {
-    [homeId]: { "Kitchen refresh/ideas.md": ideasNow, "weekend checklist.md": weekendChecklist },
+    [homeId]: { "Kitchen refresh/ideas.md": ideasNow, "Garden/ideas.md": gardenIdeas, "weekend checklist.md": weekendChecklist },
     [tripId]: { "itinerary.md": itineraryNow },
   };
 }

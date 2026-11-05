@@ -261,7 +261,16 @@ export function useSurfaceTabs({
     });
   }, []);
 
-  function closeSurfaceTab(tabId: string): void {
+  /** Tabs the person closed, newest last, for Reopen Closed Tab; kept for this window's life. Browser tabs keep their own. */
+  const closedSurfaceTabsRef = useRef<Array<{ tab: WorkFolderSurfaceTab; index: number; at: number }>>([]);
+
+  /** Closes a tab. `remember` keeps it for Reopen Closed Tab: only the person's own closes are remembered. */
+  function closeSurfaceTab(tabId: string, remember = false): void {
+    const index = surfaceTabs.findIndex((tab) => tab.id === tabId);
+    const closing = surfaceTabs[index];
+    if (remember && closing && closing.kind !== "browser") {
+      closedSurfaceTabsRef.current = [...closedSurfaceTabsRef.current, { tab: closing, index, at: Date.now() }].slice(-25);
+    }
     setSurfaceTabs((current) => {
       const index = current.findIndex((tab) => tab.id === tabId);
       if (index < 0) return current;
@@ -275,6 +284,24 @@ export function useSurfaceTabs({
       });
       return next;
     });
+  }
+
+  /** Opens the tab the person closed last again, in its old place. False when there is none left to reopen. */
+  function reopenClosedSurfaceTab(canReopen: (tab: WorkFolderSurfaceTab) => boolean): boolean {
+    while (closedSurfaceTabsRef.current.length) {
+      const { tab, index } = closedSurfaceTabsRef.current.at(-1)!;
+      closedSurfaceTabsRef.current = closedSurfaceTabsRef.current.slice(0, -1);
+      if (surfaceTabs.some((open) => open.id === tab.id) || !canReopen(tab)) continue;
+      setSurfaceTabs((current) => current.some((open) => open.id === tab.id) ? current : [...current.slice(0, index), tab, ...current.slice(index)]);
+      setActiveSurfaceTabId(tab.id);
+      return true;
+    }
+    return false;
+  }
+
+  /** When the person last closed a tab Reopen Closed Tab can bring back; 0 when none. */
+  function lastClosedSurfaceTabAt(): number {
+    return closedSurfaceTabsRef.current.at(-1)?.at ?? 0;
   }
 
   const reorderSurfaceTabs = useCallback((ids: string[]): void => {
@@ -354,6 +381,8 @@ export function useSurfaceTabs({
     openBrowserSurfaceTab,
     updateBrowserSurfaceTab,
     closeSurfaceTab,
+    reopenClosedSurfaceTab,
+    lastClosedSurfaceTabAt,
     reorderSurfaceTabs,
     handleTabConversationActivated,
     removeWorkFolderSurfaceTabs,

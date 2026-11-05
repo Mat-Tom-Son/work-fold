@@ -60,7 +60,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
       popupTabMenu: (request: {
         chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
-        tab?: { hasOthers: boolean };
+        tab?: { hasOthers: boolean; hasRight: boolean; canReopen: boolean };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-tab-menu", request),
     } : {}),

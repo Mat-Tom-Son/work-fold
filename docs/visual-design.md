@@ -35,7 +35,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - User-selected fonts and text sizes may change type, but must not change shell geometry or push controls out of bounds.
 - Use the 4, 8, 12, 16, 24, and 32px spacing scale, with 2, 6, 10, and 20px half-steps inside dense controls.
 - Text colors come from the palette (`--ui-text`, `--ui-text-muted`), not hard-coded grays. Muted text keeps at least 4.6:1 contrast on every surface it sits on, in every palette and theme; disabled controls stay legible (about 3.5:1) instead of fading.
-- Controls come in three heights (`--work-fold-control-sm/md/lg` in `brand.css`): 24px small icon actions, 30px buttons, toolbar icons, and search fields, and 36px form fields in dialogs and Settings, with 5px radii. Primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
+- Controls come in three heights (`--work-fold-control-sm/md/lg` in `brand.css`): 24px small icon actions, 30px buttons, toolbar icons, and pane search fields, and 36px form fields and search in dialogs and Settings, with 5px radii. Primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
 - Avoid all-caps labels, weight 800+, text shadows, ornamental whole-app gradients, and oversized hero headers.
 
 ## Layout

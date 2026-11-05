@@ -361,6 +361,10 @@ export function WorkFolderSurfaceTabBar({
     );
   }
 
+  // Two open files with one name each show their folder.
+  const fileTitleCounts = new Map<string, number>();
+  for (const tab of tabs) if (tab.kind === "file") fileTitleCounts.set(tab.title, (fileTitleCounts.get(tab.title) ?? 0) + 1);
+
   function renderSurfaceTab(tab: WorkFolderSurfaceTab, grouped: boolean) {
     if (tab.kind === "browser") return renderBrowserTab(tab, grouped);
     const tabWorkFolder = workFolders.find((item) => item.id === tab.workFolderId);
@@ -377,6 +381,9 @@ export function WorkFolderSurfaceTabBar({
       : undefined;
     const activityLabel = activity === "running" ? "Worker is working" : activity === "attention" ? "Worker finished" : "";
     const shared = tab.kind === "file" && Boolean(isSharedFile?.(tab.workFolderId, tab.path));
+    const folderDetail = tab.kind === "file" && (fileTitleCounts.get(tab.title) ?? 0) > 1
+      ? tab.path.split("/").slice(0, -1).at(-1) || workFolderName
+      : null;
     return (
       <span
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
@@ -414,7 +421,7 @@ export function WorkFolderSurfaceTabBar({
         >
           {grouped ? null : <span className="surface-tab-icon" aria-hidden="true"><WorkFolderIconGlyph icon={Icon} size={15} /></span>}
           <span className="surface-tab-copy">
-            <span className="surface-tab-title">{tab.title}</span>
+            <span className="surface-tab-title">{tab.title}{folderDetail ? <span className="surface-tab-detail">{folderDetail}</span> : null}</span>
           </span>
           {activity ? <TabActivityDot status={activity} /> : null}
           {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}

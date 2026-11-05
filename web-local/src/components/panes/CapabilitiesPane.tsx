@@ -559,7 +559,7 @@ export function CapabilitiesPane({
           {catalog && !query.trim() ? (
             <section className="capabilities-panel capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
               <div className="capabilities-supporting-heading">
-                <h3 id="capabilities-supporting-title">Built-In Tools and Packages</h3>
+                <h3 id="capabilities-supporting-title">Tools and Packages</h3>
               </div>
               <div className="capabilities-supporting-list">
                 <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />
@@ -745,7 +745,6 @@ function IncludedToolTile({ item, readiness, onSelect }: { item: InstalledCapabi
         <strong>{item.name}</strong>
       </span>
       <span className="capabilities-included-status"><span className="capabilities-status-dot" aria-hidden="true" />{state.label}</span>
-      {readiness?.stale && readiness.state === "ready" ? <span className="capabilities-included-checked">Verified Earlier · Details</span> : null}
       {state.setup ? <span className="capabilities-included-setup">Set Up<ChevronRight16Regular aria-hidden="true" /></span> : null}
     </button>
   );
@@ -820,7 +819,7 @@ function PackageManagementSection({ packages, packageBusy, onPackageAction }: {
     <details className="capabilities-packages capabilities-management-section">
       <summary>
         <span><Box16Regular aria-hidden="true" /><strong>Packages</strong></span>
-        <small>{packages.length} installed{updates ? ` · ${updates} ${updates === 1 ? "update" : "updates"}` : ""}</small>
+        <small>{packages.length}{updates ? ` · ${updates} ${updates === 1 ? "update" : "updates"}` : ""}</small>
       </summary>
       <div className="capabilities-package-list">{packages.map((item) => {
         const updateKey = `update:${item.scope}:${item.source}`;
@@ -836,7 +835,7 @@ function CoreToolsSection({ tools, management }: { tools: AgentTool[]; managemen
   if (!coreTools.length) return null;
   return (
     <details className="capabilities-core-tools capabilities-management-section" data-management-mode={management?.mode}>
-      <summary><span><Code16Regular aria-hidden="true" /><strong>Core Tools</strong></span><small>{coreTools.length} built in</small></summary>
+      <summary><span><Code16Regular aria-hidden="true" /><strong>Built-In Tools</strong></span><small>{coreTools.length}</small></summary>
       <div className="capabilities-core-tools-body">
         <div className="capabilities-core-tool-list">{coreTools.map((tool) => (
           <article className="capabilities-core-tool-row" key={`${tool.source}:${tool.name}`}>
