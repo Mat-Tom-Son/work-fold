@@ -10,6 +10,8 @@ import {
   type ResolverGround,
   type WorkFolderAppearanceBannerFraming,
   type WorkFolderAppearanceBannerLayout,
+  type WorkFolderAppearanceBannerIconStyle,
+  type WorkFolderAppearanceBannerTitleFill,
   type WorkFolderAppearanceBannerPresetId,
 } from "../../../src/shared/work-folder-appearance";
 import { maxWorkFolderBannerImageDataUrlLength, maxWorkFolderBannerImageFileBytes } from "../constants";
@@ -103,6 +105,9 @@ interface WorkFolderIdentity {
   bannerPreset: WorkFolderAppearanceBannerPresetId | null;
   bannerFraming: WorkFolderAppearanceBannerFraming;
   bannerLayout: WorkFolderAppearanceBannerLayout;
+  /** Effective choices: Card has no icon and images get a frosted name unless chosen otherwise. */
+  bannerIconStyle: WorkFolderAppearanceBannerIconStyle;
+  bannerTitleFill: WorkFolderAppearanceBannerTitleFill;
   iconName: string;
   iconLabel: string;
   Icon: WorkFolderIconOption["Icon"];
@@ -147,6 +152,8 @@ function workFolderIdentityFor(workFolder: WorkFolderSummary, customizations: Wo
       x: 50, y: custom.bannerImagePosition === "top" ? 0 : custom.bannerImagePosition === "bottom" ? 100 : 50, zoom: 1,
     },
     bannerLayout: custom.bannerLayout ?? "card",
+    bannerIconStyle: custom.bannerIconStyle ?? ((custom.bannerLayout ?? "card") === "card" ? "none" : "square"),
+    bannerTitleFill: custom.bannerTitleFill ?? (bannerImage && custom.bannerLayout !== "band" ? "frosted" : "none"),
     iconName: iconOption.name,
     iconLabel: iconOption.label,
     Icon: iconOption.Icon,

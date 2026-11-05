@@ -11,7 +11,7 @@
   border-radius: var(--ui-radius-sm);
   color: var(--ui-text-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 :root[data-theme] .app-shell .file-sort-button:is(:hover, :focus-visible, .active) {

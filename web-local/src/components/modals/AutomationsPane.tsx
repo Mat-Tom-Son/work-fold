@@ -514,6 +514,7 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
             {automations.map((automation) => (
               <button
                 className={automation.automationId === selectedId ? "automation-list-row selected" : "automation-list-row"}
+                title={automation.title}
                 type="button"
                 role="option"
                 aria-selected={automation.automationId === selectedId}

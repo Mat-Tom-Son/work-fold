@@ -464,7 +464,7 @@ body:has(> #root > .desktop-chrome-shell) {
 .ui-control--primary:disabled,
 .send-button:disabled {
   opacity: 0.5;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 /* First run (2026-10-11): welcome, Connect your AI, then the first folder. */
@@ -572,7 +572,7 @@ body:has(> #root > .desktop-chrome-shell) {
   font-size: var(--work-fold-type-sm);
   text-decoration: underline;
   text-underline-offset: 3px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .onboarding-skip:hover,
@@ -609,7 +609,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border-radius: 12px;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -670,7 +670,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border: 0;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .onboarding-tool-header > svg:first-child {
@@ -724,7 +724,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border-radius: 12px;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -879,7 +879,7 @@ body:has(> #root > .desktop-chrome-shell) {
   border-radius: 6px;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .connect-ai-others button:hover,
@@ -939,7 +939,7 @@ body:has(> #root > .desktop-chrome-shell) {
   font: inherit;
   font-size: var(--work-fold-type-xs);
   font-weight: 700;
-  cursor: pointer;
+  cursor: default;
   pointer-events: auto;
 }
 
@@ -1665,7 +1665,7 @@ body:has(> #root > .desktop-chrome-shell) {
 }
 
 .ui-control--icon:disabled {
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .panel-title h2 {
@@ -4394,7 +4394,7 @@ to {
 .chat-rename-actions button:disabled,
 .chat-rename-popover input:disabled {
   opacity: 0.65;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .chat-rename-error {
@@ -5284,7 +5284,7 @@ to {
   font: inherit;
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
   backdrop-filter: blur(6px);
 }
 
@@ -5453,7 +5453,7 @@ to {
   border-radius: 50%;
   background: none;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
   opacity: 0.7;
 }
 
@@ -5821,7 +5821,7 @@ to {
 }
 
 button.context-chip.message-attachment {
-  cursor: pointer;
+  cursor: default;
 }
 
 button.context-chip.message-attachment:hover {
@@ -6238,7 +6238,7 @@ button.context-chip.message-attachment:focus-visible {
   pointer-events: auto;
 }
 
-.conversation-context-meter {
+.composer-model-chip {
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -6270,9 +6270,9 @@ button.context-chip.message-attachment:focus-visible {
   font-weight: 700;
 }
 
-.conversation-context-meter {
+.composer-model-chip {
   max-width: min(260px, 50%);
-  cursor: pointer;
+  cursor: default;
   font-family: inherit;
   font-size: var(--work-fold-type-2xs);
   font-weight: 700;
@@ -6280,25 +6280,25 @@ button.context-chip.message-attachment:focus-visible {
   text-align: left;
 }
 
-.conversation-context-meter:hover,
-.conversation-context-meter:focus-visible {
+.composer-model-chip:hover,
+.composer-model-chip:focus-visible {
   border-color: rgba(101, 116, 139, 0.15);
   color: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-700)));
   background: rgba(100, 116, 139, 0.07);
 }
 
-.conversation-context-meter:focus-visible {
+.composer-model-chip:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-600))) 46%, transparent);
   outline-offset: 1px;
 }
 
-.conversation-context-meter.active {
+.composer-model-chip.active {
   border-color: rgba(101, 116, 139, 0.15);
   color: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--work-fold-blue-700)));
   background: rgba(100, 116, 139, 0.07);
 }
 
-.conversation-context-meter:disabled {
+.composer-model-chip:disabled {
   cursor: default;
   opacity: 0.7;
 }
@@ -6317,7 +6317,7 @@ button.context-chip.message-attachment:focus-visible {
   cursor: default;
 }
 
-.composer-model-control > .conversation-context-meter {
+.composer-model-control > .composer-model-chip {
   max-width: 100%;
 }
 
@@ -6483,12 +6483,6 @@ button.context-chip.message-attachment:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.conversation-context-value {
-  flex: 0 0 auto;
-  color: var(--ui-text-muted, #5c6460);
-  font-variant-numeric: tabular-nums;
 }
 
 .composer textarea {
@@ -7261,7 +7255,7 @@ to {
 .app-shell[data-theme="dark"] .composer-command-menu-heading,
 .app-shell[data-theme="dark"] .composer-command-description,
 .app-shell[data-theme="dark"] .composer-command-trigger,
-.app-shell[data-theme="dark"] .conversation-context-meter {
+.app-shell[data-theme="dark"] .composer-model-chip {
   color: #94a3b8;
 }
 
@@ -7284,8 +7278,8 @@ to {
   color: #dbeafe;
 }
 
-.app-shell[data-theme="dark"] .conversation-context-meter:hover,
-.app-shell[data-theme="dark"] .conversation-context-meter:focus-visible {
+.app-shell[data-theme="dark"] .composer-model-chip:hover,
+.app-shell[data-theme="dark"] .composer-model-chip:focus-visible {
   color: #dbeafe;
   background: rgba(96, 165, 250, 0.12);
   border-color: rgba(96, 165, 250, 0.2);
@@ -7295,7 +7289,7 @@ to {
   stroke: rgba(148, 163, 184, 0.22);
 }
 
-.app-shell[data-theme="dark"] .conversation-context-meter.active {
+.app-shell[data-theme="dark"] .composer-model-chip.active {
   color: #dbeafe;
   background: rgba(96, 165, 250, 0.12);
 }
@@ -7829,7 +7823,7 @@ to {
   border-radius: 6px;
   background: none;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .banner-dismiss:hover {
@@ -8816,23 +8810,6 @@ to {
   min-width: 0;
 }
 
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:not(:first-child):not(:disabled),
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:only-child:not(:disabled) {
-  color: var(--ui-danger);
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:disabled {
-  background: transparent;
-  border-color: transparent;
-}
-
-:root[data-theme] .app-shell .remote-browser-row .recently-deleted-row-actions .ui-control:last-child:not(:disabled):hover {
-  background: color-mix(in srgb, var(--ui-danger) 9%, transparent);
-}
-
 .remote-browser-row:has(.recently-deleted-row-actions) {
   align-items: flex-start;
   padding-block: 12px;
@@ -9646,7 +9623,7 @@ to {
   align-items: center;
   gap: 8px;
   color: var(--ui-text, #344054);
-  cursor: pointer;
+  cursor: default;
   list-style: none;
 }
 
@@ -9959,7 +9936,7 @@ to {
   border: 0;
   border-radius: 6px;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -10018,7 +9995,7 @@ to {
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: pointer;
+  cursor: default;
   list-style: none;
 }
 
@@ -10769,7 +10746,7 @@ textarea:focus-visible,
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 
 .professional-button-danger {
@@ -10784,7 +10761,7 @@ textarea:focus-visible,
 
 .ui-control:disabled {
   opacity: 0.48;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .professional-status {
@@ -10835,7 +10812,7 @@ textarea:focus-visible,
   color: var(--ui-text);
   text-align: left;
   border: 1px solid var(--ui-border);
-  cursor: pointer;
+  cursor: default;
 }
 
 .professional-work-folder-action:hover {
@@ -10900,7 +10877,7 @@ textarea:focus-visible,
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-sm);
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folders-pane .work-folders-pane-done:hover,
@@ -11080,7 +11057,7 @@ textarea:focus-visible,
   border: 1.5px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-lg);
   background: var(--ui-surface);
-  cursor: pointer;
+  cursor: default;
   transition: border-color 140ms ease, background-color 140ms ease;
 }
 
@@ -11274,26 +11251,6 @@ textarea:focus-visible,
 .ai-models-account-window > div { display: flex; justify-content: space-between; gap: 16px; }
 .ai-models-account-window progress { width: 100%; height: 6px; accent-color: var(--ui-accent); }
 
-.professional-setup .ai-models-remove-credential {
-  min-height: 34px;
-  padding: 4px 0;
-  border: 0;
-  color: var(--ui-danger);
-  background: transparent;
-  font: inherit;
-  font-size: var(--work-fold-type-xs);
-  cursor: pointer;
-}
-
-.professional-setup .ai-models-remove-credential:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.professional-setup .ai-models-remove-credential:disabled {
-  opacity: .45;
-  cursor: default;
-}
-
 .professional-setup .ai-models-key-connection {
   display: grid;
   gap: 16px;
@@ -11322,7 +11279,7 @@ textarea:focus-visible,
   border-radius: 5px;
   color: var(--ui-text-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 .professional-setup .ai-models-key-visibility:hover:not(:disabled) {
@@ -11414,21 +11371,6 @@ textarea:focus-visible,
   font-weight: 600;
 }
 
-.professional-setup .ai-models-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  color: var(--ui-accent);
-  background: transparent;
-  font-size: var(--work-fold-type-xs);
-}
-
-.professional-setup .ai-models-refresh:disabled {
-  color: var(--ui-text-subtle);
-}
-
 .professional-setup .ai-models-refresh svg {
   width: 14px;
   height: 14px;
@@ -11473,7 +11415,7 @@ textarea:focus-visible,
 }
 
 .professional-setup .ai-models-foundry-models summary {
-  cursor: pointer;
+  cursor: default;
   font-size: var(--work-fold-type-sm);
 }
 
@@ -11665,7 +11607,7 @@ textarea:focus-visible,
   font: inherit;
   font-weight: 600;
   text-decoration: underline;
-  cursor: pointer;
+  cursor: default;
 }
 
 .checks-running svg {
@@ -11836,7 +11778,7 @@ textarea:focus-visible,
   font: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 
 .checks-finding-source code,
@@ -11877,7 +11819,7 @@ textarea:focus-visible,
   font-family: var(--work-fold-ui-font);
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 
 .checks-finding-actions button:hover:not(:disabled) {
@@ -12061,7 +12003,7 @@ textarea:focus-visible,
   color: var(--ui-text-muted);
   background: transparent;
   font: 600 .85rem/1.3 var(--work-fold-ui-font);
-  cursor: pointer;
+  cursor: default;
   transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -12162,7 +12104,7 @@ textarea:focus-visible,
   border-radius: 3px;
   box-shadow: none;
   font: 500 .8rem/1.3 var(--work-fold-ui-font);
-  cursor: pointer;
+  cursor: default;
   white-space: nowrap;
 }
 
@@ -12449,7 +12391,7 @@ textarea:focus-visible,
   display: grid;
   gap: 10px;
   padding: 12px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .capabilities-scope-option input {
@@ -12459,7 +12401,7 @@ textarea:focus-visible,
   height: 100%;
   margin: 0;
   opacity: 0;
-  cursor: pointer;
+  cursor: default;
 }
 
 .capabilities-scope-option:focus-within {
@@ -12824,7 +12766,7 @@ textarea:focus-visible,
   gap: 12px;
   padding: 0 12px;
   color: var(--ui-text);
-  cursor: pointer;
+  cursor: default;
   list-style-position: inside;
 }
 
@@ -13093,7 +13035,7 @@ textarea:focus-visible,
   padding: 14px 0;
   color: var(--ui-text-muted);
   font-size: var(--work-fold-type-md);
-  cursor: pointer;
+  cursor: default;
 }
 
 .capability-technical-details > summary:focus-visible {
@@ -13457,7 +13399,7 @@ textarea:focus-visible,
 }
 
 .restricted-app-package-details summary {
-  cursor: pointer;
+  cursor: default;
   color: var(--ui-text-subtle);
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
@@ -13712,7 +13654,7 @@ textarea:focus-visible,
 }
 
 .restricted-app-connect-details summary {
-  cursor: pointer;
+  cursor: default;
   color: var(--ui-text);
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
@@ -14383,7 +14325,7 @@ textarea:focus-visible,
   background: var(--ui-surface);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-md);
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-studio-icon-button:hover:not(:disabled) {
@@ -14398,12 +14340,12 @@ textarea:focus-visible,
 
 .app-studio-icon-button:disabled {
   opacity: 0.48;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .app-studio-icon-button[aria-disabled="true"] {
   opacity: 0.48;
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .app-studio-project-editor {
@@ -14803,7 +14745,7 @@ textarea:focus-visible,
   color: var(--ui-text-muted);
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-studio-release-review > div {
@@ -15086,7 +15028,7 @@ to {
   font-family: var(--work-fold-ui-font);
   font-size: var(--work-fold-type-xs);
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-studio-text-button:hover:not(:disabled) {
@@ -15371,7 +15313,7 @@ to {
 }
 
 .checks-definition summary {
-  cursor: pointer;
+  cursor: default;
 }
 
 .checks-definition details > p {
@@ -15387,7 +15329,7 @@ to {
 
 .checks-manual-button {
   font-size: var(--work-fold-type-xs);
-  cursor: pointer;
+  cursor: default;
 }
 
 .restricted-app-task-actions {
@@ -15584,7 +15526,7 @@ to {
   color: var(--ui-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 0.12s ease-out, border-color 0.12s ease-out;
 }
 
@@ -15789,7 +15731,7 @@ to {
   font-family: var(--work-fold-ui-font);
   font-size: var(--work-fold-type-md);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .model-catalog-trigger:disabled {
@@ -15901,7 +15843,7 @@ to {
   font: inherit;
   font-size: var(--work-fold-type-md);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .model-catalog-option:hover:not(:disabled) {
@@ -16630,7 +16572,7 @@ to {
 .app-shell .professional-appearance-surface .work-folder-color-swatch {
   width: 28px;
   height: 28px;
-  cursor: pointer;
+  cursor: default;
   border-color: rgba(0, 0, 0, 0.14);
 }
 
@@ -16649,7 +16591,7 @@ to {
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-sm);
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-shell .professional-appearance-surface .work-folder-color-picker input[type="color"] {
@@ -16658,7 +16600,7 @@ to {
   z-index: 1;
   width: 28px;
   height: 28px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-shell .professional-appearance-surface .work-folder-color-wheel {
@@ -16693,7 +16635,7 @@ to {
 
 .app-shell .professional-appearance-surface .work-folder-banner-swatch {
   height: 54px;
-  cursor: pointer;
+  cursor: default;
   color: var(--ui-text);
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
@@ -16786,7 +16728,7 @@ to {
 .app-shell .professional-appearance-surface .work-folder-icon-option {
   width: 38px;
   height: 38px;
-  cursor: pointer;
+  cursor: default;
   color: var(--ui-text-muted);
   background: var(--ui-surface);
   border: 1px solid var(--ui-border);
@@ -17104,7 +17046,7 @@ to {
   border-radius: 6px;
   font: inherit;
   font-size: var(--work-fold-type-xs);
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-appearance-modal .work-folder-appearance-toolbar button:hover:not(:disabled),
@@ -17230,7 +17172,7 @@ to {
   color: var(--ui-text-muted);
   font: inherit;
   font-size: var(--work-fold-type-xs);
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-framing-trigger {
@@ -17321,7 +17263,7 @@ to {
   font-weight: 600;
   color: var(--ui-text-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-appearance-tabs > button:hover {
@@ -17373,7 +17315,7 @@ to {
   background: transparent;
   color: var(--ui-text-muted);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-banner-image-gallery > button > span {
@@ -17586,7 +17528,7 @@ to {
   font-size: var(--work-fold-type-xs);
   color: var(--ui-text-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-icon-categories button:hover {
@@ -18477,7 +18419,7 @@ to {
   gap: 8px;
   color: var(--ui-text-muted);
   font-size: var(--work-fold-type-xs);
-  cursor: pointer;
+  cursor: default;
 }
 
 .app-shell .settings-window .publication-sleep-copy input {
@@ -18640,7 +18582,7 @@ to {
   color: var(--ui-text);
   font: inherit;
   font-size: .86em;
-  cursor: pointer;
+  cursor: default;
 }
 
 .appearance-settings button:hover:not(:disabled) {
@@ -18879,7 +18821,7 @@ to {
   border: 1px solid var(--ui-border-strong);
   background: var(--ui-surface);
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .appearance-settings .appearance-accent-hex {
@@ -19032,7 +18974,7 @@ to {
 }
 
 .history-file-comparison summary {
-  cursor: pointer;
+  cursor: default;
 }
 
 .history-file-picker input {
@@ -19288,63 +19230,14 @@ to {
   border-color: transparent;
 }
 
-/* Over a picture, the name and its arrow share one frosted pill: legible on
-   any image without a text shadow, and plainly the switcher (2026-10-27). */
-
-.app-shell .work-folder-pane-title-pill {
-  min-width: 0;
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 6px 4px 14px;
-  border-radius: 999px;
-  color: #1c2530;
-  background: rgb(255 255 255 / .82);
-  -webkit-backdrop-filter: blur(8px) saturate(1.2);
-  backdrop-filter: blur(8px) saturate(1.2);
-  box-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
-  transition: background-color 150ms var(--work-fold-ease-smooth);
-}
-
-.app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
-.app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
-  background: rgb(255 255 255 / .94);
-}
-
-:root[data-theme="dark"] .app-shell .work-folder-pane-title-pill {
-  color: #f1f4f6;
-  background: rgb(22 26 30 / .74);
-  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
-}
-
-:root[data-theme="dark"] .app-shell .professional-pane-header.has-switcher:hover .work-folder-pane-title-pill,
-:root[data-theme="dark"] .app-shell .professional-pane-header.switcher-open .work-folder-pane-title-pill {
-  background: rgb(22 26 30 / .88);
-}
+/* The name's pill, icon, and arrow are styled under "Banner title" near the
+   end of this file (2026-11-05). */
 
 :root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-current-lockup strong {
   background: transparent;
   padding: 0;
   color: inherit;
   text-shadow: none;
-}
-
-:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill .work-folder-pane-switch-caret {
-  position: static;
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  color: inherit;
-  background: transparent;
-  opacity: .72;
-  transform: none;
-  filter: none;
-}
-
-:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image.switcher-open .work-folder-pane-title-pill .work-folder-pane-switch-caret {
-  opacity: 1;
-  transform: rotate(180deg);
 }
 
 /* While the list below scrolls, the banner gives its height back to the list. */
@@ -19368,10 +19261,6 @@ to {
 
 .app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-breadcrumb {
   display: none;
-}
-
-.app-shell .work-folder-pane-header-wrap.slim .work-folder-pane-title-pill {
-  padding-block: 2px;
 }
 
 :root[data-appearance-motion="reduce"] .app-shell .work-folder-layout .work-folder-pane-header-wrap,
@@ -19541,7 +19430,7 @@ to {
   background: transparent;
   color: var(--ui-text);
   border-radius: 5px;
-  cursor: pointer;
+  cursor: default;
   transition: background 120ms;
 }
 
@@ -20446,7 +20335,7 @@ to {
   font-weight: 500;
   line-height: 1.4;
   box-shadow: none;
-  cursor: pointer;
+  cursor: default;
   transform: none;
   transition: background-color 110ms ease-out, color 110ms ease-out;
 }
@@ -21069,7 +20958,7 @@ to {
 
 .composer-reasoning-levels {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px;
   margin: 0 4px 6px;
   padding: 3px;
@@ -21554,22 +21443,6 @@ to {
   line-height: 1.4;
 }
 
-/* Higher contrast keeps banner titles readable over arbitrary image pixels. */
-
-:root[data-appearance-contrast="more"] .app-shell .professional-pane-header.work-folder-identity-header.has-banner-image .work-folder-pane-title-pill {
-  color: #fff;
-  background: #17212e;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-:root[data-appearance-contrast="more"] .work-folder-appearance-preview.has-banner-image .work-folder-appearance-preview-copy strong {
-  padding: 2px 8px;
-  background: #17212e;
-  color: #fff;
-  border-radius: var(--ui-radius-sm);
-  text-shadow: none;
-}
 
 :root[data-theme] .app-shell .file-preview {
   flex: 1 1 0;
@@ -21633,7 +21506,7 @@ to {
   border-radius: var(--ui-radius-sm);
   background: transparent;
   color: var(--ui-text-subtle);
-  cursor: pointer;
+  cursor: default;
 }
 
 .work-folder-setup-dismiss:hover {
@@ -21739,7 +21612,7 @@ to {
   background: transparent;
   color: var(--ui-text-muted);
   font-size: var(--work-fold-type-lg);
-  cursor: pointer;
+  cursor: default;
   transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
@@ -21837,7 +21710,7 @@ to {
   font: inherit;
   font-size: var(--work-fold-type-xs);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 
 .browser-tab-site-button svg {
@@ -21873,7 +21746,7 @@ to {
   font: inherit;
   font-size: var(--work-fold-type-xs);
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
+  cursor: default;
 }
 
 .browser-tab-zoom:hover {
@@ -22087,7 +21960,7 @@ to {
   font: inherit;
   font-size: var(--work-fold-type-xs);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
 }
 
 /* A narrow tab keeps the address readable: the dot and the warning icon stay, their words go. */
@@ -22150,7 +22023,7 @@ to {
   border-radius: var(--ui-radius-sm);
   color: var(--ui-text);
   font-size: var(--work-fold-type-sm);
-  cursor: pointer;
+  cursor: default;
 }
 
 .browser-tab-suggestions li > svg,
@@ -22211,7 +22084,7 @@ to {
   color: var(--ui-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .browser-tab-recent-item:hover,
@@ -22303,23 +22176,6 @@ to {
 :root[data-theme] .app-shell .work-folder-layout .work-folder-identity-header-wrap.banner-layout-band:not(.slim) { --work-folder-identity-header-height: 56px; }
 :root[data-theme] .app-shell .work-folder-layout .work-folder-identity-header-wrap.banner-layout-cover:not(.slim) { --work-folder-identity-header-height: 148px; }
 
-.work-folder-pane-layout-icon {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  display: grid;
-  place-items: center;
-  color: var(--work-folder-on-accent-solid, #ffffff);
-  background: var(--work-folder-accent-solid, var(--ui-accent));
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.work-folder-pane-layout-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
 :root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) > .work-folder-pane-switch-trigger {
   place-items: center start;
   padding-inline: 14px 56px;
@@ -22377,14 +22233,6 @@ to {
 :root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band :is(.work-folder-pane-current-lockup strong, .work-folder-pane-switch-caret) {
   color: var(--ui-text);
   text-shadow: none;
-}
-
-:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band .work-folder-pane-title-pill {
-  padding: 0;
-  background: none;
-  border: 0;
-  box-shadow: none;
-  backdrop-filter: none;
 }
 
 /* The same layouts in Customize's light and dark previews. */
@@ -22469,7 +22317,9 @@ to {
 }
 
 /* Inside Customize the icon picker is part of the page, not a popover. */
-.app-shell .work-folder-appearance-modal .work-folder-icon-picker {
+:root[data-theme] .app-shell .work-folder-appearance-modal .work-folder-icon-picker {
+  background: transparent;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -22531,13 +22381,6 @@ to {
 .work-folder-layout-diagram.layout-band b { top: 15px; left: 19px; width: 36%; }
 .work-folder-layout-diagram.layout-cover i { height: 38px; }
 .work-folder-layout-diagram.layout-cover b { top: 30px; left: 19px; width: 36%; }
-
-.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-card .work-folder-appearance-preview-copy:has(.work-folder-pane-layout-icon) {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-}
 
 /* Chats: date headings in a long history, and Snoozed and Archived rows
    aligned with every other row. */
@@ -22621,6 +22464,722 @@ to {
 /* An installed row is a button; its description reads left-aligned like the title. */
 .capabilities-resource-card {
   text-align: left;
+}
+
+/* The context ring is its own button beside the model chip. Its popover shows
+   how full the context is and compacts the Chat. */
+
+.composer-context-control {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.conversation-context-meter {
+  width: var(--work-fold-control-md);
+  height: var(--work-fold-control-md);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  cursor: default;
+  transition: background-color 110ms;
+}
+
+.conversation-context-meter:is(:hover, .active) {
+  background: var(--ui-surface-hover);
+}
+
+.conversation-context-meter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--surface-tab-accent, var(--work-folder-selection-accent, var(--ui-accent))) 46%, transparent);
+  outline-offset: 1px;
+}
+
+.composer-context-control .composer-context-menu {
+  left: auto;
+  right: 0;
+  width: 248px;
+  max-width: calc(100vw - 32px);
+}
+
+.composer-context-control[data-menu-placement="below"] .composer-command-menu {
+  top: calc(100% + 9px);
+  bottom: auto;
+}
+
+.composer-context-body {
+  display: grid;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+
+.composer-context-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-context-summary strong {
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-xl);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.composer-context-summary.pending {
+  font-size: var(--work-fold-type-sm);
+}
+
+.composer-context-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-text-muted, #5c6460) 20%, transparent);
+}
+
+.composer-context-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--ui-accent-solid)));
+}
+
+.composer-context-bar.warning span {
+  background: #d97706;
+}
+
+.composer-context-detail {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-command-menu > button.composer-context-compact {
+  width: calc(100% - 16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--work-fold-control-md);
+  margin: 2px 8px 8px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border-strong, var(--ui-border));
+  border-radius: 7px;
+  color: var(--ui-text);
+  background: var(--ui-surface-subtle);
+  font: inherit;
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+.composer-command-menu > button.composer-context-compact:hover:not(:disabled) {
+  background: var(--ui-surface-hover);
+}
+
+.composer-command-menu > button.composer-context-compact:disabled {
+  color: var(--ui-text-muted);
+  cursor: default;
+}
+
+/* Reasoning levels stay on one row: the model menu widens to fit them, and
+   long model names keep their ellipsis instead of widening it. */
+.composer-model-menu {
+  min-width: min-content;
+}
+
+.composer-model-options {
+  contain: inline-size;
+}
+
+/* Banner title (docs/work-folder-customization.md, 2026-11-05). The header and
+   Customize's previews render the same icon, name, and arrow, so they share
+   these rules. Light and dark come from variables rather than the app theme,
+   so the Dark preview matches a dark header while the app is light. */
+
+.work-folder-banner-surface {
+  --banner-title-frosted: rgb(255 255 255 / .82);
+  --banner-title-frosted-hover: rgb(255 255 255 / .94);
+  --banner-title-solid: #ffffff;
+  --banner-title-solid-hover: #eef1f4;
+  --banner-title-ink: #1c2530;
+  --banner-title-shadow: 0 1px 2px rgb(14 24 20 / .14), 0 6px 18px rgb(14 24 20 / .14);
+  --banner-title-icon-size: 28px;
+}
+
+:root[data-theme="dark"] .app-shell .professional-pane-header.work-folder-banner-surface,
+.app-shell .work-folder-appearance-preview.preview-dark {
+  --banner-title-frosted: rgb(22 26 30 / .74);
+  --banner-title-frosted-hover: rgb(22 26 30 / .88);
+  --banner-title-solid: #1d2126;
+  --banner-title-solid-hover: #262b31;
+  --banner-title-ink: #f1f4f6;
+  --banner-title-shadow: 0 6px 18px rgb(0 0 0 / .3);
+}
+
+:root[data-appearance-contrast="more"] .app-shell :is(.professional-pane-header, .work-folder-appearance-preview).work-folder-banner-surface {
+  --banner-title-frosted: #17212e;
+  --banner-title-frosted-hover: #17212e;
+  --banner-title-ink: #ffffff;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.work-folder-banner-title {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: var(--ui-text);
+  background: none;
+  border-radius: 999px;
+  box-shadow: none;
+  text-shadow: none;
+  transition: background-color 150ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.work-folder-banner-title > strong {
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: var(--work-folder-identity-title-size, 17px);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: var(--work-folder-identity-tracking, 0.01em);
+  text-overflow: ellipsis;
+  text-shadow: inherit;
+  white-space: nowrap;
+}
+
+/* None: the name sits on the banner. Over a picture it needs a soft shadow. */
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview).banner-bold .work-folder-banner-title.fill-none {
+  color: var(--work-folder-on-accent, #ffffff);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview).has-banner-image:not(.banner-layout-band) .work-folder-banner-title.fill-none {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgb(9 14 24 / .55), 0 6px 18px rgb(9 14 24 / .4);
+}
+
+/* Frosted, Solid, and Accent put the name on a pill. */
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title:is(.fill-frosted, .fill-solid, .fill-accent) {
+  padding: 4px 8px 4px 14px;
+  box-shadow: var(--banner-title-shadow);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title:is(.fill-frosted, .fill-solid, .fill-accent):has(> .work-folder-banner-title-icon) {
+  padding-left: 4px;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.icon-plain:is(.fill-frosted, .fill-solid, .fill-accent) {
+  padding-left: 12px;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title:is(.fill-frosted, .fill-solid, .fill-accent):not(:has(> .work-folder-pane-switch-caret)) {
+  padding-right: 14px;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.fill-frosted {
+  color: var(--banner-title-ink);
+  background: var(--banner-title-frosted);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.fill-solid {
+  color: var(--banner-title-ink);
+  background: var(--banner-title-solid);
+}
+
+/* Accent is the work-folder's color, with whichever text color reads on it. */
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.fill-accent {
+  color: var(--work-folder-on-accent-solid, #ffffff);
+  background: var(--work-folder-accent-solid, var(--ui-accent-solid));
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-switcher:is(:hover, .switcher-open) .work-folder-banner-title.fill-frosted {
+  background: var(--banner-title-frosted-hover);
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-switcher:is(:hover, .switcher-open) .work-folder-banner-title.fill-solid {
+  background: var(--banner-title-solid-hover);
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-switcher:is(:hover, .switcher-open) .work-folder-banner-title.fill-accent {
+  background: color-mix(in srgb, var(--work-folder-accent-solid, var(--ui-accent-solid)) 88%, var(--work-folder-on-accent-solid, #ffffff));
+}
+
+/* Icon: None, Plain (the glyph alone), Square, or Circle. */
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title .work-folder-banner-title-icon {
+  width: var(--banner-title-icon-size);
+  height: var(--banner-title-icon-size);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--work-folder-on-accent-solid, #ffffff);
+  background: var(--work-folder-accent-solid, var(--ui-accent-solid));
+  border-radius: 8px;
+  text-shadow: none;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title .work-folder-banner-title-icon svg {
+  width: calc(var(--banner-title-icon-size) * .64);
+  height: calc(var(--banner-title-icon-size) * .64);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.icon-circle .work-folder-banner-title-icon {
+  border-radius: 999px;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.icon-plain .work-folder-banner-title-icon {
+  width: auto;
+  height: auto;
+  color: inherit;
+  background: none;
+  border-radius: 0;
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.icon-plain .work-folder-banner-title-icon svg {
+  width: 20px;
+  height: 20px;
+  filter: drop-shadow(0 0 0 transparent);
+}
+
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title.fill-accent:is(.icon-square, .icon-circle) .work-folder-banner-title-icon {
+  background: color-mix(in srgb, var(--work-folder-on-accent-solid, #ffffff) 20%, transparent);
+}
+
+/* The arrow follows the name. */
+:root[data-theme] .app-shell :is(.professional-pane-header.work-folder-identity-header, .work-folder-appearance-preview) .work-folder-banner-title .work-folder-pane-switch-caret {
+  position: static;
+  inset: auto;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 -2px;
+  color: inherit;
+  background: none;
+  border: 0;
+  opacity: .72;
+  transform: none;
+  filter: none;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.has-switcher:hover .work-folder-banner-title .work-folder-pane-switch-caret {
+  opacity: 1;
+  transform: none;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.switcher-open .work-folder-banner-title .work-folder-pane-switch-caret {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+
+/* Where the title sits: centered on Card, left on Compact and Band, bottom
+   left on Cover, and vertically centered whenever the banner slims. */
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header:not(.has-action) > .work-folder-pane-switch-trigger {
+  padding-inline: 14px;
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap.slim .professional-pane-header.work-folder-identity-header > .work-folder-pane-switch-trigger {
+  place-items: center;
+  padding-block: 0;
+}
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-pane-header-wrap.slim .professional-pane-header.work-folder-identity-header:not(.banner-layout-card) > .work-folder-pane-switch-trigger {
+  place-items: center start;
+}
+
+:root[data-theme] .app-shell .work-folder-pane-header-wrap.slim .professional-pane-header.work-folder-banner-surface {
+  --banner-title-icon-size: 24px;
+}
+
+:root[data-theme] .app-shell .work-folder-pane-header-wrap.slim .professional-pane-header .work-folder-banner-title:is(.fill-frosted, .fill-solid, .fill-accent) {
+  padding-block: 2px;
+}
+
+:root[data-theme] .app-shell .work-folder-pane-header-wrap.slim .professional-pane-header .work-folder-banner-title:is(.fill-frosted, .fill-solid, .fill-accent):has(> .work-folder-banner-title-icon) {
+  padding-left: 2px;
+}
+
+/* The previews use the header's sizes and positions. */
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview {
+  padding: 12px 14px;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) {
+  padding-inline: 14px;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-cover {
+  height: 148px;
+  min-height: 148px;
+  padding-block: 0 14px;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview-copy {
+  max-width: 100%;
+}
+
+/* Popovers in dark mode get a hairline edge and a deeper shadow, so they read
+   as containers above the window (2026-11-05). */
+:root[data-theme="dark"] .app-shell :is(.composer-command-menu,.composer-model-menu,.context-menu,.command-palette,.chat-rename-popover,.file-share-popover,.surface-tab-work-folder-menu,.composer-mention-menu,.composer-menu,.command-palette-modal,.work-folder-header-switcher) {
+  box-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 14px 36px rgb(0 0 0 / .5);
+}
+
+/* Customize is one page (2026-11-05): Banner, Title, Icon, and Color each
+   get a section, and the previews above stay in view. */
+.work-folder-appearance-sections {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin-top: 16px;
+  padding-bottom: 24px;
+  border-top: 1px solid var(--ui-border);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.work-folder-appearance-section {
+  padding: 20px 0 8px;
+}
+
+.work-folder-appearance-section + .work-folder-appearance-section {
+  margin-top: 12px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.work-folder-appearance-section > h3 {
+  margin: 0 0 14px;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+}
+
+.work-folder-appearance-section .work-folder-banner-section-heading {
+  min-height: var(--work-fold-control-md);
+  margin: 0 0 8px;
+}
+
+.work-folder-appearance-section :is(.work-folder-banner-layouts, .work-folder-banner-image-gallery, .work-folder-banner-gallery) {
+  margin-bottom: 20px;
+}
+
+.work-folder-appearance-modal .work-folder-banner-layouts + .work-folder-banner-section-heading {
+  margin-top: 0;
+}
+
+/* Images: four built-in pictures and one slot for your own, on one row. */
+.app-shell .work-folder-appearance-modal .work-folder-banner-image-gallery {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.work-folder-banner-image-gallery > button.empty > span {
+  display: grid;
+  place-items: center;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface-subtle);
+  border-style: dashed;
+  border-color: var(--ui-border-strong, var(--ui-border));
+}
+
+.work-folder-banner-image-gallery > button.empty:hover > span {
+  color: var(--ui-text);
+  border-color: var(--ui-border-strong, var(--ui-border));
+}
+
+.work-folder-banner-image-gallery > button > span > svg.work-folder-banner-image-empty {
+  position: static;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border-radius: 0;
+}
+
+/* Title: Background and Icon Style, one row each. */
+.work-folder-title-options {
+  display: grid;
+  grid-template-columns: 96px auto;
+  justify-content: start;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.work-folder-title-options > span {
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+.work-folder-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--ui-surface-subtle);
+  border-radius: 8px;
+}
+
+.work-folder-segmented button {
+  height: calc(var(--work-fold-control-md) - 6px);
+  padding: 0 14px;
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--work-fold-type-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.work-folder-segmented button:hover {
+  color: var(--ui-text);
+}
+
+:root[data-theme] .app-shell .work-folder-segmented button.active,
+:root[data-theme] .app-shell .work-folder-segmented button.active:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .14);
+}
+
+.work-folder-segmented button:focus-visible {
+  outline: 2px solid var(--work-folder-accent-border-state, var(--ui-accent));
+  outline-offset: 1px;
+}
+
+@media (max-width: 520px) {
+  .app-shell .work-folder-appearance-modal .work-folder-banner-image-gallery {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .work-folder-title-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Buttons (2026-11-05). Every text button has a visible shape at rest: a
+   fill and a hairline edge that read in light and dark, and hover with the
+   same fill as every other control. Icon-only toolbar buttons, rows, tabs,
+   chips, and menu items stay flat until hovered. */
+
+:root {
+  --ui-button-fill: #ffffff;
+  --ui-button-edge: rgb(23 29 26 / .15);
+}
+
+:root[data-theme="dark"] {
+  --ui-button-fill: color-mix(in srgb, #ffffff 9%, var(--ui-surface));
+  --ui-button-edge: rgb(255 255 255 / .1);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+) {
+  color: var(--ui-text);
+  background: var(--ui-button-fill);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):hover:not(:disabled) {
+  color: var(--ui-text);
+  background: var(--ui-control-hover, var(--ui-surface-hover));
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):active:not(:disabled) {
+  background: var(--ui-control-pressed);
+}
+
+:root[data-theme] .app-shell :is(
+  .ui-control:not(.ui-control--primary):not(.ui-control--icon),
+  .work-folder-name-save,
+  .work-folders-pane-done,
+  .work-folder-banner-upload-button,
+  .work-folder-framing-trigger,
+  .work-folder-framing-popover-actions button,
+  .work-folder-appearance-toolbar > button,
+  .work-folder-appearance-toolbar-actions > button,
+  .work-folder-appearance-more > summary,
+  .work-folder-customize-worker button,
+  .appearance-settings-actions button,
+  .appearance-settings-save button,
+  .composer-command-menu > button.composer-context-compact,
+  .checks-manual-button
+):disabled {
+  color: color-mix(in srgb, var(--ui-text-muted) 80%, var(--ui-surface));
+  background: var(--ui-button-fill);
+  box-shadow: inset 0 0 0 1px var(--ui-button-edge);
+  opacity: .7;
+}
+
+:root[data-theme] .app-shell .ui-control.ui-control.danger:not(:disabled),
+:root[data-theme] .app-shell .ui-control.ui-control.danger:hover:not(:disabled) {
+  color: var(--ui-danger);
+}
+
+/* Skills & Extensions: the icon sits above the name, so long names like
+   Service Connections stay on one line at the minimum window width. */
+.capabilities-included-name {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.capabilities-included-name strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings → Automations: each row is one line per fact; the full title is
+   its tooltip. */
+.automation-list-heading strong,
+.automation-list-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+}
+
+.automation-list-heading {
+  align-items: center;
+}
+
+.automation-list-heading strong {
+  flex: 1 1 auto;
+}
+
+/* Manage work-folders: the two actions stack, so neither name is cut off. */
+.professional-work-folder-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:root[data-theme] .app-shell .professional-work-folder-action:hover {
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .professional-work-folders .work-folder-card-main:not(.active):hover {
+  background: var(--ui-surface-hover);
+}
+
+/* Disclosure rows answer the pointer too. */
+:root[data-theme] .app-shell :is(.capabilities-packages, .capabilities-core-tools) > summary:hover {
+  background: var(--ui-surface-hover);
+}
+
+:root[data-theme] .app-shell .capability-technical-details > summary:hover {
+  color: var(--ui-text);
+}
+
+
+/* History → Compare: the heading's text block and Compare Again share a center line. */
+:root[data-theme] .app-shell .history-comparison-heading {
+  align-items: center;
+}
+
+/* Disclosure toggles brighten under the pointer. */
+:root[data-theme] .app-shell :is(.history-file-comparison, .included-tool-setup, .capability-dialog) details > summary:hover {
+  color: var(--ui-text);
+}
+
+/* Settings → Automations: the trigger line runs under the title and the
+   actions, so it keeps one line at the minimum window width. */
+.automation-inspector-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title actions" "trigger trigger";
+  align-items: center;
+  row-gap: 4px;
+}
+
+.automation-inspector-header > div:first-child {
+  display: contents;
+}
+
+.automation-inspector-header h4 {
+  grid-area: title;
+  min-width: 0;
+}
+
+.automation-inspector-header > div:first-child > span {
+  grid-area: trigger;
+}
+
+.automation-inspector-actions {
+  grid-area: actions;
+}
+
+:root[data-theme] .app-shell .history-file-comparison details > summary {
+  color: var(--ui-text-muted);
+}
+
+:root[data-theme] .app-shell .history-file-comparison details > summary:hover {
+  color: var(--ui-text);
 }
 
 /* ---------- Files multiple selection (2026-11-05) ---------- */

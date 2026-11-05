@@ -229,6 +229,7 @@ export function ChatPanel({
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
+  const [compactPending, setCompactPending] = useState(false);
   const [modelStatus, setModelStatus] = useState<AgentStatus | null>(null);
   const [composerState, setComposerState] = useState<ComposerState | null>(null);
   const [composerModelRevision, setComposerModelRevision] = useState(0);
@@ -1618,9 +1619,25 @@ export function ChatPanel({
     }
   }
 
+  /** Compact Chat in the context popover; the inert preview only pretends. */
+  function compactFromContextMenu(): void {
+    if (fixtureMode) {
+      setConversationRuntime((current) => {
+        if (!current) return current;
+        const contextTokens = Math.min(current.usage.contextTokens ?? 0, 4_200);
+        const contextPercent = current.usage.contextWindow ? (contextTokens / current.usage.contextWindow) * 100 : null;
+        return { ...current, usage: { ...current.usage, contextTokens, contextPercent } };
+      });
+      showToast({ text: "Compacted this Chat's working context.", tone: "success" });
+      return;
+    }
+    void compactConversation();
+  }
+
   async function compactConversation(customInstructions?: string, typedCommand?: string) {
     if (running || fixtureMode || !conversation) return;
     setRunning(true);
+    setCompactPending(true);
     setError(null);
     try {
       await api<{ compacted: boolean }>(`/api/work-folders/${workFolder.id}/conversations/${conversation.id}/compact`, {
@@ -1635,6 +1652,8 @@ export function ChatPanel({
       setError(errorText(compactError));
       // Put the command back only into an empty composer, as a failed send does.
       if (typedCommand) setDraft((current) => (current.trim() ? current : typedCommand));
+    } finally {
+      setCompactPending(false);
     }
   }
 
@@ -2174,9 +2193,12 @@ export function ChatPanel({
               <span>Commands</span>
             </button>
             <span className="composer-capability-spacer" />
-            {modelStatus?.configured && conversationRuntime
-              ? <ConversationContextMeter runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
-              : modelStatus?.configured && composerState?.model
+            {modelStatus?.configured && conversationRuntime ? (
+              <>
+                <ConversationContextControl runtime={conversationRuntime} busy={running || requestBusy} compacting={conversationRuntime.isCompacting || compactPending} onCompact={compactFromContextMenu} />
+                <ConversationModel runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
+              </>
+            ) : modelStatus?.configured && composerState?.model
                 ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
                 : modelStatus && !modelStatus.configured
                   ? <button className="composer-connect-ai" type="button" onClick={() => requestConnectAi()} title="Connect an AI provider so this Worker can start">Connect AI</button>
@@ -2244,38 +2266,90 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
   );
 }
 
-function ConversationContextMeter({ runtime, status, workFolderName, picker, reasoning }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
+/** The context ring beside the model chip; its popover shows usage and compacts the Chat. */
+function ConversationContextControl({ runtime, busy, compacting, onCompact }: { runtime: ConversationRuntime; busy: boolean; compacting: boolean; onCompact: () => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuId = useId();
+  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
+  const { contextTokens, contextWindow, totalTokens } = runtime.usage;
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
-  const contextLabel = runtime.isCompacting ? "Compacting conversation context"
-    : runtime.usage.contextTokens === null
+  const warning = percent !== null && percent >= 85;
+  const contextLabel = compacting ? "Compacting conversation context"
+    : contextTokens === null
       ? "Context recalculates after the next model reply"
-      : `Estimated ${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
+      : `Estimated ${formatTokenCount(contextTokens)} of ${formatTokenCount(contextWindow)} context`;
+  const processed = `${formatTokenCount(totalTokens)} tokens processed in this Chat`;
+  return (
+    <div className="composer-context-control" ref={containerRef} onBlurCapture={(event) => {
+      if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
+      <button
+        ref={triggerRef}
+        className={`conversation-context-meter${warning ? " warning" : ""}${open ? " active" : ""}`}
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label={`Context. ${contextLabel}`}
+        title={`${contextLabel} · ${processed}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="track" cx="12" cy="12" r="10" />
+          {percent !== null ? <circle className="value" cx="12" cy="12" r="3.75" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
+        </svg>
+      </button>
+      {open ? (
+        <div className="composer-command-menu composer-context-menu" id={menuId} role="dialog" aria-label="Context">
+          <div className="composer-command-menu-heading"><span>Context</span></div>
+          <div className="composer-context-body">
+            {percent !== null && contextTokens !== null ? (
+              <>
+                <p className="composer-context-summary">
+                  <strong>{Math.round(percent)}%</strong>
+                  <span>{formatTokenCount(contextTokens)} of {formatTokenCount(contextWindow)} tokens</span>
+                </p>
+                <div className={warning ? "composer-context-bar warning" : "composer-context-bar"} aria-hidden="true">
+                  <span style={{ width: `${percent}%` }} />
+                </div>
+              </>
+            ) : (
+              <p className="composer-context-summary pending">{compacting ? "Compacting…" : "Updates after the next reply"}</p>
+            )}
+            <p className="composer-context-detail">{processed}</p>
+          </div>
+          <button
+            className="composer-context-compact"
+            type="button"
+            disabled={busy || compacting}
+            title={compacting ? undefined : busy ? "Compact between turns" : "Summarize earlier messages to free up context"}
+            onClick={onCompact}
+          >
+            {compacting ? <Loader2 className="spin" size={13} aria-hidden="true" /> : null}
+            {compacting ? "Compacting" : "Compact Chat"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConversationModel({ runtime, status, workFolderName, picker, reasoning }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
   const modelLabel = runtime.model?.name
     ?? runtime.model?.id
     ?? displayModelLabel(status.provider ?? "", status.model ?? "");
-  const title = [
-    modelLabel,
-    contextLabel,
-    `${formatTokenCount(runtime.usage.totalTokens)} processed this Chat`,
-  ].join(" · ");
   return (
     <ComposerModelPicker
       {...picker}
       reasoning={reasoning}
-      className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
-      ariaLabel={`Change the model saved for ${workFolderName}. ${title}`}
-      title={`${title} · Change the model saved for ${workFolderName}`}
+      className="composer-model-chip"
+      ariaLabel={`Change the model saved for ${workFolderName}. Selected model: ${modelLabel}`}
+      title={`${modelLabel} · Change the model saved for ${workFolderName}`}
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="10" />
-        {percent !== null ? <circle className="value" cx="12" cy="12" r="3.75" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
-      </svg>
       <span className="conversation-context-model">{modelLabel}</span>
-      {percent !== null && percent >= 50 ? (
-        <span className="conversation-context-value">{`${Math.round(percent)}% of context`}</span>
-      ) : null}
     </ComposerModelPicker>
   );
 }
@@ -2643,13 +2717,10 @@ function ConfiguredModel({ model, workFolderName, picker, reasoning }: { model: 
     <ComposerModelPicker
       {...picker}
       reasoning={reasoning}
-      className="conversation-context-meter configured"
+      className="composer-model-chip configured"
       ariaLabel={`Change the model saved for ${workFolderName}. Selected model: ${label}`}
       title={`Selected model for new Chats: ${label} · Change the model saved for ${workFolderName}`}
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
-      </svg>
       <span className="conversation-context-model">{label}</span>
     </ComposerModelPicker>
   );

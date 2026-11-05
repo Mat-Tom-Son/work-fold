@@ -15,14 +15,18 @@ Read [the historical role inventory](archive/customization-role-inventory.md) fo
 keyboard focus and closes with Escape, its close button, or a click outside. It stays pinned to the
 work-folder it was opened for and leaves the active Chat or file tab in place; running Chats stay mounted.
 Previously saved Customize tabs are discarded on restore, preserving the remaining tabs.
-The header keeps Banner, Icon, and Color at the top right. The work-folder name and paired previews
-stay in fixed positions; only the controls below scroll. The editor keeps the common path direct:
+Customize is one scrolling page (2026-11-05) with a section each for Banner, Title, Icon, and Color;
+there are no tabs. The work-folder name and paired previews stay in fixed positions; only the sections
+below scroll. The previews render the header's own title, so they show exactly what the header will.
+The editor keeps the common path direct:
 
-- use the compact Banner, Icon, and Color sections;
 - choose a banner layout: Card (the original centered banner), Compact, Band, or Cover;
+- under Title, choose the name's background (Frosted, Solid, Accent, or None) and the icon beside it
+  (None, Plain, Square, or Circle);
 - choose from 24 labeled accent presets or a custom color without replacing the banner;
 - set a second color under Banner → Pattern colors, shown only while a pattern uses it;
-- choose a bundled image (Tide, Ember, Fold, or Dusk), compact pattern, or safe raster upload;
+- choose a bundled image (Tide, Ember, Fold, or Dusk), compact pattern, or safe raster upload; the
+  uploaded image takes the fifth slot on the same row, empty until one is uploaded;
 - drag an image preview to reposition, or open Adjust image for position, zoom, and reset;
 - browse Popular, Nature, Life, Creative, Travel, Work, or All in the searchable Fluent icon catalog;
 - compare the resolved identity in light and dark at the same time;
@@ -41,10 +45,16 @@ palette preserves existing default work-folder colors. The editor uses short lab
 the footer's Model and Instructions shortcuts open the existing AI Models settings pinned to this
 work-folder, even when the popup was opened for a work-folder other than the active one. The shortcuts have
 no decorative Worker label or divider. Settings shows a back arrow beside its title only when entered
-through these shortcuts; it returns to the same work-folder and Banner, Icon, or Color section. Closing
+through these shortcuts; it returns to the same work-folder and the section that was at the top of the page. Closing
 Settings or opening it through a normal entry clears that return path.
 
-`bannerLayout` stores `card`, `compact`, `band`, or `cover` (2026-11-04); a missing value is Card. Compact and Band are shorter and lead with the work-folder icon, Band reduces the banner to a strip over a plain row, and Cover is tall with the name at the bottom left.
+`bannerLayout` stores `card`, `compact`, `band`, or `cover` (2026-11-04); a missing value is Card. Compact and Band are shorter, Band reduces the banner to a strip over a plain row, and Cover is tall with the name at the bottom left. When the list below scrolls, every layout slims to one strip with the title vertically centered.
+
+`bannerTitleFill` stores `frosted`, `solid`, `accent`, or `none`, and `bannerIconStyle` stores `none`,
+`plain`, `square`, or `circle` (2026-11-05). Missing values keep the earlier look: an image banner
+gets a frosted name, a pattern or Band gets none, Card has no icon, and the other layouts get a
+square icon. Accent fills the pill with the work-folder color and picks the text color that reads on
+it; None over an image uses white text with a soft shadow.
 
 `bannerPreset` stores one of the four stable preset ids, never an arbitrary asset URL or a copy of
 the image. A safe uploaded `bannerImage` takes precedence if an imported proposal contains both.
@@ -121,7 +131,7 @@ npm run --silent work-fold:appearance -- resolve client-work.work-fold.json --js
 Use `--created-by claude-code` from Claude Code. `--banner-image <path>` accepts PNG, JPEG, WebP, GIF,
 or BMP, resizes it within 1600×640, and stores a bounded WebP data URL. Run
 `npm run --silent work-fold:appearance -- help` for all options.
-`--banner-layout cover` selects a layout. `--banner-preset fold` selects a bundled image; `--frame-x`, `--frame-y`, and `--zoom` set its framing.
+`--banner-layout cover` selects a layout; `--title-fill accent` and `--icon-style circle` set the title. `--banner-preset fold` selects a bundled image; `--frame-x`, `--frame-y`, and `--zoom` set its framing.
 The same flags can frame an uploaded image. Creating a proposal remains inert and never edits a work-folder.
 
 The result is inert:
