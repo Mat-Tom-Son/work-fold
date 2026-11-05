@@ -22246,3 +22246,51 @@ to {
   justify-self: start;
   margin-top: 10px;
 }
+
+/* Control sizes (docs/visual-design.md, 2026-11-04). Every control is one of
+   three heights: small icon actions, buttons with toolbar fields and search,
+   and form fields in dialogs and Settings. */
+
+:root[data-theme] .app-shell :is(.chat-work-folder-row-shell .chat-work-folder-row-actions, .message-copy-button) {
+  width: var(--work-fold-control-sm);
+  height: var(--work-fold-control-sm);
+  min-height: var(--work-fold-control-sm);
+}
+
+:root[data-theme] .app-shell :is(.file-tree-search, .capabilities-search) {
+  min-height: var(--work-fold-control-md);
+  height: var(--work-fold-control-md);
+}
+
+:root[data-theme] .app-shell .capabilities-search input {
+  height: calc(var(--work-fold-control-md) - 2px);
+  font-size: var(--work-fold-type-sm);
+}
+
+:root[data-theme] .app-shell :is(.composer-capability-bar .composer-attach-trigger, .composer-capability-bar .send-button, .composer-attach-trigger, .surface-tab-new-chat > .surface-tab-action, .window-chrome .window-chrome-button) {
+  width: var(--work-fold-control-md);
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+}
+
+:root[data-theme] .app-shell :is(.history-pane-actions .ui-control, .capabilities-view-tabs button, .appearance-settings-actions button, .recently-deleted-retention .ui-control) {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  padding-block: 0;
+}
+
+:root[data-theme] .app-shell .recently-deleted-retention input {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+}
+
+:root[data-theme] .app-shell .settings-window :is(select, .model-catalog-trigger, .remote-slug-field, .settings-field > input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"])) {
+  height: var(--work-fold-control-lg);
+  min-height: var(--work-fold-control-lg);
+}
+
+:root[data-theme] .app-shell .settings-window .remote-slug-field input {
+  height: 100%;
+  min-height: 0;
+}
+

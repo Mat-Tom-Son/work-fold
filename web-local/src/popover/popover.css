@@ -420,8 +420,8 @@ textarea:focus { outline: none; }
 
 .composer-action {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: var(--work-fold-control-md);
+  height: var(--work-fold-control-md);
   display: grid;
   place-items: center;
   padding: 0;

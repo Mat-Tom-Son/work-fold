@@ -26,6 +26,10 @@
   --work-fold-type-lg: 1.1334rem;  /* 17px: section and dialog titles */
   --work-fold-type-xl: 1.3334rem;  /* 20px: page titles */
   --work-fold-type-2xl: 1.6rem;    /* 24px: onboarding and hero titles */
+  /* Control heights: small icon actions, buttons and toolbar fields, form fields. */
+  --work-fold-control-sm: 24px;
+  --work-fold-control-md: 30px;
+  --work-fold-control-lg: 36px;
 }
 
 :root[data-theme="dark"] {
