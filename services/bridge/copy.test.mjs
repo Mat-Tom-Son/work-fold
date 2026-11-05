@@ -46,10 +46,9 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(app.includes("Confirm that the same six digits appear in the desktop prompt."));
   assert.ok(app.includes("<span>Waiting for your desktop…</span>"));
 
-  // The door asks the question; Shared pages lives in the footer.
+  // The door asks the question.
   assert.ok(app.includes('<h1 class="new-heading" tabindex="-1">What are we working on?</h1>'));
   assert.equal(app.includes('id="context-needs"'), false);
-  assert.ok(app.includes('id="shared-pages-toggle"'));
   assert.equal(app.includes('id="work-folder-title"'), false);
 
   // The retired shell's copy is gone, not hidden: the Home heading and its
@@ -113,7 +112,7 @@ test("the remote client does not fetch or acknowledge a hidden activity feed", a
   assert.doesNotMatch(app, /id="fold-home"|Since you last looked|Nothing needs you right now/);
 });
 
-test("remote client navigation focuses on chats and shared pages", async () => {
+test("remote client navigation focuses on chats", async () => {
   const app = await clientSource("app.js");
   const styles = await clientSource("app.css");
 
@@ -134,9 +133,9 @@ test("remote client navigation focuses on chats and shared pages", async () => {
   assert.equal(app.includes("tab-bar"), false);
   assert.equal(styles.includes(".tab-bar"), false);
 
-  // Expanded order: New chat, the plain chat list, Shared pages, and
-  // Settings. Online presence stays out of the way; offline remains visible.
-  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?id="shared-pages-toggle"[\s\S]*?id="shared-pages-popup"[\s\S]*?id="account-settings"[\s\S]*?id="desktop-presence"/);
+  // Expanded order: New chat, the plain chat list, and Settings. Online
+  // presence stays out of the way; offline remains visible.
+  assert.match(app, /id="new-chat"[\s\S]*?<ul id="chats"[\s\S]*?id="account-settings"[\s\S]*?id="desktop-presence"/);
   assert.ok(app.includes('<p class="chat-list-heading">Chats</p>'));
   assert.doesNotMatch(app, /chat-group-heading|chat-working|chat-waiting/);
   assert.ok(app.includes("No chats yet"));
@@ -151,7 +150,7 @@ test("remote client navigation focuses on chats and shared pages", async () => {
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Shared pages", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Settings"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }
@@ -180,11 +179,8 @@ test("remote client navigation focuses on chats and shared pages", async () => {
   // Presence only appears for an offline desktop.
   assert.ok(app.includes('const label = online ? "" : "Desktop offline"'));
   assert.ok(app.includes("presence.hidden = online"));
-  assert.ok(app.includes('remote("pages.list")'));
-  assert.ok(app.includes('remote("pages.link", { publicationId })'));
   assert.match(styles, /\[data-tip\]\[aria-expanded="true"\]:hover::after \{ opacity: 0; \}/);
   // Component layout rules use display values, so their semantic hidden
   // states need explicit higher-specificity guards in both sidebar modes.
   assert.match(styles, /#desktop-presence\[hidden\] \{ display: none; \}/);
-  assert.match(styles, /\.shared-pages-popup\[hidden\] \{ display: none; \}/);
 });

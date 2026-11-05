@@ -13,9 +13,7 @@ import { workFolderIdentityStyle } from "../../lib/work-folder-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/work-folder-ui";
 import type { BrowserSurfaceTab, ChatActivityStatus, ConversationSummary, WorkFolderCustomizationMap, WorkFolderSummary, WorkFolderSurfaceTab } from "../../types";
 import { BrowserTabIcon, FluentGlyph, NewBrowserTabIcon, NewChatIcon, WorkFolderIconGlyph } from "../chrome/common";
-import { fileSharing } from "../../ui-contract";
 import { useFinishCelebration } from "../../hooks/useFinishCelebration";
-import { SharedPageGlyph } from "../tree/FileTree";
 
 const groupSurfaceTabsStorageKey = "work-fold.work-folder.surface-tabs.group-by-work-folder.v1";
 
@@ -65,7 +63,6 @@ export function WorkFolderSurfaceTabBar({
   onReorder,
   onNewChatInWorkFolder,
   onTabMenu,
-  isSharedFile,
   browserTabLooks = {},
   onNewBrowserTab,
   onBrowserTabMenu,
@@ -83,8 +80,6 @@ export function WorkFolderSurfaceTabBar({
   onNewChatInWorkFolder: (workFolder: WorkFolderSummary) => void;
   /** A work-folder tab's right-click menu, with its Chat when it holds a saved one. */
   onTabMenu: (tab: WorkFolderSurfaceTab, workFolder: WorkFolderSummary, conversation: ConversationSummary | null, event: ReactMouseEvent<HTMLElement>) => void;
-  /** True when this work-folder file is shared as a page; file tabs carry the mark. */
-  isSharedFile?: (workFolderId: string, path: string) => boolean;
   /** Each browser tab's page icon and state, by page id. */
   browserTabLooks?: Record<string, BrowserTabLook>;
   /** Present in the desktop app, where the built-in browser runs. */
@@ -380,7 +375,6 @@ export function WorkFolderSurfaceTabBar({
       ? conversations[tab.workFolderId]?.find((item) => item.id === tab.conversationId)
       : undefined;
     const activityLabel = activity === "running" ? "Worker is working" : activity === "attention" ? "Worker finished" : "";
-    const shared = tab.kind === "file" && Boolean(isSharedFile?.(tab.workFolderId, tab.path));
     const folderDetail = tab.kind === "file" && (fileTitleCounts.get(tab.title) ?? 0) > 1
       ? tab.path.split("/").slice(0, -1).at(-1) || workFolderName
       : null;
@@ -413,7 +407,7 @@ export function WorkFolderSurfaceTabBar({
           role="tab"
           aria-selected={tab.id === activeTabId}
           aria-controls={surfacePanelDomId(tab.id)}
-          aria-label={`${tab.title} in ${workFolderName}${activityLabel ? `, ${activityLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
+          aria-label={`${tab.title} in ${workFolderName}${activityLabel ? `, ${activityLabel}` : ""}`}
           tabIndex={tab.id === activeTabId ? 0 : -1}
           aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
           onPointerDown={(event) => reorderRef.current?.begin(event.nativeEvent, tab.id, event.currentTarget)}
@@ -424,7 +418,6 @@ export function WorkFolderSurfaceTabBar({
             <span className="surface-tab-title">{tab.title}{folderDetail ? <span className="surface-tab-detail">{folderDetail}</span> : null}</span>
           </span>
           {activity ? <TabActivityDot status={activity} /> : null}
-          {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}
         </button>
         <button
           className="surface-tab-close"

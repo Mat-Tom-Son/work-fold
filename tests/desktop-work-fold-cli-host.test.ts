@@ -276,8 +276,8 @@ test("desktop main wires one settle seam, one receipts ledger, and automation sl
   const apiStart = main.indexOf("function ensureInteractiveLocalApi");
   const apiBody = main.slice(apiStart, main.indexOf("\nasync function ensureRemoteAccessClient", apiStart));
   assert.match(apiBody, /settleSignal: host\.settleSignal,/, "the local API consumes the host's exact signal instance");
-  assert.match(apiBody, /actReceipts: host\.cli\.receipts,/, "decisions, publications, and CLI acts share the CLI host's one ledger");
-  assert.match(apiBody, /publicationKeys: host\.settings\.publicationKeyStore\(\)/);
+  assert.match(apiBody, /actReceipts: host\.cli\.receipts,/, "Settings acts and CLI acts share the CLI host's one ledger");
+  assert.doesNotMatch(apiBody, /publication/i, "the local API no longer takes publication keys or a bridge slot lane");
   assert.match(apiBody, /automationPowerLifecycle = api\.automations;/);
 
   // Sleep suspends both schedulers; wake resumes both. Automation runs abort on
@@ -292,12 +292,10 @@ test("desktop main wires one settle seam, one receipts ledger, and automation sl
   assert.match(resumeBody, /automationPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
   assert.match(resumeBody, /could not resume Automations after wake/);
 
-  // The remote client keeps the viewer-page provider wired to the
-  // publication authority, and reconnects re-drive pending bridge syncs.
+  // The remote client serves paired browsers only: no viewer-page provider.
   const remoteStart = main.indexOf("async function ensureRemoteAccessClient");
   const remoteBody = main.slice(remoteStart, main.indexOf("\nasync function promptRemoteBrowserPairing", remoteStart));
-  assert.match(remoteBody, /servePage: \(publicationId\) => api\.publications\.serveViewerPage\(publicationId\)/);
-  assert.match(remoteBody, /onDeviceConnected: \(\) => api\.publications\.redriveBridgeSync\(\)/);
+  assert.doesNotMatch(remoteBody, /viewerPages|publications/);
 });
 
 function fixtureKernel(): WorkFoldCliKernel {

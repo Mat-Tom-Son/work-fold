@@ -8,7 +8,6 @@ export type NativeFileMenuCommand =
   | "copy-path"
   | "attach-chat"
   | "version-history"
-  | "share"
   | "new-folder"
   | "upload-here"
   | "refresh"
@@ -27,9 +26,6 @@ export interface NativeFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
-    /** The file type can be shared as a page; `shared` says it already is. */
-    share: boolean;
-    shared: boolean;
     /** A plain folder inside this work-folder that can become its own work-folder (optional; older renderers omit it). */
     worker?: boolean;
   };
@@ -47,7 +43,7 @@ export type NativeFileMenuItem =
   | { type: "item"; label: string; command: NativeFileMenuCommand; icon?: "work-fold" };
 
 const requestKeys = new Set(["workFolderId", "path", "kind", "capabilities", "selection", "point"]);
-const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared", "worker"]);
+const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "worker"]);
 const optionalCapabilityKeys = new Set(["worker"]);
 const pointKeys = new Set(["x", "y"]);
 const selectionKeys = new Set(["files", "folders"]);
@@ -86,8 +82,6 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
       upload: capabilities.upload as boolean,
       rename: capabilities.rename as boolean,
       delete: capabilities.delete as boolean,
-      share: capabilities.share as boolean,
-      shared: capabilities.shared as boolean,
       ...(capabilities.worker === true ? { worker: true } : {}),
     },
     ...(selection ? { selection } : {}),
@@ -126,9 +120,6 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
   }
   if (request.kind === "file" && request.capabilities.history) {
     items.push({ type: "item", label: "Version History", command: "version-history" });
-  }
-  if (request.kind === "file" && request.capabilities.share) {
-    items.push({ type: "item", label: request.capabilities.shared ? "Shared" : "Share", command: "share" });
   }
   if (request.kind === "folder") {
     items.push(

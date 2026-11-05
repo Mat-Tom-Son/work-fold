@@ -12,8 +12,6 @@ import { showToast } from "../../ui/feedback";
 import { EmptyInline } from "../chrome/common";
 import { FileTypeIcon } from "../tree/FileTree";
 import { copyMarkdownToClipboard, MarkdownMessage } from "../chat/messages";
-import { isShareablePath } from "../../lib/page-sharing";
-import { FileShareControl } from "./FileSharePopover";
 
 // Chromium's PDF viewer: no toolbar, no thumbnail pane, fit to width.
 const pdfViewerParameters = "#toolbar=0&navpanes=0&view=FitH";
@@ -23,7 +21,7 @@ type FileMenuItem = { key: string; label: string; icon: ReactNode; run: () => vo
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, fixtureText, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
+export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, fixtureText, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename }: {
   workFolder: WorkFolderSummary;
   path: string;
   entry: TreeEntry | null;
@@ -36,9 +34,6 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
   onAddToChatContext: (path: string) => void;
   onShowVersionHistory: (path: string) => void;
   onRename?: (path: string) => void;
-  /** A Files-menu Share for this file, handled once by this tab. */
-  shareRequestId?: number;
-  onOpenSettings?: (page: "shared-pages" | "web-access") => void;
 }) {
   const [info, setInfo] = useState<{ name: string; path: string; kind: "file" | "folder"; sizeBytes: number; createdAt: string; modifiedAt: string; mimeType: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -187,7 +182,6 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
         <div className="file-details-actions">
           {copyable ? <button className="ui-control compact no-margin file-details-copy" type="button" title={copyState === "copied" ? "Copied" : "Copy Contents"} aria-label={copyState === "copied" ? "Copied" : "Copy Contents"} aria-busy={copyState === "copying"} data-state={copyState} onClick={() => void copyContents()}>{copyState === "copied" ? <Check size={14} /> : <Copy size={14} />}<span className="file-details-action-label">{copyLabel}</span></button> : null}
           <button className="ui-control compact no-margin" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={14} /><span className="file-details-action-label">Attach to Chat</span></button>
-          {isShareablePath(path) ? <FileShareControl workFolderId={workFolder.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
           <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
           <FileMoreMenu key={fileKey} items={moreItems} />
         </div>

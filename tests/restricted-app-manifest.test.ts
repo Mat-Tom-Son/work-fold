@@ -40,7 +40,6 @@ import {
   restrictedAppJsonSchemaLimits,
   restrictedAppManifestLimits,
   restrictedAppManifestVersion,
-  restrictedAppViewerSurfacePins,
 } from "../src/local/agent/restricted-app-manifest.js";
 import { restrictedAppCheckLimits } from "../src/shared/restricted-app-checks.js";
 import {
@@ -530,7 +529,7 @@ test("request objects and response mode cannot be reintroduced as reviewed param
   }
 });
 
-test("viewer declarations are optional, closed, canonical, and pinned deterministically", () => {
+test("viewer declarations are optional, closed, and canonical", () => {
   const withoutViewer = parseRestrictedAppManifest(manifest());
   assert.equal(withoutViewer.viewer, undefined, "apps without a viewer surface parse unchanged");
 
@@ -542,11 +541,6 @@ test("viewer declarations are optional, closed, canonical, and pinned determinis
     viewer: { entry: "viewer.html", readable: ["public", "notes/"] },
   }));
   assert.deepEqual(reordered.viewer, parsed.viewer, "readable prefixes normalize to one canonical order");
-  assert.deepEqual(
-    restrictedAppViewerSurfacePins(parsed.viewer!),
-    ["entry:viewer.html", "data:notes/", "data:public"],
-    "the exposure pins derive one complete viewer-readable surface",
-  );
 
   const readableOnlyEntry = parseRestrictedAppManifest(manifest({ viewer: { entry: "viewer.html" } }));
   assert.deepEqual(readableOnlyEntry.viewer, { entry: "viewer.html", readable: [] });

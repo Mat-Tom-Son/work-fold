@@ -43,7 +43,6 @@ export interface PreparedActKindDescriptor {
 }
 
 const CAPABILITY_SCOPES = ["everywhere", "work-folder"] as const;
-const VIEWER_EXPOSURES = ["page", "hosted-app"] as const;
 
 function req(type: PreparedActFieldType, values?: readonly string[]): PreparedActFieldSpec {
   return values ? { type, required: true, values } : { type, required: true };
@@ -142,31 +141,6 @@ const KIND_DESCRIPTORS = {
   "automation.enable": {
     parameters: { automationId: req("string") },
     pins: { automationId: req("string"), declarationDigest: req("string") },
-  },
-  "publish.viewer.expose": {
-    parameters: {
-      exposure: req("string", VIEWER_EXPOSURES),
-      workFolderId: opt("string"),
-      appInstanceId: opt("string"),
-    },
-    pins: {
-      exposure: req("string", VIEWER_EXPOSURES),
-      workFolderId: opt("string"),
-      relativePath: opt("string"),
-      title: opt("string"),
-      snapshotEnabled: opt("boolean"),
-      byteBudget: opt("number"),
-      serveBudget: opt("number"),
-      appInstanceId: opt("string"),
-      releaseDigest: opt("string"),
-      viewerEntry: opt("string"),
-      viewerSurface: opt("string-list"),
-      priorBindingSummary: opt("string"),
-      priorByteBudget: opt("number"),
-      priorServeBudget: opt("number"),
-      priorReleaseDigest: opt("string"),
-      priorViewerSurface: opt("string-list"),
-    },
   },
   "work-folder.delete-folder": {
     parameters: { workFolderId: req("string") },
@@ -484,7 +458,6 @@ function crossFieldIssue(
   if ((kind === "capability.skills.import" || kind === "capability.resource.enabled") && section === "parameters") {
     return scopedWorkFolderIssue(section, fields);
   }
-  if (kind === "publish.viewer.expose") return exposureIssue(section, fields);
   return null;
 }
 
@@ -494,28 +467,6 @@ function scopedWorkFolderIssue(section: FieldSection, fields: Record<string, Pre
   }
   if (fields.scope === "everywhere" && fields.workFolderId !== undefined) {
     return `${section}.workFolderId must be absent at Everywhere scope.`;
-  }
-  return null;
-}
-
-function exposureIssue(section: FieldSection, fields: Record<string, PreparedActFieldValue>): string | null {
-  const page = fields.exposure === "page";
-  const required = section === "parameters"
-    ? (page ? ["workFolderId"] : ["appInstanceId"])
-    : (page
-      ? ["workFolderId", "relativePath", "title", "snapshotEnabled", "byteBudget", "serveBudget"]
-      : ["appInstanceId", "releaseDigest", "viewerEntry", "viewerSurface"]);
-  const foreign = section === "parameters"
-    ? (page ? ["appInstanceId"] : ["workFolderId"])
-    : (page
-      ? ["appInstanceId", "releaseDigest", "viewerEntry", "viewerSurface", "priorReleaseDigest", "priorViewerSurface"]
-      : ["workFolderId", "relativePath", "title", "snapshotEnabled", "byteBudget", "serveBudget", "priorByteBudget", "priorServeBudget"]);
-  const exposure = String(fields.exposure);
-  for (const name of required) {
-    if (fields[name] === undefined) return `${section}.${name} is required for ${exposure} exposure.`;
-  }
-  for (const name of foreign) {
-    if (fields[name] !== undefined) return `${section}.${name} does not belong to ${exposure} exposure.`;
   }
   return null;
 }

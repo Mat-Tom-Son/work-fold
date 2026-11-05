@@ -15,9 +15,9 @@ classification tables, the consolidated conflict rules, the receipt schema
 record, and the deliberate absences. The 2026-09-10 supersession is recorded
 in [Receipts, not gates](receipts-not-gates.md);
 [Consecrations](archive/fold-consecrations.md) is retained only for threat-model
-residuals. Automation, overview, and publishing verbs are owned by
-[Automations](automations.md), [the overview](work-fold-agent-overview.md), and
-[Publishing](shared-pages.md); the promotion record by
+residuals. Automation and overview verbs are owned by
+[Automations](automations.md) and [the overview](work-fold-agent-overview.md);
+the promotion record by
 [Fold integration](archive/fold-integration.md).
 
 The doctrine, in one paragraph: every product verb is a receipted act-lane
@@ -34,7 +34,7 @@ deleted.
 | Target | Meaning |
 |---|---|
 | **direct verb** | The work-fold agent performs it through the act lane: explicit selection, journal-first receipt, at-most-once execution, desktop conflict rules. |
-| **prepared verb** | A direct verb whose execution shape is prepare → pin → journal-first → fenced execute → receipt, run on the call that asks. Covers app install/update, Pi package and skill-bundle install/update, app grants and automation enablement, automation enablement, outward viewer exposure, managed-work-folder deletion, app storage clear and retained-data purge. |
+| **prepared verb** | A direct verb whose execution shape is prepare → pin → journal-first → fenced execute → receipt, run on the call that asks. Covers app install/update, Pi package and skill-bundle install/update, app grants and automation enablement, automation enablement, managed-work-folder deletion, app storage clear and retained-data purge. |
 | **reversible deletion** | A delete whose undo is a History restore point or a Recently-deleted entry (`recently-deleted restore`). No product verb destroys permanently; retention does. |
 | **setup-only boundary** | The work-fold agent can neither perform nor request it: Web Access administration, act-token and pairing machinery, provider credentials, and anything that widens the set of principals controlling the work-fold agent. |
 | **deliberately absent** | Not a product verb — desktop-session mechanics, machine-local UI preference, or a surface whose meaning does not survive leaving the desktop. Listed so absence is a decision, not a gap. |
@@ -68,7 +68,7 @@ record only per-verb additions.
    point every mutation already records; lifecycle and naming verbs are
    undone by the inverse verb using the prior state captured in the receipt;
    authority verbs are revoked by their narrow-direction twin (revoke,
-   disable, disconnect, stop sharing), which is always direct; deletions are
+   disable, disconnect), which is always direct; deletions are
    undone through the restore point or `recently-deleted restore --entry <id>`.
 4. **What happens on failure mid-act.** The domain service's existing
    atomicity applies unchanged — placement and restore point succeed or fail
@@ -105,8 +105,8 @@ rules, which mirror the desktop's.
 | Create work-folder | Header menu, palette, onboarding | act | direct verb | `work-folders create --name <n>` | spaceId | `work-folders unregister` (folder remains) | name collision rejected |
 | Register folder | Header menu, native picker | act | direct verb | `work-folders register --path <abs>` | spaceId | `work-folders unregister` revokes runtime authorization | already-registered path rejected |
 | Rename work-folder | Manage work-folders pane | none | direct verb | `work-folders rename --work-folder <id> --name <n>` | prior name | rename back (prior name in receipt) | duplicate exact name rejected as ambiguous-making |
-| Unregister work-folder | Manage work-folders → Remove (linked) | none | direct verb | `work-folders unregister --work-folder <id>` | storage kind | re-register the folder; `.work-fold/` identity persists | refused while a release-backed App Instance is sourced by or installed in it, or its Project owns retained data — same App Studio impact checks as the desktop; refused while live publications are backed by it, named in the refusal ([Publishing](shared-pages.md)); on success, automations referencing it suspend with active runs stopped ([Automations](automations.md)) |
-| Delete managed work-folder's folder | Manage work-folders → Delete (managed) | none | **prepared verb** | `work-folders delete --work-folder <id>` | trash entry id, canonical root | `recently-deleted restore --entry <id>` re-registers the work-folder from Recently deleted with its portable identity, its Chats, and its History | same impact checks as unregister, including the live-publication block; the claimed folder is moved into Recently deleted, never erased, so a legacy `.workspace/` tree moves like any other and the retention purge is what fails closed on it |
+| Unregister work-folder | Manage work-folders → Remove (linked) | none | direct verb | `work-folders unregister --work-folder <id>` | storage kind | re-register the folder; `.work-fold/` identity persists | refused while a release-backed App Instance is sourced by or installed in it, or its Project owns retained data — same App Studio impact checks as the desktop; on success, automations referencing it suspend with active runs stopped ([Automations](automations.md)) |
+| Delete managed work-folder's folder | Manage work-folders → Delete (managed) | none | **prepared verb** | `work-folders delete --work-folder <id>` | trash entry id, canonical root | `recently-deleted restore --entry <id>` re-registers the work-folder from Recently deleted with its portable identity, its Chats, and its History | same impact checks as unregister; the claimed folder is moved into Recently deleted, never erased, so a legacy `.workspace/` tree moves like any other and the retention purge is what fails closed on it |
 | Apply appearance | Customize work-folder → Import proposal | none | direct verb (argued below) | `work-folders appearance apply --work-folder <id> (--proposal <path> \| [--banner-image <path>] [--icon <name>] [--color <#rrggbb>])` | prior customization ref | `work-folders appearance undo --work-folder <id>` | proposal must parse as the typed `work-folder-appearance` proposal; nothing else is accepted |
 | Reset appearance | Customize work-folder → Reset | none | direct verb | `work-folders appearance reset --work-folder <id>` | prior customization ref | `work-folders appearance undo` | — |
 | Undo appearance | — (the desktop re-imports or resets instead) | none | direct verb | `work-folders appearance undo --work-folder <id>` | restored and displaced customization refs | apply the displaced ref again — undo is its own inverse | refused with a typed error when the receipt chain records no prior customization ref for that work-folder, including when the current appearance was last changed on the desktop rather than through a receipted act |
@@ -328,7 +328,7 @@ arrive with installation and are narrowed through the rows above.
 |---|---|---|---|---|---|---|---|
 | Declare / edit presentation | App Studio form | none | direct verb | `apps project declare --work-folder <id> --presentation <json-path>` | prior presentation ref | re-declare with prior values | typed presentation file, same validation as the pane; machine-local application state, no `.work-fold/` write |
 | Prepare Release | App Studio → Prepare | none | direct verb | `apps release prepare --work-folder <id> --version <display>` | releaseDigest | `apps release delete` while unused | snapshots current reviewed previews into one immutable content-addressed Release; later source edits cannot alter its bytes |
-| Publish Release | App Studio → Publish | none | direct verb | `apps release publish --work-folder <id> --release <digest>` | releaseDigest | delete while unused; publication records are lifecycle state, not exposure | rechecks that reviewed previews are still exact; **local state transition only** — nothing is uploaded, hosted, listed, or granted. Outward viewer exposure of a hosted Instance is the separate `pages` share verb in [Publishing](shared-pages.md) |
+| Publish Release | App Studio → Publish | none | direct verb | `apps release publish --work-folder <id> --release <digest>` | releaseDigest | delete while unused; publication records are lifecycle state, not exposure | rechecks that reviewed previews are still exact; **local state transition only** — nothing is uploaded, hosted, listed, or granted |
 | Delete unused Release | App Studio → Delete | none | direct verb | `apps release delete --work-folder <id> --release <digest>` | releaseDigest, Recently deleted entry | `recently-deleted restore --entry <id>` | service guard refuses while any App Instance, either side of a prepared operation, or retained data references it; the Release's record and verified envelope go to Recently deleted before the record is removed (2026-10-11), and a restore re-verifies both and returns the Release in the state it was deleted in unless its version has been prepared again |
 | Prepare install | App Studio → Install | none | direct verb | `apps install prepare --work-folder <id> --release <digest> --target-work-folder <id>` | operationId | `apps operation cancel` | one instance per (projectId, target work-folder); Feature-id collisions rejected |
 | Prepare update / rollback | App Studio instance actions | none | direct verb | `apps update prepare --work-folder <id> --instance <id> --release <digest>` | operationId, direction | `apps operation cancel`; a completed update is undone by preparing the rollback | deterministic plan recorded now, rechecked at activation |
@@ -344,8 +344,7 @@ joined by `agent overview` ([the overview](work-fold-agent-overview.md)). The CL
 keeps the contract name `agent`; "the work-fold agent" is user-facing copy per
 [The work-fold agent](work-fold-agent-decisions.md). Automation verbs are in [Automations](automations.md)
 (`automations enable` is the prepared verb that pins a declaration digest);
-publication verbs in [Publishing](shared-pages.md); Recently deleted
-above.
+Recently deleted above.
 
 ### Settings and fold administration — the setup-only boundary
 
@@ -405,9 +404,8 @@ Consolidated, so implementations and tests can point at one list:
    silently terminate a background turn.
 4. work-folder unregistration and managed-folder deletion run the App Studio
    impact checks: active source/target Instances block, retained data
-   blocks, and incoming prepared operations are named in the refusal. Live
-   publications backed by the work-folder block too, and are named in the refusal
-   ([Publishing](shared-pages.md)). A removal that proceeds suspends
+   blocks, and incoming prepared operations are named in the refusal. A
+   removal that proceeds suspends
    automations referencing that work-folder, stopping any active run
    ([Automations](automations.md)).
 5. Managed recursive deletion fails closed when the claimed tree contains

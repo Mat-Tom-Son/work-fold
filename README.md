@@ -86,8 +86,8 @@ checks. See [Worker tools](docs/worker-tools.md) for their lifecycle and limits.
 
 The work-fold agent's menu-bar popover has a **Chats** view that reopens saved
 conversations and keeps unsent drafts while you switch. The paired web client
-focuses on new and saved Chats, keeps questions inside the Chat that asked
-them, and lists your **Shared pages**.
+focuses on new and saved Chats and keeps questions inside the Chat that asked
+them.
 
 **Skills & Extensions** manages native Pi resources, package updates and
 removal, and setup for the included Computer Control, Chrome, Web, Documents,

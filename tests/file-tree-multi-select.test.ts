@@ -71,7 +71,7 @@ test("the native Mac menu for several rows offers only what applies to all of th
     workFolderId: "work-folder-1",
     path: "Notes/a.md",
     kind: "file",
-    capabilities: { open: false, attach: true, history: false, upload: false, rename: false, delete: true, share: false, shared: false },
+    capabilities: { open: false, attach: true, history: false, upload: false, rename: false, delete: true },
     point: { x: 10, y: 20 },
   } as const;
   const files = parseNativeFileMenuRequest({ ...base, selection: { files: 3, folders: 0 } });

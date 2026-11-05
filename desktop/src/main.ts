@@ -126,7 +126,6 @@ import { resolveDesktopApplicationVersion } from "./application-version.js";
 import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
-  createRemoteBridgePublicationSync,
   generateRemoteDeviceKeys,
   remoteBridgeRequestTimeoutMs,
   runRemoteAccountRemoval,
@@ -775,8 +774,8 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       checkService: host.checks,
       // The exact instance the injected Check and restricted-app services
       // publish into, so desktop settles reach automation triggers; and the CLI
-      // host's own act-receipts journal, so Settings acts, publications, and
-      // CLI acts share one ledger file and one at-most-once gate.
+      // host's own act-receipts journal, so Settings acts and CLI acts share
+      // one ledger file and one at-most-once gate.
       settleSignal: host.settleSignal,
       actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
@@ -788,14 +787,6 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).
       onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
-      // Shared pages (docs/shared-pages.md): publication keys
-      // live in operating-system-encrypted secure settings beside the other
-      // Remote access material, and the slot/snapshot sync lane reads the
-      // current Remote access credential at call time — unconfigured means
-      // slot syncs stay honestly pending while deletions are already
-      // satisfied by the account cascade.
-      publicationKeys: host.settings.publicationKeyStore(),
-      publicationBridge: createRemoteBridgePublicationSync(() => host.settings.getRemoteAccess()),
     });
     // The per-launch act token authorizes the CLI act lane for exactly this
     // interactive run; without a readable token file, act commands stay
@@ -824,16 +815,6 @@ async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLoca
     promptPairing: promptRemoteBrowserPairing,
     onStatus: (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("work-fold:remote-access:status", status);
-    },
-    // The desktop side of the serving path: `viewer.fetch` renders through
-    // the publication authority's effect-time recheck, reconnects re-drive
-    // pending slot syncs and snapshot seeds, and the bridge's resting notice
-    // becomes the publisher-facing health note the overview surfaces.
-    viewerPages: {
-      servePage: (publicationId) => api.publications.serveViewerPage(publicationId),
-      serveAppCall: (publicationId, call) => api.publications.serveViewerAppCall(publicationId, call),
-      onDeviceConnected: () => api.publications.redriveBridgeSync(),
-      noteResting: (publicationId, reason) => api.publications.noteViewerResting(publicationId, reason),
     },
   });
   const settings = await host.settings.getRemoteAccess();

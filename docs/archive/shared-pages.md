@@ -1,23 +1,31 @@
 # Shared pages: the publishing ladder and the viewer
 
+**Status: retired 2026-11-05 by owner decision.** Desktop-served sharing —
+rung 2 pages (including inert HTML pages and the sleep copy), rung 3 apps at
+your address, Settings → Shared Pages, the paired web client's Shared pages
+popup, and the `pages` act verbs — was removed, and the bridge's
+`pages-<slug>` hosts now serve nothing. Superseded by
+[Online pages plan](../online-pages-plan.md). The record below is kept as
+written.
+
 **Status: shipped contract reference.** The publishing ladder shipped with
 the work-fold agent build through rung 3 — `src/local/publications.ts`,
 `src/local/agent/restricted-app-viewer.ts`, `desktop/src/remote-access.ts`,
 and the bridge's viewer plane in `services/bridge/` with their suites are
 the implementation authority — and its decisions were promoted on
-2026-08-11 into [the work-fold agent decision register](work-fold-agent-decisions.md) (F11),
-[Product model](product-model.md) (the Viewer noun and the share/revoke
-context rows), [the work-fold agent and CLI](work-fold-agent-and-cli.md), `README.md`,
+2026-08-11 into [the work-fold agent decision register](../work-fold-agent-decisions.md) (F11),
+[Product model](../product-model.md) (the Viewer noun and the share/revoke
+context rows), [the work-fold agent and CLI](../work-fold-agent-and-cli.md), `README.md`,
 `SECURITY.md` (the Published viewer pages subsection), and `PRIVACY.md`
 (the Published pages subsection), with the reviewed `viewer` manifest field
-documented in [Restricted app authoring](restricted-app-authoring.md) and
-[Restricted app runtime](restricted-app-runtime.md). This document retains
+documented in [Restricted app authoring](../restricted-app-authoring.md) and
+[Restricted app runtime](../restricted-app-runtime.md). This document retains
 what canon does not carry: the viewer class contract, the serving path, the
 key design decision, origin isolation, honest states, the mutation ledger,
 the viewer-safe broker table, and the bounds. The promotion record is
-[Fold integration](archive/fold-integration.md).
+[Fold integration](fold-integration.md).
 
-**Amended 2026-09-10** by [Receipts, not gates](receipts-not-gates.md) (F19):
+**Amended 2026-09-10** by [Receipts, not gates](../receipts-not-gates.md) (F19):
 sharing is a prepared verb that executes on the call that asks for it and
 answers with a receipt. Nothing about a share is held, and revocation is the
 undo.
@@ -79,7 +87,7 @@ you paired by matched code" to "anyone holding a link" — a network
 destination in reverse: an ingress audience instead of an egress origin.
 That widening is disclosed and undone, not gated: the share verb executes on
 the call that asks for it and answers with a receipt
-([Receipts, not gates](receipts-not-gates.md), F19). Two verbs share the
+([Receipts, not gates](../receipts-not-gates.md), F19). Two verbs share the
 English word "publish" and must not share a shape: **Publish a Release**
 (App Studio) is a local state transition; **serving to viewers** —
 activating a page slot, or exposing a hosted App Instance — is the outward
@@ -135,7 +143,7 @@ client keeps work and questions inside Chats. It has no work-folder file or
 App browser (removed 2026-10-09); files and apps open only from a Chat's
 result links, as bounded previews and exact-installation app views. Its
 earlier Needs you screen, which showed
-[the overview](work-fold-agent-overview.md), has been retired; the host overview operations
+[the overview](../work-fold-agent-overview.md), has been retired; the host overview operations
 remain compatible with older clients. The paired-browser grant and envelope
 encryption stay the same, with no new audience.
 
@@ -298,7 +306,7 @@ IndexedDB for `<slug>.work-fold.com`). Structurally:
 - **Not available.** Desktop online but the source file is missing, moved,
   oversized, or failed identity checks: viewers get a deliberately vague
   "This page isn't available right now." The person gets the precise
-  reason as a change item in [the overview](work-fold-agent-overview.md) — the page's
+  reason as a change item in [the overview](../work-fold-agent-overview.md) — the page's
   problem is the publisher's information, not the audience's.
 - **Resting.** A budget is exhausted: "This page has had a lot of visitors
   today. Try again later." Also surfaced to the person in the overview.
@@ -378,12 +386,12 @@ ciphertext characters; a message with uploads may use 12 MiB × 1.4) and about
 3.15 MiB per desktop response (3 MiB × 1.4). The desktop checks each response
 first and answers a larger one with a typed `RESPONSE_TOO_LARGE` refusal
 instead of sending it. See
-[transport limits](browser-apps.md#transport-limits).
+[transport limits](../browser-apps.md#transport-limits).
 
 ### The mutation ledger
 
 Every publishing mutation answers the five questions from the
-[act ledger](act-ledger.md). Serving is a read and appears only where
+[act ledger](../act-ledger.md). Serving is a read and appears only where
 it touches durable state (snapshot refresh).
 
 | Mutation | Kind | Journaled | Receipt contains | Revocation / undo | Mid-act failure | Replay prevention |
@@ -410,7 +418,7 @@ two-phase prepare/activate operation plus the outward-exposure share verb;
 the receipt names the app, the exact Release digest, the viewer address, and
 the complete viewer-readable surface. Every power the package declares is
 granted on install exactly as local installs behave
-([Receipts, not gates](receipts-not-gates.md), F21), but the viewer plane
+([Receipts, not gates](../receipts-not-gates.md), F21), but the viewer plane
 refuses everything outside the reviewed `viewer` declaration regardless.
 
 Putting an installed app at the address is offered in two places that run one
@@ -524,7 +532,7 @@ no holding spelling left in the vocabulary.
   a script-less sandboxed frame, under the viewer CSP. Anything interactive
   is still an app (rung 3).
 - **Publishing from Automations.** No Automation step may create or widen viewer
-  exposure ([Automations](automations.md)); an Automation may at most write
+  exposure ([Automations](../automations.md)); an Automation may at most write
   files that an already-shared publication serves.
 - **A gate on sharing.** Outward exposure is disclosed and revocable, not
   held: reintroducing a hold, a confirmation state, or a standing rule on
@@ -541,7 +549,7 @@ The plan items shipped as follows (numbering preserved for references):
 5. Desktop surfaces — publications list, share-link reveal, budget and snapshot controls, and revoke in Settings → Shared pages; overview change items; `tests/shared-pages-settings.test.ts`, `tests/web-ui-contract.test.ts`, `tests/frontend-interaction-contract.test.ts`.
 6. Snapshot opt-in lane — push/delete in `desktop/src/remote-access.ts`, bridge storage, "as of" rendering, label copy.
 7. Rung 3 viewer surface — the `viewer` manifest declaration in `src/local/agent/restricted-app-manifest.ts`, the viewer adapter in `src/local/agent/restricted-app-viewer.ts`, opaque-origin iframe hosting in the shell, probe denial cases in `scripts/restricted-app-electron-smoke.mjs`; `tests/restricted-app-manifest.test.ts`, `tests/restricted-app-product-contract.test.ts`, `tests/work-fold-publications.test.ts`.
-8. Docs and canonical promotion — recorded in [Fold integration](archive/fold-integration.md).
+8. Docs and canonical promotion — recorded in [Fold integration](fold-integration.md).
 9. Receipts, not gates (2026-09-10, F19) — sharing became a prepared verb that executes and receipts on the call that asks; the receipt's retired decision fields were dropped — `src/local/publications.ts`, `src/local/cli/act-receipts.ts`; `tests/work-fold-publications.test.ts`, `tests/work-fold-cli-act-receipts.test.ts`.
 10. Verb rename (2026-09-10) — the two outward-exposure verbs became `pages share` and `pages share-app` across the act protocol, help, the work-fold agent's instructions, and these docs; the retired holding spellings are unknown commands — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`, `src/local/cli/commands.ts`, `src/local/work-fold-agent-instructions.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-direct-verbs.test.ts`.
 11. Share from the file tab and widen in place (2026-09-24) — `POST /api/settings/publications/share` and `pages share` run one domain path that refuses without an address; `POST /api/settings/publications/:id/widen` and `pages widen` raise budgets or turn the sleep copy on under a receipt; each Shared pages row shows its page state (Live, Asleep, Resting, Not available, Stopped) with the precise reason as a tooltip — `src/local/server.ts`, `src/local/publications.ts`, `src/shared/publications.ts`, `web-local/src/components/panes/FileSharePopover.tsx`; `tests/shared-pages-settings.test.ts`, `tests/work-fold-publications.test.ts`.

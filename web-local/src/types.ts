@@ -560,18 +560,6 @@ export interface RestrictedAppAutomation {
   overlap: "skip";
 }
 
-/**
- * The declared viewer surface for "an app at your address"
- * (docs/shared-pages.md, rung 3): `entry` is the packaged document served
- * to link holders, `readable` the exact instance-owned collections viewers
- * may read. Declared in the manifest, so the app's details in Settings → Apps
- * say exactly what sharing it puts at the address.
- */
-export interface RestrictedAppViewerDeclaration {
-  entry: string;
-  readable: string[];
-}
-
 export interface RestrictedAppManifest {
   version: 2;
   id: string;
@@ -588,7 +576,6 @@ export interface RestrictedAppManifest {
     checks?: RestrictedAppCheckPermission[];
     notifications: RestrictedAppNotificationPermission[];
   };
-  viewer?: RestrictedAppViewerDeclaration;
 }
 
 export interface RestrictedAppReview {

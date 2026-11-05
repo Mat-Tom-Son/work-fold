@@ -64,15 +64,6 @@ async function directVerbHarness(prefix: string): Promise<{
     workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; } },
-    // An enrolled address whose relay is unreachable: shares proceed and
-    // stay honestly pending (docs/shared-pages.md).
-    publicationBridge: {
-      async upsertSlot() { throw new Error("relay unreachable"); },
-      async deleteSlot() {},
-      async putSnapshot() { throw new Error("relay unreachable"); },
-      async deleteSnapshot() {},
-      async addressConfigured() { return true; },
-    },
     beforeAgentPrompt: async (event) => {
       if (draining || !held.has(event.workFolderId)) return;
       await new Promise<void>((release) => pending.push({ taskId: event.taskId, workFolderId: event.workFolderId, release }));
@@ -136,94 +127,16 @@ function errorCodeOf(stderr: string): string | undefined {
   }
 }
 
-test("pages share shares the page on the first call with receipts and no decision id", async () => {
-  const h = await directVerbHarness("pages");
+test("retired verbs are unknown commands that leave no receipt", async () => {
+  const h = await directVerbHarness("retired");
   try {
-    const workFolder = await h.api.actFacade.createWorkFolder({ name: "Fold work-folder" });
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "weekly.md"), "# Weekly\n\nAll clear.\n", "utf8");
-
-    const shared = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "./weekly.md", "--title", "Weekly report", "--json"]);
-    assert.equal(shared.exitCode, 0, shared.stderr);
-    const sharedJson = JSON.parse(shared.stdout) as {
-      ok: boolean;
-      data: {
-        publication: { publicationId: string; state: string; relativePath: string; snapshotEnabled: boolean; serveRatePerMinute: number; viewerPath: string };
-        staged?: unknown;
-      };
-    };
-    assert.equal(sharedJson.ok, true);
-    assert.equal(sharedJson.data.publication.state, "active", "the page is shared on the first call");
-    assert.equal(sharedJson.data.publication.relativePath, "weekly.md", "the pins carry the exact normalized relative path");
-    assert.equal(sharedJson.data.publication.snapshotEnabled, false);
-    assert.equal(sharedJson.data.publication.serveRatePerMinute, 60);
-    assert.equal(sharedJson.data.staged, undefined, "no pending record exists");
-    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
-    assert.equal((h.lastOk() as { decisionId?: unknown }).decisionId, undefined, "receipts carry no decision id");
-    assert.equal(h.lastOk().workFolderId, workFolder.workFolder.id);
-    assert.match(h.lastOk().detail ?? "", /^publish\.viewer\.expose; source weekly\.md; publication /);
-    assert.deepEqual(h.lastOk().undoRef, { kind: "publicationId", value: sharedJson.data.publication.publicationId });
-    const live = await h.api.publications.list();
-    assert.equal(live.length, 1);
-    assert.equal(live[0]?.publicationId, sharedJson.data.publication.publicationId);
-
-    // Widening in place keeps the slot and link: a raised serve rate and the
-    // sleep copy on, receipted on the first call; a lower value is refused as
-    // narrowing, and the ceiling caps the rate.
-    h.records.length = 0;
-    const publicationId = sharedJson.data.publication.publicationId;
-    const widened = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "120", "--snapshot", "--json"]);
-    assert.equal(widened.exitCode, 0, widened.stderr);
-    const widenedJson = JSON.parse(widened.stdout) as {
-      data: { publication: { publicationId: string; serveRatePerMinute: number; snapshotEnabled: boolean; viewerPath: string }; priorServeRatePerMinute: number; priorSnapshotEnabled: boolean };
-    };
-    assert.equal(widenedJson.data.publication.publicationId, publicationId, "the slot is unchanged");
-    assert.equal(widenedJson.data.publication.viewerPath, sharedJson.data.publication.viewerPath, "the link path is unchanged");
-    assert.equal(widenedJson.data.publication.serveRatePerMinute, 120);
-    assert.equal(widenedJson.data.publication.snapshotEnabled, true);
-    assert.equal(widenedJson.data.priorServeRatePerMinute, 60);
-    assert.equal(widenedJson.data.priorSnapshotEnabled, false);
-    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "ok"]);
-    const lowered = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "30", "--json"]);
-    assert.equal(errorCodeOf(lowered.stderr), "usage");
-    assert.match(lowered.stderr, /use pages narrow/);
-    const overCeiling = await h.execute(["pages", "widen", "--publication", publicationId, "--serve-rate", "601", "--json"]);
-    assert.equal(errorCodeOf(overCeiling.stderr), "usage");
-    const nothing = await h.execute(["pages", "widen", "--publication", publicationId, "--json"]);
-    assert.equal(nothing.exitCode, 2);
-    const humanWiden = await h.execute(["pages", "widen", "--publication", publicationId, "--byte-budget", String(512 * 1024 * 1024)]);
-    assert.equal(humanWiden.exitCode, 0, humanWiden.stderr);
-    assert.match(humanWiden.stdout, /^Widened "Weekly report" \[[^\]]+\]: serve rate 120 -> 120\/min, byte budget 268435456 -> 536870912\/day, snapshot caching on -> on\. The link is unchanged;/);
-
-    // A second identical call refuses: the page is already shared. The
-    // refusal is journaled as an error under a fresh request id.
-    h.records.length = 0;
-    const again = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "weekly.md", "--title", "Weekly report", "--json"]);
-    assert.notEqual(again.exitCode, 0);
-    assert.equal(errorCodeOf(again.stderr), "conflict");
-    assert.match(again.stderr, /already shared/);
-    assert.deepEqual(h.records.map((record) => record.outcome), ["accepted", "error"]);
-    assert.equal((await h.api.publications.list()).length, 1);
-
-    // Sources the publication service could not serve refuse before anything
-    // is exposed.
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "tool.exe"), "bytes", "utf8");
-    const badType = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "tool.exe", "--title", "Nope", "--json"]);
-    assert.equal(errorCodeOf(badType.stderr), "usage");
-    const missing = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "ghost.md", "--title", "Nope", "--json"]);
-    assert.equal(errorCodeOf(missing.stderr), "notFound");
-    assert.equal((await h.api.publications.list()).length, 1);
-
-    // The human form names the address and where the link lives.
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "notes.md"), "# Notes\n", "utf8");
-    const human = await h.execute(["pages", "share", "--work-folder", workFolder.workFolder.id, "--path", "notes.md", "--title", "Notes"]);
-    assert.equal(human.exitCode, 0, human.stderr);
-    assert.match(human.stdout, /^Sharing "Notes" \(notes\.md\) from Fold work-folder \[[^\]]+\] at \/p\/[^.]+\. Reveal the link in Settings → Shared pages\.\n$/);
-
-    // The pending-decision family, permanent deletion, and the retired holding
-    // spellings of the automation and outward-exposure verbs are unknown commands.
+    // The pending-decision family, permanent deletion, the retired holding
+    // spellings, and the retired desktop-served sharing verbs.
     for (const argv of [
       ["staged", "list"], ["staged", "show"], ["files", "destroy"],
       ["automations", "stage"], ["pages", "stage"],
+      ["pages", "share"], ["pages", "share-app"], ["pages", "list"], ["pages", "status"],
+      ["pages", "revoke"], ["pages", "narrow"], ["pages", "widen"], ["pages", "snapshot-off"],
     ]) {
       h.records.length = 0;
       const unknown = await h.execute(argv);

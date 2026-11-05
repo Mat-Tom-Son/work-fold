@@ -15,25 +15,12 @@ import {
   Power20Regular,
   Sparkle20Regular,
   Subtract20Regular,
-  Window20Regular,
 } from "@fluentui/react-icons";
 import { useModalDialog } from "../../hooks/useModalDialog";
-import { api, errorText } from "../../lib/api";
-import { copyToClipboard } from "../../lib/clipboard";
-import { formatBytes } from "../../lib/format";
+import { errorText } from "../../lib/api";
 import { nextMenuItemIndex, type MenuNavigationKey } from "../../lib/menu-navigation";
 import type { AgentStatus, DesktopUpdateStatus, WorkFolderSummary } from "../../types";
-import { publicationsSettings, remoteAccessSettings } from "../../ui-contract";
-import {
-  pageByteBudgetMaximumMiB,
-  pageServeRateMaximum,
-  setSharedPages,
-  sharedPageHealth,
-  type SharedPageConnection,
-  type SharedPagesResponse,
-  type SharedPageView,
-} from "../../lib/page-sharing";
-import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
+import { remoteAccessSettings } from "../../ui-contract";
 import { buildFixtureUpdateStatus, createFixtureRemoteAccess, fixtureAppVersion } from "../../fixtures/settings-fixture";
 import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
@@ -48,9 +35,9 @@ import type { RestrictedAppInstalled } from "../../types";
 import { AutomationsPane } from "./AutomationsPane";
 import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
 
-export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
+export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type SettingsSection = "automations" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "ai-models" | "web-access" | "shared-pages" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
+type SettingsTabId = "appearance" | "ai-models" | "web-access" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
 // AI Models edits nobody saved yet: closing Settings and opening it again finds them as left.
 const unsavedAiModelsEdits = new Map<string, AiModelsDraft>();
 
@@ -152,7 +139,6 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
     { id: "appearance", label: "Appearance", icon: <PaintBrush20Regular /> },
     { id: "ai-models", label: "AI Models", icon: <Sparkle20Regular /> },
     { id: "web-access", label: "Web Access", icon: <GlobeCode size={20} strokeWidth={1.5} aria-hidden="true" /> },
-    { id: "shared-pages", label: "Shared Pages", icon: <Window20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
@@ -225,11 +211,6 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
                 <RemoteAccessPane fixtureMode={fixtureMode} />
               </div>
             ) : null}
-            {page === "shared-pages" ? (
-              <div className="settings-tab-panel" id="settings-panel-shared-pages" role="tabpanel" aria-labelledby="settings-tab-shared-pages">
-                <PublicationsPane fixtureMode={fixtureMode} onOpenWebAccess={() => setPage("web-access")} />
-              </div>
-            ) : null}
             {page === "automations" ? (
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
                 <AutomationsPane fixtureMode={fixtureMode} />
@@ -238,7 +219,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
-                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} onOpenSharedPages={() => setPage("shared-pages")} onOpenWebAccess={() => setPage("web-access")} />
+                <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
@@ -277,7 +258,6 @@ interface RemoteAccessViewStatus {
   connection: "stopped" | "connecting" | "connected" | "error";
   slug: string | null;
   url: string | null;
-  viewerOrigin: string | null;
   lastError: string | null;
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
@@ -419,336 +399,6 @@ function RemoteAccessPane({ fixtureMode = false }: { fixtureMode?: boolean }) {
         </section>
       ) : null}
     </>
-  );
-}
-
-/** The daily byte budget is set in MiB (Settings → Shared Pages), so it is shown in binary units. */
-function formatPublicationBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes % (1024 * 1024 * 1024) === 0 ? 0 : 1)} GiB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MiB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(bytes % 1024 === 0 ? 0 : 1)} KiB`;
-  return `${bytes} B`;
-}
-
-/** Release digest as a short id for row display, like a short commit hash. */
-function shortReleaseDigest(value: string): string {
-  const digest = value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
-  return `${digest.slice(0, 12)}…`;
-}
-
-/**
- * Settings → Shared pages (docs/shared-pages.md, plan item 5; amended
- * 2026-09-24). Each row carries one quiet page state word — Live, Asleep,
- * Resting, Not available, Stopped — with the precise reason as its tooltip;
- * with the main-window overview panel gone, this row is where a page's
- * problems show. Revealing a link is a transient on-demand composition
- * against the viewer origin. Stop sharing, Budgets, and Sleep copy are
- * receipted acts on the renderer session: budgets narrow or widen in place
- * and the sleep copy turns on or off, while the slot, key, and link stay the
- * same (docs/receipts-not-gates.md, F19). A new page starts from a file's tab.
- */
-function PublicationsPane({ fixtureMode = false, onOpenWebAccess }: { fixtureMode?: boolean; onOpenWebAccess: () => void }) {
-  const remote = fixtureMode ? undefined : window.workFoldDesktop?.remoteAccess;
-  const [data, setData] = useState<SharedPagesResponse | null>(() => (
-    fixtureMode ? { publications: buildFixturePublications(), status: { damaged: false, activeCount: 4, pendingBridgeWork: 1 } } : null
-  ));
-  const [connection, setConnection] = useState<(SharedPageConnection & { viewerOrigin: string | null }) | null>(() => (
-    fixtureMode ? { configured: true, enabled: true, connection: "connected", viewerOrigin: fixtureViewerOrigin } : null
-  ));
-  const viewerOrigin = connection?.viewerOrigin ?? null;
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [revealed, setRevealed] = useState<{ publicationId: string; link: string } | null>(null);
-  const [editingBudgets, setEditingBudgets] = useState<{ publicationId: string; serveRate: string; byteBudgetMiB: string } | null>(null);
-
-  async function reload() {
-    if (fixtureMode) return;
-    try {
-      const next = await api<SharedPagesResponse>("/api/settings/publications");
-      setData(next);
-      setSharedPages(next.status.damaged ? [] : next.publications);
-      setLoadError(null);
-    } catch (caught) {
-      setLoadError(errorText(caught));
-    }
-  }
-  useEffect(() => {
-    if (fixtureMode) return;
-    let cancelled = false;
-    api<SharedPagesResponse>("/api/settings/publications")
-      .then((next) => { if (!cancelled) { setData(next); setLoadError(null); } })
-      .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
-    if (remote) {
-      const apply = (status: SharedPageConnection & { viewerOrigin: string | null }) => {
-        if (!cancelled) setConnection({ configured: status.configured, enabled: status.enabled, connection: status.connection, viewerOrigin: status.viewerOrigin });
-      };
-      void remote.getStatus().then(apply).catch(() => undefined);
-      const unsubscribe = remote.onStatusChanged(apply);
-      return () => { cancelled = true; unsubscribe(); };
-    }
-    return () => { cancelled = true; };
-  }, [remote, fixtureMode]);
-
-  async function run(key: string, operation: () => Promise<void>) {
-    if (busy) return;
-    if (fixtureMode && !key.startsWith("reveal-")) {
-      showToast({ text: publicationsSettings.previewDisabled, tone: "info" });
-      return;
-    }
-    setBusy(key);
-    setActionError(null);
-    setNotice(null);
-    try {
-      await operation();
-      await reload();
-    } catch (caught) {
-      setActionError(errorText(caught));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function revealLink(publication: SharedPageView) {
-    if (!viewerOrigin) {
-      setActionError(publicationsSettings.noAddress);
-      return;
-    }
-    await run(`reveal-${publication.publicationId}`, async () => {
-      const response = fixtureMode
-        ? { viewerPath: publication.viewerPath, key: fixtureShareLinkKey }
-        : await api<{ viewerPath: string; key: string }>(
-          `/api/settings/publications/${publication.publicationId}/reveal-link`,
-          { method: "POST", body: {} },
-        );
-      // Composed transiently, held only in this pane's state until hidden.
-      setRevealed({ publicationId: publication.publicationId, link: `${viewerOrigin}${response.viewerPath}#${response.key}` });
-    });
-  }
-
-  /**
-   * One Save for both budgets: a lower value narrows through the direct
-   * verb, a higher one widens in place, each under its own receipt.
-   */
-  async function saveBudgets(publication: SharedPageView) {
-    if (!editingBudgets || editingBudgets.publicationId !== publication.publicationId) return;
-    const serveRate = Number(editingBudgets.serveRate);
-    const byteBudgetMiB = Number(editingBudgets.byteBudgetMiB);
-    if (!Number.isInteger(serveRate) || serveRate < 1 || serveRate > pageServeRateMaximum
-      || !Number.isFinite(byteBudgetMiB) || byteBudgetMiB <= 0 || byteBudgetMiB > pageByteBudgetMaximumMiB) {
-      setActionError(publicationsSettings.budgetRange(pageServeRateMaximum, pageByteBudgetMaximumMiB));
-      return;
-    }
-    const byteBudget = Math.max(1, Math.round(byteBudgetMiB * 1024 * 1024));
-    const lower: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
-    const higher: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
-    if (serveRate < publication.serveRatePerMinute) lower.serveRatePerMinute = serveRate;
-    if (serveRate > publication.serveRatePerMinute) higher.serveRatePerMinute = serveRate;
-    if (byteBudget < publication.byteBudgetPerDay) lower.byteBudgetPerDay = byteBudget;
-    if (byteBudget > publication.byteBudgetPerDay) higher.byteBudgetPerDay = byteBudget;
-    await run(`budgets-${publication.publicationId}`, async () => {
-      if (Object.keys(lower).length) {
-        await api(`/api/settings/publications/${publication.publicationId}/narrow`, { method: "POST", body: lower });
-      }
-      if (Object.keys(higher).length) {
-        await api(`/api/settings/publications/${publication.publicationId}/widen`, { method: "POST", body: higher });
-      }
-      setEditingBudgets(null);
-      setNotice(publicationsSettings.saved);
-    });
-  }
-
-  function setSleepCopy(publication: SharedPageView, enabled: boolean) {
-    void run(`sleep-copy-${publication.publicationId}`, async () => {
-      await api(
-        enabled
-          ? `/api/settings/publications/${publication.publicationId}/widen`
-          : `/api/settings/publications/${publication.publicationId}/snapshot-off`,
-        { method: "POST", body: enabled ? { snapshotEnabled: true } : {} },
-      );
-      setNotice(publicationsSettings.saved);
-    });
-  }
-
-  const publications = data?.publications ?? [];
-  const shown = publications.filter((publication) => publication.state !== "revoked" || publication.bridgeCleanup !== "ok");
-  const hasAddress = Boolean(viewerOrigin || connection?.configured);
-  const countersLine = (publication: SharedPageView): string => {
-    const counters = publication.counters;
-    if (!counters) return "Not served from this desktop yet";
-    return `Served ${counters.served} time${counters.served === 1 ? "" : "s"} · ${formatBytes(counters.servedBytes)} · last ${new Date(counters.lastServedAt).toLocaleString()}`;
-  };
-
-  return (
-    <section className="settings-section" aria-label={publicationsSettings.heading}>
-      {loadError ? <span className="settings-inline-error" role="alert">{loadError}</span> : null}
-      {data?.status.damaged ? (
-        <span className="settings-inline-error" role="alert">
-          {data.status.damageReason ?? "The publication records could not be read."} Nothing changes until the records
-          are recovered outside the app.
-        </span>
-      ) : null}
-      {notice ? <span className="settings-save-status" role="status"><Checkmark16Regular />{notice}</span> : null}
-      {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
-      {data && !shown.length && !hasAddress ? (
-        <div className="remote-browser-empty publication-empty">
-          <span>{publicationsSettings.emptyNoAddress}</span>
-          <button className="ui-control" type="button" onClick={onOpenWebAccess}>{publicationsSettings.webAccess}</button>
-        </div>
-      ) : null}
-      {data && !shown.length && hasAddress ? <div className="remote-browser-empty">{publicationsSettings.empty}</div> : null}
-      {shown.length ? (
-        <div className="publication-list">
-          {shown.map((publication) => {
-            const health = sharedPageHealth(publication, connection);
-            const editing = editingBudgets?.publicationId === publication.publicationId ? editingBudgets : null;
-            return (
-              <div className="publication-row" key={publication.publicationId}>
-                <div className="publication-summary" title={health.reason}>
-                  <span className="publication-title">
-                    <strong>{publication.title}</strong>
-                    <span className={`publication-state ${health.state}`}>{publicationsSettings.states[health.state]}</span>
-                  </span>
-                  <small>
-                    {publication.kind === "app" && publication.app
-                      ? <>{publication.workFolderName ?? publication.workFolderId}: App Instance {publication.app.appInstanceId} · Release <code>{shortReleaseDigest(publication.app.releaseDigest)}</code></>
-                      : <>{publication.workFolderName ?? publication.workFolderId}: {publication.relativePath}</>}
-                  </small>
-                  {publication.kind === "app" && publication.app ? (
-                    <small>
-                      Viewer entry {publication.app.viewerEntry} · Viewer-readable surface: {publication.app.viewerSurface.join(", ")}
-                    </small>
-                  ) : null}
-                  <small className="publication-usage">{publication.serveRatePerMinute} serves/min · {formatPublicationBytes(publication.byteBudgetPerDay)}/day</small>
-                  <small>{countersLine(publication)}</small>
-                </div>
-                {publication.state === "active" ? (
-                  <div className="publication-footer">
-                    {/* Sleep copies are a page-only lane: an app at your address is
-                        structurally snapshotless, so app rows carry no toggle. The
-                        retention disclosure rides on the label's tooltip. */}
-                    {publication.kind === "page" ? (
-                      <label className="publication-sleep-copy" title={publicationsSettings.snapshotLabel}>
-                        <input
-                          type="checkbox"
-                          role="switch"
-                          checked={publication.snapshotEnabled}
-                          disabled={Boolean(busy)}
-                          onChange={(event) => setSleepCopy(publication, event.target.checked)}
-                        />
-                        {" "}{publicationsSettings.sleepCopy}
-                      </label>
-                    ) : null}
-                    <div className="settings-actions publication-actions">
-                      <button
-                        className="ui-control"
-                        type="button"
-                        disabled={Boolean(busy) || !viewerOrigin}
-                        title={viewerOrigin ? undefined : publicationsSettings.noAddress}
-                        onClick={() => {
-                          if (revealed?.publicationId === publication.publicationId) setRevealed(null);
-                          else void revealLink(publication);
-                        }}
-                      >
-                        {revealed?.publicationId === publication.publicationId ? publicationsSettings.hideLink : publicationsSettings.revealLink}
-                      </button>
-                      <button
-                        className="ui-control"
-                        type="button"
-                        aria-expanded={Boolean(editing)}
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          setActionError(null);
-                          setNotice(null);
-                          setEditingBudgets(editing ? null : {
-                            publicationId: publication.publicationId,
-                            serveRate: String(publication.serveRatePerMinute),
-                            byteBudgetMiB: String(publication.byteBudgetPerDay / (1024 * 1024)),
-                          });
-                        }}
-                      >
-                        {publicationsSettings.budgets}
-                      </button>
-                      <button
-                        className="ui-control danger"
-                        type="button"
-                        disabled={Boolean(busy)}
-                        onClick={() => {
-                          if (fixtureMode) { showToast({ text: publicationsSettings.previewDisabled, tone: "info" }); return; }
-                          if (!window.confirm(publication.kind === "app" ? publicationsSettings.stopSharingAppConfirm : publicationsSettings.stopSharingConfirm)) return;
-                          setRevealed((current) => (current?.publicationId === publication.publicationId ? null : current));
-                          void run(`revoke-${publication.publicationId}`, async () => {
-                            await api(`/api/settings/publications/${publication.publicationId}/revoke`, { method: "POST", body: {} });
-                            setNotice("Stopped sharing");
-                          });
-                        }}
-                      >
-                        {publicationsSettings.stopSharing}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                {revealed?.publicationId === publication.publicationId ? (
-                  <div className="publication-link">
-                    <code className="remote-access-url">{revealed.link}</code>
-                    <div className="settings-actions">
-                      <button
-                        className="ui-control"
-                        type="button"
-                        onClick={() => {
-                          setNotice(null);
-                          setActionError(null);
-                          void copyToClipboard({ text: revealed.link })
-                            .then(() => setNotice("Link Copied"))
-                            .catch((caught) => setActionError(errorText(caught)));
-                        }}
-                      >
-                        {publicationsSettings.copyLink}
-                      </button>
-                    </div>
-                    <small>{publication.kind === "app" ? publicationsSettings.appLinkMeaning : publicationsSettings.linkMeaning}</small>
-                  </div>
-                ) : null}
-                {editing ? (
-                  <div className="publication-budgets">
-                    <label className="settings-field">
-                      <span>{publicationsSettings.servesPerMinute}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={pageServeRateMaximum}
-                        step={1}
-                        value={editing.serveRate}
-                        disabled={Boolean(busy)}
-                        onChange={(event) => setEditingBudgets({ ...editing, serveRate: event.target.value })}
-                      />
-                    </label>
-                    <label className="settings-field">
-                      <span>{publicationsSettings.mibPerDay}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={pageByteBudgetMaximumMiB}
-                        step={1}
-                        value={editing.byteBudgetMiB}
-                        disabled={Boolean(busy)}
-                        onChange={(event) => setEditingBudgets({ ...editing, byteBudgetMiB: event.target.value })}
-                      />
-                    </label>
-                    <div className="settings-actions">
-                      <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busy)} onClick={() => void saveBudgets(publication)}>
-                        {busy === `budgets-${publication.publicationId}` ? "Saving…" : publicationsSettings.saveBudgets}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </section>
   );
 }
 

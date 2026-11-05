@@ -55,7 +55,7 @@
 
 /* Menus grow from the side of their button they open from. */
 
-:where(.context-menu, .composer-command-menu, .chat-rename-popover, .file-share-popover, .surface-tab-work-folder-menu,
+:where(.context-menu, .composer-command-menu, .chat-rename-popover, .surface-tab-work-folder-menu,
   .model-catalog-popover, .work-folder-pane-breadcrumb-menu, .browser-tab-site-menu) {
   transform-origin: top left;
   animation: work-fold-menu-in 150ms var(--work-fold-ease-smooth);

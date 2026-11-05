@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ArrowRight, ChevronRight, Loader2, SharedOnWeb } from "../chrome/icons";
+import { ArrowRight, ChevronRight, Loader2 } from "../chrome/icons";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
@@ -8,7 +8,6 @@ import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "..
 import { isSelectionToggleKey } from "../../lib/tree-selection";
 import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../types";
-import { fileSharing } from "../../ui-contract";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { EmptyInline, WorkFolderIconGlyph } from "../chrome/common";
 
@@ -28,7 +27,6 @@ export function FileTree({
   movingTreePaths,
   dropTargetFolderPath,
   checkAttentionPaths = new Set<string>(),
-  sharedPaths = new Set<string>(),
   searchQuery = "",
   emptyText = "This folder is empty.",
   emptyContent,
@@ -64,8 +62,6 @@ export function FileTree({
   movingTreePaths?: ReadonlySet<string>;
   dropTargetFolderPath: string | null;
   checkAttentionPaths?: ReadonlySet<string>;
-  /** Files in this work-folder shared as a page; folders never carry the mark. */
-  sharedPaths?: ReadonlySet<string>;
   searchQuery?: string;
   emptyText?: string;
   emptyContent?: React.ReactNode;
@@ -276,8 +272,7 @@ export function FileTree({
         const descendantCheckAttention = entry.kind === "folder" && hasAttentionDescendant(checkAttentionPaths, entry.path);
         const checkAttention = exactCheckAttention || descendantCheckAttention;
         const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
-        const shared = entry.kind === "file" && sharedPaths.has(entry.path);
-        const rowLabel = `${checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`;
+        const rowLabel = checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name;
         const selected = isSelected(entry.path);
         return (
           <div className="file-tree-item" key={entry.path}>
@@ -292,7 +287,6 @@ export function FileTree({
                 movingTreePaths?.has(entry.path) ? "moving" : "",
                 exactCheckAttention ? "has-check-attention" : "",
                 descendantCheckAttention ? "contains-check-attention" : "",
-                shared ? "is-shared" : "",
               ].filter(Boolean).join(" ")}
               type="button"
               role="treeitem"
@@ -300,7 +294,7 @@ export function FileTree({
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
               aria-selected={entry.kind === "file" || selected ? selected : undefined}
               aria-label={rowLabel}
-              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
+              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
@@ -335,7 +329,7 @@ export function FileTree({
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
               ) : (
-                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file />{shared ? <SharedPageGlyph className="file-shared-marker" /> : null}</>
+                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file /></>
               )}
               {checkAttention ? <span className="file-check-attention-marker" aria-hidden="true" /> : null}
             </button>
@@ -350,7 +344,6 @@ export function FileTree({
                   movingTreePaths={movingTreePaths}
                   dropTargetFolderPath={dropTargetFolderPath}
                   checkAttentionPaths={checkAttentionPaths}
-                  sharedPaths={sharedPaths}
                   searchQuery={searchQuery}
                   emptyText={emptyText}
                   level={level + 1}
@@ -380,11 +373,6 @@ export function FileTree({
       })}
     </div>
   );
-}
-
-/** The at-a-glance mark for a file shared as a page (Files rows and file tabs). */
-export function SharedPageGlyph({ className }: { className: string }) {
-  return <span className={className} title={fileSharing.sharedMarkTooltip} aria-hidden="true"><SharedOnWeb size={12} /></span>;
 }
 
 /** Files' first load: nothing that looks like files, and a quiet line only if the wait is noticeable. */

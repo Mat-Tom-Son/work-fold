@@ -301,20 +301,15 @@ person's current grants. Automations require a worker. Every notification
 declaration must be referenced by at least one automation. Notification title
 and description are reviewed, bounded, plain single-line text.
 
-`viewer` is optional and defines the read-only web view used privately by a
-paired browser or, after a separate receipted share, by link holders at the
-person's address ("an app at your address"). It is the complete
-viewer-readable surface: `entry` names the packaged document the viewer plane
-serves, and `readable` names up to 256 exact instance-owned storage key
-prefixes (lowercase letters, numbers, `._/-`, at most 64 characters each)
-viewers may read. Everything else is refused for viewers desktop-side —
-storage writes, agent actions, network, connections, work-folder files,
-notifications, automations, OAuth, and host UI. Declaring `viewer` grants no
-audience: an installed App Instance goes to the person's address only when it
-is shared — **Share at your address** in the app's details in Settings → Apps,
-or `work-fold pages share-app` — under its own receipt, and an update that
-widens `readable` or changes `entry` stops serving until the app is shared
-again. See [the work-fold agent](work-fold-agent-decisions.md) and
+`viewer` is optional and defines the read-only web view a paired browser opens
+privately. It is the complete viewer-readable surface: `entry` names the
+packaged document the view loads, and `readable` names up to 256 exact
+instance-owned storage key prefixes (lowercase letters, numbers, `._/-`, at
+most 64 characters each) the view may read. Everything else is refused to the
+view desktop-side — storage writes, network, connections, work-folder files,
+notifications, automations, OAuth, and host UI; declared worker actions use the
+separate request API below. Declaring `viewer` creates no link and no public
+audience. See [work-folder apps in paired browsers](browser-apps.md) and
 [Restricted app runtime](restricted-app-runtime.md).
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
@@ -340,16 +335,16 @@ a header reviewed for one destination grants nothing to another.
 
 For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
 declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
-browsers open it from a Chat's result link without publishing a share link; source-work-folder
+browsers open it from a Chat's result link; source-work-folder
 previews are supported too. Keep the web entry responsive and self-contained,
 and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
 URLs in the blob document. Declared worker actions can use the separate private
-request API below; shared viewers remain read-only. See
+request API below. See
 [the browser view contract](browser-apps.md).
 
 When a private paired browser opens a web view with declared worker tools,
-it also receives `workFoldBrowserApp.actions`. Feature-detect it because shared
-viewers and older hosts do not install this API:
+it also receives `workFoldBrowserApp.actions`. Feature-detect it because older
+hosts do not install this API:
 
 ```js
 const actions = globalThis.workFoldBrowserApp?.actions;
@@ -641,8 +636,8 @@ because a view can miss a hint.** Nothing is replayed: a view that was
 inactive, occluded, or minimized while something changed is told nothing then
 and nothing extra when it comes back, a new mount starts with no backlog, and
 a machine that slept re-establishes its baseline instead of announcing what
-happened while it was asleep. A hint never starts a model turn. Viewers and
-remote app views have no push channel at all.
+happened while it was asleep. A hint never starts a model turn. Remote app
+views have no push channel at all.
 
 People can export and restore app-owned data from the app's details in Settings → Apps;
 see [App data recovery](app-data-recovery.md). This management operation adds no
@@ -707,8 +702,8 @@ try {
 }
 ```
 
-Only an active visible desktop app view can read results. Workers, automations
-and shared viewers cannot. The app cannot supply a work-folder or Check id. The host
+Only an active visible desktop app view can read results. Workers and
+automations cannot. The app cannot supply a work-folder or Check id. The host
 re-verifies the selected Check's evidence locally, without a model request.
 States distinguish `never-run`, `running`, `stale`, `blocked`, `check-error`,
 `current-clear` and `needs-attention`; stale or unhealthy results carry no
@@ -759,8 +754,8 @@ refused with `INFER_OUTPUT_TOO_LARGE`. The call uses the work-folder's configure
 model and thinking level with the model's own output-token limit.
 `receiptId` matches the id a `tasks.onChanged` hint carries. Active
 views, workers holding a tool action, and named automation runs reach
-`assistant.request`; views and workers reach `assistant.infer`; viewers and
-remote app views reach neither and get `INFER_UNAVAILABLE`. Both leave
+`assistant.request`; views and workers reach `assistant.infer`; remote app
+views reach neither and get `INFER_UNAVAILABLE`. Both leave
 receipts naming the effective model and its usage.
 
 An `assistantActions` entry may declare `outputSchema` beside its

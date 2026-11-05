@@ -43,9 +43,7 @@ import { WorkFolderModeRail, WorkFolderPaneHeader } from "./components/panes/wor
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, WorkFoldersPane, restorePointTitle, type ModelScope } from "./components/panes/workFolderPanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
-import { useSharedPages } from "./hooks/useSharedPages";
 import { restrictedAppAttentionKey, useRestrictedAppAttention } from "./hooks/useRestrictedAppAttention";
-import { activeSharedPageFor, isShareablePath, sharedPathsForWorkFolder } from "./lib/page-sharing";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { WorkFolderUiFixture } from "./fixtures/work-folder-fixture";
 import { useApplicationAppearance } from "./hooks/useApplicationAppearance";
@@ -443,9 +441,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const surfaceCatalogRequestRef = useRef(0);
   const chatActivity = useChatActivity(Boolean(fixture));
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenuState | null>(null);
-  // The native macOS file menu needs to know whether a file is already shared.
-  const sharedPages = useSharedPages(Boolean(fixture));
-  const sharedPaths = useMemo(() => sharedPathsForWorkFolder(sharedPages, workFolder.id), [sharedPages, workFolder.id]);
   const [renameEntryRequest, setRenameEntryRequest] = useState<{ path: string; name: string } | null>(null);
   const [newFolderTarget, setNewFolderTarget] = useState<NewFolderTarget | null>(null);
   const [chatActions, setChatActions] = useState<ChatActionsState | null>(null);
@@ -1336,8 +1331,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
             upload: entry.kind === "folder",
             rename: Boolean(entry.path) && !holdsNestedFolder(entry),
             delete: Boolean(entry.path) && !holdsNestedFolder(entry),
-            share: entry.kind === "file" && isShareablePath(entry.path),
-            shared: entry.kind === "file" && Boolean(activeSharedPageFor(sharedPages, workFolder.id, entry.path)),
             worker: canGiveOwnWorker(entry),
           },
           point,
@@ -1353,7 +1346,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         else if (command === "copy-path") await copyPath(entry.path);
         else if (command === "attach-chat") attachToChat(entry.path);
         else if (command === "version-history") openVersionHistory(workFolder, entry.path);
-        else if (command === "share") shareFile(entry.path);
         else if (command === "new-folder") requestNewFolder(entry.path);
         else if (command === "upload-here") chooseUpload(entry.path);
         else if (command === "refresh") await tree.refresh(false);
@@ -1382,7 +1374,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
           workFolderId: workFolder.id,
           path: entry.path,
           kind: entry.kind,
-          capabilities: { open: false, attach: files === entries.length, history: false, upload: false, rename: false, delete: canDelete, share: false, shared: false },
+          capabilities: { open: false, attach: files === entries.length, history: false, upload: false, rename: false, delete: canDelete },
           selection: { files, folders: entries.length - files },
           point,
         });
@@ -1624,15 +1616,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     catch (caught) { onError(errorText(caught).replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "")); }
   }
   const canOpenWith = !fixture && typeof window.workFoldDesktop?.workFolder.openPathWith === "function";
-  // Files-menu Share: open the file's tab and let that tab share it (or show
-  // its link when it is already shared). Sharing runs on the click.
-  const [shareRequest, setShareRequest] = useState<{ id: number; workFolderId: string; path: string } | null>(null);
-  function shareFile(path: string) {
-    tree.setSelectedPath(path);
-    tabs.openFileSurfaceTab(workFolder, path);
-    setShareRequest({ id: Date.now(), workFolderId: workFolder.id, path });
-  }
-  const openSharingSettings = (page: "shared-pages" | "web-access") => onOpenSettings(page);
   function openVersionHistory(targetWorkFolder: WorkFolderSummary, path: string) {
     if (fixture) { showToast({ text: "Version history is disabled in the preview", tone: "info" }); return; }
     setVersionHistory({ workFolder: targetWorkFolder, path, name: path.split("/").pop() ?? path });
@@ -2016,7 +1999,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding Files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating Files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -2043,7 +2026,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     </section>
     <button className="work-folder-resizer" type="button" role="separator" aria-label="Resize the navigation pane and work area" aria-controls="work-folder-file-panel work-folder-chat-panel" aria-orientation="vertical" aria-valuemin={Math.round(paneResize.sidebarResizeBounds.min)} aria-valuemax={Math.round(paneResize.sidebarResizeBounds.max)} aria-valuenow={paneResize.sidebarResizeValue} title="Resize Panes" onPointerDown={paneResize.startSidebarResize} onDoubleClick={paneResize.resetWorkFolderSidebarWidth} onKeyDown={paneResize.handleSidebarResizeKeyDown}><span className="sr-only">Resize panes</span></button>
     <aside className="right-rail" id="work-folder-chat-panel">
-      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={(tabId) => tabs.closeSurfaceTab(tabId, true)} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} isSharedFile={(workFolderId, path) => Boolean(activeSharedPageFor(sharedPages, workFolderId, path))} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
+      <WorkFolderSurfaceTabBar tabs={tabs.surfaceTabs} workFolders={workFolders} workFolderCustomizations={customizations} conversations={conversationGroups} chatActivityStatuses={chatActivity.statuses} activeTabId={tabs.activeSurfaceTabId} newChatWorkFolderId={workFolder.id} onActivate={tabs.setActiveSurfaceTabId} onClose={(tabId) => tabs.closeSurfaceTab(tabId, true)} onReorder={tabs.reorderSurfaceTabs} onNewChatInWorkFolder={(target) => openChat(target, null)} onTabMenu={(tab, target, conversation, event) => void openChatMenu(target, conversation, event, tab.id)} browserTabLooks={browser.looks} onBrowserTabMenu={browser.openTabMenu} {...(browser.available ? { onNewBrowserTab: browser.newTab } : {})} />
       {tabs.surfaceTabs.length ? tabs.surfaceTabs.map((tab) => {
         if (tab.kind === "browser") {
           // A browser tab belongs to no work-folder; every work-folder shows it.
@@ -2065,7 +2048,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         return (
           <div className="work-folder-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workFolderIdentityStyle(targetIdentity)}>
             {tab.kind === "file" && tab.path ? (
-              <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} fixtureText={fixture?.fileContents[targetWorkFolder.id]?.[tab.path]} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} shareRequestId={shareRequest && shareRequest.workFolderId === targetWorkFolder.id && shareRequest.path === tab.path ? shareRequest.id : undefined} onOpenSettings={openSharingSettings} />
+              <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} fixtureText={fixture?.fileContents[targetWorkFolder.id]?.[tab.path]} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} />
             ) : tab.kind === "work-folder-automations" || tab.kind === "work-folder-automation" ? (
               <WorkFolderAutomationsPane
                 workFolder={targetWorkFolder}
@@ -2160,7 +2143,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       }}
       onClose={closeWorkFolderAppearance}
     /> : null}
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onAttachSelection={attachToChat} onCopyPath={copyPath} onCopyPaths={copyPaths} onShowVersionHistory={(path) => openVersionHistory(workFolder, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} onDeleteSelection={deleteEntries} canDelete={!(fileContextMenu.selection ?? [fileContextMenu.entry]).some(holdsNestedFolder)} onShare={shareFile} shareWorkFolderId={workFolder.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onAttachSelection={attachToChat} onCopyPath={copyPath} onCopyPaths={copyPaths} onShowVersionHistory={(path) => openVersionHistory(workFolder, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} onDeleteSelection={deleteEntries} canDelete={!(fileContextMenu.selection ?? [fileContextMenu.entry]).some(holdsNestedFolder)} onClose={() => setFileContextMenu(null)} /> : null}
     {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onCopy={copyChat} onClose={() => setChatActions(null)} /> : null}

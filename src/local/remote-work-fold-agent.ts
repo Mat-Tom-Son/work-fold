@@ -16,8 +16,6 @@ export type WorkFoldRemoteOperation =
   | "management.watch"
   | "management.glance"
   | "management.glanceSeen"
-  | "pages.list"
-  | "pages.link"
   | "work-folders.list"
   | "work-folders.tree"
   | "work-folders.filePreview"

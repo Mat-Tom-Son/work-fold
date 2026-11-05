@@ -407,7 +407,7 @@ body.drawer-locked { overflow: hidden; }
 .sidebar-chats-item { display: none; }
 .sidebar-chats { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; margin: 0 -4px; padding: 0 4px; }
 .sidebar-foot { flex: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.sidebar-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-footer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 /* Component display rules must never override the semantic hidden state. */
 #desktop-presence[hidden] { display: none; }
 .presence { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 4px 10px 0; color: var(--muted); font-size: 12px; font-weight: 600; }
@@ -825,7 +825,7 @@ body.drawer-locked { overflow: hidden; }
   .composer-wrap { padding: 12px 24px calc(18px + env(safe-area-inset-bottom, 0px)); }
 
   /* The collapsed sidebar: a 60px icon rail. Expand, New chat, Chats,
-     Shared pages and Settings at the foot. */
+     and Settings at the foot. */
   .app-shell[data-sidebar="collapsed"] .sidebar { width: 60px; padding: 14px 8px 12px; align-items: center; overflow: visible; }
   .app-shell[data-sidebar="collapsed"] .sidebar-brand,
   .app-shell[data-sidebar="collapsed"] .sidebar-label,
@@ -869,6 +869,7 @@ body.drawer-locked { overflow: hidden; }
     background: var(--accent);
   }
   .rail-account .account-settings { width: 36px; height: 36px; }
+  .app-shell[data-sidebar="collapsed"] .rail-account { margin-top: auto; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-settings { width: 44px; height: 44px; }
   .app-shell[data-sidebar="collapsed"] .presence { margin: 4px 0 0; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-menu { left: 46px; right: auto; bottom: 0; }
@@ -1008,43 +1009,12 @@ body { overscroll-behavior-y: none; }
   .chat-search input { font-size: 16px; }
 }
 
-/* Shared pages belong beside the account controls, above the footer. */
-.shared-pages-shell { position: relative; flex: 1; min-width: 0; }
-.shared-pages-popup {
-  position: absolute; z-index: 70; left: 0; bottom: calc(100% + 8px);
-  width: min(304px, calc(100vw - 32px)); padding: 8px;
-  border: 1px solid var(--line); border-radius: 14px;
-  background: var(--paper); color: var(--ink);
-  box-shadow: 0 8px 32px rgb(0 0 0 / 16%);
-}
-.shared-pages-popup[hidden] { display: none; }
-.shared-pages-popup header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 6px 8px; }
-.shared-pages-popup h2 { margin: 0; font-size: 13px; font-weight: 550; }
-.shared-pages-refresh { display: grid; place-items: center; width: 32px; height: 32px; padding: 7px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
-.shared-pages-refresh svg, .shared-page-row svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
-.shared-pages-list { max-height: min(350px, 55dvh); overflow-y: auto; overscroll-behavior: contain; }
-.shared-page-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 10px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; font-size: 14px; font-weight: 400; }
-.shared-page-glyph, .shared-page-arrow { color: var(--muted); }
-.shared-page-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
-.shared-page-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shared-page-copy small { color: var(--muted); font-size: 11px; }
-.shared-page-arrow { width: 14px !important; height: 14px !important; }
-.shared-page-row[aria-busy="true"] .shared-page-arrow { animation: work-pulse 1s ease-in-out infinite; }
-.shared-pages-note { margin: 10px 8px 4px; color: var(--muted); font-size: 11px; }
-.shared-pages-empty { margin: 10px 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
-.shared-page-fallback { display: block; margin: 8px; padding: 9px; border-radius: 8px; color: var(--ink); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
-:is(.shared-page-row, .shared-pages-refresh, .shared-page-fallback):hover:not(:disabled) { background: var(--hover); color: var(--ink); }
-:is(.shared-page-row, .shared-pages-refresh, .shared-page-fallback):focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 :is(.app-shell, .file-preview-dialog, .browser-app-dialog) :is(button, summary, a) { transition: background-color .14s ease, color .14s ease; }
 :is(.file-preview-dialog, .browser-app-dialog) :is(button, summary):hover:not(:disabled) { background: var(--hover); color: var(--ink); transform: none; }
 .app-shell .quiet:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
 .app-shell :is(.work-text-button, .work-file-button, .work-details summary, .request-deliverables summary, .request-result-links button):hover:not(:disabled) { background: var(--hover); color: var(--ink); border-radius: 6px; }
 .app-shell .work-primary-button:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-contrast); }
 .chat-menu button.danger:hover:not(:disabled), .account-menu button:hover { color: var(--danger); }
-@media (min-width: 860px) {
-  .app-shell[data-sidebar="collapsed"] .shared-pages-shell { flex: none; width: 44px; margin-top: auto; }
-  .app-shell[data-sidebar="collapsed"] .shared-pages-popup { left: 52px; bottom: 0; }
-}
 @media (prefers-reduced-motion: reduce) {
   :is(.app-shell, .file-preview-dialog, .browser-app-dialog) :is(button, summary, a) { transition: none; }
 }

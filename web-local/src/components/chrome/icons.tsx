@@ -40,7 +40,6 @@ import {
   MoreHorizontal16Regular, MoreHorizontal20Regular,
   Open16Regular, Open20Regular,
   Search16Regular, Search20Regular,
-  ShareIos20Regular,
   SpinnerIos16Regular, SpinnerIos20Regular,
   Square16Regular, Square20Regular,
   Warning16Regular, Warning20Regular,
@@ -116,10 +115,6 @@ export const PencilLine = icon("PencilLine", Edit16Regular, Edit20Regular);
 export const RefreshCw = icon("RefreshCw", ArrowClockwise16Regular, ArrowClockwise20Regular);
 export const RotateCcw = icon("RotateCcw", ArrowCounterclockwise16Regular, ArrowCounterclockwise20Regular);
 export const Search = icon("Search", Search16Regular, Search20Regular);
-/** The Mac share mark (a box with an arrow), for share actions. */
-export const Share2 = icon("Share2", ShareIos20Regular);
-/** A page shared on the web: the mark beside a shared file. */
-export const SharedOnWeb = icon("SharedOnWeb", Globe16Regular, Globe20Regular);
 export const Square = icon("Square", Square16Regular, Square20Regular);
 export const SquarePen = icon("SquarePen", Compose16Regular, Compose20Regular);
 export const Trash2 = icon("Trash2", Delete16Regular, Delete20Regular);
