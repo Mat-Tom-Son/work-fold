@@ -31,7 +31,7 @@
   user-select: text;
   animation: model-context-enter 120ms ease-out;
 }
-.model-context-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 22px 14px; }
+.model-context-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 14px; }
 .model-context-heading h2 { margin: 0; font-size: var(--work-fold-type-xl); line-height: 1.35; font-weight: 600; letter-spacing: -.025em; }
 .model-context-heading p { margin: 4px 0 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); }
 .model-context-inspector button, .model-context-inspector select, .model-context-inspector input { font: inherit; }
@@ -47,7 +47,7 @@
 .model-context-recording p, .model-context-recording small { grid-column: 1 / -1; margin: 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); line-height: 1.5; }
 .model-context-recording small { font-size: var(--work-fold-type-xs); }
 .model-context-actions { display: flex; align-items: center; gap: 8px; }
-.model-context-actions button, .model-context-search-row > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; padding: 3px 7px; font-size: var(--work-fold-type-xs); border: 1px solid var(--mci-border); border-radius: 5px; background: transparent; white-space: nowrap; }
+.model-context-actions button, .model-context-search-row > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 28px; padding: 3px 7px; font-size: var(--work-fold-type-xs); border: 1px solid var(--mci-border); border-radius: 5px; background: transparent; white-space: nowrap; }
 .model-context-actions button:hover:not(:disabled), .model-context-search-row > button:hover { background: var(--mci-soft); }
 .model-context-error { margin: 10px 22px 0; color: var(--pop-danger, #b3251f); font-size: var(--work-fold-type-xs); }
 .model-context-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 30px; gap: 8px; text-align: center; color: var(--mci-muted); }
@@ -56,7 +56,7 @@
 .model-context-workspace { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 15px 22px 20px; }
 .model-context-request-picker { display: flex; align-items: center; gap: 10px; color: var(--mci-muted); font-size: var(--work-fold-type-xs); }
 .model-context-request-picker select, .model-context-sample select { min-width: 0; flex: 1; height: 32px; padding: 4px 8px; border: 1px solid var(--mci-border); border-radius: 5px; background: var(--mci-surface); color: var(--mci-text); text-overflow: ellipsis; }
-.model-context-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 11px 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); line-height: 1.5; }
+.model-context-meta { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 11px 0; color: var(--mci-muted); font-size: var(--work-fold-type-xs); line-height: 1.5; }
 .model-context-meta strong { color: var(--mci-text); font-weight: 600; }
 .model-context-meta span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-context-stages { display: flex; gap: 20px; border-bottom: 1px solid var(--mci-border); }
@@ -86,12 +86,12 @@
   .model-context-recording > label { grid-column: 1 / -1; }
   .model-context-actions { grid-column: 1 / -1; }
   .model-context-workspace { padding: 10px 12px 12px; }
-  .model-context-meta { gap: 1px 9px; margin: 8px 0; }
-  .model-context-stages { gap: 14px; }
+  .model-context-meta { gap: 1px 8px; margin: 8px 0; }
+  .model-context-stages { gap: 16px; }
   .model-context-stages button { font-size: var(--work-fold-type-xs); }
   .model-context-error { margin: 8px 12px 0; }
   .model-context-coverage { padding: 6px 12px; }
-  .model-context-search-row { gap: 5px; }
+  .model-context-search-row { gap: 6px; }
   .model-context-search-row > button span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .model-context-inspector { animation: none; } }

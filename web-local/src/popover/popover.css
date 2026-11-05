@@ -75,7 +75,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.popover-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex: none; }
+.popover-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; flex: none; }
 .popover-new-chat {
   flex: none;
   display: inline-flex;
@@ -95,7 +95,7 @@
 :scope.popover-loading {
   place-content: center;
   place-items: center;
-  gap: 14px;
+  gap: 16px;
   text-align: center;
 }
 .popover-loading-brand { --work-fold-lockup-mark: 64px; flex-direction: column; gap: 12px; }
@@ -146,7 +146,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   margin: 0;
   color: var(--pop-text-muted);
   font-size: var(--work-fold-type-xs);
@@ -192,7 +192,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
   padding: 4px 3px 8px;
   overflow-y: auto;
   scroll-padding-bottom: 8px;
@@ -208,7 +208,7 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-height: 28px;
   padding: 0 11px;
   border: 1px solid var(--pop-border);
@@ -331,7 +331,7 @@ textarea:focus { outline: none; }
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin: -1px 0 0 2px;
 }
 .composer-model,
@@ -473,7 +473,7 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   border: 2px dashed color-mix(in srgb, var(--pop-accent) 72%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--pop-bg) 92%, transparent);
@@ -508,7 +508,7 @@ button.primary:not(:disabled):active { filter: brightness(0.92); }
 .agent-chat-row small { display: flex; gap: 10px; font-size: var(--work-fold-type-xs); color: var(--pop-text-muted); }
 .agent-chat-row em { font-style: normal; color: var(--pop-accent); }
 .agent-history-empty { padding: 8px 10px; }
-.agent-background-work { display: flex; align-items: center; gap: 7px; padding: 6px; background: none; border: none; color: var(--pop-text-muted); text-align: left; font-size: var(--work-fold-type-xs); }
+.agent-background-work { display: flex; align-items: center; gap: 8px; padding: 6px; background: none; border: none; color: var(--pop-text-muted); text-align: left; font-size: var(--work-fold-type-xs); }
 .agent-background-work > span:not(.spinner) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .agent-background-work > svg { width: 14px; height: 14px; flex: none; }
 @media (prefers-reduced-motion: reduce) { .agent-chat-row { transition: none; } }

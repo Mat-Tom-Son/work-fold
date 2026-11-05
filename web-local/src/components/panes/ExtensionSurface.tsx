@@ -22,7 +22,7 @@ export function ExtensionSurfacePane({
       </div>
       <div className="extension-surface-pane-meta">
         <span>{surfaceScopeLabel(surface)}</span>
-        <span>Full-trust Pi Extension</span>
+        <span>Full-Trust Pi Extension</span>
       </div>
       <nav className="extension-surface-view-list" aria-label={`${surface.title} views`}>
         {surface.views.map((view) => (

@@ -23,7 +23,7 @@
 .included-mcp-list small, .included-mcp-list code { display: block; margin: 5px 0; overflow-wrap: anywhere; }
 .included-mcp-list small { color: var(--ui-text-muted); }
 .included-mcp-form { display: grid; gap: 12px; margin-top: 18px; }
-.included-mcp-form label { display: grid; gap: 5px; min-width: 0; }
+.included-mcp-form label { display: grid; gap: 6px; min-width: 0; }
 .included-mcp-form { min-width: 0; }
 .included-mcp-form :is(input, select, textarea) { min-width: 0; max-width: 100%; font: inherit; }
 .included-mcp-list li > .included-tool-optional { margin-top: 8px; }

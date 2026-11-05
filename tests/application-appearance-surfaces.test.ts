@@ -208,7 +208,7 @@ test("actual desktop and popover CSS honor appearance roles, reading, density an
         assert.equal(row.shadow, "none");
         assert.equal(Number(row.opacity), row.state === "idle" ? row.touch ? 0.72 : 0 : 1, label + " reveals New Chat on hover/focus");
         assert.equal(row.pointer, row.state === "idle" && !row.touch ? "none" : "auto");
-        assert.ok(Math.abs(row.gap - 7) < 1 && row.contained, label + " keeps the caret beside the name within the row");
+        assert.ok(Math.abs(row.gap - 8) < 1 && row.contained, label + " keeps the caret beside the name within the row");
         if (row.state.endsWith("focus")) assert.equal(row.outline, "solid", label + " retains a keyboard focus indicator");
       }
       assert.equal(item.design.shellOutline, "solid", item.name + " whole composer owns focus");

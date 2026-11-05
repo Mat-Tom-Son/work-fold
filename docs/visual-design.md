@@ -29,9 +29,12 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 
 ## Typography and spacing
 
-- Every platform defaults to the bundled brand fonts: Inter Variable for body copy and controls, Poppins SemiBold (600) for interface headings. Markdown-rendered conversation and document content keeps the body face. Body copy is 15px with weights 400, 600, and 700; the fonts ship with the app and the web client, never from a CDN.
+- Every platform defaults to the bundled brand fonts: Inter Variable for body copy and controls, Poppins SemiBold (600) for interface headings. Markdown-rendered conversation and document content keeps the body face. Body copy is 15px; interface weights are 400, 500, 600, and 700 only; the fonts ship with the app and the web client, never from a CDN.
+- Every interface font size is one step of the type scale in `web-local/src/brand.css` (`--work-fold-type-2xs` through `--work-fold-type-2xl`: 11, 12, 13, 14, 15, 17, 20, and 24px at Standard). The steps are in rem, so Text Size scales the whole interface. Nothing renders below 11px, which is reserved for badges, keycaps, and small labels; metadata and captions are 12px; section and dialog titles are 17px and page titles 20px (2026-11-04).
+- Headings, navigation, tab labels, menu items, buttons, field labels, options, and status words are Title Case; sentences, hints, placeholders, toasts, and errors are sentence case. `work-fold`, `work-folder`, and `work-fold agent` keep their own casing inside Title Case (2026-11-04).
 - User-selected fonts and text sizes may change type, but must not change shell geometry or push controls out of bounds.
-- Use the 4, 8, 12, 16, 24, and 32px spacing scale.
+- Use the 4, 8, 12, 16, 24, and 32px spacing scale, with 2, 6, 10, and 20px half-steps inside dense controls.
+- Text colors come from the palette (`--ui-text`, `--ui-text-muted`), not hard-coded grays. Muted text keeps at least 4.6:1 contrast on every surface it sits on, in every palette and theme; disabled controls stay legible (about 3.5:1) instead of fading.
 - Compact toolbar controls are 30px tall with 5px radii; primary rail targets remain 44px. Files and Chats share 28/30/38px compact/standard/spacious rows, with larger touch targets when the platform requests them.
 - Avoid all-caps labels, weight 800+, text shadows, ornamental whole-app gradients, and oversized hero headers.
 

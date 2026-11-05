@@ -1,21 +1,12 @@
 import { logicalEventController } from "./support/local-events.js";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { registerHooks } from "node:module";
 import { createElement, StrictMode, type ComponentProps } from "react";
 import type { AgentModel, AgentStatus, WorkFolderSummary } from "../web-local/src/types.js";
 import { useModalDialog } from "../web-local/src/hooks/useModalDialog.js";
 import { createDomHarness } from "./support/dom.js";
 
-// Fluent's browser barrel needs an ESM projection in Node, as in the Settings
-// modal tests. Browser verification checks the artwork; these tests exercise
-// the actual key editor and its requests.
-const icons = registerHooks({
-  resolve(specifier, context, next) { return specifier === "@fluentui/react-icons" ? { url: "test:ai-models-key-icons", shortCircuit: true } : next(specifier, context); },
-  load(url, context, next) { return url === "test:ai-models-key-icons" ? { format: "module", source: "export const Eye20Regular=()=>null; export const EyeOff20Regular=()=>null;", shortCircuit: true } : next(url, context); },
-});
 const { AiModelsPane } = await import("../web-local/src/components/panes/AiModelsPane.js");
-icons.deregister();
 
 const status: AgentStatus = { configured: true, ready: true, provider: "openrouter", model: "model-a", error: null, piVersion: "fixture" };
 const workFolder = (id: string): WorkFolderSummary => ({ id, name: `work-folder ${id}`, workFolderRoot: `/synthetic/${id}` } as WorkFolderSummary);
@@ -169,7 +160,7 @@ test("Codex Settings renders actual zero usage, window length and reset time and
   assert.equal(ui.requests.length, count + 1);
   await ui.finish(ui.requests.at(-1)!, { account: { ...account, limits: [{ ...account.limits[0], primary: { ...account.limits[0]!.primary, usedPercent: 12 } }] } });
   assert.match(ui.dom.container.textContent!, /12% used/);
-  await ui.dom.act(() => ui.button("Refresh account details").click());
+  await ui.dom.act(() => ui.button("Refresh Account Details").click());
   await ui.finish(ui.requests.at(-1)!, { account: { ...account, applicableResets: null } });
   assert.match(ui.dom.container.textContent!, /Rate-limit resets on account: 3/);
   assert.doesNotMatch(ui.dom.container.textContent!, /Rate-limit resets for this workspace/);
