@@ -223,6 +223,8 @@ interface WorkFolderSurfaceTabBase {
 export type WorkFolderSurfaceTab =
   | (WorkFolderSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (WorkFolderSurfaceTabBase & { kind: "file"; path: string })
+  /** A page folder (docs/pages.md): `path` is the folder, `view` the last shown. */
+  | (WorkFolderSurfaceTabBase & { kind: "page"; path: string; view?: "preview" | "data" })
   | (WorkFolderSurfaceTabBase & { kind: "history"; checkpointId?: string })
   | (WorkFolderSurfaceTabBase & { kind: "app-studio" })
   | (WorkFolderSurfaceTabBase & { kind: "checks" })

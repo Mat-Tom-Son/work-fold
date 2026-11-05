@@ -654,6 +654,24 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
       "",
     ].join("\n");
   }
+  if (normalizedTopic === "pages" || normalizedTopic?.startsWith("pages ")) {
+    return [
+      header,
+      "",
+      `Usage: ${executable} pages validate --work-folder <id-or-name> --page <page-folder-path> [--json]`,
+      "",
+      "A page is a folder in a work-folder that contains page.json. validate",
+      "checks one page folder the way its page tab does: page.json, the entry",
+      "file, every file the page refers to (nothing may load from the",
+      "internet), file and size limits (500 files, 10 MiB each, 25 MiB in",
+      "all), and page folders nested inside it. It lists each problem with",
+      "its file and a plain message, then a summary: title, entry, tables,",
+      "files, and bytes. It changes nothing and exits 0 whenever it could",
+      "check the page; with --json, read `valid`. Needs the work-fold app",
+      "running.",
+      "",
+    ].join("\n");
+  }
   if (normalizedTopic === "recently-deleted" || normalizedTopic?.startsWith("trash ")) {
     return [
       header,
@@ -712,6 +730,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     `  apps <verb>         Restricted apps and App Studio (see '${executable} help apps')`,
     "  automations enable|list|show|run|stop|disable|delete|receipts",
     "                      Declared steps that run across work-folders on a trigger",
+    "  pages validate      Check a page folder before you preview it",
     "  recently-deleted list|restore",
     "                      Bring back what was deleted",
     `  requests list|show  Follow one piece of work across work-folders (see '${executable} help collaborate')`,

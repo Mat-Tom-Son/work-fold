@@ -375,6 +375,8 @@ import {
 } from "./server-dev-options.js";
 import { isAlwaysHiddenWorkFolderEntry, isWorkFolderIgnored, readWorkFolderIgnoreState, setWorkFolderIgnoreState } from "./work-folder-ignore.js";
 import { canonicalWorkFolderWatchRoot } from "./work-folder-watch.js";
+import { handlePageRoute, servePageFrameAsset } from "./pages/page-routes.js";
+import { validatePageForAct } from "./pages/page-validate.js";
 import {
   beginWorkFolderRemoval,
   copyPathIntoWorkFolder,
@@ -1433,6 +1435,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.end();
     return;
   }
+  // The page sandbox intermediary is static and content-free; a frame can't
+  // carry the session header (docs/pages.md, "How a page runs").
+  if (servePageFrameAsset(req, res)) return;
   authorize(state, req);
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const method = req.method ?? "GET";
@@ -1505,6 +1510,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { appearance: state.appearance.snapshot() });
     return;
   }
+
+  // Page folders, their preview, and test entries (docs/pages.md, "Local API").
+  if (await handlePageRoute(req, res, url, { readJson: () => readJsonBody(state, req) })) return;
 
   const checksStatusMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/checks\/status$/);
   if (checksStatusMatch && method === "GET") {
@@ -7295,6 +7303,10 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         unchangedFileCount: result.unchangedFiles,
         skippedLargeFileCount: result.skippedLargeFiles.length,
       };
+    },
+    async pagesValidate(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      return runActOperation(() => validatePageForAct(toActWorkFolderRef(workFolder), input.page));
     },
     async historyVersions(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);

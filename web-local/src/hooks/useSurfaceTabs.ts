@@ -158,6 +158,29 @@ export function useSurfaceTabs({
     setActiveSurfaceTabId(tab.id);
   }
 
+  /** Opens a page folder's tab, or selects it; an open tab keeps its title and view. */
+  function openPageSurfaceTab(targetWorkFolder: WorkFolderSummary, path: string, title?: string): void {
+    const tab = pageSurfaceTab(targetWorkFolder, path, title);
+    setSurfaceTabs((current) => current.some((item) => item.id === tab.id) ? current : [...current, tab]);
+    setActiveSurfaceTabId(tab.id);
+  }
+
+  /** Keeps a page tab's title and chosen view, so they survive a restart. */
+  const updatePageSurfaceTab = useCallback((tabId: string, update: { title?: string; view?: "preview" | "data" }): void => {
+    setSurfaceTabs((current) => {
+      let changed = false;
+      const next = current.map((tab) => {
+        if (tab.id !== tabId || tab.kind !== "page") return tab;
+        const title = update.title?.trim() || tab.title;
+        const view = update.view ?? tab.view;
+        if (title === tab.title && view === tab.view) return tab;
+        changed = true;
+        return { ...tab, title, ...(view ? { view } : {}) };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
   function openAppStudioSurfaceTab(targetWorkFolder: WorkFolderSummary): void {
     const tab = appStudioSurfaceTab(targetWorkFolder);
     setSurfaceTabs((current) => upsertSurfaceTab(current, tab));
@@ -334,12 +357,15 @@ export function useSurfaceTabs({
 
   function retargetFileSurfaceTabsForMove(workFolderId: string, sourcePath: string, movedPath: string): void {
     setSurfaceTabs((current) => retargetFileSurfaceTabs(current, workFolderId, sourcePath, movedPath));
-    // A file tab's id names its path, so the selected tab follows its file.
+    // A file or page tab's id names its path, so the selected tab follows it.
     setActiveSurfaceTabId((current) => {
-      if (!current?.startsWith(`file:${workFolderId}:`)) return current;
-      const path = current.slice(`file:${workFolderId}:`.length);
-      const nextPath = retargetMovedPath(path, sourcePath, movedPath);
-      return nextPath && nextPath !== path ? fileSurfaceTabId(workFolderId, nextPath) : current;
+      for (const [prefix, tabId] of [[`file:${workFolderId}:`, fileSurfaceTabId], [`page:${workFolderId}:`, pageSurfaceTabId]] as const) {
+        if (!current?.startsWith(prefix)) continue;
+        const path = current.slice(prefix.length);
+        const nextPath = retargetMovedPath(path, sourcePath, movedPath);
+        return nextPath && nextPath !== path ? tabId(workFolderId, nextPath) : current;
+      }
+      return current;
     });
   }
 
@@ -369,6 +395,8 @@ export function useSurfaceTabs({
     openChatSurfaceTab,
     openHistorySurfaceTab,
     openFileSurfaceTab,
+    openPageSurfaceTab,
+    updatePageSurfaceTab,
     openAppStudioSurfaceTab,
     openChecksSurfaceTab,
     openWorkFolderAutomationsSurfaceTab,
@@ -494,6 +522,17 @@ function normalizeStoredSurfaceTab(value: unknown): WorkFolderSurfaceTab | null 
       workFolderId: record.workFolderId,
       path: record.path,
       title: record.title,
+    };
+  }
+  if (record.kind === "page") {
+    if (typeof record.path !== "string" || !validPagePath(record.path)) return null;
+    return {
+      id: pageSurfaceTabId(record.workFolderId, record.path),
+      kind: "page",
+      workFolderId: record.workFolderId,
+      path: record.path,
+      title: record.title || pageFolderTitle(record.path),
+      ...(record.view === "data" || record.view === "preview" ? { view: record.view } : {}),
     };
   }
   if (record.kind === "history") {
@@ -695,6 +734,34 @@ function fileSurfaceTitle(path: string): string {
   return path.split("/").pop() || path;
 }
 
+/**
+ * Each page folder opens in one tab (docs/pages.md, "Preview and test
+ * entries"), titled with the page's title once it is read.
+ */
+function pageSurfaceTab(workFolder: WorkFolderSummary, path: string, title?: string): WorkFolderSurfaceTab {
+  return {
+    id: pageSurfaceTabId(workFolder.id, path),
+    kind: "page",
+    workFolderId: workFolder.id,
+    path,
+    title: title?.trim() || pageFolderTitle(path),
+  };
+}
+
+function pageSurfaceTabId(workFolderId: string, path: string): string {
+  return `page:${workFolderId}:${path}`;
+}
+
+function pageFolderTitle(path: string): string {
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
+/** A work-folder-relative folder path: no empty, dot, or absolute parts. */
+function validPagePath(path: string): boolean {
+  if (!path || path.length > 4_096 || path.startsWith("/") || /[\\\0]/.test(path)) return false;
+  return path.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
 export function appStudioSurfaceTab(workFolder: WorkFolderSummary): WorkFolderSurfaceTab {
   return {
     id: `app-studio:${workFolder.id}`,
@@ -848,6 +915,11 @@ function retargetFileSurfaceTabs(tabs: WorkFolderSurfaceTab[], workFolderId: str
       const nextPath = retargetMovedPath(tab.path, sourcePath, movedPath);
       if (nextPath && nextPath !== tab.path) next = { ...tab, id: fileSurfaceTabId(workFolderId, nextPath), path: nextPath, title: fileSurfaceTitle(nextPath) };
     }
+    // A moved page keeps its title; its test entries start fresh (docs/pages.md).
+    if (tab.kind === "page" && tab.workFolderId === workFolderId && tab.path) {
+      const nextPath = retargetMovedPath(tab.path, sourcePath, movedPath);
+      if (nextPath && nextPath !== tab.path) next = { ...tab, id: pageSurfaceTabId(workFolderId, nextPath), path: nextPath };
+    }
     if (seen.has(next.id)) return [];
     seen.add(next.id);
     return [next];
@@ -855,7 +927,7 @@ function retargetFileSurfaceTabs(tabs: WorkFolderSurfaceTab[], workFolderId: str
 }
 
 function closeFileSurfaceTabs(tabs: WorkFolderSurfaceTab[], workFolderId: string, deletedPaths: Set<string>): WorkFolderSurfaceTab[] {
-  return tabs.filter((tab) => tab.kind !== "file" || tab.workFolderId !== workFolderId || !tab.path || !deletedPaths.has(tab.path));
+  return tabs.filter((tab) => (tab.kind !== "file" && tab.kind !== "page") || tab.workFolderId !== workFolderId || !tab.path || !deletedPaths.has(tab.path));
 }
 
 export {
@@ -868,6 +940,8 @@ export {
   fileSurfaceTab,
   fileSurfaceTabId,
   historySurfaceTab,
+  pageSurfaceTab,
+  pageSurfaceTabId,
   normalizeStoredSurfaceTabsValue,
   recordActiveSurfaceTabWorkFolderRecency,
   readStoredSurfaceTabsState,

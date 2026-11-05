@@ -30,6 +30,7 @@ instruction to implement its contents.
 | Checks and Automations | [Checks](checks.md), [Automations (technical automation contract)](automations.md), [The overview](work-fold-agent-overview.md) |
 | Native agent capabilities | [Skills, Extensions, packages, and scopes](skills-and-extensions.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted work-folder apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
+| Pages | [Pages (page folders, preview, test entries)](pages.md), [Online pages plan](online-pages-plan.md) |
 | Web access | [Bridge operations](../services/bridge/README.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [work-folder customization](work-folder-customization.md), [Image generation](image-generation.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |

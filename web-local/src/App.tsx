@@ -33,6 +33,7 @@ import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
 import { onConnectAiRequested, requestConnectAi } from "./lib/connect-ai";
 import { settleIn } from "./lib/motion";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
+import { PageTab } from "./components/pages/PageTab";
 import { ChecksPane, ChecksToolbarButton } from "./components/panes/ChecksPane";
 import { AppStudioPane } from "./components/panes/AppStudioPane";
 import { WorkFolderAutomationsPane } from "./components/panes/WorkFolderAutomationsPane";
@@ -56,6 +57,7 @@ import { useRestrictedApps } from "./hooks/useRestrictedApps";
 import { useSurfaceTabs } from "./hooks/useSurfaceTabs";
 import { useBrowserTabs } from "./hooks/useBrowserTabs";
 import { useWorkFolderTree } from "./hooks/useWorkFolderTree";
+import { useWorkFolderPages } from "./hooks/useWorkFolderPages";
 import { useWorkFolderChecks } from "./hooks/useWorkFolderChecks";
 import { useFolderAutomations } from "./hooks/useFolderAutomations";
 import { api, apiForm, apiUrl, errorText } from "./lib/api";
@@ -474,6 +476,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const activeWorkFolderIdRef = useRef(workFolder.id);
   activeWorkFolderIdRef.current = workFolder.id;
   const tree = useWorkFolderTree(workFolder, onError, fixture?.trees[workFolder.id]);
+  // Page folders show a page icon in Files and open their page tab (docs/pages.md).
+  const pageFolders = useWorkFolderPages(workFolder.id, Boolean(fixture));
   const [fileSort, setFileSort] = useState<FileSort>(() => readStoredJsonValue(fileSortStorageKey, normalizeFileSort, defaultFileSort));
   const sortedFileEntries = useMemo(() => sortFileTree(tree.visibleEntries, fileSort), [tree.visibleEntries, fileSort]);
   const fileTreeCollapsedPaths = useMemo(() => tree.query ? new Set<string>() : tree.collapsedPaths, [tree.query, tree.collapsedPaths]);
@@ -642,8 +646,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const restrictedAppsState = restrictedAppsStore;
   const [skillsExtensionsView, setSkillsExtensionsView] = useState<SkillsExtensionsView | null>(null);
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
-  // Each file has its own tab, so switching file tabs selects that file in Files.
-  const activeFilePath = activeTab?.kind === "file" && activeTab.workFolderId === workFolder.id ? activeTab.path : null;
+  // Each file and page has its own tab, so switching those tabs selects it in Files.
+  const activeFilePath = (activeTab?.kind === "file" || activeTab?.kind === "page") && activeTab.workFolderId === workFolder.id ? activeTab.path : null;
   // A multi-selection that already holds the file is left alone, such as several rows that just moved together.
   useEffect(() => {
     if (activeFilePath && !(tree.selectedPaths.size > 1 && tree.selectedPaths.has(activeFilePath))) tree.setSelectedPath(activeFilePath);
@@ -1515,7 +1519,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       if (!confirmed) return;
     }
     const selectedPath = tree.selectedPath && (tree.selectedPath === path || tree.selectedPath.startsWith(`${path}/`)) ? tree.selectedPath : null;
-    const deletedTabPaths = new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : []));
+    const deletedTabPaths = new Set(tabs.surfaceTabs.flatMap((tab) => (tab.kind === "file" || tab.kind === "page") && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : []));
     const pending: PendingDelete = { workFolderId: workFolder.id, path, name: entry?.name ?? path, selectedPath, deletedTabPaths };
     pendingDeletesRef.current.set(pendingDeleteKey(pending), pending);
     tree.setTree((current) => removeTreeEntries(current, new Set([path])));
@@ -1561,7 +1565,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       name: entries[index]?.name ?? path,
       selectedPath: null,
       batchId,
-      deletedTabPaths: new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : [])),
+      deletedTabPaths: new Set(tabs.surfaceTabs.flatMap((tab) => (tab.kind === "file" || tab.kind === "page") && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : [])),
     }));
     for (const pending of pendings) pendingDeletesRef.current.set(pendingDeleteKey(pending), pending);
     tree.setTree((current) => removeTreeEntries(current, new Set(targets)));
@@ -1999,7 +2003,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding Files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating Files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} pageFolders={pageFolders} onOpenPage={(path) => { tree.setSelectedPath(path); tabs.openPageSurfaceTab(workFolder, path, pageFolders.get(path)?.title); }} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -2047,7 +2051,18 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         const targetConversationLifecycle = targetConversation ? conversationLifecycleView(targetConversation) : "active";
         return (
           <div className="work-folder-surface-body" role="tabpanel" id={surfacePanelDomId(tab.id)} aria-labelledby={surfaceTabDomId(tab.id)} hidden={!active} key={tab.id} style={workFolderIdentityStyle(targetIdentity)}>
-            {tab.kind === "file" && tab.path ? (
+            {tab.kind === "page" ? (
+              <PageTab
+                workFolder={targetWorkFolder}
+                path={tab.path}
+                title={tab.title}
+                view={tab.view ?? "preview"}
+                active={active}
+                fixtureMode={Boolean(fixture)}
+                onViewChange={(view) => tabs.updatePageSurfaceTab(tab.id, { view })}
+                onTitleChange={(title) => tabs.updatePageSurfaceTab(tab.id, { title })}
+              />
+            ) : tab.kind === "file" && tab.path ? (
               <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} fixtureText={fixture?.fileContents[targetWorkFolder.id]?.[tab.path]} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} />
             ) : tab.kind === "work-folder-automations" || tab.kind === "work-folder-automation" ? (
               <WorkFolderAutomationsPane
