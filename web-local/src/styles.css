@@ -22562,3 +22562,50 @@ to {
   padding-left: 0;
 }
 
+
+/* Chat: task lists, prose code blocks, and the context meter. */
+.message-body li.task-list-item {
+  list-style: none;
+}
+
+.message-body li.task-list-item > input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 8px 0 -22px;
+  vertical-align: -2px;
+  border: 1.5px solid var(--ui-border-strong, rgba(100, 116, 139, 0.55));
+  border-radius: 4px;
+  background: transparent;
+  opacity: 1;
+}
+
+.message-body li.task-list-item > input[type="checkbox"]:checked {
+  border-color: transparent;
+  background: var(--surface-tab-accent, var(--work-folder-selection-accent, var(--ui-accent-solid, #0b6fd6))) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 11px no-repeat;
+}
+
+.message-body li.task-list-item:has(> input:checked) {
+  color: var(--ui-text-muted, #5c6460);
+}
+
+.message-body .message-code-block.wraps pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation-context-meter svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* A pie inside a ring: the filled share is the context used. */
+.app-shell[data-theme] .conversation-context-meter circle.track {
+  stroke: color-mix(in srgb, var(--ui-text-muted, #5c6460) 55%, transparent);
+  stroke-width: 2;
+}
+
+.conversation-context-meter circle.value {
+  stroke-width: 7.5;
+  stroke-linecap: butt;
+}

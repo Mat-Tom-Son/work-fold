@@ -2273,8 +2273,8 @@ function ConversationContextMeter({ runtime, status, workFolderName, picker, rea
       title={`${title} · Change the model saved for ${workFolderName}`}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
-        {percent !== null ? <circle className="value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
+        <circle className="track" cx="12" cy="12" r="10" />
+        {percent !== null ? <circle className="value" cx="12" cy="12" r="3.75" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
       </svg>
       <span className="conversation-context-model">{modelLabel}</span>
       {percent !== null && percent >= 50 ? (

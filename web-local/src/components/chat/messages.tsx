@@ -360,7 +360,7 @@ export function MarkdownMessage({
         rehypePlugins={[rehypeSingleLineBreaks]}
         components={{
           p: ({ children }) => <p>{linkChildren(children)}</p>,
-          li: ({ children }) => <li>{linkChildren(children)}</li>,
+          li: ({ children, className }) => <li className={className}>{linkChildren(children)}</li>,
           td: ({ children }) => <td>{linkChildren(children)}</td>,
           th: ({ children }) => <th>{linkChildren(children)}</th>,
           table: ({ children }) => <div className="message-table-scroll"><table>{children}</table></div>,
@@ -423,6 +423,8 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   const codeElement = Children.toArray(children).find((child) => isValidElement(child)) as ReactElement<{ className?: string }> | undefined;
   const language = codeElement?.props.className?.match(/(?:^|\s)language-([\w-]+)/)?.[1] ?? "";
   const label = language ? codeLanguageName(language) : "Code";
+  // Prose wraps; code keeps its lines.
+  const wraps = /^(text|txt|plaintext|md|markdown)$/i.test(language);
 
   async function copyCode() {
     try {
@@ -435,7 +437,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="message-code-block">
+    <div className={`message-code-block${wraps ? " wraps" : ""}`}>
       <div className="message-code-toolbar">
         <span>{label}</span>
         <button className={copied ? "is-copied" : undefined} type="button" onClick={() => void copyCode()} aria-label={copied ? "Copied Code" : "Copy Code"} title={copied ? "Copied" : "Copy Code"}>
