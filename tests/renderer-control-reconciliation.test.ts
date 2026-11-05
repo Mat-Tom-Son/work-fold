@@ -188,7 +188,7 @@ test("attached file references show only the file icon, name and removal control
     workFolder: target, workFolderCustomizations: {},
     selectedPath: null, onAgentFinished() {}, surfaceTabId: "attachment-chat",
   };
-  const request = (id: number) => ({ id, path, workFolderId: target.id, surfaceTabId: "attachment-chat" });
+  const request = (id: number) => ({ id, paths: [path], workFolderId: target.id, surfaceTabId: "attachment-chat" });
   await dom.render(createElement(ChatPanel, { ...chatProps, contextPathRequest: request(1) }));
   await dom.waitFor(() => dom.container.querySelector(".context-chip-name")?.textContent === "Review.pdf");
   const chip = dom.container.querySelector<HTMLElement>(".context-chip")!;

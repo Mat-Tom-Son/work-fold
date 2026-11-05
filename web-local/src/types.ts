@@ -74,6 +74,8 @@ export type ChangeKindCounts = Record<ChangeKind, number>;
 
 export interface FileContextMenuState {
   entry: TreeEntry;
+  /** Set when the row is one of several selected together: the menu acts on all of them. */
+  selection?: TreeEntry[];
   x: number;
   y: number;
   returnFocusTarget?: HTMLElement | null;
@@ -178,7 +180,8 @@ export interface ContextAttachment {
 }
 export interface ChatContextPathRequest {
   id: number;
-  path: string;
+  /** One file, or several attached together from Files. */
+  paths: readonly string[];
   workFolderId: string;
   surfaceTabId: string;
 }

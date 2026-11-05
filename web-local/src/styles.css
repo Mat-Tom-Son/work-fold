@@ -23181,3 +23181,20 @@ to {
 :root[data-theme] .app-shell .history-file-comparison details > summary:hover {
   color: var(--ui-text);
 }
+
+/* ---------- Files multiple selection (2026-11-05) ---------- */
+
+/* Several rows dragged together: one small label follows the pointer. */
+.file-selection-drag-image {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 4px 9px;
+  color: var(--ui-text, #29322f);
+  font: 600 var(--work-fold-type-sm, 12px) / 1.3 var(--work-fold-ui-font, system-ui, sans-serif);
+  white-space: nowrap;
+  background: var(--ui-surface, #fafbf8);
+  border: 1px solid var(--ui-border-strong, #c3cabe);
+  border-radius: 6px;
+  pointer-events: none;
+}

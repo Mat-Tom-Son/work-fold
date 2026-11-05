@@ -20,7 +20,7 @@ test("opening a folder animates only that tree, and search results do not replay
   const dom = await createDomHarness(); t.after(() => dom.cleanup());
   const props = {
     entries: [{ kind: "folder" as const, name: "Notes", path: "Notes", children: [{ kind: "file" as const, name: "a.md", path: "Notes/a.md" }] }],
-    loadingFolderPaths: new Set<string>(), movingTreePath: null, dropTargetFolderPath: null,
+    loadingFolderPaths: new Set<string>(), dropTargetFolderPath: null,
     onToggleFolder: () => {}, onSelectFile: () => {}, onOpenFile: () => {}, onOpenContextMenu: () => {},
     onUpdateDropTarget: () => {}, onDropOnTarget: () => {}, onDragStartEntry: () => {}, onDragEndEntry: () => {},
   };

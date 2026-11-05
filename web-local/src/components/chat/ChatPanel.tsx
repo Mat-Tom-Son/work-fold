@@ -15,7 +15,7 @@ import { ApiError, api, createEventSource, errorText, isTransientNetworkError, r
 import { requestConnectAi } from "../../lib/connect-ai";
 import { conversationLifecycleView } from "../../lib/chat-lifecycle";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
-import { hasNativeFiles } from "../../lib/file-actions";
+import { draggedWorkFolderPaths, hasNativeFiles } from "../../lib/file-actions";
 import { displayModelLabel } from "../../lib/model-display";
 import { thinkingLevelLabel } from "../../lib/thinking-levels";
 import { composerModelFilterThreshold, composerModelListView } from "../../lib/composer-model-list";
@@ -142,7 +142,7 @@ export function ChatPanel({
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   draftRequest?: ChatDraftRequest | null;
-  onAddPathToChatContext?: (path: string) => void;
+  onAddPathToChatContext?: (paths: readonly string[]) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenWorkFolderFile?: (path: string) => void;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
@@ -829,7 +829,7 @@ export function ChatPanel({
 
   useEffect(() => {
     if (!contextPathRequest) return;
-    void attachContextPath(contextPathRequest.path);
+    void (async () => { for (const path of contextPathRequest.paths) await attachContextPath(path); })();
   }, [contextPathRequest?.id]);
 
   useEffect(() => {
@@ -1753,10 +1753,6 @@ export function ChatPanel({
     return byCandidate;
   }, [fixtureMode, fixtureTreeEntries, workFolder.id]);
 
-  function droppedWorkFolderPath(event: React.DragEvent<HTMLElement>): string {
-    return event.dataTransfer.getData(workFolderPathDragType);
-  }
-
   function hasWorkFolderPathDrag(event: React.DragEvent<HTMLElement>): boolean {
     return Array.from(event.dataTransfer.types).includes(workFolderPathDragType);
   }
@@ -1792,8 +1788,8 @@ export function ChatPanel({
     event.preventDefault();
     setDragActive(false);
     if (acceptsWorkFolderPath) {
-      const path = droppedWorkFolderPath(event);
-      if (path) onAddPathToChatContext?.(path);
+      const paths = draggedWorkFolderPaths(event.dataTransfer);
+      if (paths.length) onAddPathToChatContext?.(paths);
       return;
     }
     void attachDroppedNativeFiles(event.dataTransfer);
