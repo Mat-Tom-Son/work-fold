@@ -80,6 +80,7 @@ import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRa
 import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, parentFolderPath, removeTreeEntries } from "./lib/tree";
 import { outermostTreePaths, selectableTreePaths, treeEntriesByPath, visibleTreePaths } from "./lib/tree-selection";
+import { deleteLocalFileRequest, deleteLocalFilesRequest, pendingDeleteGroups, pendingDeleteKey, settledPendingDeletes, type PendingDelete } from "./lib/pending-deletes";
 import { normalizeWorkFolderCustomizations } from "./lib/work-folder-customization";
 import { workFolderIdentityFor, workFolderIdentityStyle } from "./lib/work-folder-identity";
 import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "./lib/folder-nesting";
@@ -97,20 +98,11 @@ interface DroppedUploadFile { file: File; relativePath: string }
 type DesktopActionCommand = "toggle-sidebar" | "toggle-agent-panel" | "new-chat" | "reload-work-folder-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-work-folder" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
 /** A cross-cutting request handled by the open work-folder view; app navigation from Settings carries the app or Chat it names. */
 type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; workFolderId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string; path?: string };
-interface PendingDelete {
-  workFolderId: string;
-  path: string;
-  name: string;
-  selectedPath: string | null;
-  deletedTabPaths: Set<string>;
-}
-/**
- * A delete always goes through (docs/receipts-not-gates.md, F20). `recently-deleted` is
- * present when History could not keep a copy of everything, so the entry is
- * waiting in Settings → Recently Deleted instead of being gone.
- */
-interface DeleteLocalFileResult {
-  recentlyDeleted?: { entryId: string; restoreBy: string; uncoveredCount: number };
+interface MoveLocalEntriesResult {
+  moved: Array<{ fromPath: string; path: string; name: string }>;
+  safetyCheckpointId: string;
+  failed?: { path: string; error: string };
+  notMoved?: string[];
 }
 interface WorkFolderChecksControl {
   workFolderId: string;
@@ -483,6 +475,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   }, [workFolder.id]);
   const contextRequestId = useRef(0);
   const pendingDeletesRef = useRef(new Map<string, PendingDelete>());
+  const pendingDeleteBatchRef = useRef(0);
   const activeWorkFolderIdRef = useRef(workFolder.id);
   activeWorkFolderIdRef.current = workFolder.id;
   const tree = useWorkFolderTree(workFolder, onError, fixture?.trees[workFolder.id]);
@@ -1494,7 +1487,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     finally { tree.setMovingTreePaths(new Set()); }
   }
 
-  /** Several rows dragged together: each takes the same move as one row, and stays selected where it lands. */
+  /** Several rows dragged together: one request and one History restore point, and they stay selected where they land. */
   async function moveEntries(sourcePaths: readonly string[], targetFolderPath: string) {
     const outermost = outermostTreePaths(sourcePaths);
     if (outermost.length <= 1) { if (outermost[0]) await moveEntry(outermost[0], targetFolderPath); return; }
@@ -1503,17 +1496,20 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     const sources = outermost.filter((path) => parentFolderPath(path) !== targetFolderPath);
     if (!sources.length) return;
     tree.setMovingTreePaths(new Set(sources));
-    const moved: string[] = [];
+    let result: MoveLocalEntriesResult | null = null;
     try {
-      for (const sourcePath of sources) {
-        const result = await api<{ moved: { path: string; name: string }; safetyCheckpointId: string }>(`/api/work-folders/${workFolder.id}/move-local-entry`, { method: "POST", body: { sourcePath, targetFolderPath } });
-        tree.setTree((current) => moveTreeEntry(current, sourcePath, targetFolderPath).entries);
-        tabs.retargetFileSurfaceTabsForMove(workFolder.id, sourcePath, result.moved.path);
-        moved.push(result.moved.path);
-      }
+      result = await api<MoveLocalEntriesResult>(`/api/work-folders/${workFolder.id}/move-local-entries`, { method: "POST", body: { sourcePaths: sources, targetFolderPath } });
     }
     catch (caught) { onError(errorText(caught)); }
     finally { tree.setMovingTreePaths(new Set()); }
+    if (!result) return;
+    for (const item of result.moved) {
+      tree.setTree((current) => moveTreeEntry(current, item.fromPath, targetFolderPath).entries);
+      tabs.retargetFileSurfaceTabsForMove(workFolder.id, item.fromPath, item.path);
+    }
+    // Rows after a failure stayed put; the restore point covers exactly the ones that moved.
+    if (result.failed) onError(result.failed.error);
+    const moved = result.moved.map((item) => item.path);
     if (!moved.length) return;
     tree.selectPaths(moved, moved.at(-1));
     showHistorySaved(`Moved ${formatItemCount(moved.length, "item")}`);
@@ -1546,9 +1542,10 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   }
 
   /**
-   * Several rows from Files' selection. Each one takes the same delete as a
-   * single row — its own request, receipt, and busy refusal from the host —
-   * under one Undo (docs/receipts-not-gates.md).
+   * Several rows from Files' selection, under one Undo and, once that window
+   * closes, one request: one History restore point for all of them, while the
+   * host still gives each row its own receipt, busy refusal, and Recently
+   * Deleted recovery (docs/receipts-not-gates.md).
    */
   async function deleteEntries(paths: readonly string[]) {
     const targets = outermostTreePaths(paths);
@@ -1565,11 +1562,13 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     }
     const selection = [...tree.selectedPaths];
     const focus = tree.selectedPath;
+    const batchId = ++pendingDeleteBatchRef.current;
     const pendings = targets.map((path, index): PendingDelete => ({
       workFolderId: workFolder.id,
       path,
       name: entries[index]?.name ?? path,
       selectedPath: null,
+      batchId,
       deletedTabPaths: new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : [])),
     }));
     for (const pending of pendings) pendingDeletesRef.current.set(pendingDeleteKey(pending), pending);
@@ -1686,22 +1685,14 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     return true;
   }
 
-  /** Sends one delete; true when its entry went to Recently Deleted. `announce: false` leaves saying so to the caller. */
-  async function commitPendingDelete(pending: PendingDelete, announce = true): Promise<boolean> {
+  async function commitPendingDelete(pending: PendingDelete) {
     const key = pendingDeleteKey(pending);
-    if (pendingDeletesRef.current.get(key) !== pending) return false;
+    if (pendingDeletesRef.current.get(key) !== pending) return;
     pendingDeletesRef.current.delete(key);
     try {
       const result = await deleteLocalFileRequest(pending);
       tabs.closeFileSurfaceTabsForDeletedPaths(pending.workFolderId, pending.deletedTabPaths);
-      if (result.recentlyDeleted && announce) {
-        showToast({
-          text: `${pending.name} is in Recently Deleted — History could not keep a copy of everything in it.`,
-          tone: "info",
-          durationMs: 8000,
-        });
-      }
-      return Boolean(result.recentlyDeleted);
+      if (result.recentlyDeleted) showRecentlyDeletedNotice([pending.name]);
     } catch (caught) {
       onError(errorText(caught));
       if (pending.workFolderId === activeWorkFolderIdRef.current) {
@@ -1709,34 +1700,53 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         await refreshTreeWithPendingDeletes();
         if (pending.selectedPath && restoreSelection) tree.setSelectedPath(pending.selectedPath);
       }
-      return false;
     }
   }
 
-  /** One after another, the way the person could have deleted them; a refused one comes back and the rest still go. */
+  /** The rows of one Undo still waiting, sent as one request: one History restore point for all of them. */
   async function commitPendingDeletes(pendings: readonly PendingDelete[]) {
-    const keptInRecentlyDeleted: string[] = [];
-    for (const pending of pendings) if (await commitPendingDelete(pending, false)) keptInRecentlyDeleted.push(pending.name);
-    if (!keptInRecentlyDeleted.length) return;
+    const waiting = pendings.filter((pending) => pendingDeletesRef.current.get(pendingDeleteKey(pending)) === pending);
+    if (waiting.length <= 1) { if (waiting[0]) await commitPendingDelete(waiting[0]); return; }
+    for (const pending of waiting) pendingDeletesRef.current.delete(pendingDeleteKey(pending));
+    const workFolderId = waiting[0]!.workFolderId;
+    try {
+      const result = await deleteLocalFilesRequest(workFolderId, waiting.map((pending) => pending.path));
+      const settled = settledPendingDeletes(waiting, result);
+      tabs.closeFileSurfaceTabsForDeletedPaths(workFolderId, settled.closedTabPaths);
+      if (settled.inRecentlyDeleted.length) showRecentlyDeletedNotice(settled.inRecentlyDeleted);
+      if (result.failed) {
+        // The rows after the one that failed were left alone, so they come back.
+        onError(result.failed.error);
+        if (workFolderId === activeWorkFolderIdRef.current) await refreshTreeWithPendingDeletes();
+      }
+    } catch (caught) {
+      onError(errorText(caught));
+      if (workFolderId === activeWorkFolderIdRef.current) await refreshTreeWithPendingDeletes();
+    }
+  }
+
+  function showRecentlyDeletedNotice(names: readonly string[]) {
     showToast({
-      text: keptInRecentlyDeleted.length === 1
-        ? `${keptInRecentlyDeleted[0]} is in Recently Deleted — History could not keep a copy of everything in it.`
-        : `${formatItemCount(keptInRecentlyDeleted.length, "item")} are in Recently Deleted — History could not keep a copy of everything in them.`,
+      text: names.length === 1
+        ? `${names[0]} is in Recently Deleted — History could not keep a copy of everything in it.`
+        : `${formatItemCount(names.length, "item")} are in Recently Deleted — History could not keep a copy of everything in them.`,
       tone: "info",
       durationMs: 8000,
     });
   }
 
   function flushAllPendingDeletes(keepalive = false) {
-    for (const pending of [...pendingDeletesRef.current.values()]) {
+    // Rows deleted together still go together.
+    for (const group of pendingDeleteGroups(pendingDeletesRef.current.values())) {
       if (!keepalive) {
-        void commitPendingDelete(pending);
+        void commitPendingDeletes(group);
         continue;
       }
-      const key = pendingDeleteKey(pending);
-      if (pendingDeletesRef.current.get(key) !== pending) continue;
-      pendingDeletesRef.current.delete(key);
-      void deleteLocalFileRequest(pending, true).catch(() => {});
+      for (const pending of group) pendingDeletesRef.current.delete(pendingDeleteKey(pending));
+      const sent = group.length === 1
+        ? deleteLocalFileRequest(group[0]!, true)
+        : deleteLocalFilesRequest(group[0]!.workFolderId, group.map((pending) => pending.path), true);
+      void sent.catch(() => {});
     }
   }
 
@@ -2259,28 +2269,6 @@ function setSelectionDragImage(event: React.DragEvent<HTMLElement>, label: strin
   document.body.append(image);
   event.dataTransfer.setDragImage(image, -10, -10);
   window.setTimeout(() => image.remove(), 0);
-}
-
-function pendingDeleteKey(pending: Pick<PendingDelete, "workFolderId" | "path">) {
-  return `${pending.workFolderId}:${pending.path}`;
-}
-
-async function deleteLocalFileRequest(pending: PendingDelete, keepalive = false): Promise<DeleteLocalFileResult> {
-  const sessionHeaders = await window.workFoldDesktop?.api.getSessionHeaders?.();
-  const response = await fetch(apiUrl(`/api/work-folders/${pending.workFolderId}/local-file`), {
-    method: "DELETE",
-    headers: { "content-type": "application/json", ...(sessionHeaders ?? {}) },
-    body: JSON.stringify({ path: pending.path }),
-    keepalive,
-  });
-  if (response.ok) {
-    // A delete History could not fully keep a copy of still succeeds: the
-    // entry is waiting in Recently Deleted instead (docs/receipts-not-gates.md).
-    try { return await response.json() as DeleteLocalFileResult; } catch { return {}; }
-  }
-  let message = response.statusText || `Request failed (${response.status}).`;
-  try { message = (await response.json() as { error?: string }).error || message; } catch { /* keep the status message */ }
-  throw new Error(message);
 }
 
 async function collectDroppedUploadFiles(dataTransfer: DataTransfer): Promise<DroppedUploadFile[]> {
