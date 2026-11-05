@@ -424,7 +424,7 @@ export function AppStudioPane({
       body: retained
         ? "Uninstalls the app and keeps its data on this device."
         : "Uninstalls the app and moves its data to Recently Deleted.",
-      confirmLabel: retained ? "Uninstall & retain data" : "Uninstall & purge data",
+      confirmLabel: retained ? "Uninstall & Retain Data" : "Uninstall & Purge Data",
       tone: "danger",
     });
     if (!confirmed) return;
@@ -463,7 +463,7 @@ export function AppStudioPane({
     const confirmed = await requestConfirm({
       title: `Purge retained data for ${item.featureId}?`,
       body: "Moves this app’s retained data to Recently Deleted.",
-      confirmLabel: "Purge data",
+      confirmLabel: "Purge Data",
       tone: "danger",
     });
     if (!confirmed) return;
@@ -517,7 +517,7 @@ export function AppStudioPane({
           <div className="app-studio-project-identity">
             <div>
               <span className="professional-kicker">App Studio</span>
-              <h1 id={`${ids}-title`}>{project?.presentation.title ?? "Edit your app"}</h1>
+              <h1 id={`${ids}-title`}>{project?.presentation.title ?? "Edit Your App"}</h1>
               {project?.presentation.description ? <p>{project.presentation.description}</p> : null}
               {project ? <small>Built from {workFolder.name} · Releases stay on this device</small> : null}
             </div>
@@ -525,7 +525,7 @@ export function AppStudioPane({
           {project ? (
             <div className="app-studio-header-actions">
               <button className="ui-control" type="button" onClick={() => setEditingProject((current) => !current)} disabled={Boolean(busyKey)}>
-                {editingProject ? <Dismiss16Regular /> : <Edit16Regular />}{editingProject ? "Close" : "Edit details"}
+                {editingProject ? <Dismiss16Regular /> : <Edit16Regular />}{editingProject ? "Close" : "Edit Details"}
               </button>
             </div>
           ) : null}
@@ -586,7 +586,7 @@ export function AppStudioPane({
                 )}
                 <form className="app-studio-release-form" onSubmit={(event) => void prepareRelease(event)}>
                   <label htmlFor={`${ids}-release-version`}>
-                    <span>Release version</span>
+                    <span>Release Version</span>
                     <input
                       id={`${ids}-release-version`}
                       value={releaseVersion}
@@ -619,15 +619,15 @@ export function AppStudioPane({
                       {installTargets.length ? <option value="" disabled>Choose a work-folder</option> : null}
                       {installTargets.length
                         ? installTargets.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)
-                        : <option value="">No work-folders registered</option>}
+                        : <option value="">No work-folders Registered</option>}
                     </select>
                   </label>
                   {selectedInstance ? (
                     <label htmlFor={`${ids}-continuity`}>
-                      <span>Update access</span>
+                      <span>Update Access</span>
                       <select id={`${ids}-continuity`} value={continuityPolicy} onChange={(event) => setContinuityPolicy(event.target.value as ContinuityPolicy)} disabled={Boolean(busyKey)}>
-                        <option value="eligible">Keep current choices</option>
-                        <option value="reset">Use install defaults</option>
+                        <option value="eligible">Keep Current Choices</option>
+                        <option value="reset">Use Install Defaults</option>
                       </select>
                     </label>
                   ) : null}
@@ -654,7 +654,7 @@ export function AppStudioPane({
                           <div className="app-studio-release-main">
                             <div className="app-studio-row-title">
                               <strong>{release.displayVersion}</strong>
-                              <span className={release.state === "published" ? "professional-status-badge enabled" : "professional-status-badge"}>{release.state === "published" ? "Published locally" : "Prepared"}</span>
+                              <span className={release.state === "published" ? "professional-status-badge enabled" : "professional-status-badge"}>{release.state === "published" ? "Published Locally" : "Prepared"}</span>
                               {active ? <span className="app-studio-active-label"><Checkmark16Regular />Active in {targetName}</span> : null}
                             </div>
                             <p>{release.presentation.title} · {formatCount(release.featureIds.length, "Feature")}</p>
@@ -666,12 +666,12 @@ export function AppStudioPane({
                                 <span className="app-studio-quiet-state">Current Release</span>
                               ) : pending || blockedByOtherPending ? (
                                 <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => focusOperation((pending ?? blockedByOtherPending)!.operationId)}>
-                                  Open review
+                                  Open Review
                                 </button>
                               ) : (
                                 <button className="ui-control" type="button" disabled={Boolean(busyKey) || !hasInstallTarget} onClick={() => void prepareActivation(release)}>
                                   {busyKey === `operation:prepare:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}
-                                  {selectedInstance ? `Review ${rollback ? "rollback" : "update"}` : "Review install"}
+                                  {selectedInstance ? `Review ${rollback ? "Rollback" : "Update"}` : "Review Install"}
                                 </button>
                               )
                             ) : null}
@@ -697,11 +697,11 @@ export function AppStudioPane({
                                   <div><dt>App</dt><dd>{release.presentation.title}</dd></div>
                                   <div><dt>Version</dt><dd>{release.displayVersion}</dd></div>
                                   <div><dt>Features</dt><dd>{release.featureIds.join(", ")}</dd></div>
-                                  <div><dt>Release digest</dt><dd><code>{release.releaseDigest}</code></dd></div>
+                                  <div><dt>Release Digest</dt><dd><code>{release.releaseDigest}</code></dd></div>
                                 </dl>
                                 <p><ShieldCheckmark16Regular aria-hidden="true" />Available for local installation only.</p>
                                 <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busyKey)} onClick={() => void publishRelease(release)}>
-                                  {busyKey === `release:publish:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}Publish locally
+                                  {busyKey === `release:publish:${release.releaseDigest}` ? <ArrowSync16Regular className="spin" /> : null}Publish Locally
                                 </button>
                               </div>
                             </details>
@@ -757,7 +757,7 @@ export function AppStudioPane({
                             <div className="app-studio-row-title">
                               <strong>{instance.presentation.title}</strong>
                               <span className="professional-status-badge enabled">{instance.displayVersion}</span>
-                              {updateAvailable ? <span className="professional-status-badge">Update available</span> : null}
+                              {updateAvailable ? <span className="professional-status-badge">Update Available</span> : null}
                             </div>
                             <p>Installed in {instanceWorkFolderName} · Data on this device</p>
                             <small>{formatCount(instance.featureIds.length, "Feature")} · Updated {formatTimestamp(instance.updatedAt)} · {shortDigest(instance.releaseDigest)}</small>
@@ -774,7 +774,7 @@ export function AppStudioPane({
                                 Review in Releases
                               </button>
                             ) : null}
-                            <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · retain data</button>
+                            <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "retain")}>Uninstall · Retain Data</button>
                             <button className="app-studio-icon-button danger" type="button" disabled={Boolean(busyKey)} onClick={() => void uninstall(instance, "purge")} aria-label={`Uninstall ${instance.presentation.title} from ${instanceWorkFolderName} and purge its data`} title="Uninstall and Purge Data">
                               {busyKey === `uninstall:${instance.runtimeInstanceId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}
                             </button>
@@ -800,9 +800,9 @@ export function AppStudioPane({
                           <p>Stored on This Device</p>
                           <small>Retained {formatTimestamp(item.removedAt)} · Release {shortDigest(item.releaseDigest)}</small>
                         </div>
-                        <div className="app-studio-retained-actions"><button className="ui-control" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export data</button>
+                        <div className="app-studio-retained-actions"><button className="ui-control" type="button" disabled={fixtureMode || Boolean(busyKey)} onClick={() => void exportRetainedData(item)}>Export Data</button>
                         <button className="ui-control professional-button-danger" type="button" disabled={Boolean(busyKey)} onClick={() => void purgeRetainedData(item)}>
-                          {busyKey === `retained:${item.retainedDataId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Purge data
+                          {busyKey === `retained:${item.retainedDataId}` ? <ArrowSync16Regular className="spin" /> : <Delete16Regular />}Purge Data
                         </button></div>
                       </article>
                     ))}
@@ -843,11 +843,11 @@ function ProjectEditor({
   onCancel?: () => void;
 }) {
   return (
-    <section className={`app-studio-project-editor${creating ? " creating" : ""}`} aria-label={creating ? "Edit your app" : "App details"}>
+    <section className={`app-studio-project-editor${creating ? " creating" : ""}`} aria-label={creating ? "Edit Your App" : "App Details"}>
       {!creating ? <p className="app-studio-project-editor-note">Changes apply to new Releases; existing Releases keep their details.</p> : null}
       <form className="app-studio-project-form" onSubmit={onSubmit}>
         <label htmlFor={`${ids}-project-title`}>
-          <span>App name</span>
+          <span>App Name</span>
           <input id={`${ids}-project-title`} value={title} onChange={(event) => onTitleChange(event.target.value)} maxLength={80} required disabled={busy} autoFocus={creating} />
         </label>
         <label className="wide" htmlFor={`${ids}-project-description`}>
@@ -861,7 +861,7 @@ function ProjectEditor({
         <div className="app-studio-project-form-actions">
           {onCancel ? <button className="ui-control" type="button" onClick={onCancel} disabled={busy}>Cancel</button> : null}
           <button className="ui-control ui-control--primary" type="submit" disabled={busy || !title.trim()}>
-            {busy ? <ArrowSync16Regular className="spin" /> : null}{creating ? "Create app" : "Save"}
+            {busy ? <ArrowSync16Regular className="spin" /> : null}{creating ? "Create App" : "Save"}
           </button>
         </div>
       </form>
@@ -874,7 +874,7 @@ function AppIconPicker({ value, disabled, onChange }: { value: string; disabled:
   const selected = value.trim() || "apps";
   return (
     <div className="work-folder-icon-picker app-studio-icon-picker">
-      <div className="work-folder-icon-grid" role="listbox" aria-label="App icon">
+      <div className="work-folder-icon-grid" role="listbox" aria-label="App Icon">
         {workFolderIconOptions.map((option) => {
           const Icon = option.Icon;
           const active = option.name === selected;
@@ -887,7 +887,7 @@ function AppIconPicker({ value, disabled, onChange }: { value: string; disabled:
               aria-selected={active}
               disabled={disabled}
               onClick={() => onChange(option.name)}
-              aria-label={`Use ${option.label} icon`}
+              aria-label={`Use ${option.label} Icon`}
               title={option.label}
             >
               <WorkFolderIconGlyph icon={Icon} size={18} filled={active} />
@@ -946,7 +946,7 @@ function OperationReview({
     >
       <header>
         <div>
-          <span className="app-studio-operation-eyebrow">Activation review</span>
+          <span className="app-studio-operation-eyebrow">Activation Review</span>
           <h3 id={titleDomId}>{label} {release?.displayVersion ?? "Release"} in {targetName}</h3>
           <p>Prepared {formatTimestamp(operation.preparedAt)}</p>
         </div>
@@ -955,7 +955,7 @@ function OperationReview({
       <dl className="app-studio-facts compact">
         <div><dt>Target work-folder</dt><dd>{targetName}</dd></div>
         <div><dt>Release</dt><dd>{release?.displayVersion ?? shortDigest(operation.releaseDigest)}</dd></div>
-        <div><dt>Local data</dt><dd>{operation.kind === "install" ? "Fresh data" : "Per plan below"}</dd></div>
+        <div><dt>Local Data</dt><dd>{operation.kind === "install" ? "Fresh data" : "Per plan below"}</dd></div>
         <div><dt>Authority</dt><dd>{operation.kind === "install" ? "Declared access enabled" : operation.continuityPolicy === "eligible" ? "Keep current choices" : "Install defaults"}</dd></div>
       </dl>
       {operation.kind === "install" ? (
@@ -965,7 +965,7 @@ function OperationReview({
       )}
       <footer>
         <button className="ui-control" type="button" disabled={Boolean(busyKey)} onClick={onCancel}>
-          {busyKey === `operation:cancel:${operation.operationId}` ? <ArrowSync16Regular className="spin" /> : null}Cancel review
+          {busyKey === `operation:cancel:${operation.operationId}` ? <ArrowSync16Regular className="spin" /> : null}Cancel Review
         </button>
         <button className="ui-control ui-control--primary" type="button" disabled={Boolean(busyKey) || !canActivate} onClick={onActivate}>
           {busyKey === `operation:activate:${operation.operationId}` ? <ArrowSync16Regular className="spin" /> : null}Activate {label.toLocaleLowerCase()}
@@ -993,7 +993,7 @@ function UpdatePlan({ operation }: { operation: LocalAppUpdateOperation }) {
                   <>
                     {transition.continuity.grants.length ? <span><b>Grants</b>{transition.continuity.grants.join(", ")}</span> : null}
                     {transition.continuity.connections.length ? <span><b>Connections</b>{transition.continuity.connections.join(", ")}</span> : null}
-                    {transition.continuity.enabledJobs.length ? <span><b>Enabled jobs</b>{transition.continuity.enabledJobs.join(", ")}</span> : null}
+                    {transition.continuity.enabledJobs.length ? <span><b>Enabled Jobs</b>{transition.continuity.enabledJobs.join(", ")}</span> : null}
                   </>
                 ) : <span>No state carried</span>}
               </div>

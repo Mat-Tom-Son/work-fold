@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, Loader2, Undo2, X } from "lucide-react";
+import { History, Loader2, Undo2, X } from "../chrome/icons";
 import { HistoryFileComparison } from "../panes/HistoryFileComparison";
 import { api, errorText } from "../../lib/api";
 import { queueHistoryRequest } from "../../lib/history-queue";
@@ -138,7 +138,7 @@ function FileVersionHistoryModal({
             <strong id="file-history-title">Version History</strong>
             <small>{filePath}</small>
           </span>
-          <button ref={closeButtonRef} className="ui-control ui-control--icon" type="button" disabled={busy} onClick={onClose} aria-label="Close version history">
+          <button ref={closeButtonRef} className="ui-control ui-control--icon" type="button" disabled={busy} onClick={onClose} aria-label="Close Version History">
             <X size={15} />
           </button>
         </div>
@@ -175,7 +175,7 @@ function FileVersionHistoryModal({
                   onClick={() => void restoreVersion(version)}
                 >
                   {restoringHash === version.hashSha256 ? <Loader2 className="spin" size={14} aria-hidden="true" /> : <Undo2 size={14} aria-hidden="true" />}
-                  Restore this version
+                  Restore This Version
                 </button>
               </div>
             ))
@@ -186,9 +186,9 @@ function FileVersionHistoryModal({
           )}
         </div>
         {comparisonVersion ? <div>
-          <label className="history-file-picker">Compare with
+          <label className="history-file-picker">Compare With
             <select value={comparisonTarget} onChange={(event) => setComparisonTarget(event.target.value)}>
-              <option value="">Current file</option>
+              <option value="">Current File</option>
               {(versions ?? []).filter((version) => version.checkpointId !== comparisonVersion.checkpointId).map((version) => <option key={version.checkpointId} value={version.checkpointId}>{formatDateTime(version.capturedAt)}</option>)}
             </select>
           </label>

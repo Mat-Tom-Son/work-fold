@@ -353,7 +353,7 @@ export function WorkFolderSurfaceTabBar({
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
@@ -424,7 +424,7 @@ export function WorkFolderSurfaceTabBar({
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
@@ -485,8 +485,8 @@ export function WorkFolderSurfaceTabBar({
               setWorkFolderMenuOpen(false);
               onNewBrowserTab();
             }}
-            aria-label="Open a browser tab"
-            title="New browser tab"
+            aria-label="Open a Browser Tab"
+            title="New Browser Tab"
           >
             <FluentGlyph icon={NewBrowserTabIcon} size={18} />
           </button>
@@ -507,8 +507,8 @@ export function WorkFolderSurfaceTabBar({
                 const current = workFolders.find((item) => item.id === newChatWorkFolderId);
                 if (current) onNewChatInWorkFolder(current); else setWorkFolderMenuOpen(true);
               }}
-              aria-label="Start a new Chat"
-              title="New Chat in this work-folder"
+              aria-label="Start a New Chat"
+              title="New Chat in This work-folder"
             >
               <FluentGlyph icon={NewChatIcon} size={18} />
             </button>
@@ -532,12 +532,12 @@ export function WorkFolderSurfaceTabBar({
               id="new-chat-work-folder-menu"
               className="surface-tab-work-folder-menu"
               role="menu"
-              aria-label="Tab actions"
+              aria-label="Tab Actions"
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
               onKeyDown={handleWorkFolderMenuKeyDown}
             >
-              <span className="surface-tab-work-folder-menu-heading">New Chat in</span>
+              <span className="surface-tab-work-folder-menu-heading">Choose a work-folder</span>
               {menuWorkFolders.map((item) => {
                 const identity = workFolderIdentityFor(item, workFolderCustomizations);
                 const Icon = identity.Icon;
@@ -605,7 +605,7 @@ export function WorkFolderSurfaceTabBar({
                 </>
               ) : null}
               <span className="surface-tab-work-folder-menu-separator" role="separator" />
-              <span className="surface-tab-work-folder-menu-heading">Tab layout</span>
+              <span className="surface-tab-work-folder-menu-heading">Tab Layout</span>
               <button
                 className="surface-tab-group-toggle"
                 type="button"

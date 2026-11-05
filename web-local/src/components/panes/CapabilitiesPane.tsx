@@ -534,7 +534,7 @@ export function CapabilitiesPane({
           />
           {!catalog ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading Skills & Extensions</div> : null}
           {readiness?.workFolderId === workFolder.id && readiness.error ? <div className="inline-error" role="alert">Setup status could not be loaded: {readiness.error}</div> : null}
-          {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No matching tools" /> : null}
+          {catalog && !installedVisible && installedTotal ? <CapabilityEmpty title="No Matching Tools" /> : null}
           {catalog ? (
             <>
               <IncludedToolsStrip items={includedResources} statuses={includedStatuses} onSelect={setSelectedCapability} />
@@ -559,7 +559,7 @@ export function CapabilitiesPane({
           {catalog && !query.trim() ? (
             <section className="capabilities-panel capabilities-supporting-details" aria-labelledby="capabilities-supporting-title">
               <div className="capabilities-supporting-heading">
-                <h3 id="capabilities-supporting-title">Built-in Tools and Packages</h3>
+                <h3 id="capabilities-supporting-title">Built-In Tools and Packages</h3>
               </div>
               <div className="capabilities-supporting-list">
                 <CoreToolsSection tools={catalog.tools} management={catalog.toolManagement} />
@@ -670,7 +670,7 @@ function CapabilityToolbar({
           ))}
         </div>
         {view === "discover" ? (
-          <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-Party First</option><option value="downloads">Most Downloads</option><option value="recent">Recently Updated</option><option value="name">Name</option></select></label>
+          <label className="capabilities-sort"><span>Sort</span><select aria-label="Catalog Sort" value={discoverSort} onChange={(event) => onDiscoverSortChange(event.target.value as DiscoverSort)}><option value="official">First-Party First</option><option value="downloads">Most Downloads</option><option value="recent">Recently Updated</option><option value="name">Name</option></select></label>
         ) : null}
       </div>
     </section>
@@ -745,7 +745,7 @@ function IncludedToolTile({ item, readiness, onSelect }: { item: InstalledCapabi
         <strong>{item.name}</strong>
       </span>
       <span className="capabilities-included-status"><span className="capabilities-status-dot" aria-hidden="true" />{state.label}</span>
-      {readiness?.stale && readiness.state === "ready" ? <span className="capabilities-included-checked">Verified earlier · details</span> : null}
+      {readiness?.stale && readiness.state === "ready" ? <span className="capabilities-included-checked">Verified Earlier · Details</span> : null}
       {state.setup ? <span className="capabilities-included-setup">Set Up<ChevronRight16Regular aria-hidden="true" /></span> : null}
     </button>
   );
@@ -841,7 +841,7 @@ function CoreToolsSection({ tools, management }: { tools: AgentTool[]; managemen
         <div className="capabilities-core-tool-list">{coreTools.map((tool) => (
           <article className="capabilities-core-tool-row" key={`${tool.source}:${tool.name}`}>
             <div><strong>{tool.label?.trim() || humanizeToolName(tool.name)}</strong><p>{tool.description}</p><small>{tool.source}</small></div>
-            <span className={`professional-status-badge ${tool.active ? "enabled" : ""}`}>{tool.active ? "On in new Chats" : "Available to Chats"}</span>
+            <span className={`professional-status-badge ${tool.active ? "enabled" : ""}`}>{tool.active ? "On in New Chats" : "Available to Chats"}</span>
           </article>
         ))}</div>
       </div>
@@ -893,7 +893,7 @@ function DiscoverCapabilities({ items, total, loading, error, diagnostics, trunc
       {diagnostics.length ? <div className="professional-diagnostics" role="status">{diagnostics.map((message) => <span key={message}>{message}</span>)}</div> : null}
       {error ? <div className="inline-error" role="alert">{error}</div> : null}
       {loading && !items.length ? <div className="professional-loading-row" role="status"><ArrowSync16Regular className="spin" />Loading catalog…</div> : null}
-      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No catalog matches" /> : null}
+      {items.length ? <div className="capabilities-discover-list">{items.map((item) => <DiscoverCapabilityCard key={item.id} item={item} busy={reviewingItemId === item.id} disabled={Boolean(reviewingItemId) || !canInstallDiscoverItem(item)} onInstall={() => onInstall(item)} />)}</div> : !loading && !error ? <CapabilityEmpty title="No Catalog Matches" /> : null}
       {items.length < total ? <button className="ui-control capabilities-load-more" type="button" disabled={loading} onClick={onLoadMore}>{loading ? <ArrowSync16Regular className="spin" /> : null}Load More</button> : null}
       {truncated && !loading ? <p className="capabilities-results-summary capabilities-window-note">First {npmSearchWindowSize} npm matches</p> : null}
     </div>
@@ -910,7 +910,7 @@ function DiscoverCapabilityCard({ item, busy, disabled, onInstall }: { item: Cap
         <p>{item.description}</p>
         <div className="capabilities-resource-meta">
           {item.author ? <span>{item.author}</span> : null}
-          {item.official ? <span title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed.">First-party / reference</span> : null}
+          {item.official ? <span title="On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed.">First-Party / Reference</span> : null}
           {typeof item.downloads === "number" ? <span>{item.downloads.toLocaleString()} downloads</span> : null}
           {repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" icon={false} /> : null}
         </div>
@@ -956,7 +956,7 @@ function AddCapabilityDialog({
             </div>
             <form className="capabilities-add-option capabilities-package-option" onSubmit={onReviewPackage}>
               <span className="professional-icon-tile" aria-hidden="true"><Box16Regular /></span>
-              <label><strong>Pi Package</strong><input value={packageSource} onChange={(event) => onPackageSourceChange(event.target.value)} placeholder="npm package, git URL, or local path" aria-label="Pi package source" /></label>
+              <label><strong>Pi Package</strong><input value={packageSource} onChange={(event) => onPackageSourceChange(event.target.value)} placeholder="npm package, git URL, or local path" aria-label="Pi Package Source" /></label>
               <button className="ui-control" type="submit" disabled={busy || !packageSource.trim()}>Continue</button>
             </form>
           </div>
@@ -974,7 +974,7 @@ function InstallReviewDialog({ pending, workFolderName, busy, onClose, onScopeCh
   const catalogPackageInstall = catalogInstall && pending.item.sourceKind !== "bundle";
   const executablePackageInstall = packageInstall || catalogPackageInstall;
   const extensionInstall = executablePackageInstall || (catalogInstall && (pending.item.types.includes("extension") || Boolean(pending.item.extensions?.length)));
-  const title = pending.kind === "skill-files" ? "Review Skill import" : catalogInstall ? pending.item.name : "Review Pi package";
+  const title = pending.kind === "skill-files" ? "Review Skill Import" : catalogInstall ? pending.item.name : "Review Pi Package";
   const source = pending.kind === "skill-files" ? pending.files.map((file) => file.name).join(", ") : catalogInstall ? pending.item.installSource || pending.item.name : pending.source;
   const repositoryHref = catalogInstall ? safeExternalHref(pending.item.repositoryUrl || pending.item.homepageUrl || pending.item.npmUrl) : "";
   const unpinned = executablePackageInstall && mutableGitSource(source);
@@ -989,7 +989,7 @@ function InstallReviewDialog({ pending, workFolderName, busy, onClose, onScopeCh
             <h2 id="capability-install-review-title">{title}</h2>
             {catalogInstall ? <p className="capability-review-byline"><span>{pending.item.types.map(capabilityTypeLabel).join(" and ")}</span>{pending.item.author ? <span>{pending.item.author}</span> : null}{repositoryHref ? <ExternalSourceLink href={repositoryHref} label="View Source" /> : null}</p> : null}
           </div>
-          <button className="ui-control ui-control--icon" type="button" onClick={onClose} disabled={busy} aria-label="Close review"><Dismiss20Regular /></button>
+          <button className="ui-control ui-control--icon" type="button" onClick={onClose} disabled={busy} aria-label="Close Review"><Dismiss20Regular /></button>
         </div>
         <div className="capability-dialog-body">
           {catalogInstall && pending.item.description ? <p className="capability-review-description">{pending.item.description}</p> : null}
@@ -1019,9 +1019,9 @@ function InstallReviewDialog({ pending, workFolderName, busy, onClose, onScopeCh
                 <div><dt>Source</dt><dd>{source}</dd></div>
                 {catalogInstall && pending.item.official ? <div><dt>Provenance</dt><dd>On Pi's first-party / reference list. That says where it comes from, not that it was safety-reviewed.</dd></div> : null}
                 {catalogInstall && (pending.item.version || pending.item.license) ? <div><dt>Version</dt><dd>{[pending.item.version ? `v${pending.item.version}` : null, pending.item.license].filter(Boolean).join(" · ")}</dd></div> : null}
-                {packageInstall ? <div><dt>Advertised contents</dt><dd>{pending.item?.types.map(capabilityTypeLabel).join(", ") || "Package-defined Pi resources"}</dd></div> : null}
+                {packageInstall ? <div><dt>Advertised Contents</dt><dd>{pending.item?.types.map(capabilityTypeLabel).join(", ") || "Package-defined Pi resources"}</dd></div> : null}
                 {pending.kind === "skill-files" ? <div><dt>Files</dt><dd>{pending.files.length}</dd></div> : null}
-                {catalogInstall ? <><div><dt>Dependencies</dt><dd>{typeof pending.item.dependencyCount === "number" ? pending.item.dependencyCount : "Not inspected"}</dd></div><div><dt>Install scripts</dt><dd>{installScriptDetail(pending.item)}</dd></div></> : null}
+                {catalogInstall ? <><div><dt>Dependencies</dt><dd>{typeof pending.item.dependencyCount === "number" ? pending.item.dependencyCount : "Not inspected"}</dd></div><div><dt>Install Scripts</dt><dd>{installScriptDetail(pending.item)}</dd></div></> : null}
                 {unpinned ? <div><dt>Pinned</dt><dd>No. This git source is not pinned to a commit.</dd></div> : null}
               </dl>
             </div>
@@ -1065,7 +1065,7 @@ export function CapabilityDetailsDialog({ item, workFolderId, busy, onClose, onR
   return (
     <div className="modal-backdrop capability-dialog-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="capability-dialog capability-details-dialog" role="dialog" aria-modal="true" aria-labelledby="capability-details-title" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)}{item.included ? "" : ` · ${statusLabel(item.status)}`}</p></div><button className="ui-control ui-control--icon" type="button" onClick={onClose} aria-label="Close details"><Dismiss20Regular /></button></div>
+        <div className="modal-title"><div><h2 id="capability-details-title">{item.name}</h2><p>{item.kind === "skill" ? "Skill" : "Extension"} · {scopeLabel(item.scope)}{item.included ? "" : ` · ${statusLabel(item.status)}`}</p></div><button className="ui-control ui-control--icon" type="button" onClick={onClose} aria-label="Close Details"><Dismiss20Regular /></button></div>
         <div className="capability-dialog-body">
           {item.included ? <IncludedToolSetup key={`${workFolderId}:${item.included.id}`} workFolderId={workFolderId} tool={item.included} enabled={item.enabled} onStatusChange={onReadinessChange} /> : null}
           {item.diagnostics.length ? <div className="professional-diagnostics" role="status">{item.diagnostics.map((diagnostic, index) => <span className={diagnostic.type} key={`${diagnostic.message}:${index}`}>{diagnostic.message}</span>)}</div> : null}
@@ -1292,7 +1292,7 @@ function statusLabel(status: AgentCapabilityStatus): string {
 }
 
 function packageStatusLabel(item: AgentPackage): string {
-  if (item.updateAvailable) return "Update available";
+  if (item.updateAvailable) return "Update Available";
   if (item.loaded) return "Loaded";
   if (item.installed) return "Installed";
   if (item.enabled === false) return "Disabled";

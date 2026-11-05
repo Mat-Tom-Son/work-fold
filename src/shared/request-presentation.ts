@@ -47,12 +47,12 @@ export interface WorkRequestView {
 export function workRequestLabel(state: WorkRequestState, personQuestions = 0, savedAnswers = 0): string {
   switch (state) {
     case "working": return "Working";
-    case "handed_off": return "Working with other Workers";
-    case "waiting": return personQuestions ? "Needs your answer" : savedAnswers ? "Ready to continue" : "Waiting for a Worker";
+    case "handed_off": return "Working with Other Workers";
+    case "waiting": return personQuestions ? "Needs Your Answer" : savedAnswers ? "Ready to Continue" : "Waiting for a Worker";
     case "done": return "Finished";
-    case "partial": return "Partly finished";
-    case "failed": return "Couldn’t finish";
+    case "partial": return "Partly Finished";
+    case "failed": return "Couldn’t Finish";
     case "stopped": return "Stopped";
-    case "expired": return "Time window ended";
+    case "expired": return "Time Window Ended";
   }
 }

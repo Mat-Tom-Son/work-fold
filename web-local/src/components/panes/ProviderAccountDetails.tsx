@@ -51,8 +51,8 @@ export function ProviderAccountDetails({ provider, scope, workFolderId, revision
     </>}
     <p className="professional-field-hint">This connection does not provide plan usage limits or reset times. Review your plan and app limits in ChatGPT.</p>
     <div className="ai-models-connection-controls">
-      <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">Manage usage in ChatGPT</a>
-      <button className="ui-control" type="button" disabled={loading || !active || fixtureMode} onClick={() => setAttempt(value => value + 1)}>Refresh account details</button>
+      <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer">Manage Usage in ChatGPT</a>
+      <button className="ui-control" type="button" disabled={loading || !active || fixtureMode} onClick={() => setAttempt(value => value + 1)}>Refresh Account Details</button>
     </div>
   </div>;
 }

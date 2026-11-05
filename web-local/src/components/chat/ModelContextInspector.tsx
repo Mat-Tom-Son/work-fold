@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Braces, Check, Copy, RefreshCw, Search, X } from "lucide-react";
+import { Braces, Check, Copy, RefreshCw, Search, X } from "../chrome/icons";
 import type { ModelContextInspection as ModelContextInspectionRecord, ModelContextInspectionState, ModelContextInspectionSummary, ModelContextSnapshot } from "../../../../src/shared/model-context-inspection";
 import { workFoldModelContextLimits } from "../../../../src/shared/work-fold-limits";
 import { useModalDialog } from "../../hooks/useModalDialog";
@@ -180,13 +180,13 @@ function ContextInspector({ workFolderId, conversationId, scopeLabel = "All mode
     <section ref={dialogRef} className="model-context-inspector" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
       <header className="model-context-heading">
         <div><h2 id={titleId}>Model Context</h2><p>{scopeLabel}</p></div>
-        <button ref={closeRef} type="button" className="model-context-icon" onClick={onClose} aria-label="Close context inspector"><X size={18} /></button>
+        <button ref={closeRef} type="button" className="model-context-icon" onClick={onClose} aria-label="Close Context Inspector"><X size={18} /></button>
       </header>
       <div className="model-context-recording">
         <label><input type="checkbox" checked={state?.enabled ?? false} disabled={!state || busy} onChange={(event) => void changeRecording({ enabled: event.target.checked })} /><strong>Record Model Context</strong></label>
         <div className="model-context-actions">
           <button type="button" onClick={() => void refresh()} disabled={loading || busy}><RefreshCw size={13} aria-hidden="true" />Refresh</button>
-          <button type="button" onClick={() => void changeRecording({ clear: true })} disabled={!state || busy}>Clear all</button>
+          <button type="button" onClick={() => void changeRecording({ clear: true })} disabled={!state || busy}>Clear All</button>
         </div>
         <p>Records future requests across this desktop, including private message text. Text can contain secrets; redaction is partial. Images appear as metadata; authentication headers are excluded. Turning this off clears all captures.</p>
         {state ? <small>Kept in memory for up to {Math.round(state.limits.retentionMs / 60_000)} minutes · {state.limits.records} requests · {formatBytes(state.limits.totalBytes)} total</small> : null}
@@ -194,7 +194,7 @@ function ContextInspector({ workFolderId, conversationId, scopeLabel = "All mode
       {error ? <p className="model-context-error" role="alert">{error}</p> : null}
       {!state || !state.records.length ? <div className="model-context-empty" role="status">
         <Braces size={26} aria-hidden="true" />
-        <h3>{loading ? "Loading captures…" : state?.enabled ? "No requests captured here yet" : "Recording is off"}</h3>
+        <h3>{loading ? "Loading captures…" : state?.enabled ? "No Requests Captured Here Yet" : "Recording Is Off"}</h3>
         <p>{loading ? "Reading saved diagnostics." : state?.enabled ? "Send a Chat message, then refresh. Opening this inspector does not call a model." : "Turn on recording to inspect future model requests. Earlier context is not reconstructed."}</p>
       </div> : <div className="model-context-workspace">
         <label className="model-context-request-picker">Request
@@ -210,7 +210,7 @@ function ContextInspector({ workFolderId, conversationId, scopeLabel = "All mode
           <span>{statusLabel(selectedSummary.status)} · {formatBytes(selectedSummary.bytes)}</span>
         </div> : null}
         <div className="model-context-stages" role="tablist" aria-label="Capture stage">
-          {([ ["assembled", "Assembled context"], ["provider_payload", "Provider payload observed"], ["provenance", "Provenance"] ] as const).map(([value, label], index, stages) => <button key={value} id={`${titleId}-${value}`} role="tab" aria-selected={stage === value} aria-controls={`${titleId}-content`} tabIndex={stage === value ? 0 : -1} onClick={() => setStage(value)} onKeyDown={(event) => {
+          {([ ["assembled", "Assembled Context"], ["provider_payload", "Provider Payload Observed"], ["provenance", "Provenance"] ] as const).map(([value, label], index, stages) => <button key={value} id={`${titleId}-${value}`} role="tab" aria-selected={stage === value} aria-controls={`${titleId}-content`} tabIndex={stage === value ? 0 : -1} onClick={() => setStage(value)} onKeyDown={(event) => {
             if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
             event.preventDefault();
             const next = (index + (event.key === "ArrowRight" ? 1 : -1) + stages.length) % stages.length;
@@ -220,13 +220,13 @@ function ContextInspector({ workFolderId, conversationId, scopeLabel = "All mode
         </div>
         <div className="model-context-content" id={`${titleId}-content`} role="tabpanel" aria-labelledby={`${titleId}-${stage}`} aria-busy={detailLoading}>
           <p className="model-context-stage-note">{stage === "provenance" ? "Origins from the loaded Pi runtime at dispatch. File contents are not reconstructed afterward; available Skills are not evidence they were read." : stage === "assembled" ? "Context assembled by Pi before provider conversion. This can differ from the provider payload." : "Payload exposed by the provider adapter. Capture does not prove network delivery or model completion."}</p>
-          {stage === "provider_payload" && (activeRecord?.payloads.length ?? 0) > 1 ? <label className="model-context-sample">Payload sample <select value={sample} onChange={(event) => setSample(Number(event.target.value))}>{activeRecord?.payloads.map((item, index) => <option value={index} key={index}>{index + 1} · {new Date(item.capturedAt).toLocaleTimeString()}</option>)}</select></label> : null}
+          {stage === "provider_payload" && (activeRecord?.payloads.length ?? 0) > 1 ? <label className="model-context-sample">Payload Sample <select value={sample} onChange={(event) => setSample(Number(event.target.value))}>{activeRecord?.payloads.map((item, index) => <option value={index} key={index}>{index + 1} · {new Date(item.capturedAt).toLocaleTimeString()}</option>)}</select></label> : null}
           {snapshot ? <>
             {snapshot.truncated || snapshot.omissions.length ? <p className="model-context-omissions">{snapshot.truncated ? "This snapshot is truncated. " : ""}{snapshot.omissions.join(" · ")}</p> : null}
             <div className="model-context-search-row">
               <label><Search size={14} aria-hidden="true" /><input type="search" placeholder="Find in this snapshot" aria-label="Find in snapshot" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
               {query ? <span role="status">{matches.length === 200 ? "200+" : matches.length} matches</span> : null}
-              <button type="button" onClick={() => void copyJson()} title="Copy displayed JSON">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? "Copied" : "Copy"}</span></button>
+              <button type="button" onClick={() => void copyJson()} title="Copy Displayed JSON">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? "Copied" : "Copy"}</span></button>
             </div>
             <pre ref={jsonRef} className="model-context-json" tabIndex={0} aria-label="Captured JSON"><HighlightedJson text={json} matches={matches} queryLength={query.length} /></pre>
           </> : <div className="model-context-no-payload" role="status">{detailLoading ? "Loading snapshot…" : stage === "provenance" ? "No runtime provenance was captured for this request." : stage === "provider_payload" ? "No provider payload was observed for this request. The adapter may not expose it, or the request has not reached that stage. Assembled context is still available." : "This capture is no longer available. Refresh to see the remaining requests."}</div>}
@@ -251,8 +251,8 @@ function HighlightedJson({ text, matches, queryLength }: { text: string; matches
   let end = 0;
   return <>{matches.map((start) => { const before = text.slice(end, start); end = start + queryLength; return <span key={start}>{before}<mark>{text.slice(start, end)}</mark></span>; })}{text.slice(end)}</>;
 }
-function purposeLabel(purpose: string): string { return ({ assistant: "Chat turn", chat: "Chat", title: "Chat title", check: "Check", app_inference: "App inference", compaction: "Context compaction" } as Record<string, string>)[purpose] ?? purpose.replace(/[_-]/g, " "); }
-function statusLabel(status: ModelContextInspectionSummary["status"]): string { return status === "response_received" ? "Response started" : status === "dispatch_error" ? "Dispatch error" : "Captured"; }
+function purposeLabel(purpose: string): string { return ({ assistant: "Chat Turn", chat: "Chat", title: "Chat Title", check: "Check", app_inference: "App Inference", compaction: "Context Compaction" } as Record<string, string>)[purpose] ?? purpose.replace(/[_-]/g, " "); }
+function statusLabel(status: ModelContextInspectionSummary["status"]): string { return status === "response_received" ? "Response Started" : status === "dispatch_error" ? "Dispatch Error" : "Captured"; }
 function requestLabel(record: ModelContextInspectionSummary): string { return `${new Date(record.createdAt).toLocaleTimeString()} · ${purposeLabel(record.owner.purpose)} · ${record.model}`; }
 
 /** Inert fixture: no capture APIs, model requests, or recording changes on the host. */

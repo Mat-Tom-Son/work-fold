@@ -80,7 +80,7 @@ export function RestrictedAppAssistantTasks({ app, disabled, onOpenChat, onOpenF
       {task.result ? <div className="restricted-app-task-result">
         <p className="work-result-summary" aria-label="Worker result">{task.result.summary}{task.result.truncated ? restrictedAppAssistantResultTrimNote : ""}</p>
         {task.result.files?.length ? <ul className="work-result-files" aria-label="Worker result files">
-          {task.result.files.map((file) => <li key={file.path}><button className="work-file-button" type="button" onClick={() => void onOpenFile(app.workFolderId, file.path).catch((caught) => setError(errorText(caught)))}><span>{file.path}</span><small>{restrictedAppResultFileSize(file.sizeBytes)} · Open file</small></button></li>)}
+          {task.result.files.map((file) => <li key={file.path}><button className="work-file-button" type="button" onClick={() => void onOpenFile(app.workFolderId, file.path).catch((caught) => setError(errorText(caught)))}><span>{file.path}</span><small>{restrictedAppResultFileSize(file.sizeBytes)} · Open File</small></button></li>)}
         </ul> : null}
       </div> : null}
       <div className="restricted-app-task-actions">

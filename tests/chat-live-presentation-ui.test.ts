@@ -149,7 +149,7 @@ test("reopening the attachment picker reads files created since its previous vis
     return { tree: [{ kind: "file", path: name, name }] };
   });
   const open = async () => {
-    await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach files"]')!.click());
+    await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach Files"]')!.click());
     await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
     await dom.waitFor(() => !!dom.container.querySelector('.composer-attach-options [role="option"]'));
   };
@@ -174,7 +174,7 @@ test("a typed /compact uses the Chat's compaction route, not a turn", async (t) 
     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(composer, "/compact keep the open questions");
     composer.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click(); await Promise.resolve(); });
+  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send Message"]')!.click(); await Promise.resolve(); });
   await dom.waitFor(() => calls.length > 0 && !dom.container.querySelector('[aria-label="Stop Worker"]'));
   assert.deepEqual(calls, [{ path: "/api/work-folders/folder/conversations/chat/compact", method: "POST", body: { customInstructions: "keep the open questions" } }]);
   assert.equal(composer.value, "", "the command leaves the composer");
@@ -190,7 +190,7 @@ test("a typed /compact in a new Chat does not create a conversation or send a mo
     Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(composer, "/compact");
     composer.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click(); });
+  await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Send Message"]')!.click(); });
   assert.deepEqual(writes, [], "a local command with nothing to compact must never start a paid turn");
   assert.equal(composer.value, "");
 });
@@ -206,7 +206,7 @@ test("composer menus choose the available side and follow window resizing", asyn
     return original.call(this);
   };
   t.after(() => { elementPrototype.getBoundingClientRect = original; });
-  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach files"]')!.click());
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Attach Files"]')!.click());
   const control = dom.container.querySelector<HTMLElement>(".composer-attach-control")!;
   assert.equal(control.dataset.menuPlacement, "below", "the centered composer has more room below");
   assert.equal(control.style.getPropertyValue("--composer-menu-available-height"), "371px");
@@ -327,7 +327,7 @@ test("sending the next message fences a pending recovery before its turn snapsho
     composer.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
   await dom.act(async () => {
-    dom.container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click();
+    dom.container.querySelector<HTMLButtonElement>('[aria-label="Send Message"]')!.click();
     await Promise.resolve();
     await Promise.resolve();
   });

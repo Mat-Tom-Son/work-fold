@@ -40,11 +40,11 @@ test("the header menu offers Set up for me and Just the look after Customize", a
   };
   await open();
   const labels = Array.from(document.querySelectorAll('[aria-label="work-folder actions"] [role="menuitem"]')).map((item) => item.textContent);
-  assert.deepEqual(labels.slice(0, 4), ["New Chat", "Customize work-folder", "Set up for me", "Just the look"]);
+  assert.deepEqual(labels.slice(0, 4), ["New Chat", "Customize work-folder", "Set Up for Me", "Just the Look"]);
   const item = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((button) => button.textContent === label)!;
-  await dom.act(() => item("Set up for me").click());
+  await dom.act(() => item("Set Up for Me").click());
   await open();
-  await dom.act(() => item("Just the look").click());
+  await dom.act(() => item("Just the Look").click());
   assert.deepEqual(chosen, ["full", "look"]);
 });
 
@@ -55,7 +55,7 @@ test("the setup card has two choices and dismisses only with ×", async (t) => {
   let dismissed = 0;
   await dom.render(createElement(WorkFolderSetUpCard, { workFolderName: "Downloads", onSetUp: (mode: string) => { chosen.push(mode); }, onDismiss: () => { dismissed += 1; } }));
   const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(".work-folder-setup-card button"));
-  assert.deepEqual(buttons.map((button) => button.textContent || button.getAttribute("aria-label")), ["Dismiss", "Set up for me", "Just the look"], "no Not now button");
+  assert.deepEqual(buttons.map((button) => button.textContent || button.getAttribute("aria-label")), ["Dismiss", "Set Up for Me", "Just the Look"], "no Not now button");
   await dom.act(() => buttons[1]!.click());
   await dom.act(() => buttons[2]!.click());
   await dom.act(() => buttons[0]!.click());

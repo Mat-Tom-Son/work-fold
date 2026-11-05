@@ -64,7 +64,7 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
         {builtInAppearancePresets.map(({ name, ...patch }) => {
           const grounds = applicationPalettes[patch.palette][appearance.theme];
           const active = p.palette === patch.palette;
-          return <button type="button" key={name} className={active ? "appearance-preset active" : "appearance-preset"} aria-label={`${name} preset`} aria-pressed={active} onClick={() => store.applyPreset({ ...p, ...patch })}>
+          return <button type="button" key={name} className={active ? "appearance-preset active" : "appearance-preset"} aria-label={`${name} Preset`} aria-pressed={active} onClick={() => store.applyPreset({ ...p, ...patch })}>
             <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": applicationPalettes[patch.palette].accent } as CSSProperties}><span><i /><b /><b /></span></span><span>{name}</span>
           </button>;
         })}
@@ -72,47 +72,47 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-color-title">
       <h3 id="appearance-color-title">Color</h3>
-      <Choice label="Color Mode" value={p.mode} onChange={(mode) => update({ mode })} options={[["system", "Device setting"], ["light", "Light"], ["dark", "Dark"]]} />
+      <Choice label="Color Mode" value={p.mode} onChange={(mode) => update({ mode })} options={[["system", "Device Setting"], ["light", "Light"], ["dark", "Dark"]]} />
       <Choice label="Palette" value={p.palette} onChange={(palette) => update({ palette })} options={Object.entries(applicationPalettes).map(([value, palette]) => [value as ApplicationAppearance["palette"], palette.name])} />
       <div className="appearance-settings-row"><div><span className="appearance-settings-label">Accent</span></div><div className="appearance-settings-accent">
-        <select aria-label="Accent source" value={p.accent === "system" ? "system" : "custom"} onChange={(event) => { update({ accent: event.target.value === "system" ? "system" : applicationPalettes[p.palette].accent }); setAccentError(null); setAccentDraft(null); }}><option value="system">Device accent</option><option value="custom">Custom color</option></select>
-        {p.accent !== "system" ? <><input type="color" aria-label="Choose accent color" value={p.accent} onChange={(event) => { update({ accent: event.target.value }); setAccentDraft(null); setAccentError(null); }} /><input className="appearance-accent-hex" aria-label="Accent hex color" maxLength={7} value={accentDraft ?? p.accent} onChange={(event) => setAccentDraft(event.target.value)} onBlur={() => { if (accentDraft === null) return; if (/^#[0-9a-f]{6}$/i.test(accentDraft)) { update({ accent: accentDraft }); setAccentDraft(null); setAccentError(null); } else setAccentError("Use a color such as #397451."); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></> : null}
+        <select aria-label="Accent Source" value={p.accent === "system" ? "system" : "custom"} onChange={(event) => { update({ accent: event.target.value === "system" ? "system" : applicationPalettes[p.palette].accent }); setAccentError(null); setAccentDraft(null); }}><option value="system">Device Accent</option><option value="custom">Custom Color</option></select>
+        {p.accent !== "system" ? <><input type="color" aria-label="Choose Accent Color" value={p.accent} onChange={(event) => { update({ accent: event.target.value }); setAccentDraft(null); setAccentError(null); }} /><input className="appearance-accent-hex" aria-label="Accent Hex Color" maxLength={7} value={accentDraft ?? p.accent} onChange={(event) => setAccentDraft(event.target.value)} onBlur={() => { if (accentDraft === null) return; if (/^#[0-9a-f]{6}$/i.test(accentDraft)) { update({ accent: accentDraft }); setAccentDraft(null); setAccentError(null); } else setAccentError("Use a color such as #397451."); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /></> : null}
       </div></div>
       {accentError ? <p className="appearance-settings-error" role="alert">{accentError}</p> : null}
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-interface-title">
       <h3 id="appearance-interface-title">Interface</h3>
-      <Choice label="App font" value={p.font === "stable" && !fontOptions.some((option) => option.value === "stable") ? "default" : p.font} onChange={(font) => update({ font })} options={fontOptions.map((option) => [option.value, option.label])} />
-      <Choice label="Text size" value={p.textSize} onChange={(textSize) => update({ textSize })} options={[["compact", "Compact · 14 px"], ["standard", "Standard · 15 px"], ["comfortable", "Comfortable · 16 px"], ["large", "Large · 18 px"]]} />
-      <Choice label="List density" value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
+      <Choice label="App Font" value={p.font === "stable" && !fontOptions.some((option) => option.value === "stable") ? "default" : p.font} onChange={(font) => update({ font })} options={fontOptions.map((option) => [option.value, option.label])} />
+      <Choice label="Text Size" value={p.textSize} onChange={(textSize) => update({ textSize })} options={[["compact", "Compact · 14 px"], ["standard", "Standard · 15 px"], ["comfortable", "Comfortable · 16 px"], ["large", "Large · 18 px"]]} />
+      <Choice label="List Density" value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
       {interfaceExtra}
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-reading-title">
       <h3 id="appearance-reading-title">Conversations</h3>
-      <Choice label="Reading font" value={p.readingFont} onChange={(readingFont) => update({ readingFont })} options={[["app", "App font"], ["serif", "Serif"], ["system", "System font"]]} />
-      <Choice label="Reading size" value={String(p.readingSize)} onChange={(size) => update({ readingSize: Number(size) })} options={Array.from({ length: 9 }, (_, i) => [String(i + 14), `${i + 14} px`])} />
-      <Choice label="Reading width" value={p.measure} onChange={(measure) => update({ measure })} options={[["focused", "Focused"], ["standard", "Standard"], ["wide", "Wide"]]} />
-      <Choice label="Line spacing" value={p.spacing} onChange={(spacing) => update({ spacing })} options={[["tight", "Tight"], ["standard", "Standard"], ["relaxed", "Relaxed"]]} />
-      <Choice label="Your messages" value={p.messages} onChange={(messages) => update({ messages })} options={[["tinted", "Tinted"], ["quiet", "Quiet"]]} />
-      <Choice label="Worker steps" detail="Shown while a Worker is working" value={p.chatSteps} onChange={(chatSteps) => update({ chatSteps })} options={[["every", "Show every step"], ["current", "Show the current step only"]]} />
-      <Choice label="Code font" value={p.codeFont} onChange={(codeFont) => update({ codeFont })} options={[["system", "System monospace"], ["menlo", "Menlo"], ["consolas", "Consolas"]]} />
+      <Choice label="Reading Font" value={p.readingFont} onChange={(readingFont) => update({ readingFont })} options={[["app", "App Font"], ["serif", "Serif"], ["system", "System Font"]]} />
+      <Choice label="Reading Size" value={String(p.readingSize)} onChange={(size) => update({ readingSize: Number(size) })} options={Array.from({ length: 9 }, (_, i) => [String(i + 14), `${i + 14} px`])} />
+      <Choice label="Reading Width" value={p.measure} onChange={(measure) => update({ measure })} options={[["focused", "Focused"], ["standard", "Standard"], ["wide", "Wide"]]} />
+      <Choice label="Line Spacing" value={p.spacing} onChange={(spacing) => update({ spacing })} options={[["tight", "Tight"], ["standard", "Standard"], ["relaxed", "Relaxed"]]} />
+      <Choice label="Your Messages" value={p.messages} onChange={(messages) => update({ messages })} options={[["tinted", "Tinted"], ["quiet", "Quiet"]]} />
+      <Choice label="Worker Steps" detail="Shown while a Worker is working" value={p.chatSteps} onChange={(chatSteps) => update({ chatSteps })} options={[["every", "Show Every Step"], ["current", "Show the Current Step Only"]]} />
+      <Choice label="Code Font" value={p.codeFont} onChange={(codeFont) => update({ codeFont })} options={[["system", "System Monospace"], ["menlo", "Menlo"], ["consolas", "Consolas"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-accessibility-title">
       <h3 id="appearance-accessibility-title">Accessibility</h3>
-      <Choice label="Contrast" detail={appearance.device.contrast ? "Enabled by your device" : undefined} value={p.contrast} onChange={(contrast) => update({ contrast })} options={[["system", "Device setting"], ["more", "Higher contrast"]]} />
-      <Choice label="Motion" detail={appearance.device.motion ? "Enabled by your device" : undefined} value={p.motion} onChange={(motion) => update({ motion })} options={[["system", "Device setting"], ["reduce", "Reduce motion"]]} />
-      <Choice label="Transparency" detail={appearance.device.transparency ? "Enabled by your device" : undefined} value={p.transparency} onChange={(transparency) => update({ transparency })} options={[["system", "Device setting"], ["opaque", "Opaque surfaces"]]} />
+      <Choice label="Contrast" detail={appearance.device.contrast ? "Enabled by your device" : undefined} value={p.contrast} onChange={(contrast) => update({ contrast })} options={[["system", "Device Setting"], ["more", "Higher Contrast"]]} />
+      <Choice label="Motion" detail={appearance.device.motion ? "Enabled by your device" : undefined} value={p.motion} onChange={(motion) => update({ motion })} options={[["system", "Device Setting"], ["reduce", "Reduce Motion"]]} />
+      <Choice label="Transparency" detail={appearance.device.transparency ? "Enabled by your device" : undefined} value={p.transparency} onChange={(transparency) => update({ transparency })} options={[["system", "Device Setting"], ["opaque", "Opaque Surfaces"]]} />
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-saved-title">
       <h3 id="appearance-saved-title">Saved Presets</h3>
       <form className="appearance-settings-save" onSubmit={(event) => { event.preventDefault(); runPreset(() => { store.savePreset(presetName); setPresetName(""); }); }}>
-        <input aria-label="Preset name" placeholder="Name this look" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} /><button type="submit" disabled={!presetName.trim() || presetBusy}>Save Preset</button><button type="button" disabled={presetBusy} onClick={() => fileRef.current?.click()}>{presetBusy ? "Importing…" : "Import"}</button>
-        <input ref={fileRef} hidden type="file" accept=".json,application/json" aria-label="Import appearance preset" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+        <input aria-label="Preset Name" placeholder="Name this look" maxLength={60} value={presetName} onChange={(event) => setPresetName(event.target.value)} /><button type="submit" disabled={!presetName.trim() || presetBusy}>Save Preset</button><button type="button" disabled={presetBusy} onClick={() => fileRef.current?.click()}>{presetBusy ? "Importing…" : "Import"}</button>
+        <input ref={fileRef} hidden type="file" accept=".json,application/json" aria-label="Import Appearance Preset" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = ""; }} />
       </form>
       {appearance.presets.map((preset) => <div className="appearance-settings-saved" key={preset.name}><span>{preset.name}</span><div className="appearance-settings-actions"><button type="button" aria-label={`Apply ${preset.name}`} onClick={() => store.applyPreset(preset.preferences)}>Apply</button><button type="button" aria-label={`Export ${preset.name}`} onClick={() => runPreset(() => exportPreset(preset))}>Export</button><button type="button" aria-label={`Remove ${preset.name}`} onClick={() => runPreset(() => store.removePreset(preset.name))}>Remove</button></div></div>)}
       {presetError || appearance.presetsError ? <p className="appearance-settings-error" role="alert">{presetError ?? appearance.presetsError}</p> : null}
     </section>
-    {workFolder && onCustomizeWorkFolder ? <section className="appearance-settings-work-folder"><div><h3>{workFolder.name}</h3></div><button type="button" onClick={() => onCustomizeWorkFolder(workFolder.id)}>Customize this work-folder</button></section> : null}
+    {workFolder && onCustomizeWorkFolder ? <section className="appearance-settings-work-folder"><div><h3>{workFolder.name}</h3></div><button type="button" onClick={() => onCustomizeWorkFolder(workFolder.id)}>Customize This work-folder</button></section> : null}
   </div>;
 }
 

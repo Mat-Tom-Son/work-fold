@@ -456,7 +456,7 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
       {actionError ? <span className="settings-inline-error" role="alert">{actionError}</span> : null}
       {proposals.length ? (
         <section className="automation-proposals" aria-labelledby="automation-proposals-title">
-          <h5 id="automation-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to turn on" : "Automation files"}</h5>
+          <h5 id="automation-proposals-title">{proposals.some((proposal) => proposal.valid) ? "Ready to Turn On" : "Automation Files"}</h5>
           <ul>
             {proposals.map((proposal) => proposal.valid ? (
               <li className="automation-proposal" key={proposal.path}>
@@ -475,14 +475,14 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
                     return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
                   })}
                 >
-                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning on…" : "Turn On"}
+                  {pending.includes(`enable-proposal:${proposal.path}`) ? "Turning On…" : "Turn On"}
                 </button>
               </li>
             ) : (
               <li className="automation-proposal invalid" key={proposal.path} title={proposal.problem}>
                 <div>
                   <strong>{proposal.fileName}</strong>
-                  <small>Can&apos;t be turned on</small>
+                  <small>Can&apos;t Be Turned On</small>
                 </div>
               </li>
             ))}
@@ -570,9 +570,9 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
                 ) : null}
 
                 {detail.trigger.kind === "files-changed" ? <section className="automation-detail-section">
-                  <h5>Watched folder</h5>
+                  <h5>Watched Folder</h5>
                   <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
-                  <p>Observer: {detail.fileWatch?.state ?? "off"}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
+                  <p>{watchStateLabel(detail.fileWatch?.state)}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
                   {detail.trigger.ifMissed === "run" ? <>
                     <p className="automation-catch-up">
                       Catches up after work-fold was closed: files added or changed while work-fold was closed, the computer was asleep, or this automation was off start one run when work-fold is back.
@@ -588,12 +588,12 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
                         : "none yet"}
                     </p>
                     {detail.fileWatch?.notice ? <p className="automation-catch-up-notice">{detail.fileWatch.notice}</p> : null}
-                    <p>Changes made while an automation is running are not replayed.</p>
-                  </> : <p>Changes during automation work, sleep, or restart are not replayed.</p>}
+                    <p>Changes made while an Automation is running are skipped.</p>
+                  </> : <p>Changes made while an Automation runs, the computer sleeps, or work-fold restarts are skipped.</p>}
                 </section> : null}
                 <dl className="automation-facts">
                   <div><dt>Next</dt><dd>{detail.nextScheduledAt ? formatDateTime(detail.nextScheduledAt) : "—"}</dd></div>
-                  <div><dt>Last run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome, detail.lastRun.partial)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
+                  <div><dt>Last Run</dt><dd>{detail.lastRun ? `${outcomeLabel(detail.lastRun.outcome, detail.lastRun.partial)} · ${formatDateTime(detail.lastRun.startedAt)}` : "Not Run Yet"}</dd></div>
                 </dl>
 
                 <section className="automation-detail-section" aria-labelledby="automation-steps-title">
@@ -672,7 +672,7 @@ function AutomationActions({ automation, fixtureMode, pending, storeUnavailable,
               return "Run Requested";
             })}
           >
-            {pending.includes(`run:${automation.automationId}`) || runQueued ? "Starting…" : "Run a copy now"}
+            {pending.includes(`run:${automation.automationId}`) || runQueued ? "Starting…" : "Run a Copy Now"}
           </button>
         ) : null}
         {isRunning ? (
@@ -698,7 +698,7 @@ function AutomationActions({ automation, fixtureMode, pending, storeUnavailable,
               return "Automation turned off";
             })}
           >
-            {pending.includes(`disable:${automation.automationId}`) ? "Turning off…" : "Turn Off"}
+            {pending.includes(`disable:${automation.automationId}`) ? "Turning Off…" : "Turn Off"}
           </button>
         ) : null}
         {automation.health === "disabled" || automation.health === "suspended" ? (
@@ -711,7 +711,7 @@ function AutomationActions({ automation, fixtureMode, pending, storeUnavailable,
               return result.alreadyEnabled ? "Automation is already on" : "Automation turned on";
             })}
           >
-            {pending.includes(`enable:${automation.automationId}`) ? "Turning on…" : "Turn On"}
+            {pending.includes(`enable:${automation.automationId}`) ? "Turning On…" : "Turn On"}
           </button>
         ) : null}
         {canDelete ? (
@@ -766,7 +766,7 @@ function AutomationResiduals({ steps }: { steps: AutomationStepView[] }) {
   if (!handoffs.length && !hasChat) return null;
   return (
     <div className="automation-residuals">
-      <h6>While this automation is on</h6>
+      <h6>While This Automation Is On</h6>
       <ul>
         {handoffs.map((handoff) => (
           <li key={`residual-${handoff.id}`}>
@@ -873,7 +873,7 @@ function workFolderLabel(workFolder: AutomationWorkFolderRef): string {
 
 /** A succeeded run or step whose Worker reported finishing only partly reads "Partly done". */
 function outcomeLabel(outcome: AutomationsPaneOutcome, partial?: true): string {
-  if (partial && outcome === "succeeded") return "Partly done";
+  if (partial && outcome === "succeeded") return "Partly Done";
   return ({
     accepted: "Started",
     succeeded: "Succeeded",
@@ -883,6 +883,15 @@ function outcomeLabel(outcome: AutomationsPaneOutcome, partial?: true): string {
     skipped: "Skipped",
     lapsed: "Missed",
   })[outcome];
+}
+
+/** The folder watch in plain words. */
+function watchStateLabel(state: "starting" | "watching" | "paused" | "error" | undefined): string {
+  if (state === "watching") return "Watching for changes";
+  if (state === "starting") return "Starting to watch";
+  if (state === "paused") return "Paused while an Automation runs";
+  if (state === "error") return "Can't watch this folder";
+  return "Not watching";
 }
 
 function hopLabel(kind: AutomationHistoryHopView["kind"]): string {

@@ -54,10 +54,10 @@ async function fileHarness(t: TestContext, initialPath = "notes.txt", initialCon
       path, active, entry: { name: path, path, kind: "file", updatedAt: new Date(1_700_000_000_000 + preview.sizeBytes).toISOString() } as TreeEntry,
       onOpenLocal() {}, onAddToChatContext() {}, onShowVersionHistory() {},
     }));
-    await dom.waitFor(() => !!dom.container.querySelector('[aria-label="Copy contents"]'));
+    await dom.waitFor(() => !!dom.container.querySelector('[aria-label="Copy Contents"]'));
   };
   await render();
-  const copy = async () => { await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy contents"]')!.click(); }); };
+  const copy = async () => { await dom.act(async () => { dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy Contents"]')!.click(); }); };
   return { dom, copied, reads, render, copy,
     setRawText(value: string) { rawText = value; },
     setRawRead(value: typeof rawRead) { rawRead = value; },
@@ -105,7 +105,7 @@ test("changing files cancels an unfinished Copy before it writes to the clipboar
   await h.render("other.txt");
   await h.dom.act(async () => { release("Old file bytes"); });
   assert.deepEqual(h.copied, [], "a completed read from the previous file cannot overwrite the clipboard");
-  assert.ok(h.dom.container.querySelector('[aria-label="Copy contents"]'), "the new file must not claim it was copied");
+  assert.ok(h.dom.container.querySelector('[aria-label="Copy Contents"]'), "the new file must not claim it was copied");
 });
 
 test("switching tabs cancels Copy even though the old file tab stays mounted", async (t) => {

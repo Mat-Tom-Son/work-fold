@@ -7,7 +7,7 @@ import type { WorkRequestView } from "../src/shared/request-presentation.js";
 
 const waitingWork: WorkRequestView = {
   version: 1, requestId: "request-answer", taskId: "first-turn", owner: { conversationId: "chat-answer" },
-  state: "waiting", label: "Needs your answer", detail: null, canStop: true, canContinue: false,
+  state: "waiting", label: "Needs Your Answer", detail: null, canStop: true, canContinue: false,
   questions: [{ id: "question-answer", requestId: "request-answer", text: "Which currency?", from: "agent", state: "open", canAnswer: true }],
   questionCount: 1, children: [], result: null,
 };

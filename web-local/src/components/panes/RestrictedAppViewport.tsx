@@ -1,6 +1,6 @@
 import { currentAppearance } from "../../lib/restricted-app-appearance";
 import { ArrowClockwise20Regular, Apps24Regular } from "@fluentui/react-icons";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "../chrome/icons";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { resolveRestrictedAppCornerRadius } from "../../../../src/shared/restricted-app-presentation";
@@ -124,7 +124,7 @@ export function RestrictedAppViewport({
       {viewState === "crashed" ? (
         <div className="restricted-app-view-status restricted-app-view-error">
           <Apps24Regular />
-          <strong>{app.manifest.title} stopped</strong>
+          <strong>{app.manifest.title} Stopped</strong>
           <span>{message}</span>
           <button type="button" className="ui-control" onClick={() => { mountIdRef.current = crypto.randomUUID(); sequenceRef.current = 0; setGeneration((value) => value + 1); }}><ArrowClockwise20Regular />Try Again</button>
         </div>

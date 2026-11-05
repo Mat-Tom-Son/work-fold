@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Checkmark16Regular } from "@fluentui/react-icons";
 
 import { api, errorText } from "../../lib/api";
-import { formatBytes } from "../../lib/format";
+import { formatBytes, formatDateTime } from "../../lib/format";
 import { buildFixtureRecentlyDeleted } from "../../fixtures/settings-fixture";
 import { showToast } from "../../ui/feedback";
 import { recentlyDeletedSettings } from "../../ui-contract";
@@ -190,7 +190,7 @@ export function RecentlyDeletedPane({ fixtureMode = false }: { fixtureMode?: boo
   return (
     <section className="settings-section recently-deleted-pane" aria-label={recentlyDeletedSettings.heading}>
       <div className="recently-deleted-retention">
-        <label htmlFor="recently-deleted-retention-input">Keep for</label>
+        <label htmlFor="recently-deleted-retention-input">Keep Deleted Items</label>
         <input
           id="recently-deleted-retention-input"
           type="number"
@@ -231,7 +231,7 @@ export function RecentlyDeletedPane({ fixtureMode = false }: { fixtureMode?: boo
                     {describeOrigin(entry)} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
-                    Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}
+                    Deleted {formatDateTime(entry.deletedAt)} · Kept until {new Date(entry.restoreBy).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </small>
                   {uncovered ? <small>{uncovered}</small> : null}
                   {entry.note ? <small>{entry.note}</small> : null}

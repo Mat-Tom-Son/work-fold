@@ -62,7 +62,7 @@ export function ExtensionSurfaceView({
       <div className="extension-surface-blocks">
         {view.blocks.length
           ? view.blocks.map((block, index) => <SurfaceBlock block={block} key={`${block.type}:${index}`} />)
-          : <div className="extension-surface-empty"><h2>No content</h2></div>}
+          : <div className="extension-surface-empty"><h2>No Content</h2></div>}
       </div>
     </article>
   );
@@ -72,7 +72,7 @@ export function ExtensionSurfaceUnavailable({ surfaceId, viewId }: { surfaceId?:
   return (
     <div className="extension-surface-unavailable">
       <AppsListDetail24Regular aria-hidden="true" />
-      <h2>Extension view unavailable</h2>
+      <h2>Extension View Unavailable</h2>
       <p>The Extension may have been removed, disabled, or no longer available to this work-folder.</p>
       {surfaceId && viewId ? <code>{surfaceId}/{viewId}</code> : null}
     </div>

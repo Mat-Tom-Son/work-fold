@@ -20,7 +20,7 @@ test("automation history distinguishes interrupted work from an explicit cancell
   assert.equal(restrictedAppAutomationOutcomeLabel({ outcome: "cancelled", state: "cancelled" }), "Cancelled");
   assert.equal(
     restrictedAppAutomationOutcomeLabel({ outcome: "interrupted", state: "expired" }),
-    "Interrupted — completion unknown",
+    "Interrupted — Completion Unknown",
   );
 });
 
@@ -121,11 +121,11 @@ test("turning an automation back on acts on the click and leaves a receipt, with
   assert.ok(lastError.classList.contains("folded"), "a long error starts folded");
   assert.equal(lastError.querySelector(".restricted-app-error-body")?.textContent, longError, "the whole text is there to open");
   const toggle = lastError.querySelector<HTMLButtonElement>(".restricted-app-error-toggle")!;
-  assert.equal(toggle.textContent, "Show all");
+  assert.equal(toggle.textContent, "Show All");
   await dom.act(() => toggle.click());
   assert.equal(lastError.classList.contains("folded"), false);
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
-  assert.equal(toggle.textContent, "Show less");
+  assert.equal(toggle.textContent, "Show Less");
   await dom.act(() => button("Enable")!.click());
   await dom.waitFor(() => writes.length > 0);
   await dom.settle();

@@ -3,7 +3,7 @@ import type { CheckCorrectionRecord } from "../../../../src/local/checks/check-c
 import type { WorkFoldCheckRunRecord } from "../../../../src/local/checks/check-types";
 import { CheckSetup } from "./CheckSetup";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, Clock3, FileCheck2, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertCircle, Check, Clock3, FileCheck2, Loader2, RefreshCw, X } from "../chrome/icons";
 
 import { api, ApiError, errorText } from "../../lib/api";
 import { checksToolbarPresentation } from "../../lib/checks-ui";
@@ -214,7 +214,7 @@ export function ChecksPane({
 
   async function tryCheck(check: ChecksOverview["checks"][number]) {
     if (mutationRef.current) return;
-    if (!await requestConfirm({ title: `Try ${check.title}?`, body: `Run once over the displayed files${check.execution === "model" ? " using the work-fold agent’s model. Designated text is sent to your provider and charges may apply" : ""}. This trial does not turn on the Check or replace its live results.`, confirmLabel: "Try it" })) return;
+    if (!await requestConfirm({ title: `Try ${check.title}?`, body: `Run once over the displayed files${check.execution === "model" ? " using the work-fold agent’s model. Designated text is sent to your provider and charges may apply" : ""}. This trial does not turn on the Check or replace its live results.`, confirmLabel: "Try It" })) return;
     mutationRef.current = "run";
     setRunSubmitting(true); setTrialResult(null); setError(null);
     try {
@@ -322,7 +322,7 @@ export function ChecksPane({
         const confirmed = await requestConfirm({
           title: "Mark this finding as not an issue?",
           body: "It will stay hidden until the designated file or Check changes.",
-          confirmLabel: "Not an issue",
+          confirmLabel: "Not an Issue",
         });
         if (!confirmed) return;
       }
@@ -363,8 +363,8 @@ export function ChecksPane({
           <h1>Checks</h1>
         </div>
         <div className="checks-header-actions">
-          <button type="button" className="ui-control" disabled={running} onClick={() => void askWorkFoldAgent()}>Tell the work-fold agent what to check</button>
-          <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set up manually</button>
+          <button type="button" className="ui-control" disabled={running} onClick={() => void askWorkFoldAgent()}>Ask the work-fold agent</button>
+          <button type="button" className="checks-manual-button" disabled={running} onClick={() => setConfiguring(!configuring)}>Set Up Manually</button>
           {status?.lastRunAt ? <span className="checks-last-run">Last run {formatTimeAgo(status.lastRunAt)}</span> : null}
           {runSubmitting ? (
             <button className="ui-control" type="button" disabled>
@@ -397,13 +397,13 @@ export function ChecksPane({
         <h2>Corrections</h2>
         {[...overview.corrections.filter((item) => item.state === "pending"), ...overview.corrections.filter((item) => item.state !== "pending" && item.state !== "dismissed").slice(0, 1)].map((item) => <article className="checks-definition" key={item.id}>
           <strong>{item.proposal.path}</strong><p>{item.state === "pending" ? "Ready for review" : item.state === "applied" ? "Applied · original saved in History" : item.error || "Application not yet confirmed · check History"}</p>
-          {item.state === "pending" ? <div className="checks-header-actions"><button type="button" disabled={running || correctionBusy} onClick={() => void correctionAction(item.id, "review")}>Review correction</button><button type="button" disabled={correctionBusy} onClick={() => void correctionAction(item.id, "dismiss")}>Dismiss</button></div> : null}
+          {item.state === "pending" ? <div className="checks-header-actions"><button type="button" disabled={running || correctionBusy} onClick={() => void correctionAction(item.id, "review")}>Review Correction</button><button type="button" disabled={correctionBusy} onClick={() => void correctionAction(item.id, "dismiss")}>Dismiss</button></div> : null}
         </article>)}
-        {correctionReview ? <div className="checks-correction-review" aria-label="Review correction">
+        {correctionReview ? <div className="checks-correction-review" aria-label="Review Correction">
           <h3>{correctionReview.correction.proposal.path}</h3><p>Apply saves the original in History and rechecks with the work-fold agent’s model. Provider charges may apply.</p>
           <CorrectionDiff before={correctionReview.before} after={correctionReview.correction.proposal.replacement} />
-          <button type="button" className="ui-control ui-control--primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and recheck</button>
-          <button type="button" disabled={correctionBusy} onClick={() => setCorrectionReview(null)}>Close review</button>
+          <button type="button" className="ui-control ui-control--primary" disabled={correctionBusy || running} onClick={() => void correctionAction(correctionReview.correction.id, "apply")}>Apply and Recheck</button>
+          <button type="button" disabled={correctionBusy} onClick={() => setCorrectionReview(null)}>Close Review</button>
         </div> : null}
       </section> : null}
 
@@ -440,11 +440,11 @@ export function ChecksPane({
                     {finding.evidence.map((evidence, index) => evidence.kind === "text-span" ? <blockquote key={index}><p>{evidence.quote}</p></blockquote> : null)}
                     {finding.detail ? <p>{finding.detail}</p> : null}
                     {finding.remediation ? <p className="checks-remediation">{finding.remediation}</p> : null}
-                    {onAskWorker ? <button type="button" className="ui-control" disabled={findingBusy !== null || running} onClick={() => void askWorker(finding)}>Ask the Worker to help</button> : null}
+                    {onAskWorker ? <button type="button" className="ui-control" disabled={findingBusy !== null || running} onClick={() => void askWorker(finding)}>Ask the Worker to Help</button> : null}
                     <div className="checks-finding-actions" role="group" aria-label={`Decisions for ${finding.title}`}>
-                      <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark resolved</button>
+                      <button type="button" aria-label={`Mark ${finding.title} resolved`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "resolve")}><Check size={13} />Mark Resolved</button>
                       <button type="button" aria-label={`Defer ${finding.title} until tomorrow`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "defer")}><Clock3 size={13} />Tomorrow</button>
-                      <button type="button" aria-label={`Mark ${finding.title} as not an issue`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "reject")}>Not an issue</button>
+                      <button type="button" aria-label={`Mark ${finding.title} as not an issue`} disabled={findingBusy !== null || Boolean(mutationRef.current)} onClick={() => void decide(finding, "reject")}>Not an Issue</button>
                     </div>
                   </div>
                 </article>
@@ -474,13 +474,13 @@ export function ChecksPane({
                 {check.criteria ? <p>{check.criteria}</p> : null}
                 {check.execution === "model" ? <p>Text review · work-fold agent model · suggestions only</p> : null}
                 <button type="button" className="ui-control" disabled={Boolean(mutationRef.current) || (check.authority !== "enabled" && !check.digest)} onClick={() => void toggleCheck(check)}>{check.authority === "enabled" ? "Turn Off" : "Turn On"}</button>
-                <button type="button" className="ui-control" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try it</button>
+                <button type="button" className="ui-control" disabled={running || !check.digest} onClick={() => void tryCheck(check)}>Try It</button>
                 <button type="button" className="ui-control" disabled={running} onClick={() => void askWorkFoldAgent(check)}>Change with work-fold agent</button>
                 <div className="checks-target-list">
                   {check.targets.map((target, index) => (
                     <span key={`${target.role}:${target.path}:${index}`}>
                       <code>{target.path}</code>
-                      <small>{target.role === "reference" ? "Reference" : target.kind === "tree" ? `Selected ${target.recursive ? "tree" : "folder"}` : "Selected file"}</small>
+                      <small>{target.role === "reference" ? "Reference" : target.kind === "tree" ? `Selected ${target.recursive ? "Tree" : "Folder"}` : "Selected File"}</small>
                     </span>
                   ))}
                 </div>
@@ -549,7 +549,7 @@ function severityLabel(severity: ChecksFinding["severity"]): string {
 }
 
 function authorityLabel(authority: ChecksOverview["checks"][number]["authority"]): string {
-  return authority === "enabled" ? "On" : authority === "blocked" ? "Needs review" : "Off · review";
+  return authority === "enabled" ? "On" : authority === "blocked" ? "Needs Review" : "Off · Review";
 }
 
 /** A single contiguous diff preserves every changed line, with surrounding

@@ -6,7 +6,7 @@ import type { ChatActivityStatus } from "../../types";
 export function ActivityDot({ status, labeled = false }: { status: ChatActivityStatus; labeled?: boolean }) {
   const dotRef = useRef<HTMLSpanElement | null>(null);
   useFinishCelebration(dotRef, status);
-  const label = status === "running" ? "Working" : "New reply";
+  const label = status === "running" ? "Working" : "New Reply";
   return (
     // Not a live region: these dots sit inside buttons and list rows, and a
     // status role there makes every row an announcement.

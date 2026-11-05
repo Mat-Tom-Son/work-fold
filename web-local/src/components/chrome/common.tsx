@@ -1,6 +1,6 @@
 import type React from "react";
 import { ChatAdd20Filled, ChatAdd20Regular, Globe20Filled, Globe20Regular, GlobeAdd20Filled, GlobeAdd20Regular, bundleIcon, type FluentIcon } from "@fluentui/react-icons";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X } from "./icons";
 import type { WorkFolderIconOption } from "../../work-folder-icons";
 
 const NewChatIcon = bundleIcon(ChatAdd20Filled, ChatAdd20Regular);

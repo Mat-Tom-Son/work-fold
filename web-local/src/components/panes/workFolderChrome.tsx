@@ -116,6 +116,7 @@ function WorkFolderModeRail({
             key={item.mode}
             onClick={() => onModeChange(item.mode)}
             aria-label={item.ariaLabel}
+            title={item.label}
             aria-current={shownMode === item.mode ? "page" : undefined}
           >
             <span className="work-folder-rail-icon" aria-hidden="true">{item.icon}</span>
@@ -128,6 +129,7 @@ function WorkFolderModeRail({
             type="button"
             onClick={() => onModeChange("automations")}
             aria-label="Automations"
+            title="Automations"
             aria-current={automations.active ? "page" : undefined}
           >
             <span className="work-folder-rail-icon" aria-hidden="true">
@@ -149,6 +151,7 @@ function WorkFolderModeRail({
               key={surface.key}
               onClick={() => onModeChange(mode)}
               aria-label={surface.title}
+              title={surface.title}
               aria-current={shownMode === mode ? "page" : undefined}
             >
               <span className="work-folder-rail-icon" aria-hidden="true">
@@ -173,6 +176,7 @@ function WorkFolderModeRail({
               key={app.featureInstallationId}
               onClick={() => onModeChange(mode)}
               aria-label={attention ? `${label}, ${attention} new` : label}
+              title={label}
               aria-current={shownMode === mode ? "page" : undefined}
             >
               {attention ? <span className="work-folder-rail-attention" aria-hidden="true" /> : null}
@@ -194,6 +198,7 @@ function WorkFolderModeRail({
             type="button"
             onClick={() => onOpenSkillsExtensions("installed")}
             aria-label="Skills & Extensions"
+            title="Skills & Extensions"
           >
             <Blocks size={24} strokeWidth={1.5} aria-hidden="true" />
             <span>Add</span>
@@ -573,8 +578,8 @@ function FolderContextMenu({ anchor, x, y, onClose, onNewChat, onOpenAppearance,
       <div ref={menuRef} className="context-menu folder-context-menu" style={style} role="menu" aria-label="work-folder actions" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onClose(); }}>
         {onNewChat ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onNewChat)}><ChatAdd16Regular aria-hidden="true" />New Chat</button> : null}
         {onOpenAppearance ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onOpenAppearance)}><PaintBrush16Regular aria-hidden="true" />Customize work-folder</button> : null}
-        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("full"))}><Wand16Regular aria-hidden="true" />Set up for me</button> : null}
-        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("look"))}><ImageSparkle16Regular aria-hidden="true" />Just the look</button> : null}
+        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("full"))}><Wand16Regular aria-hidden="true" />Set Up for Me</button> : null}
+        {onSetUp ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onSetUp("look"))}><ImageSparkle16Regular aria-hidden="true" />Just the Look</button> : null}
         {onRevealFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onRevealFolder)}><FolderOpen16Regular aria-hidden="true" />{revealInFileManagerLabel()}</button> : null}
         <div className="context-menu-separator" role="separator" />
         <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(onManageWorkFolders)}><Folder16Regular aria-hidden="true" />Manage work-folders</button>
@@ -672,7 +677,7 @@ function WorkFolderHeaderSwitcher({
           }}
         >
           <FolderOpen20Regular aria-hidden="true" />
-          <span>Use existing folder</span>
+          <span>Use Existing Folder</span>
         </button>
         <button
           className="work-folder-header-switcher-action"
@@ -684,7 +689,7 @@ function WorkFolderHeaderSwitcher({
           }}
         >
           <FolderAdd20Regular aria-hidden="true" />
-          <span>Create new work-folder</span>
+          <span>Create New work-folder</span>
         </button>
         <button
           className={managingWorkFolders ? "work-folder-header-switcher-action work-folder-header-switcher-manage active" : "work-folder-header-switcher-action work-folder-header-switcher-manage"}
@@ -753,7 +758,7 @@ function WorkFolderNameEditor({
     <div className="work-folder-name-editor">
       <form className="work-folder-name-form" onSubmit={(event) => void handleSubmit(event)}>
         <label>
-          <span>work-folder name</span>
+          <span>work-folder Name</span>
           <input
             value={name}
             maxLength={80}
@@ -767,7 +772,7 @@ function WorkFolderNameEditor({
             aria-label={`work-folder name for ${workFolder.name}`}
           />
         </label>
-        <button className="work-folder-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === workFolder.name} aria-label={saving ? "Saving name" : undefined}>
+        <button className="work-folder-name-save" type="submit" disabled={saving || !name.trim() || name.trim() === workFolder.name} aria-label={saving ? "Saving Name" : undefined}>
           {saving ? <ArrowClockwise20Regular className="spin" aria-hidden="true" /> : "Save"}
         </button>
       </form>
@@ -898,7 +903,7 @@ function WorkFolderAppearancePanel({
         <div className="work-folder-appearance-toolbar-actions">
           <button type="button" disabled={!customized} onClick={() => onResetWorkFolder(workFolderId)}><ArrowReset20Regular />Reset</button>
           <details className="work-folder-appearance-more">
-            <summary aria-label="More appearance options">More<ChevronDown20Regular /></summary>
+            <summary aria-label="More Appearance Options">More<ChevronDown20Regular /></summary>
             <div>
               <button type="button" onClick={() => proposalFileInputRef.current?.click()}><ArrowUpload20Regular />Import</button>
               <button type="button" onClick={exportAppearanceProposal}><ArrowDownload20Regular />Export</button>
@@ -914,29 +919,29 @@ function WorkFolderAppearancePanel({
         {activeSection === "banner" ? <>
           <div className="work-folder-banner-section-heading"><strong>Images</strong><button className="work-folder-banner-upload-button" type="button" onClick={() => bannerFileInputRef.current?.click()} disabled={bannerUploadBusy}><ImageAdd20Regular />{bannerUploadBusy ? "Uploading…" : "Upload"}</button></div>
           <div className="work-folder-banner-image-gallery" role="group" aria-label="Built-in banner images">
-            {workFolderBannerPresets.map((preset) => <button key={preset.id} type="button" className={identity.bannerPreset === preset.id ? "active" : ""} aria-pressed={identity.bannerPreset === preset.id} aria-label={`Use ${preset.label} image`} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerPreset: preset.id, bannerImage: undefined, bannerFraming: undefined, bannerImagePosition: undefined })}>
+            {workFolderBannerPresets.map((preset) => <button key={preset.id} type="button" className={identity.bannerPreset === preset.id ? "active" : ""} aria-pressed={identity.bannerPreset === preset.id} aria-label={`Use ${preset.label} Image`} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerPreset: preset.id, bannerImage: undefined, bannerFraming: undefined, bannerImagePosition: undefined })}>
               <span><img src={preset.thumbnail} alt="" draggable={false} />{identity.bannerPreset === preset.id ? <Checkmark20Regular /> : null}</span><strong>{preset.label}</strong>
             </button>)}
-            {customization?.bannerImage ? <button type="button" className={!identity.bannerPreset ? "active" : ""} aria-label="Replace custom banner image" onClick={() => bannerFileInputRef.current?.click()}><span><img src={customization.bannerImage} alt="" /></span><strong>Your image</strong></button> : null}
+            {customization?.bannerImage ? <button type="button" className={!identity.bannerPreset ? "active" : ""} aria-label="Replace Custom Banner Image" onClick={() => bannerFileInputRef.current?.click()}><span><img src={customization.bannerImage} alt="" /></span><strong>Your Image</strong></button> : null}
           </div>
           <input ref={bannerFileInputRef} className="work-folder-banner-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" onChange={(event) => void handleBannerFileChange(event)} tabIndex={-1} aria-hidden="true" />
           {bannerUploadError ? <span className="work-folder-banner-upload-error" role="alert">{bannerUploadError}</span> : null}
           <div className="work-folder-banner-section-heading"><strong>Patterns</strong></div>
           <div className="work-folder-banner-gallery" role="group" aria-label="work-folder banner styles">
-            {workFolderBannerOptions.map((option) => <button key={option.name} className={["work-folder-banner-swatch", "work-folder-banner-surface", `banner-${option.name}`, !identity.bannerImage && identity.bannerName === option.name ? "active" : ""].filter(Boolean).join(" ")} type="button" onClick={() => onCustomizeWorkFolder(workFolderId, { bannerName: option.name, bannerImage: undefined, bannerPreset: undefined, bannerFraming: undefined, bannerImagePosition: undefined })} aria-label={`Use ${option.label} banner`} aria-pressed={!identity.bannerImage && identity.bannerName === option.name}><span className="work-folder-banner-swatch-name">{option.label}</span></button>)}
+            {workFolderBannerOptions.map((option) => <button key={option.name} className={["work-folder-banner-swatch", "work-folder-banner-surface", `banner-${option.name}`, !identity.bannerImage && identity.bannerName === option.name ? "active" : ""].filter(Boolean).join(" ")} type="button" onClick={() => onCustomizeWorkFolder(workFolderId, { bannerName: option.name, bannerImage: undefined, bannerPreset: undefined, bannerFraming: undefined, bannerImagePosition: undefined })} aria-label={`Use ${option.label} Banner`} aria-pressed={!identity.bannerImage && identity.bannerName === option.name}><span className="work-folder-banner-swatch-name">{option.label}</span></button>)}
           </div>
           {!identity.bannerImage && identity.bannerName !== "none" ? <div className="work-folder-pattern-colors">
-            <strong>Pattern colors</strong>
+            <strong>Pattern Colors</strong>
             <div className="work-folder-color-wheels">
-              <label className="work-folder-color-picker" style={workFolderIdentityStyle(identity)} title="Accent color">
+              <label className="work-folder-color-picker" style={workFolderIdentityStyle(identity)} title="Accent Color">
                 <span className="work-folder-color-wheel" aria-hidden="true"><span className="work-folder-color-wheel-current" /></span>
-                <input type="color" value={identity.color} onInput={(event) => onCustomizeWorkFolder(workFolderId, { color: normalizeWorkFolderColor(event.currentTarget.value) })} aria-label="Choose pattern accent color" />
+                <input type="color" value={identity.color} onInput={(event) => onCustomizeWorkFolder(workFolderId, { color: normalizeWorkFolderColor(event.currentTarget.value) })} aria-label="Choose Pattern Accent Color" />
                 <span className="work-folder-color-value"><small>Accent</small>{identity.color.toUpperCase()}</span>
               </label>
               <label
                 className={identity.hasCustomSecondary ? "work-folder-color-picker secondary" : "work-folder-color-picker secondary matched"}
                 style={{ ...workFolderIdentityStyle(identity), "--work-folder-picker-color": identity.secondaryColor } as CSSProperties}
-                title="Second banner color"
+                title="Second Banner Color"
               >
                 <span className="work-folder-color-wheel" aria-hidden="true">
                   <span className="work-folder-color-wheel-current" />
@@ -945,17 +950,17 @@ function WorkFolderAppearancePanel({
                   type="color"
                   value={identity.secondaryColor}
                   onInput={(event) => onCustomizeWorkFolder(workFolderId, { color2: normalizeWorkFolderColor(event.currentTarget.value) })}
-                  aria-label="Choose second banner color"
+                  aria-label="Choose Second Banner Color"
                 />
-                <span className="work-folder-color-value"><small>Second color</small>{identity.hasCustomSecondary ? identity.secondaryColor.toUpperCase() : "Match accent"}</span>
+                <span className="work-folder-color-value"><small>Second Color</small>{identity.hasCustomSecondary ? identity.secondaryColor.toUpperCase() : "Match accent"}</span>
               </label>
               {identity.hasCustomSecondary ? (
                 <button
                   className="work-folder-color-pair-clear"
                   type="button"
                   onClick={() => onCustomizeWorkFolder(workFolderId, { color2: undefined })}
-                  aria-label="Remove second banner color"
-                  title="Match primary color"
+                  aria-label="Remove Second Banner Color"
+                  title="Match Primary Color"
                 >
                   <Dismiss20Regular />
                 </button>
@@ -966,7 +971,7 @@ function WorkFolderAppearancePanel({
       <div className="work-folder-appearance-row colors">
         <div className="work-folder-color-section-heading"><strong>Accent</strong>
           <div className="work-folder-color-wheels">
-            <span className="work-folder-custom-color-label">Custom color</span>
+            <span className="work-folder-custom-color-label">Custom Color</span>
             <label className="work-folder-color-picker" style={workFolderIdentityStyle(identity)}>
               <span className="work-folder-color-wheel" aria-hidden="true">
                 <span className="work-folder-color-wheel-current" />
@@ -975,7 +980,7 @@ function WorkFolderAppearancePanel({
                 type="color"
                 value={identity.color}
                 onInput={(event) => onCustomizeWorkFolder(workFolderId, { color: normalizeWorkFolderColor(event.currentTarget.value) })}
-                aria-label="Choose work-folder color"
+                aria-label="Choose work-folder Color"
               />
               <span className="work-folder-color-value">{identity.color.toUpperCase()}</span>
             </label>
@@ -990,7 +995,7 @@ function WorkFolderAppearancePanel({
                 type="button"
                 style={{ "--swatch-color": option.color, "--swatch-soft": option.soft, "--swatch-ink": readableTextColorOn(option.color) } as CSSProperties}
                 onClick={() => onCustomizeWorkFolder(workFolderId, { color: option.color })}
-                aria-label={`Use ${option.label} color`}
+                aria-label={`Use ${option.label} Color`}
                 aria-pressed={identity.color === option.color}
                 title={option.label}
               >
@@ -1021,7 +1026,7 @@ function WorkFolderAppearancePanel({
             {workFolderIconGroups.map((group) => <button key={group.id} type="button" aria-pressed={iconGroup === group.id} onClick={() => { setIconGroup(group.id); setIconSearchQuery(""); setIconPage(0); }}>{group.label}</button>)}
           </div>
           <div className="work-folder-icon-browser">
-            <div className="work-folder-icon-grid" aria-label="work-folder icon">
+            <div className="work-folder-icon-grid" aria-label="work-folder Icon">
               {visibleWorkFolderIconOptions.map((option) => {
                 const Icon = option.Icon;
                 return (
@@ -1030,7 +1035,7 @@ function WorkFolderAppearancePanel({
                     key={option.name}
                     type="button"
                     onClick={() => onCustomizeWorkFolder(workFolderId, { iconName: option.name })}
-                    aria-label={`Use ${option.label} icon`}
+                    aria-label={`Use ${option.label} Icon`}
                     aria-pressed={identity.iconName === option.name}
                     title={option.label}
                   >
@@ -1038,14 +1043,14 @@ function WorkFolderAppearancePanel({
                   </button>
                 );
               })}
-              {!visibleWorkFolderIconOptions.length ? <span className="work-folder-icon-empty">No icons found</span> : null}
+              {!visibleWorkFolderIconOptions.length ? <span className="work-folder-icon-empty">No Icons Found</span> : null}
             </div>
           </div>
           {iconPageCount > 1 ? (
             <div className="work-folder-icon-pages" aria-label="Icon pages">
-              <button type="button" onClick={() => setIconPage((current) => Math.max(0, current - 1))} disabled={iconPage === 0} aria-label="Previous icon page"><ChevronLeft20Regular /></button>
+              <button type="button" onClick={() => setIconPage((current) => Math.max(0, current - 1))} disabled={iconPage === 0} aria-label="Previous Icon Page"><ChevronLeft20Regular /></button>
               <span className="work-folder-icon-pager-status">{iconPage + 1} / {iconPageCount}</span>
-              <button type="button" onClick={() => setIconPage((current) => Math.min(iconPageCount - 1, current + 1))} disabled={iconPage >= iconPageCount - 1} aria-label="Next icon page"><ChevronRight20Regular /></button>
+              <button type="button" onClick={() => setIconPage((current) => Math.min(iconPageCount - 1, current + 1))} disabled={iconPage >= iconPageCount - 1} aria-label="Next Icon Page"><ChevronRight20Regular /></button>
             </div>
           ) : null}
         </div>        </>}

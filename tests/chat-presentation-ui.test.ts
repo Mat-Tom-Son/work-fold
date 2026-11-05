@@ -91,13 +91,13 @@ test("saved rows expose captured edit text safely, and Copy retains progress plu
   const summary = dom.container.querySelector<HTMLButtonElement>(".work-steps-summary")!;
   await dom.act(() => summary.click()); assert.equal(summary.getAttribute("aria-expanded"), "true");
   const details = dom.container.querySelector<HTMLDetailsElement>(".work-step-edit")!;
-  assert.ok(details.querySelector("summary")?.textContent?.includes("line 4"));
+  assert.ok(details.querySelector("summary")?.textContent?.includes("Line 4"));
   assert.match(details.textContent!, /preview is incomplete/);
   assert.match(details.querySelector("pre")!.textContent!, /<script>old\(\)<\/script>/);
   assert.equal(dom.container.querySelector("script"), null);
   await dom.act(() => dom.container.querySelector<HTMLButtonElement>(".work-step-progress .work-folder-file-link")!.click());
   assert.deepEqual(opened, ["notes.txt"], "progress keeps ordinary work-folder file links");
-  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy message"]')!.click());
+  await dom.act(() => dom.container.querySelector<HTMLButtonElement>('[aria-label="Copy Message"]')!.click());
   assert.deepEqual(copies, [input.content]);
 });
 

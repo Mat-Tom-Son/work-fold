@@ -122,7 +122,7 @@ test("chat options keep rename and deletion available without permanent header c
 test("explicit question fixtures keep the actual question inside its owning chat", async (t) => {
   const f = await workspace("chat&work=question"); t.after(() => f.dom.window.close());
   assert.match(f.document.querySelector("#request-work")!.textContent!, /Which currency should I use/);
-  assert.doesNotMatch(f.document.querySelector("#chats")!.textContent!, /Needs your answer|Working/);
+  assert.doesNotMatch(f.document.querySelector("#chats")!.textContent!, /Needs Your Answer|Working/);
   f.click('[data-chat-id="chat-3"]');
   assert.equal(f.document.querySelector("#request-work")!.textContent, "");
   f.click('[data-chat-id="chat-1"]');

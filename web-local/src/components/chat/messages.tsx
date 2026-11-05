@@ -132,7 +132,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             </time>
           ) : null}
           {message.role === "user" && message.delivery === "steer" ? (
-            <span className="message-delivery" title="Sent while the Worker was working; it applied after the step in progress.">Sent mid-turn</span>
+            <span className="message-delivery" title="Sent while the Worker was working; it applied after the step in progress.">Sent Mid-Turn</span>
           ) : null}
         </span>
       </footer>
@@ -224,7 +224,7 @@ function TurnFiles({ files, resolveWorkFolderPathLinks, onOpenWorkFolderFile }: 
       })}
       {present.length > shown.length ? (
         <li>
-          <button className="turn-files-more" type="button" onClick={() => setShowAll(true)}>Show all {present.length} files</button>
+          <button className="turn-files-more" type="button" onClick={() => setShowAll(true)}>Show All {present.length} Files</button>
         </li>
       ) : null}
     </ul>
@@ -259,8 +259,8 @@ export function MessageActions({ copied, onCopy }: { copied: boolean; onCopy: ()
         className={copied ? "message-copy-button is-copied" : "message-copy-button"}
         type="button"
         onClick={onCopy}
-        aria-label={copied ? "Copied message" : "Copy message"}
-        title={copied ? "Copied" : "Copy message"}
+        aria-label={copied ? "Copied Message" : "Copy Message"}
+        title={copied ? "Copied" : "Copy Message"}
       >
         {copied ? <FluentGlyph icon={Checkmark20Regular} size={14} /> : <FluentGlyph icon={Copy20Regular} size={14} />}
       </button>
@@ -270,11 +270,11 @@ export function MessageActions({ copied, onCopy }: { copied: boolean; onCopy: ()
 
 export function TurnLanding({ landing }: { landing: ChatMessageLanding }) {
   return (
-    <section className="turn-landing" aria-label="Turn summary">
+    <section className="turn-landing" aria-label="Turn Summary">
       <div className="turn-landing-heading">
         <span>
           <FluentGlyph icon={Sparkle20Regular} size={15} />
-          Turn summary
+          Turn Summary
         </span>
       </div>
       <p>{landing.summary}</p>
@@ -299,7 +299,7 @@ function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullab
   if (interruption.reason === "setup_error") {
     return (
       <section className="turn-interruption turn-interruption--setup" role="status" aria-label="Worker setup needed">
-        <strong>Connect your AI to continue</strong>
+        <strong>Connect Your AI to Continue</strong>
         <span>Sign in with ChatGPT, Claude, or OpenRouter, or paste an API key.</span>
         <button className="ui-control ui-control--primary" type="button" onClick={() => requestConnectAi()}>Connect AI</button>
       </section>
@@ -308,7 +308,7 @@ function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullab
   if (interruption.reason === "assistant_error") {
     return (
       <section className="turn-interruption" role="status" aria-label="Failed Worker response">
-        <strong>Request stopped</strong>
+        <strong>Request Stopped</strong>
         <span>work-fold saved this result with your Chat. You can try again whenever you’re ready.</span>
         <ContinueButton onContinue={onContinue} />
       </section>
@@ -317,7 +317,7 @@ function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullab
   if (interruption.reason === "cancelled") {
     return (
       <section className="turn-interruption" role="status" aria-label="Stopped Worker response">
-        <strong>Response stopped</strong>
+        <strong>Response Stopped</strong>
         <span>work-fold saved the response produced before you stopped the Worker.</span>
       </section>
     );
@@ -325,7 +325,7 @@ function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullab
   if (interruption.reason === "app_interrupted") {
     return (
       <section className="turn-interruption" role="status" aria-label="Worker response interrupted by app close">
-        <strong>App interrupted this response</strong>
+        <strong>App Interrupted This Response</strong>
         <span>work-fold saved the partial response and did not rerun the turn because tools may already have changed something.</span>
         <ContinueButton onContinue={onContinue} />
       </section>
@@ -336,7 +336,7 @@ function InterruptedTurn({ interruption, onContinue }: { interruption: NonNullab
     : "The provider did not identify this as safely retryable.";
   return (
     <section className="turn-interruption" role="status" aria-label="Interrupted Worker response">
-      <strong>Response interrupted</strong>
+      <strong>Response Interrupted</strong>
       <span>work-fold preserved the partial response. {retryText}</span>
       <ContinueButton onContinue={onContinue} />
     </section>
@@ -400,14 +400,14 @@ export function MarkdownMessage({
             const workFolderPath = workFolderPathCandidate(src ?? "", { allowWorkFolders: true });
             const resolvedPath = workFolderPath ? workFolderLinks?.get(workFolderPath) ?? null : null;
             if (resolvedPath && onOpenWorkFolderFile) {
-              return <button className="message-image-file" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open image"}</button>;
+              return <button className="message-image-file" type="button" onClick={() => onOpenWorkFolderFile(resolvedPath)} title={resolvedPath}>{alt || resolvedPath.split("/").pop() || "Open Image"}</button>;
             }
             const resolution = resolveMessageImageSource(src, window.location.href);
             if (resolution.kind === "embed") return <img className="message-image" src={resolution.src} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" />;
             if (resolution.kind === "external-link") {
-              return <a className="message-image-external" href={resolution.href} target="_blank" rel="noreferrer">{alt ? `Open image: ${alt}` : "Open external image"}</a>;
+              return <a className="message-image-external" href={resolution.href} target="_blank" rel="noreferrer">{alt ? `Open Image: ${alt}` : "Open External Image"}</a>;
             }
-            return <span className="message-image-unavailable">{alt ? `${alt} (image unavailable)` : "Image unavailable"}</span>;
+            return <span className="message-image-unavailable">{alt ? `${alt} (image unavailable)` : "Image Unavailable"}</span>;
           },
         }}
       >
@@ -422,7 +422,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
   const text = reactNodeText(children).replace(/\n$/, "");
   const codeElement = Children.toArray(children).find((child) => isValidElement(child)) as ReactElement<{ className?: string }> | undefined;
   const language = codeElement?.props.className?.match(/(?:^|\s)language-([\w-]+)/)?.[1] ?? "";
-  const label = language ? language.toLocaleUpperCase() : "Code";
+  const label = language ? codeLanguageName(language) : "Code";
 
   async function copyCode() {
     try {
@@ -438,7 +438,7 @@ function MarkdownCodeBlock({ children }: { children: ReactNode }) {
     <div className="message-code-block">
       <div className="message-code-toolbar">
         <span>{label}</span>
-        <button className={copied ? "is-copied" : undefined} type="button" onClick={() => void copyCode()} aria-label={copied ? "Copied code" : "Copy code"} title={copied ? "Copied" : "Copy code"}>
+        <button className={copied ? "is-copied" : undefined} type="button" onClick={() => void copyCode()} aria-label={copied ? "Copied Code" : "Copy Code"} title={copied ? "Copied" : "Copy Code"}>
           <FluentGlyph icon={copied ? Checkmark20Regular : Copy20Regular} size={13} />
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
@@ -568,4 +568,20 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+const codeLanguageNames: Record<string, string> = {
+  text: "Plain Text", txt: "Plain Text", plaintext: "Plain Text", md: "Markdown", markdown: "Markdown",
+  js: "JavaScript", jsx: "JavaScript", javascript: "JavaScript", mjs: "JavaScript", cjs: "JavaScript",
+  ts: "TypeScript", tsx: "TypeScript", typescript: "TypeScript", py: "Python", python: "Python",
+  sh: "Shell", bash: "Shell", zsh: "Shell", shell: "Shell", console: "Shell", ps1: "PowerShell", powershell: "PowerShell",
+  json: "JSON", jsonc: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", xml: "XML", html: "HTML", css: "CSS", scss: "SCSS",
+  sql: "SQL", csv: "CSV", diff: "Diff", go: "Go", rs: "Rust", rust: "Rust", rb: "Ruby", ruby: "Ruby", java: "Java",
+  kt: "Kotlin", swift: "Swift", c: "C", cpp: "C++", cs: "C#", php: "PHP", r: "R",
+};
+
+/** A code block's language as people name it ("Python", "Plain Text"), not shouted in capitals. */
+export function codeLanguageName(language: string): string {
+  const key = language.trim().toLowerCase();
+  return codeLanguageNames[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 }

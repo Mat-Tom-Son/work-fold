@@ -770,7 +770,7 @@ test("person-facing work follows delegation, routes exact answers, exposes saved
     assert.equal(view.questions[0].text, "Which currency?");
     assert.equal(view.questions[0].from, "Quotes");
     assert.equal(view.questions[0].canAnswer, true);
-    assert.equal(view.children[0].label, "Needs your answer");
+    assert.equal(view.children[0].label, "Needs Your Answer");
     const answered = await post("answer", { questionId: question.question.questionId, answer: "/hold" });
     assert.equal(answered.status, 200, await answered.text());
     const continued = j.api.requests.byTaskId(child.taskId)!;
@@ -783,7 +783,7 @@ test("person-facing work follows delegation, routes exact answers, exposes saved
     await j.release(continued.turns[1]!.taskId); await j.settled(b.id, continued.turns[1]!.taskId);
     await j.api.requests.answer({ questionId: other.question.questionId, answer: "/hold" });
     assert.equal((await read()).questions[0].state, "recorded");
-    assert.equal((await read()).children[0].label, "Ready to continue");
+    assert.equal((await read()).children[0].label, "Ready to Continue");
     const stop = await fetch(`${j.api.origin}/api/work-folders/${a.id}/conversations/${parent.conversationId}/abort`, { method: "POST" });
     assert.equal(stop.status, 200);
     assert.equal(j.api.requests.get(root.requestId)!.state, "stopped");
@@ -836,7 +836,7 @@ test("saved delegated files are usable and an explicit follow-up carries those r
     const response = await fetch(`${j.api.origin}/api/tasks/${parent.taskId}/work`);
     const view = (await response.json() as any).work;
     assert.equal(view.state, "partial");
-    assert.equal(view.label, "Partly finished");
+    assert.equal(view.label, "Partly Finished");
     assert.equal(view.canContinue, true);
     assert.equal(view.result.files[0].workFolderId, b.id);
     assert.equal(view.result.files[0].path, "comparison.txt");

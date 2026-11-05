@@ -5,7 +5,7 @@
   min-width: 0;
   margin: 0 0 14px;
   color: #667386;
-  font-size: 0.86rem;
+  font-size: var(--work-fold-type-sm);
 }
 
 .work-steps-summary {
@@ -164,7 +164,7 @@
 
 .work-step-target.command {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: var(--work-fold-type-xs);
 }
 
 .work-step-timer {
@@ -176,8 +176,8 @@
 .work-step-status {
   flex: 0 0 auto;
   color: #a94444;
-  font-size: 0.72rem;
-  font-weight: 650;
+  font-size: var(--work-fold-type-2xs);
+  font-weight: 600;
 }
 
 .work-step.error .work-step-verb {
@@ -188,7 +188,7 @@
   min-width: 0;
   margin: 5px 0 3px;
   color: #667386;
-  font-size: 0.83rem;
+  font-size: var(--work-fold-type-sm);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -224,7 +224,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   background: rgba(37, 48, 68, 0.06);
-  font-size: 0.78rem;
+  font-size: var(--work-fold-type-xs);
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -294,7 +294,7 @@ from {
   overflow: auto;
   white-space: pre;
   font-family: var(--work-fold-monospace-font, ui-monospace, monospace);
-  font-size: 0.8rem;
+  font-size: var(--work-fold-type-xs);
   line-height: 1.5;
 }
 
@@ -314,7 +314,7 @@ from {
 
 .work-step-evidence-note {
   margin: 6px 0;
-  font-size: 0.78rem;
+  font-size: var(--work-fold-type-xs);
   color: inherit;
 }
 

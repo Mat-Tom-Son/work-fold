@@ -8,6 +8,6 @@ export function restrictedAppAutomationOutcomeLabel(
     case "failure": return "Failed";
     case "skipped": return "Skipped";
     case "cancelled": return "Cancelled";
-    case "interrupted": return "Interrupted — completion unknown";
+    case "interrupted": return "Interrupted — Completion Unknown";
   }
 }

@@ -7,8 +7,8 @@ export const primaryNavigation = [
 ] as const;
 
 export const welcomeActions = {
-  create: "Create new work-folder",
-  linkFolder: "Use existing folder",
+  create: "Create New work-folder",
+  linkFolder: "Use Existing Folder",
 } as const;
 
 /**
@@ -32,8 +32,8 @@ export const publicationsSettings = {
   snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
   sleepCopy: "Sleep Copy",
   budgets: "Budgets",
-  servesPerMinute: "Serves per minute",
-  mibPerDay: "MiB per day",
+  servesPerMinute: "Serves per Minute",
+  mibPerDay: "MiB per Day",
   saveBudgets: "Save",
   saved: "Saved",
   budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
@@ -81,8 +81,8 @@ export const fileSharing = {
  * Pages, and Stop Sharing there undoes it.
  */
 export const appSharing = {
-  share: "Share at your address",
-  shared: "At your address",
+  share: "Share at Your Address",
+  shared: "At Your Address",
   sharedToast: (title: string) => `${title} is at your address. Show its link in Settings → Shared Pages.`,
   openSharedPages: "Open Shared Pages",
   noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
@@ -194,7 +194,7 @@ export const folderAutomations = {
   lastRun: (when: string) => `Last run ${when}`,
   notRunYet: "Not Run Yet",
   failed: "Failed",
-  partlyDone: "Partly done",
+  partlyDone: "Partly Done",
   allAutomations: "All Automations",
   noneLeft: "No automations touch this work-folder.",
   goneHere: "This automation no longer touches this work-folder.",

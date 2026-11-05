@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X } from "../chrome/icons";
 import { FileTypeIcon } from "../tree/FileTree";
 
 export function AttachmentChip({ path, name, onRemove }: {

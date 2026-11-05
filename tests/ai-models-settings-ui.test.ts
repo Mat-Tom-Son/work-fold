@@ -120,7 +120,7 @@ test("OpenAI account Settings shows identity and an honest usage link, and ignor
   await ui.finish(changedAccount, { account: { ...account, email: "changed@example.test" } });
   assert.match(panel()!.textContent!, /changed@example.test/);
   assert.equal(ui.dom.container.querySelector<HTMLTextAreaElement>("textarea")!.value, "Keep these unsaved Worker instructions");
-  await ui.dom.act(() => ui.button("Refresh account details").click());
+  await ui.dom.act(() => ui.button("Refresh Account Details").click());
   const oldRead = ui.requests.at(-1)!;
   await ui.select('select[aria-label="Provider"]', "openrouter");
   assert.equal(panel(), null);
@@ -140,7 +140,7 @@ test("OpenAI account Settings leaves missing workspace explicit and keeps API-ke
   } });
   const panel = ui.dom.container.querySelector<HTMLElement>('[aria-label="OpenAI account details"]')!;
   assert.match(panel.textContent!, /WorkspaceNot provided by OpenAI/);
-  await ui.dom.act(() => ui.button("Refresh account details").click());
+  await ui.dom.act(() => ui.button("Refresh Account Details").click());
   await ui.finish(ui.requests.at(-1)!, { error: "sensitive upstream failure" }, 502);
   assert.match(panel.textContent!, /account details are unavailable/);
   assert.doesNotMatch(panel.textContent!, /sensitive upstream/);
@@ -255,7 +255,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.type("#ai-models-api-key", "synthetic-new-provider-key");
   // Nothing is connected, so there is no model action at all; it cannot silently submit a connection key.
   assert.equal(ui.button("Save Model"), undefined, "model action cannot silently submit a connection key");
-  assert.match(ui.dom.container.textContent!, /Connect your AI/, "the featured providers lead while nothing is connected");
+  assert.match(ui.dom.container.textContent!, /Connect Your AI/, "the featured providers lead while nothing is connected");
   await ui.submit("connection", true);
   const write = ui.requests.at(-1)!;
   assert.deepEqual(write.body, { scope: "work-folder", workFolderId: "a", provider: "anthropic", apiKey: "synthetic-new-provider-key" });
@@ -263,7 +263,7 @@ test("saved credentials are readable status, with separate explicit connection a
   await ui.finish(write, { status: { ...status, provider: "anthropic", model: "claude" } });
   assert.equal(ui.dom.container.querySelector('input[type="password"]'), null);
   assert.match(ui.dom.container.textContent!, /Connection saved/);
-  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Provider connections", "Worker Instructions"]);
+  assert.deepEqual([...ui.dom.container.querySelectorAll("h3")].map((item) => item.textContent), ["Provider Connections", "Worker Instructions"]);
 });
 
 test("Settings uses Pi's account labels and connects providers before they have chat models", async t => {
@@ -284,7 +284,7 @@ test("Settings uses Pi's account labels and connects providers before they have 
   assert.deepEqual(account.body, { scope: "work-folder", workFolderId: "a", provider: "account-only" });
   await ui.finish(account, { status, models, providers: providers.map(item => item.id === "account-only" ? { ...item, configured: true, authSource: "stored", authType: "oauth" } : item) });
   assert.match(ui.dom.container.textContent!, /Connection saved/);
-  assert.equal(ui.button("Reconnect account").disabled, false);
+  assert.equal(ui.button("Reconnect Account").disabled, false);
   await ui.select('select[aria-label="Provider"]', "images-only");
   await ui.type("#ai-models-api-key", "synthetic-image-key");
   await ui.submit("connection", true);
@@ -293,7 +293,7 @@ test("Settings uses Pi's account labels and connects providers before they have 
   await ui.finish(key, { status, providers: providers.map(item => item.id === "images-only" ? { ...item, configured: true, authSource: "stored", authType: "api_key" } : item) });
   assert.match(ui.dom.container.textContent!, /API key saved on this computer/);
   assert.equal(ui.button("Save Model").disabled, true);
-  await ui.dom.act(() => ui.button("Guided setup").click());
+  await ui.dom.act(() => ui.button("Guided Setup").click());
   const guidedRequest = ui.requests.at(-1)!;
   assert.equal(guidedRequest.path, "/api/agent/login");
   assert.deepEqual(guidedRequest.body, { scope: "work-folder", workFolderId: "a", provider: "images-only", method: "api_key" });
@@ -357,7 +357,7 @@ test("changing a saved API key keeps the old connection until an explicit save, 
   assert.equal(key().value, "", "saved keys are never read back into the editor");
   assert.equal(key().type, "password");
   await ui.type("#ai-models-api-key", "synthetic-replacement");
-  await ui.dom.act(() => ui.dom.container.querySelector<HTMLButtonElement>('[aria-label="Show API key"]')!.click());
+  await ui.dom.act(() => ui.dom.container.querySelector<HTMLButtonElement>('[aria-label="Show API Key"]')!.click());
   assert.equal(key().type, "text");
   await ui.dom.act(() => ui.button("Cancel").click());
   assert.equal(ui.dom.container.querySelector("#ai-models-api-key"), null);
@@ -405,7 +405,7 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   await ui.render(workFolder("a"));
   await ui.finish(ui.requests[0]!, modelResponse({ status: azureStatus, models: azureModels, azure: { baseUrl: "", deployments: [] } }));
   assert.equal(ui.dom.container.querySelector("#ai-model"), null, "connection setup needs no catalog model");
-  assert.equal(ui.button("Save Azure settings").disabled, true);
+  assert.equal(ui.button("Save Azure Settings").disabled, true);
   await ui.type("#ai-models-azure-endpoint", "https://example.cognitiveservices.azure.com/openai/responses?api-version=2025-04-01-preview");
   await ui.type("#ai-models-api-key", "synthetic-key");
   await ui.type("#ai-models-azure-deployments", "team=wrong");
@@ -424,7 +424,7 @@ test("Azure setup starts with user-entered deployments, accepts multiple names, 
   const savedModels = azure.deployments.map((id) => ({ ...azureModels[0]!, id, name: id, authConfigured: true, authSource: "stored", authType: "api_key" }));
   await ui.finish(write, { status: savedStatus, azure, models: savedModels });
   assert.match(ui.dom.container.textContent!, /Azure settings saved/);
-  assert.equal(ui.button("Save Azure settings").disabled, true);
+  assert.equal(ui.button("Save Azure Settings").disabled, true);
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-api-key")?.value, "");
   await ui.select("#ai-model", "fast");
   await ui.submit("model");
@@ -481,7 +481,7 @@ test("Foundry forms keep endpoint drafts separate, clear keys on switching, and 
   await ui.finish(ui.requests.at(-1)!, { status, models, providers: connected, azure, foundry: { ...foundry, "azure-anthropic": submitted }, foundryModels });
   assert.equal(selectedModel(ui.dom), "model-a", "connection saves leave the Worker model alone");
   assert.equal(ui.dom.container.querySelector<HTMLInputElement>("#ai-models-api-key")?.value, "");
-  assert.equal(ui.button("Save Foundry settings").disabled, true);
+  assert.equal(ui.button("Save Foundry Settings").disabled, true);
   await ui.dom.act(() => ui.button("Remove API Key").click());
   assert.deepEqual(ui.requests.at(-1)!.body, { scope: "work-folder", workFolderId: "a", provider: "azure-anthropic" });
   await ui.finish(ui.requests.at(-1)!, { status, models, providers, azure, foundry });
@@ -523,11 +523,11 @@ test("undoing base-model edits clears the connection's unsaved state", async (t)
   await ui.finish(ui.requests[0]!, modelResponse({ providers, models: [{ ...models[0]!, provider: "azure-anthropic", id: "team" }],
     status: { ...status, provider: "azure-anthropic", model: "team" }, foundry: { "azure-anthropic": connection },
     foundryModels: { "azure-anthropic": [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" }] } }));
-  assert.equal(ui.button("Save Foundry settings").disabled, true);
+  assert.equal(ui.button("Save Foundry Settings").disabled, true);
   await ui.select("#ai-models-foundry-base-0", "claude-sonnet-4-6");
-  assert.equal(ui.button("Save Foundry settings").disabled, false);
+  assert.equal(ui.button("Save Foundry Settings").disabled, false);
   await ui.select("#ai-models-foundry-base-0", "");
-  assert.equal(ui.button("Save Foundry settings").disabled, true);
+  assert.equal(ui.button("Save Foundry Settings").disabled, true);
 });
 
 test("a malformed connection shows setup needed while keeping its stored key available for repair", async (t) => {
@@ -540,7 +540,7 @@ test("a malformed connection shows setup needed while keeping its stored key ava
   assert.equal(ui.dom.container.querySelector<HTMLOptGroupElement>('option[value="azure-anthropic"]')?.parentElement?.getAttribute("label"), "Available");
   await ui.type("#ai-models-azure-endpoint", "https://example.services.ai.azure.com/anthropic");
   await ui.type("#ai-models-azure-deployments", "claude-sonnet-4-6");
-  assert.equal(ui.button("Save Foundry settings").disabled, false);
+  assert.equal(ui.button("Save Foundry Settings").disabled, false);
   await ui.submit("connection");
   assert.equal(ui.requests.at(-1)!.body.apiKey, undefined);
   await ui.finish(ui.requests.at(-1)!, { status, providers, models, foundryErrors: {}, foundry: { "azure-anthropic": { baseUrl: "https://example.services.ai.azure.com/anthropic", deployments: ["claude-sonnet-4-6"] } } });

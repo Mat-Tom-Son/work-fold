@@ -66,7 +66,7 @@ export async function readOpenAiAccount(runtime: Pick<ResolvedPiRuntime, "creden
 
 function changedAccount(empty: ProviderAccountDetails, current: Credential | undefined): ProviderAccountDetails {
   return current?.type === "oauth" ? { ...empty, connected: true,
-    error: "The OpenAI connection changed while details were loading. Refresh account details to see the current account." } : empty;
+    error: "The OpenAI connection changed while details were loading. Choose Refresh Account Details to see the current account." } : empty;
 }
 
 function savedAccount(credential: OAuthCredential, provider: ProviderAccountDetails["provider"]) {

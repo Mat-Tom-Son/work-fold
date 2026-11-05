@@ -298,7 +298,7 @@ test("browser tabs survive a restart and belong to no work-folder", () => {
 
 test("the tab strip offers a browser tab beside New Chat, and Workers get the tools in every session", async () => {
   const tabBar = await readFile("web-local/src/components/chat/WorkFolderSurfaceTabBar.tsx", "utf8");
-  assert.match(tabBar, /aria-label="Open a browser tab"/);
+  assert.match(tabBar, /aria-label="Open a Browser Tab"/);
   assert.match(tabBar, /surface-tab-new-browser[\s\S]*surface-tab-new-chat/, "the browser button sits beside New Chat");
   const piClient = await readFile("src/local/agent/pi-client.ts", "utf8");
   assert.match(piClient, /this\.options\.browser \? createBrowserTools\(\{ host: this\.options\.browser, \.\.\.\(this\.options\.browserOwner \? \{ owner: this\.options\.browserOwner \} : \{\}\) \}\)/);

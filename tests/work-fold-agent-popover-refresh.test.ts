@@ -167,7 +167,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /onDragEnter=\{onDragEnter\}/);
   assert.match(popover, /dragDepthRef\.current \+= 1/);
   assert.match(popover, /\{dropActive \? \(\s*<div className="drop-overlay" role="status" aria-live="polite">/);
-  assert.match(popover, />Drop to add<\/strong>/);
+  assert.match(popover, />Drop to Add<\/strong>/);
   assert.match(css, /\.drop-overlay \{[\s\S]*position: fixed;[\s\S]*inset: 6px;[\s\S]*pointer-events: none;/);
   assert.doesNotMatch(popover, /className="drop-hint"/);
   // Background work remains reachable when navigating to another Chat.

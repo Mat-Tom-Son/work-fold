@@ -10,6 +10,7 @@ const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const testsDir = join(rootDir, "tests");
 const tsxCli = join(rootDir, "node_modules", "tsx", "dist", "cli.mjs");
 const realPiGuard = pathToFileURL(join(rootDir, "scripts", "test-real-pi-guard.mjs")).href;
+const fluentIcons = pathToFileURL(join(rootDir, "scripts", "test-fluent-icons.mjs")).href;
 
 let selection;
 try {
@@ -80,7 +81,7 @@ const env = {
 delete env.WORKFOLD_AGENT_DIR;
 delete env.PI_CODING_AGENT_SESSION_DIR;
 
-const child = spawn(process.execPath, [tsxCli, "--import", realPiGuard, "--test", ...files], {
+const child = spawn(process.execPath, [tsxCli, "--import", realPiGuard, "--import", fluentIcons, "--test", ...files], {
   cwd: rootDir,
   env,
   stdio: "inherit",

@@ -101,7 +101,7 @@ for (const change of ["disconnect", "reconnect", "token rotation"] as const) {
     finish();
     const account = await pending;
     assert.equal(account.connected, change !== "disconnect");
-    if (change !== "disconnect") assert.match(account.error!, /connection changed.*Refresh account details/);
+    if (change !== "disconnect") assert.match(account.error!, /connection changed.*Refresh Account Details/);
     assert.equal(account.email, null);
     assert.equal(account.workspaceId, null);
   });

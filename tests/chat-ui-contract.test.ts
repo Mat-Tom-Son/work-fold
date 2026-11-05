@@ -57,7 +57,7 @@ test("mid-turn Enter steers the running turn; ⌘Enter queues one visible, cance
   assert.match(localServer, /if \(queued && settledStatus === "aborted"\) \{[\s\S]{0,200}held: true/);
   assert.match(localServer, /\} else if \(queued && !queued\.held\) void sendQueuedMessage/);
   assert.match(chatPanel, /className="queued-send-row"/);
-  assert.match(chatPanel, /aria-label="Cancel queued message"/);
+  assert.match(chatPanel, /aria-label="Cancel Queued Message"/);
   assert.match(chatPanel, /returnQueuedSendToComposer\(\);\s*\n\s*if \(pendingSendRef\.current\)/);
   assert.match(styles, /\.queued-send-bubble \{/);
 });
@@ -93,7 +93,7 @@ function readFileSyncLike(relativePath: string): Promise<string> {
 
 test("Files exposes folder creation and naming uses in-app UI", () => {
   // work-folder creation lives in the right-click menu (2026-10-01); Files has no toolbar buttons.
-  assert.doesNotMatch(app, /aria-label="New folder"/);
+  assert.doesNotMatch(app, /aria-label="New [Ff]older"/);
   assert.match(app, /onNewFolder=\{requestNewFolder\}/);
   assert.match(app, /else if \(command === "new-folder"\) requestNewFolder\(entry\.path\);/);
   assert.doesNotMatch(app, /aria-label="New file"|onNewFile=/i);
@@ -102,7 +102,7 @@ test("Files exposes folder creation and naming uses in-app UI", () => {
 });
 
 test("one work-folder menu trigger can create a Chat in every work-folder", () => {
-  assert.equal((tabBar.match(/aria-label="Start a new Chat"/g) ?? []).length, 1);
+  assert.equal((tabBar.match(/aria-label="Start a New Chat"/g) ?? []).length, 1);
   assert.match(tabBar, /menuWorkFolders\.map/);
   assert.match(tabBar, /onNewChatInWorkFolder\(targetWorkFolder\)/);
   assert.doesNotMatch(tabBar, /\bonNewChat:\s*\(\)\s*=>/);
@@ -136,7 +136,7 @@ test("Chat work can be deferred, found again, and resumed without interrupting a
   assert.match(panes, /status=\{status\} labeled/);
   // One shared activity mark (2026-10-01) labels the Chats list, the work-folder switcher, and Files.
   assert.match(panes, /import \{ ActivityDot \} from "\.\.\/chrome\/ActivityDot"/);
-  assert.match(activityDot, /status === "running" \? "Working" : "New reply"/);
+  assert.match(activityDot, /status === "running" \? "Working" : "New Reply"/);
   assert.match(chatPanel, /onRunningChangeRef\.current/);
   assert.match(chatPanel, /reportChatSettled\(conversationId\)/);
 });
@@ -197,7 +197,7 @@ test("surface tab labels use crisp shell typography", () => {
   const tabMainRule = styles.match(/\.surface-tab-main\s*\{([\s\S]*?)\}/)?.[1] ?? "";
   const tabTitleRule = styles.match(/\.surface-tab-title\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
-  assert.match(styles, /\.surface-tab-main\s*\{[\s\S]*?font-size:\s*\.8rem/);
+  assert.match(styles, /\.surface-tab-main\s*\{[\s\S]*?font-size:\s*var\(--work-fold-type-xs\)/);
   assert.match(styles, /\.surface-tab-main\s*\{[\s\S]*?font-weight:\s*500/);
   assert.match(tabMainRule, /line-height:\s*16px/);
   assert.match(tabTitleRule, /font:\s*inherit/);
@@ -272,10 +272,10 @@ test("provider interruptions stay visible and the configured model is disclosed 
   assert.match(chatPanel, /\/api\/agent\/composer\?scope=work-folder&workFolderId=/);
   assert.match(chatPanel, /setComposerState\(composerResult\.status === "fulfilled"/);
   assert.match(chatPanel, /loadMessages\(conversationId, false, \{ settleStreamingTurn: true \}\)/);
-  assert.match(messages, /Response interrupted/);
+  assert.match(messages, /Response Interrupted/);
   assert.match(messages, /work-fold preserved/);
   assert.match(messages, /Worker setup needed/);
-  assert.match(messages, /Request stopped/);
+  assert.match(messages, /Request Stopped/);
   assert.match(messages, /savedWorkTrailPreviews\(message\)/);
   assert.match(workTrail, /message\.workTrail\?\.length/);
   assert.match(workTrail, /message\.interruption\?\.activities \?\? \[\]/);
@@ -316,7 +316,7 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   assert.match(chatPanel, /`\/api\/agent\/models\?\$\{params\.toString\(\)\}`/);
   assert.match(chatPanel, /\.filter\(\(model\) => model\.authConfigured\)/);
   assert.match(chatPanel, /"\/api\/agent\/configure", \{\s*method: "POST",\s*body: \{ scope: "work-folder", workFolderId, provider: model\.provider, model: model\.id \}/);
-  assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model settings/);
+  assert.match(chatPanel, /onOpenModelSettings\?\.\(\);\s*\}\}\s*>\s*Model Settings/);
   assert.match(app, /onOpenModelSettings=\{\(\) => onOpenSettings\("ai-models", "work-folder", true, targetWorkFolder\.id\)\}/);
   assert.match(settingsModal, /initialScope=\{initialModelScope\} focusModelOnOpen=\{focusAiModel\}/);
   assert.match(panes, /<ModelCatalogList id="ai-model" labelledBy="ai-model-label"/);
@@ -331,14 +331,14 @@ test("Chat composer model and reasoning controls are truthful, scoped, and funct
   // Reasoning shares the model chip and its menu (2026-10-27).
   assert.match(chatPanel, /className="composer-model-reasoning">\{thinkingLevelLabel\(reasoning\.level\)\}/);
   assert.match(chatPanel, /role="radiogroup" aria-labelledby=\{`\$\{menuId\}-reasoning`\}/);
-  assert.match(chatPanel, /reasoning\.forThisChat \? "Reasoning for this Chat" : "Reasoning"/);
+  assert.match(chatPanel, /reasoning\.forThisChat \? "Reasoning for This Chat" : "Reasoning"/);
   assert.doesNotMatch(chatPanel, /ThinkingLevelControl/);
   assert.match(chatPanel, /conversationRuntime \?\? composerState/);
   assert.match(chatPanel, /"\/api\/agent\/thinking"/);
   assert.match(chatPanel, /body: \{ scope: "work-folder", workFolderId: workFolder\.id, level \}/);
   assert.doesNotMatch(chatPanel, /No extended reasoning|A brief think before answering|Balanced reasoning|Deeper reasoning/);
   assert.match(styles, /\.composer-reasoning-levels button \{[\s\S]*?font: inherit;/);
-  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: 0\.7rem;[\s\S]*?font-weight: 700;/);
+  assert.match(styles, /\.conversation-context-meter \{[\s\S]*?font-family: inherit;[\s\S]*?font-size: var\(--work-fold-type-2xs\);[\s\S]*?font-weight: 700;/);
   assert.match(localServer, /await client\.setThinkingLevel\(body\.level\)/);
 });
 

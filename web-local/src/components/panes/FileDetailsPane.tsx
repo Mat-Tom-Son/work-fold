@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { AppWindow, Check, CirclePlus, Copy, ExternalLink, FolderOpen, History, Loader2, MoreHorizontal, PencilLine } from "lucide-react";
+import { AppWindow, Check, CirclePlus, Copy, ExternalLink, FolderOpen, History, Loader2, MoreHorizontal, PencilLine } from "../chrome/icons";
 import { api, errorText } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
 import { workFolderRawFileBlob, workFolderRawFileObjectUrl } from "../../lib/raw-file";
@@ -165,7 +165,7 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
   // The everyday actions keep their words in the header; the rest live in
   // one More menu instead of a row of unlabeled icons.
   const moreItems: FileMenuItem[] = [
-    ...(canOpenWith ? [{ key: "open-with", label: "Open with", icon: <AppWindow size={15} />, run: () => onOpenLocal(path, "open-with") }] : []),
+    ...(canOpenWith ? [{ key: "open-with", label: "Open With", icon: <AppWindow size={15} />, run: () => onOpenLocal(path, "open-with") }] : []),
     ...(openLabel.text !== revealLabel ? [{ key: "reveal", label: revealLabel, icon: <FolderOpen size={15} />, run: () => onOpenLocal(path, "reveal") }] : []),
     { key: "copy-path", label: "Copy File Path", icon: <Copy size={15} />, run: copyPath },
     { key: "history", label: "Version History", icon: <History size={15} />, run: () => onShowVersionHistory(path) },
@@ -185,7 +185,7 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
           </div>
         </div>
         <div className="file-details-actions">
-          {copyable ? <button className="ui-control compact no-margin file-details-copy" type="button" title={copyState === "copied" ? "Copied" : "Copy contents"} aria-label={copyState === "copied" ? "Copied" : "Copy contents"} aria-busy={copyState === "copying"} data-state={copyState} onClick={() => void copyContents()}>{copyState === "copied" ? <Check size={14} /> : <Copy size={14} />}<span className="file-details-action-label">{copyLabel}</span></button> : null}
+          {copyable ? <button className="ui-control compact no-margin file-details-copy" type="button" title={copyState === "copied" ? "Copied" : "Copy Contents"} aria-label={copyState === "copied" ? "Copied" : "Copy Contents"} aria-busy={copyState === "copying"} data-state={copyState} onClick={() => void copyContents()}>{copyState === "copied" ? <Check size={14} /> : <Copy size={14} />}<span className="file-details-action-label">{copyLabel}</span></button> : null}
           <button className="ui-control compact no-margin" type="button" title="Attach to Chat" aria-label="Attach to Chat" onClick={() => onAddToChatContext(path)}><CirclePlus size={14} /><span className="file-details-action-label">Attach to Chat</span></button>
           {isShareablePath(path) ? <FileShareControl workFolderId={workFolder.id} path={path} fileName={fileName} fixtureMode={fixtureMode} shareRequestId={shareRequestId} onOpenSettings={onOpenSettings} /> : null}
           <button className="ui-control ui-control--primary compact no-margin" type="button" onClick={() => void onOpenLocal(path, openLabel.office ? "open-native" : "open")}><ExternalLink size={14} />{openLabel.text}</button>
@@ -255,9 +255,9 @@ function FileMoreMenu({ items }: { items: FileMenuItem[] }) {
   }
   return (
     <span className="file-details-more" ref={anchorRef}>
-      <button ref={buttonRef} className="ui-control ui-control--icon" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={16} /></button>
+      <button ref={buttonRef} className="ui-control ui-control--icon" type="button" title="More Actions" aria-label="More Actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={16} /></button>
       {open ? (
-        <div ref={menuRef} className="context-menu file-details-menu" role="menu" aria-label="More actions" onKeyDown={handleKeyDown}>
+        <div ref={menuRef} className="context-menu file-details-menu" role="menu" aria-label="More Actions" onKeyDown={handleKeyDown}>
           {items.map((item) => (
             <Fragment key={item.key}>
               {item.separatorBefore ? <div className="context-menu-separator" role="separator" /> : null}

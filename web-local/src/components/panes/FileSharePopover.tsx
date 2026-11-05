@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { Copy, Loader2, Share2 } from "lucide-react";
+import { Copy, Loader2, Share2 } from "../chrome/icons";
 import { api, ApiError, errorText } from "../../lib/api";
 import { copyToClipboard } from "../../lib/clipboard";
 import { activeSharedPageFor, pageTitleFromFileName, sharedPageLink, sharedPagesSnapshot, type SharedPageView } from "../../lib/page-sharing";
@@ -278,7 +278,7 @@ export function FileShareControl({ workFolderId, path, fileName, fixtureMode = f
       </button>
       {open ? (
         <div className="file-share-popover" role="dialog" aria-label={open.title} style={placement}>
-          {link ? <input className="file-share-link" type="text" readOnly value={link} aria-label="Page link" spellCheck={false} onFocus={(event) => event.currentTarget.select()} /> : null}
+          {link ? <input className="file-share-link" type="text" readOnly value={link} aria-label="Page Link" spellCheck={false} onFocus={(event) => event.currentTarget.select()} /> : null}
           {!link && !linkUnavailable ? <p className="file-share-loading"><Loader2 className="spin" size={12} /></p> : null}
           {linkUnavailable ? <p>{fileSharing.linkInSettings}</p> : null}
           <p className="file-share-meaning">{publicationsSettings.linkMeaning}</p>

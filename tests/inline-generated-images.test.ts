@@ -235,13 +235,13 @@ test("hovering a picture offers Copy and Add to folder, then Show in Files", asy
   assert.equal(document.querySelector("img")!.getAttribute("alt"), "Sage tile.png");
   assert.ok(requests.every((request) => request.session === "session-1"), "every request carries the session");
   const button = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>(".generated-image-actions button")).find((item) => item.textContent === label);
-  assert.deepEqual(Array.from(document.querySelectorAll(".generated-image-actions button")).map((item) => item.textContent), ["Copy", "Add to folder"]);
+  assert.deepEqual(Array.from(document.querySelectorAll(".generated-image-actions button")).map((item) => item.textContent), ["Copy", "Add to Folder"]);
 
   await dom.act(() => button("Copy")!.click());
   await dom.waitFor(() => Boolean(button("Copied")));
   assert.deepEqual(clipboard, [{ text: "", image: `data:image/png;base64,${pictureBytes.toString("base64")}` }]);
 
-  await dom.act(() => button("Add to folder")!.click());
+  await dom.act(() => button("Add to Folder")!.click());
   await dom.waitFor(() => Boolean(button("Show in Files")));
   assert.ok(requests.some((request) => request.method === "POST" && request.url === `http://work-fold.test/api/work-folders/garden/generated-images/${imageId}/add`));
   await dom.act(() => button("Show in Files")!.click());

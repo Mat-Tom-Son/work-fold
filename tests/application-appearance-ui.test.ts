@@ -27,17 +27,17 @@ test("appearance controls affect the shared document, preserve explicit work-fol
   assert.equal(document.querySelector(".appearance-settings")?.firstElementChild?.getAttribute("aria-labelledby"), "appearance-preview-title");
   assert.equal(document.querySelector("#appearance-preview-title")?.textContent, "Preview");
   assert.ok(document.querySelector(".appearance-settings-preview")!.compareDocumentPosition(document.querySelector(".appearance-settings-presets")!) & Node.DOCUMENT_POSITION_FOLLOWING);
-  await dom.act(() => document.querySelector<HTMLButtonElement>('[aria-label="Paper preset"]')!.click());
+  await dom.act(() => document.querySelector<HTMLButtonElement>('[aria-label="Paper Preset"]')!.click());
   assert.equal(document.querySelector(".appearance-settings-status-row"), null, "applying a preset does not reserve a notice strip above Preview");
   assert.equal(document.documentElement.dataset.appearancePalette, "paper");
   assert.match(document.documentElement.style.getPropertyValue("--work-fold-reading-font"), /Georgia/);
-  await dom.act(() => { changeSelect("Reading size", "22"); changeSelect("List density", "spacious"); changeSelect("Your messages", "quiet"); });
+  await dom.act(() => { changeSelect("Reading Size", "22"); changeSelect("List Density", "spacious"); changeSelect("Your Messages", "quiet"); });
   assert.equal(document.documentElement.style.getPropertyValue("--work-fold-reading-size"), "22px");
   assert.equal(document.documentElement.dataset.appearanceDensity, "spacious");
   assert.equal(document.documentElement.dataset.appearanceMessages, "quiet");
   await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Undo")!.click());
   assert.equal(document.documentElement.dataset.appearanceMessages, "tinted");
-  await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Customize this work-folder")!.click());
+  await dom.act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Customize This work-folder")!.click());
   assert.deepEqual(routes, ["work-folder-owner"]);
 });
 
@@ -108,14 +108,14 @@ test("the Worker steps choice reaches the document, and Reset only offers itself
   await dom.render(createElement(Screen));
   const reset = () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Reset")!;
   assert.equal(document.documentElement.dataset.appearanceChatSteps, "every");
-  await dom.act(() => changeSelect("Worker steps", "current"));
+  await dom.act(() => changeSelect("Worker Steps", "current"));
   assert.equal(document.documentElement.dataset.appearanceChatSteps, "current");
   assert.equal(store.getSnapshot().preferences.chatSteps, "current");
   assert.equal(reset().disabled, false);
   await dom.act(() => reset().click());
   assert.equal(document.documentElement.dataset.appearanceChatSteps, "every");
   assert.equal(reset().disabled, true);
-  assert.equal(document.querySelector('[aria-label="Original preset"]')?.getAttribute("aria-pressed"), "true");
+  assert.equal(document.querySelector('[aria-label="Original Preset"]')?.getAttribute("aria-pressed"), "true");
 });
 
 test("the Interface section ends with any desktop row the Settings window passes in", async (t) => {

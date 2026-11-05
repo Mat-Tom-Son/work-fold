@@ -110,12 +110,12 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
         </div>
       </div>)}
     </div>
-    <button ref={framingButtonRef} type="button" className="work-folder-framing-trigger" disabled={!identity.bannerImage} hidden={!editable} aria-expanded={framingOpen} aria-controls="work-folder-banner-framing" onClick={() => setFramingOpen((open) => !open)}><Crop20Regular />Adjust image</button>
+    <button ref={framingButtonRef} type="button" className="work-folder-framing-trigger" disabled={!identity.bannerImage} hidden={!editable} aria-expanded={framingOpen} aria-controls="work-folder-banner-framing" onClick={() => setFramingOpen((open) => !open)}><Crop20Regular />Adjust Image</button>
     {framingOpen && editable && identity.bannerImage ? <div ref={framingRef} id="work-folder-banner-framing" className="work-folder-framing-popover" role="group" aria-label="Banner framing">
       <div className="work-folder-framing-controls">
         {(["x", "y", "zoom"] as const).map((axis) => <label key={axis}>
           <span>{axis === "x" ? "Horizontal" : axis === "y" ? "Vertical" : "Zoom"}</span>
-          <input type="range" min={axis === "zoom" ? 1 : 0} max={axis === "zoom" ? 2 : 100} step={axis === "zoom" ? 0.01 : 1} value={frame[axis]} aria-label={axis === "x" ? "Banner horizontal position" : axis === "y" ? "Banner vertical position" : "Banner zoom"}
+          <input type="range" min={axis === "zoom" ? 1 : 0} max={axis === "zoom" ? 2 : 100} step={axis === "zoom" ? 0.01 : 1} value={frame[axis]} aria-label={axis === "x" ? "Banner Horizontal Position" : axis === "y" ? "Banner Vertical Position" : "Banner Zoom"}
             onPointerDown={() => { adjusting.current = true; }}
             onInput={(event) => { change({ ...frameRef.current, [axis]: Number(event.currentTarget.value) }); if (!adjusting.current) commit(); }}
             onPointerUp={commit} onBlur={commit}
@@ -123,7 +123,7 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
         </label>)}
       </div>
       <div className="work-folder-framing-popover-actions">
-        <button type="button" aria-label="Reset banner framing" onClick={() => { change({ x: 50, y: 50, zoom: 1 }); commit(); }}><ArrowReset20Regular />Reset</button>
+        <button type="button" aria-label="Reset Banner Framing" onClick={() => { change({ x: 50, y: 50, zoom: 1 }); commit(); }}><ArrowReset20Regular />Reset</button>
         <button type="button" onClick={() => { setFramingOpen(false); framingButtonRef.current?.focus(); }}>Done</button>
       </div>
     </div> : null}

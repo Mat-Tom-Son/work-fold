@@ -23,7 +23,7 @@ test("History comparison is an inert GET, renders text literally, and discloses 
   }) as typeof fetch;
   await dom.render(createElement(HistoryFileComparison, props));
   assert.equal(calls.length, 1); assert.match(calls[0]!, /folder-a\/history\/diff\?path=notes.txt&fromCheckpointId=cp-before/);
-  assert.match(dom.container.textContent!, /Comparison incomplete/); assert.match(dom.container.textContent!, /symbolic link/);
+  assert.match(dom.container.textContent!, /Comparison Incomplete/); assert.match(dom.container.textContent!, /symbolic link/);
   assert.match(dom.container.textContent!, /text difference is incomplete/); assert.match(dom.container.textContent!, /<script>unsafe\(\)<\/script>/);
   assert.equal(dom.container.querySelector("script,img"), null);
   await dom.act(() => dom.container.querySelector("button")!.click()); assert.equal(calls.length, 2);

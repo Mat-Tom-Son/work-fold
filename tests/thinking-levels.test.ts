@@ -9,7 +9,7 @@ test("reasoning level ids read as plain words", () => {
   assert.equal(thinkingLevelLabel("low"), "Low");
   assert.equal(thinkingLevelLabel("medium"), "Medium");
   assert.equal(thinkingLevelLabel("high"), "High");
-  assert.equal(thinkingLevelLabel("xhigh"), "Extra high");
+  assert.equal(thinkingLevelLabel("xhigh"), "Extra High");
 });
 
 test("unknown reasoning level ids keep their text with a capital first letter", () => {

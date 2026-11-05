@@ -30,7 +30,7 @@ export function KeyboardShortcutsPane() {
       ],
     },
     {
-      title: "Navigation pane",
+      title: "Navigation Pane",
       rows: [
         { keys: ["Arrow left"], action: "Narrow the navigation pane when focus is on the separator." },
         { keys: ["Arrow right"], action: "Widen the navigation pane when focus is on the separator." },
@@ -42,7 +42,7 @@ export function KeyboardShortcutsPane() {
       ],
     },
     {
-      title: "File search",
+      title: "File Search",
       rows: [
         { keys: ["Esc"], action: "Clear the file search field when it has text." },
         { keys: [macOS ? "Option" : "Alt", "Drag"], action: `Drag a file out to ${macOS ? "Finder" : "File Explorer"}. Drag normally to move it inside the work-folder.` },
@@ -65,7 +65,7 @@ export function KeyboardShortcutsPane() {
   ];
   if (window.workFoldDesktop) {
     shortcutGroups.splice(4, 0, {
-      title: "Desktop File menu",
+      title: "Desktop File Menu",
       rows: [
         { keys: [modifier, "N"], action: "Create a new work-folder." },
         { keys: [modifier, "O"], action: "Use an existing folder." },
@@ -79,7 +79,7 @@ export function KeyboardShortcutsPane() {
 
   return (
     <section className="keyboard-shortcuts-pane">
-      <h2>Shortcut Keys</h2>
+      <h2 className="sr-only">Shortcut Keys</h2>
         <div className="keyboard-shortcuts-grid">
           {shortcutGroups.map((group) => (
             <section className="keyboard-shortcuts-group" key={group.title}>

@@ -17,7 +17,7 @@ test("work-fold agent chat history uses local calendar days across DST and year 
     }
     const days = ["2026-09-12", "2026-09-11", "2026-09-07", "2026-09-06", "2026-08-30"];
     assert.deepEqual(groupChatsByRecency(days.map(day => ({ updatedAt: `${day}T12:00:00-04:00` })), new Date("2026-09-12T15:00:00-04:00")).map(([label]) => label),
-      ["Today", "Yesterday", "Earlier this week", "Last week", "Older"]);
+      ["Today", "Yesterday", "Earlier This Week", "Last Week", "Older"]);
   } finally {
     if (previousTimezone === undefined) delete process.env.TZ;
     else process.env.TZ = previousTimezone;

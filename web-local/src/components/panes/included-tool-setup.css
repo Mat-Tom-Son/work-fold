@@ -4,11 +4,11 @@
 .included-tool-status, .included-tool-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .included-tool-setup .ui-control { height: auto; max-width: 100%; min-height: 36px; padding-block: 8px; white-space: normal; line-height: 1.35; }
 .included-tool-status { justify-content: space-between; }
-.included-tool-status strong { font-size: 15px; }
+.included-tool-status strong { font-size: var(--work-fold-type-base); }
 .included-chrome-actions { margin-top: 12px; }
 .included-chrome-actions:empty { display: none; }
 .included-tool-setup .included-tool-error { color: var(--ui-danger, #b13b3b); overflow-wrap: anywhere; }
-.included-tool-facts { font-size: 12px; margin-top: 16px; }
+.included-tool-facts { font-size: var(--work-fold-type-xs); margin-top: 16px; }
 .included-tool-facts div { display: grid; grid-template-columns: minmax(0, 125px) minmax(0, 1fr); gap: 12px; margin: 6px 0; }
 .included-tool-facts dd { margin: 0; overflow-wrap: anywhere; }
 .included-tool-facts dt { color: var(--ui-text-muted); }
@@ -39,20 +39,20 @@
 .setup-checklist li span strong { margin-right: 4px; }
 .setup-checklist li span { color: var(--ui-text-muted); }
 .setup-checklist li span strong { color: var(--ui-text); }
-.setup-checklist-state { color: var(--ui-success); font-size: 0.82rem; font-weight: 650; }
+.setup-checklist-state { color: var(--ui-success); font-size: var(--work-fold-type-xs); font-weight: 600; }
 .setup-checklist .ui-control { min-height: 30px; padding-block: 4px; }
-.included-tool-setup .setup-hint { color: var(--ui-text-muted); font-size: 0.86rem; }
+.included-tool-setup .setup-hint { color: var(--ui-text-muted); font-size: var(--work-fold-type-sm); }
 .included-tool-setup .setup-waiting { display: inline-flex; align-items: center; gap: 8px; color: var(--ui-text-muted); }
 .setup-steps { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 10px; }
 .setup-steps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 8px; background: var(--ui-surface); }
 .setup-steps li > div { display: grid; gap: 4px; justify-items: start; }
 .setup-steps li > div > span { color: var(--ui-text-muted); line-height: 1.45; }
 .setup-steps li .ui-control { margin-top: 6px; }
-.setup-step-mark { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--ui-border-strong); color: var(--ui-text-muted); font-size: 0.8rem; font-weight: 700; }
+.setup-step-mark { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--ui-border-strong); color: var(--ui-text-muted); font-size: var(--work-fold-type-xs); font-weight: 700; }
 .setup-steps li.done .setup-step-mark { color: var(--ui-surface); background: var(--ui-success); border-color: var(--ui-success); }
 
 /* Documents: the programs that let a Worker check its documents (2026-10-18). */
 .setup-checklist .setup-checklist-state.problem { color: var(--ui-attention); }
-.setup-command { display: grid; gap: 4px; margin-top: 8px; font-size: 0.86rem; }
+.setup-command { display: grid; gap: 4px; margin-top: 8px; font-size: var(--work-fold-type-sm); }
 .setup-command-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.setup-command code { min-width: 0; overflow-wrap: anywhere; padding: 3px 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-subtle); color: var(--ui-text); font-family: var(--work-fold-monospace-font, monospace); font-size: 0.82rem; font-variant-ligatures: none; }
+.setup-command code { min-width: 0; overflow-wrap: anywhere; padding: 3px 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface-subtle); color: var(--ui-text); font-family: var(--work-fold-monospace-font, monospace); font-size: var(--work-fold-type-xs); font-variant-ligatures: none; }

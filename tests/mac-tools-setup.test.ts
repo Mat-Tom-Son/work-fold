@@ -176,13 +176,13 @@ test("first run offers Chrome and Computer Control when the app includes them", 
   ]);
   await dom.render(createElement(OnboardingFlow, { agentConfigured: true, onAiConnected: () => {}, onCreateWorkFolder: () => {}, onOpenFolder: () => {} }));
   const button = (text: RegExp) => [...document.querySelectorAll("button")].find((item) => text.test(item.textContent ?? ""));
-  await dom.act(() => button(/^Get started$/)!.click());
-  await dom.waitFor(() => document.querySelector("h1")?.textContent === "Let your Worker use your Mac");
+  await dom.act(() => button(/^Get Started$/)!.click());
+  await dom.waitFor(() => document.querySelector("h1")?.textContent === "Let Your Worker Use Your Mac");
   assert.match(document.body.textContent!, /Step 2 of 3/);
   await dom.act(() => button(/^Chrome/)!.click());
-  await dom.waitFor(() => /Add the work-fold extension/.test(document.body.textContent!));
+  await dom.waitFor(() => /Add the work-fold Extension/.test(document.body.textContent!));
   await dom.act(() => button(/^Computer Control/)!.click());
   await dom.waitFor(() => Boolean(button(/^Allow Computer Control$/)));
   await dom.act(() => button(/^Continue$/)!.click());
-  assert.equal(document.querySelector("h1")?.textContent, "Pick a folder to start with");
+  assert.equal(document.querySelector("h1")?.textContent, "Pick a Folder to Start With");
 });

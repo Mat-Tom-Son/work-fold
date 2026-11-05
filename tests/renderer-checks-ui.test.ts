@@ -475,10 +475,10 @@ test("Try it displays its completed result without enabling the proposal", async
   const { ConfirmDialogHost } = await import("../web-local/src/ui/feedback.js");
   const workFolder = { id: "work-folder-checks-ui", name: "Review", workFolderRoot: "/tmp/review" } as WorkFolderSummary;
   await dom.render(createElement("div", null, createElement(ChecksPane, { workFolder, active: true, onOpenFile: () => {}, onChecksChanged: () => {} }), createElement(ConfirmDialogHost)));
-  await dom.waitFor(() => Boolean([...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try it")));
-  await dom.act(() => { [...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try it")!.click(); });
+  await dom.waitFor(() => Boolean([...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try It")));
+  await dom.act(() => { [...dom.container.querySelectorAll("button")].find((item) => item.textContent === "Try It")!.click(); });
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="dialog"]')));
-  await dom.act(() => { [...dom.container.querySelectorAll('[role="dialog"] button')].find((item) => item.textContent === "Try it")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
+  await dom.act(() => { [...dom.container.querySelectorAll('[role="dialog"] button')].find((item) => item.textContent === "Try It")!.dispatchEvent(new window.MouseEvent("click", { bubbles: true })); });
   await dom.waitFor(() => (dom.container.textContent ?? "").includes("Trial Result"));
   assert.equal(requested.filter((url) => url.endsWith("/try")).length, 1);
   assert.equal(requested.some((url) => url.endsWith("/enable") || url.endsWith("/run")), false);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Share2, Trash2, Upload } from "lucide-react";
+import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Share2, Trash2, Upload } from "../chrome/icons";
 import { canOpenDirectly, nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
 import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
 import { useSharedPages } from "../../hooks/useSharedPages";
@@ -78,7 +78,7 @@ export function FileContextMenu({
   return (
     <div ref={menuRef} className="context-menu" style={{ left: state.x, top: state.y }} role="menu" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
       {entry.kind === "file" && canOpenDirectly(entry.path) ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => { onSelect(entry.path); return onOpenLocal(entry.path, openLabel.office ? "open-native" : "open"); })}><ExternalLink size={15} />{openLabel.text}</button> : null}
-      {entry.kind === "file" && canOpenWith ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open-with"))}><AppWindow size={15} />Open with</button> : null}
+      {entry.kind === "file" && canOpenWith ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open-with"))}><AppWindow size={15} />Open With</button> : null}
       {entry.kind === "folder" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open"))}><FolderOpen size={15} />Open Folder</button> : null}
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "reveal"))}><FolderOpen size={15} />{revealInFileManagerLabel()}</button>
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPath(entry.path))}><Copy size={15} />Copy {entry.kind === "folder" ? "Folder" : "File"} Path</button>

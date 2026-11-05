@@ -46,7 +46,7 @@ export function workFoldStartupRecoveryPlan(error: unknown): WorkFoldStartupReco
     reason: "newer-local-state",
     actualVersion: error.actualVersion,
     supportedVersion: error.supportedVersion,
-    title: "work-fold update required",
+    title: "work-fold Update Required",
     message: "This version of work-fold cannot safely open newer local data.",
   };
 }

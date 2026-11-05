@@ -27,7 +27,7 @@ export function WindowChromeControls({
   agentControls?: ReactNode;
 }) {
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
-  const sidebarLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
+  const sidebarLabel = sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar";
   const agentLabel = agentPanelOpen ? "Close work-fold agent" : "Open work-fold agent";
   return (
     <>

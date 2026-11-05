@@ -3,7 +3,7 @@ import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
 import { ImageModelSection, type ImageModelSettings } from "./ImageModelSection";
 import { ProviderAccountDetails } from "./ProviderAccountDetails";
 import { ConnectAi, featuredProviders } from "../onboarding/ConnectAi";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw } from "../chrome/icons";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
@@ -127,10 +127,10 @@ export function AiModelsPane(props: AiModelsProps & {
   return (
     <div className={embedded ? "assistant-settings-panel professional-setup" : "work-folder-pane-content ai-models-pane professional-surface professional-setup"}>
       {workFolder ? <fieldset className="ai-models-scope-control">
-        <legend>Model defaults</legend>
+        <legend>Model Defaults</legend>
         <label className={scope === "work-folder" ? "active" : ""}>
           <input type="radio" name="ai-model-scope" value="work-folder" checked={scope === "work-folder"} onChange={() => changeScope("work-folder")} />
-          <span>This worker<small>{workFolder.name}</small></span>
+          <span>This Worker<small>{workFolder.name}</small></span>
         </label>
         <label className={scope === "agent" ? "active" : ""}>
           <input type="radio" name="ai-model-scope" value="agent" checked={scope === "agent"} onChange={() => changeScope("agent")} />
@@ -559,7 +559,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   return <>
     {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
     {!connectedModels.length && providerCatalog.length ? <section className="ai-models-settings-section ai-models-connect" aria-labelledby="ai-models-connect-heading">
-      <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect your AI</h3></div>
+      <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect Your AI</h3></div>
       <p className="professional-field-hint">Sign in with an account you already have, or paste an API key. Every Worker shares the connection.</p>
       <ConnectAi providers={providerCatalog} fixtureMode={fixtureMode} onConnected={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }} />
     </section> : null}
@@ -583,7 +583,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     </section> : null}
     <section className="ai-models-settings-section" aria-labelledby="ai-models-connection-heading">
       <div className="ai-models-connection-panel">
-        <div className="ai-models-section-heading"><h3 id="ai-models-connection-heading">Provider connections</h3></div>
+        <div className="ai-models-section-heading"><h3 id="ai-models-connection-heading">Provider Connections</h3></div>
         <label className="professional-field"><span className="sr-only">Provider</span>
           <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
             {[true, false].map(connected => {
@@ -596,7 +596,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
         <div className="ai-models-connection-row">
           <div><p>{foundryErrors[provider] ? "Saved key · connection setup needed" : providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
           <div className="ai-models-connection-controls">
-            {catalog?.refreshable ? <button className="ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
+            {catalog?.refreshable ? <button className="ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} Models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="ai-models-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
             {removableAuth ? <button className="ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
@@ -608,32 +608,32 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
           {isAzure ? <>
             {foundryErrors[provider] ? <p className="professional-field-hint" role="alert">{foundryErrors[provider]}</p> : null}
             <p className="professional-field-hint">{foundrySpec?.api === "anthropic-messages" ? "For Claude deployments using Anthropic Messages." : foundrySpec?.api === "openai-completions" ? "For deployments using OpenAI Chat Completions." : "For OpenAI-compatible deployments. Pi chooses Responses or Chat Completions from its model metadata."} Each Foundry connection keeps its own endpoint, key, and deployments.</p>
-            <label className="professional-field"><span className="professional-field-label">Azure endpoint</span><input id="ai-models-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder={foundrySpec?.api === "anthropic-messages" ? "https://your-resource.services.ai.azure.com/anthropic" : "https://your-resource.services.ai.azure.com/openai/v1"} spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => editFoundry({ ...azure, baseUrl: event.target.value })} /></label>
-            <label className="professional-field"><span className="professional-field-label">Deployment names</span><textarea id="ai-models-azure-deployments" value={azure.deployments} maxLength={25800} rows={2} placeholder="my-deployment, another-deployment" spellCheck={false} autoComplete="off" disabled={mutationBusy} aria-describedby="ai-models-azure-deployment-help" onChange={(event) => {
+            <label className="professional-field"><span className="professional-field-label">Azure Endpoint</span><input id="ai-models-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder={foundrySpec?.api === "anthropic-messages" ? "https://your-resource.services.ai.azure.com/anthropic" : "https://your-resource.services.ai.azure.com/openai/v1"} spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => editFoundry({ ...azure, baseUrl: event.target.value })} /></label>
+            <label className="professional-field"><span className="professional-field-label">Deployment Names</span><textarea id="ai-models-azure-deployments" value={azure.deployments} maxLength={25800} rows={2} placeholder="my-deployment, another-deployment" spellCheck={false} autoComplete="off" disabled={mutationBusy} aria-describedby="ai-models-azure-deployment-help" onChange={(event) => {
               editFoundry({ ...azure, deployments: event.target.value });
             }} /><span className="professional-field-hint" id="ai-models-azure-deployment-help">Deployment names, separated by commas or new lines.</span></label>
-            {unavailableDeployments.length ? <p className="professional-field-hint" role="status">Choose a base model again in Deployment model details before using: {unavailableDeployments.join(", ")}.</p> : null}
-            {parseAzureDeploymentNames(azure.deployments).length > 0 && foundryModels[provider]?.length ? <details className="ai-models-foundry-models" open={unavailableDeployments.length ? true : undefined}><summary>Deployment model details</summary>
+            {unavailableDeployments.length ? <p className="professional-field-hint" role="status">Choose a base model again in Deployment Model Details before using: {unavailableDeployments.join(", ")}.</p> : null}
+            {parseAzureDeploymentNames(azure.deployments).length > 0 && foundryModels[provider]?.length ? <details className="ai-models-foundry-models" open={unavailableDeployments.length ? true : undefined}><summary>Deployment Model Details</summary>
               <p className="professional-field-hint">If a deployment has a custom name, choose its base model so Pi uses the right context, image, and reasoning capabilities.</p>
-              {parseAzureDeploymentNames(azure.deployments).map((id, index) => <label className="professional-field" key={id}><span className="professional-field-label">Base model for {id}</span>
+              {parseAzureDeploymentNames(azure.deployments).map((id, index) => <label className="professional-field" key={id}><span className="professional-field-label">Base Model for {id}</span>
                 <select id={`ai-models-foundry-base-${index}`} disabled={mutationBusy} value={azure.modelIds?.[id] ?? ""} onChange={(event) => {
                   const modelIds = Object.fromEntries(Object.entries(azure.modelIds ?? {}).filter(([name]) => name !== id));
                   if (event.target.value) Object.defineProperty(modelIds, id, { value: event.target.value, enumerable: true });
                   editFoundry({ ...azure, modelIds });
-                }}><option value="">{foundryModels[provider]!.some((item) => item.id === id) ? "Automatic (Pi catalog)" : "Default limits (no matching Pi model)"}</option>{azure.modelIds?.[id] && !foundryModels[provider]!.some((item) => item.id === azure.modelIds?.[id]) ? <option value={azure.modelIds[id]}>Saved base model: {azure.modelIds[id]}</option> : null}{foundryModels[provider]!.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.id})</option>)}</select>
+                }}><option value="">{foundryModels[provider]!.some((item) => item.id === id) ? "Automatic (Pi Catalog)" : "Default Limits (No Matching Pi Model)"}</option>{azure.modelIds?.[id] && !foundryModels[provider]!.some((item) => item.id === azure.modelIds?.[id]) ? <option value={azure.modelIds[id]}>Saved Base Model: {azure.modelIds[id]}</option> : null}{foundryModels[provider]!.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.id})</option>)}</select>
               </label>)}
             </details> : null}
           </> : null}
-          <label className="professional-field"><span className="professional-field-label">{isAzure && authConfigured ? "Replace API key (optional)" : editingApiKey ? "New API Key" : "API Key"}</span>
+          <label className="professional-field"><span className="professional-field-label">{isAzure && authConfigured ? "Replace API Key (Optional)" : editingApiKey ? "New API Key" : "API Key"}</span>
             <span className="ai-models-key-input"><input ref={apiKeyField} id="ai-models-api-key" type={showApiKey ? "text" : "password"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnectionFeedback(null); }} placeholder={isAzure && authConfigured ? "Leave blank to keep the current key" : `Paste your ${providerName} API key`} autoComplete="off" spellCheck={false} disabled={mutationBusy} />
-              <button className="ai-models-key-visibility" type="button" aria-label={showApiKey ? "Hide API key" : "Show API key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
+              <button className="ai-models-key-visibility" type="button" aria-label={showApiKey ? "Hide API Key" : "Show API Key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
             </span>
           </label>
-          <div className="ai-models-form-actions ai-models-connection-actions"><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || (isAzure ? !parseAzureDeploymentNames(azure.deployments).length || !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim()) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? provider === AZURE_OPENAI_PROVIDER ? "Save Azure settings" : "Save Foundry settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
+          <div className="ai-models-form-actions ai-models-connection-actions"><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || (isAzure ? !parseAzureDeploymentNames(azure.deployments).length || !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim()) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? provider === AZURE_OPENAI_PROVIDER ? "Save Azure Settings" : "Save Foundry Settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
         </form> : null}
         {oauthSupported || selectedProvider?.guidedSetup ? <div className="ai-models-provider-actions">
-          {oauthSupported ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : providerAuth?.authType === "oauth" ? "Reconnect account" : selectedProvider?.oauthLabel ?? "Connect account"}</button> : null}
-          {selectedProvider?.guidedSetup ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("setup")}>Guided setup</button> : null}
+          {oauthSupported ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : providerAuth?.authType === "oauth" ? "Reconnect Account" : selectedProvider?.oauthLabel ?? "Connect Account"}</button> : null}
+          {selectedProvider?.guidedSetup ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("setup")}>Guided Setup</button> : null}
         </div> : null}
         {accountOnly && !oauthSupported ? <p className="professional-field-hint">Account sign-in is available in the desktop app.</p> : null}
         {!apiKeySupported && !selectedProvider?.oauth ? <p className="professional-field-hint">Uses credentials configured outside work-fold.</p> : null}

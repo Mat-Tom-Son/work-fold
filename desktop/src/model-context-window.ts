@@ -97,7 +97,7 @@ export class ModelContextWindow {
       return;
     }
     const window = this.#options.createWindow({
-      title: this.#options.title ?? "Inspect context",
+      title: this.#options.title ?? "Inspect Context",
       width: 1120, height: 820, minWidth: 680, minHeight: 480, show: false,
       webPreferences: {
         preload: this.#options.preload,
