@@ -9357,11 +9357,13 @@ to {
 
 .automation-list-row small {
   min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
   color: var(--ui-text-muted, #5c6460);
   font-size: var(--work-fold-type-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .automation-health {
