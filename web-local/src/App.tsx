@@ -79,7 +79,7 @@ import { isMacOS, workFolderEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel, type RestrictedAppNavigatorTarget } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, parentFolderPath, removeTreeEntries } from "./lib/tree";
-import { outermostTreePaths, visibleTreePaths } from "./lib/tree-selection";
+import { outermostTreePaths, selectableTreePaths, treeEntriesByPath, visibleTreePaths } from "./lib/tree-selection";
 import { normalizeWorkFolderCustomizations } from "./lib/work-folder-customization";
 import { workFolderIdentityFor, workFolderIdentityStyle } from "./lib/work-folder-identity";
 import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "./lib/folder-nesting";
@@ -491,7 +491,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const fileTreeCollapsedPaths = useMemo(() => tree.query ? new Set<string>() : tree.collapsedPaths, [tree.query, tree.collapsedPaths]);
   // The rows Files shows, top to bottom: the order Shift-click selects in.
   const shownTreePaths = useMemo(() => visibleTreePaths(sortedFileEntries, fileTreeCollapsedPaths), [sortedFileEntries, fileTreeCollapsedPaths]);
-  useEffect(() => tree.keepSelectionWithin(shownTreePaths), [shownTreePaths]);
+  // Rows a search hides stay selected, to show again when it clears; deleted rows and rows in a closed folder leave.
+  const searchingFiles = Boolean(tree.query.trim());
+  useEffect(() => tree.keepSelectionWithin(selectableTreePaths(tree.tree, shownTreePaths, searchingFiles)), [shownTreePaths, searchingFiles, tree.tree]);
   function changeFileSort(next: FileSort): void {
     setFileSort(next);
     writeStoredJsonValue(fileSortStorageKey, next);
@@ -654,8 +656,9 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const activeTab = tabs.surfaceTabs.find((tab) => tab.id === tabs.activeSurfaceTabId) ?? null;
   // Each file has its own tab, so switching file tabs selects that file in Files.
   const activeFilePath = activeTab?.kind === "file" && activeTab.workFolderId === workFolder.id ? activeTab.path : null;
+  // A multi-selection that already holds the file is left alone, such as several rows that just moved together.
   useEffect(() => {
-    if (activeFilePath) tree.setSelectedPath(activeFilePath);
+    if (activeFilePath && !(tree.selectedPaths.size > 1 && tree.selectedPaths.has(activeFilePath))) tree.setSelectedPath(activeFilePath);
   }, [activeFilePath]);
   const checks = useWorkFolderChecks(workFolder, Boolean(fixture), activeTab?.kind !== "checks");
   const folderAutomations = useFolderAutomations(workFolder.id, Boolean(fixture));
@@ -1374,7 +1377,8 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   async function openSelectionContextMenu(entry: TreeEntry, paths: string[], event: React.MouseEvent<HTMLElement>) {
     const returnFocusTarget = event.currentTarget as HTMLElement;
     const point = { x: Math.round(event.clientX), y: Math.round(event.clientY) };
-    const entries = paths.map((path) => findTreeEntry(tree.tree, path)).filter((item): item is TreeEntry => Boolean(item));
+    const byPath = treeEntriesByPath(tree.tree);
+    const entries = paths.map((path) => byPath.get(path)).filter((item): item is TreeEntry => Boolean(item));
     const files = entries.filter((item) => item.kind === "file").length;
     const canDelete = !entries.some(holdsNestedFolder);
     const popupFileMenu = window.workFoldDesktop?.workFolder.popupFileMenu;
@@ -1550,9 +1554,10 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     const targets = outermostTreePaths(paths);
     if (targets.length <= 1) { if (targets[0]) await deleteEntry(targets[0]); return; }
     if (fixture) return;
-    const entries = targets.map((path) => findTreeEntry(tree.tree, path));
+    const byPath = treeEntriesByPath(tree.tree);
+    const entries = targets.map((path) => byPath.get(path));
     // Counted the way the menu counts them: every highlighted row goes, a selected folder's rows with it.
-    const files = paths.filter((path) => findTreeEntry(tree.tree, path)?.kind === "file").length;
+    const files = paths.filter((path) => byPath.get(path)?.kind === "file").length;
     const label = fileSelectionLabel(files, paths.length - files);
     if (entries.some((entry) => entry?.kind === "folder")) {
       const confirmed = await requestConfirm({ title: deleteSelectionConfirm.title(label), body: deleteSelectionConfirm.body, confirmLabel: deleteSelectionConfirm.confirmLabel(label), tone: "danger" });
@@ -1657,16 +1662,19 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     if (sources.length) await moveEntries(sources, target);
   }
   function startTreeDrag(path: string, event: React.DragEvent<HTMLElement>) {
-    // Dragging a selected row carries every selected row with it, like Finder.
+    // Like Finder: dragging a selected row carries every selected row; dragging another row selects it first.
     const paths = filesSelectionFor(path);
+    if (!tree.selectedPaths.has(path)) tree.setSelectedPath(path);
     tree.setMovingTreePaths(new Set(paths));
     event.dataTransfer.setData(workFolderPathDragType, path);
     if (paths.length > 1) {
       event.dataTransfer.setData(workFolderPathsDragType, JSON.stringify(paths));
-      const files = paths.filter((item) => findTreeEntry(tree.tree, item)?.kind === "file").length;
+      const byPath = treeEntriesByPath(tree.tree);
+      const files = paths.filter((item) => byPath.get(item)?.kind === "file").length;
       setSelectionDragImage(event, fileSelectionLabel(files, paths.length - files));
     }
-    event.dataTransfer.setData("text/plain", paths.join("\n"));
+    // A text field takes just the dragged row's path; the full set travels in its own type.
+    event.dataTransfer.setData("text/plain", path);
     event.dataTransfer.effectAllowed = "move";
   }
   function endTreeDrag() { tree.setMovingTreePaths(new Set()); tree.setDropTargetFolderPath(null); }

@@ -1734,10 +1734,6 @@ export function ChatPanel({
     return byCandidate;
   }, [fixtureMode, fixtureTreeEntries, workFolder.id]);
 
-  function droppedWorkFolderPaths(event: React.DragEvent<HTMLElement>): string[] {
-    return draggedWorkFolderPaths(event.dataTransfer);
-  }
-
   function hasWorkFolderPathDrag(event: React.DragEvent<HTMLElement>): boolean {
     return Array.from(event.dataTransfer.types).includes(workFolderPathDragType);
   }
@@ -1773,7 +1769,7 @@ export function ChatPanel({
     event.preventDefault();
     setDragActive(false);
     if (acceptsWorkFolderPath) {
-      const paths = droppedWorkFolderPaths(event);
+      const paths = draggedWorkFolderPaths(event.dataTransfer);
       if (paths.length) onAddPathToChatContext?.(paths);
       return;
     }

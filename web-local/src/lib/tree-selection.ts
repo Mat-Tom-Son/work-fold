@@ -31,10 +31,46 @@ export function treeSelectionRange(order: readonly string[], anchor: string, tar
   return order.slice(Math.min(from, to), Math.max(from, to) + 1);
 }
 
-/** The rows an action on the selection touches: a selected folder already carries whatever is selected inside it. */
+/**
+ * The rows a selection may keep. Normally just the shown ones; while a search
+ * hides rows for the moment, every row still in the tree, so clearing the
+ * search shows them selected again. Actions still cover only shown rows.
+ */
+export function selectableTreePaths(tree: readonly TreeEntry[], shownPaths: readonly string[], searching: boolean): readonly string[] {
+  return searching ? visibleTreePaths(tree, new Set()) : shownPaths;
+}
+
+/** Every loaded row by its path, for looking many up at once (⌘A on a large tree). */
+export function treeEntriesByPath(entries: readonly TreeEntry[]): Map<string, TreeEntry> {
+  const byPath = new Map<string, TreeEntry>();
+  const visit = (items: readonly TreeEntry[]) => {
+    for (const entry of items) {
+      byPath.set(entry.path, entry);
+      if (entry.children?.length) visit(entry.children);
+    }
+  };
+  visit(entries);
+  return byPath;
+}
+
+/**
+ * The rows an action on the selection touches, in the order given: a selected
+ * folder already carries whatever is selected inside it. Sorted so that "/"
+ * comes before every other character, a folder's rows directly follow it, and
+ * one pass keeps each path that is not inside the last one kept.
+ */
 export function outermostTreePaths(paths: Iterable<string>): string[] {
   const unique = [...new Set(paths)].filter(Boolean);
-  return unique.filter((path) => !unique.some((other) => other !== path && isInsideFolder(path, other)));
+  const sortKey = (path: string) => path.replaceAll("/", "\u0000");
+  const sorted = unique.map((path) => ({ path, key: sortKey(path) })).sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  const kept = new Set<string>();
+  let last: string | null = null;
+  for (const { path } of sorted) {
+    if (last !== null && isInsideFolder(path, last)) continue;
+    kept.add(path);
+    last = path;
+  }
+  return unique.filter((path) => kept.has(path));
 }
 
 /** ⌘ on the Mac, Ctrl elsewhere: the key that adds a row to the selection or takes it out. */
