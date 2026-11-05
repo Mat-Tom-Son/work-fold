@@ -78,7 +78,7 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
       {(["light", "dark"] as const).map((mode) => <div key={mode}>
         <span className="work-folder-preview-mode-label">{mode === "light" ? "Light" : "Dark"}</span>
         <div
-          className={["work-folder-appearance-preview", "work-folder-banner-surface", `preview-${mode}`, `banner-${identity.bannerName}`, identity.bannerImage ? "has-banner-image" : "", editable && identity.bannerImage ? "is-framing" : "", identity.bannerPreset ? "has-banner-preset" : ""].filter(Boolean).join(" ")}
+          className={["work-folder-appearance-preview", "work-folder-banner-surface", `preview-${mode}`, `banner-layout-${identity.bannerLayout}`, `banner-${identity.bannerName}`, identity.bannerImage ? "has-banner-image" : "", editable && identity.bannerImage ? "is-framing" : "", identity.bannerPreset ? "has-banner-preset" : ""].filter(Boolean).join(" ")}
           style={{ ...workFolderIdentityStyle(identity, mode), colorScheme: mode } as CSSProperties}
           data-preview-mode={mode}
           tabIndex={editable && identity.bannerImage ? 0 : undefined}
@@ -106,7 +106,7 @@ export function WorkFolderBannerPreview({ identity, name, onFrame, editable = tr
           }}
         >
           {identity.bannerImage ? <span className="work-folder-appearance-preview-image" aria-hidden="true"><img src={identity.bannerImage} alt="" draggable={false} style={workFolderBannerImageStyle(frame)} /><span /></span> : null}
-          <span className="work-folder-appearance-preview-copy"><strong>{name}</strong></span>
+          <span className="work-folder-appearance-preview-copy">{identity.bannerLayout !== "card" ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}<strong>{name}</strong></span>
         </div>
       </div>)}
     </div>

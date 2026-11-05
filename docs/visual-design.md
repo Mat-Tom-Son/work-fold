@@ -24,7 +24,7 @@ work-fold uses a quiet desktop-tool aesthetic. The interface should feel native,
 - Use regular icons at rest and the matching filled icon for a selected navigation item.
 - Use 16px icons for inline actions, 24px for the icon-only rail navigation, 20px for section markers, and no more than 24px for empty states.
 - Material file-type icons retain their familiar type colors. The rail's Skills & Extensions control uses the Lucide **Blocks** icon at 24px; Settings → Apps uses **Layout Panel Left** and Web Access uses **Globe Code** at 20px (2026-10-08). These requested icons use a 1.5px stroke to match the neighboring Fluent outlines and inherit the same control colors; other shell controls retain Fluent icons.
-- Keep icon-library exceptions limited to those named controls. The work-folder glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and work-folder-bound tabs. The banner itself is name-first.
+- Keep icon-library exceptions limited to those named controls. The work-folder glyph may repeat only where it communicates inherited root context: the header switcher, cards, Chat groups, and work-folder-bound tabs. The Card banner is name-first; the Compact, Band, and Cover layouts lead with the work-folder icon (2026-11-04).
 - work-folder color may appear as a small avatar accent or active indicator, never as a frame around the application.
 
 ## Typography and spacing

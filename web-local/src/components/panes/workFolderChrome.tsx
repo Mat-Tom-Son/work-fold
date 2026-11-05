@@ -43,6 +43,7 @@ import {
   createWorkFolderAppearanceProposal,
   parseWorkFolderAppearanceProposal,
   upgradeWorkFolderAppearanceCustomization,
+  type WorkFolderAppearanceBannerLayout,
 } from "../../../../src/shared/work-folder-appearance";
 import { filterWorkFolderIconOptions, knownWorkFolderIconOption, workFolderIconOptions, workFolderIconGroups, type WorkFolderIconGroupId } from "../../work-folder-icons";
 import { workFolderBannerOptions } from "../../constants";
@@ -212,6 +213,13 @@ function WorkFolderModeRail({
   );
 }
 
+const bannerLayoutOptions: ReadonlyArray<{ id: WorkFolderAppearanceBannerLayout; label: string }> = [
+  { id: "card", label: "Card" },
+  { id: "compact", label: "Compact" },
+  { id: "band", label: "Band" },
+  { id: "cover", label: "Cover" },
+];
+
 function WorkFolderPaneHeader({
   workFolder,
   identity,
@@ -332,6 +340,7 @@ function WorkFolderPaneHeader({
     "professional-pane-header",
     "work-folder-banner-surface",
     "work-folder-identity-header",
+    `banner-layout-${identity.bannerLayout}`,
     `banner-${identity.bannerName}`,
     identity.bannerImage ? "has-banner-image" : "",
     switcherEnabled ? "has-switcher" : "",
@@ -371,6 +380,7 @@ function WorkFolderPaneHeader({
   const identityLockup = (
     <span className="work-folder-pane-current-copy work-folder-identity-header-copy">
       <span className="work-folder-pane-current-lockup">
+        {identity.bannerLayout !== "card" ? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity.Icon /></span> : null}
         <strong>{workFolder.name}</strong>
       </span>
       <span className="sr-only">{detail}</span>
@@ -379,7 +389,7 @@ function WorkFolderPaneHeader({
 
   return (
     <div
-      className={slim && !switcherOpen ? "work-folder-pane-header-wrap work-folder-identity-header-wrap slim" : "work-folder-pane-header-wrap work-folder-identity-header-wrap"}
+      className={["work-folder-pane-header-wrap", "work-folder-identity-header-wrap", `banner-layout-${identity.bannerLayout}`, slim && !switcherOpen ? "slim" : ""].filter(Boolean).join(" ")}
       ref={headerRef}
       onBlurCapture={(event) => {
         if (switcherOpen && !event.currentTarget.contains(event.relatedTarget as Node | null)) setSwitcherOpen(false);
@@ -917,6 +927,12 @@ function WorkFolderAppearancePanel({
       {!appearancePasses ? <div className="work-folder-appearance-audit warning" role="status"><Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span></div> : null}
       <div className="work-folder-appearance-tab-panel" key={activeSection} role="tabpanel" id={`folder-appearance-panel-${activeSection}`} aria-labelledby={`folder-appearance-tab-${activeSection}`}>
         {activeSection === "banner" ? <>
+          <div className="work-folder-banner-section-heading"><strong>Layout</strong></div>
+          <div className="work-folder-banner-layouts" role="group" aria-label="Banner Layout">
+            {bannerLayoutOptions.map((option) => <button key={option.id} type="button" className={identity.bannerLayout === option.id ? "active" : ""} aria-pressed={identity.bannerLayout === option.id} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerLayout: option.id })}>
+              <span className={`work-folder-layout-diagram layout-${option.id}`} aria-hidden="true"><i /><b /></span>{option.label}
+            </button>)}
+          </div>
           <div className="work-folder-banner-section-heading"><strong>Images</strong><button className="work-folder-banner-upload-button" type="button" onClick={() => bannerFileInputRef.current?.click()} disabled={bannerUploadBusy}><ImageAdd20Regular />{bannerUploadBusy ? "Uploading…" : "Upload"}</button></div>
           <div className="work-folder-banner-image-gallery" role="group" aria-label="Built-in banner images">
             {workFolderBannerPresets.map((preset) => <button key={preset.id} type="button" className={identity.bannerPreset === preset.id ? "active" : ""} aria-pressed={identity.bannerPreset === preset.id} aria-label={`Use ${preset.label} Image`} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerPreset: preset.id, bannerImage: undefined, bannerFraming: undefined, bannerImagePosition: undefined })}>

@@ -22294,3 +22294,218 @@ to {
   min-height: 0;
 }
 
+
+/* Banner layouts (docs/work-folder-customization.md, 2026-11-04). Card is the
+   original centered banner; Compact and Band are shorter and lead with the
+   work-folder icon; Cover is a tall picture with the name at the bottom. */
+
+:root[data-theme] .app-shell .work-folder-layout .work-folder-identity-header-wrap.banner-layout-compact:not(.slim) { --work-folder-identity-header-height: 64px; }
+:root[data-theme] .app-shell .work-folder-layout .work-folder-identity-header-wrap.banner-layout-band:not(.slim) { --work-folder-identity-header-height: 56px; }
+:root[data-theme] .app-shell .work-folder-layout .work-folder-identity-header-wrap.banner-layout-cover:not(.slim) { --work-folder-identity-header-height: 148px; }
+
+.work-folder-pane-layout-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  color: var(--work-folder-on-accent-solid, #ffffff);
+  background: var(--work-folder-accent-solid, var(--ui-accent));
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.work-folder-pane-layout-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) > .work-folder-pane-switch-trigger {
+  place-items: center start;
+  padding-inline: 14px 56px;
+  text-align: left;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-cover > .work-folder-pane-switch-trigger {
+  place-items: end start;
+  padding-block: 0 14px;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) .work-folder-pane-current-copy {
+  justify-items: start;
+  text-align: left;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) .work-folder-pane-current-lockup {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-cover .work-folder-pane-switch-caret {
+  top: auto;
+  bottom: 14px;
+  transform: none;
+}
+
+/* Band: a slim strip of the banner over a plain row. */
+:root[data-theme] .app-shell .work-folder-layout .work-folder-mode-pane .professional-pane-header.work-folder-identity-header.banner-layout-band {
+  background: var(--ui-surface);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 6px;
+  background: var(--work-folder-banner-wash, none), var(--work-folder-banner-layers, none), rgb(var(--work-folder-banner-base-rgb));
+  background-size: auto, var(--work-folder-banner-size, auto);
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band.banner-none::before {
+  background: var(--work-folder-accent-solid, var(--ui-accent));
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band .work-folder-pane-banner-image {
+  inset: 0 0 auto;
+  height: 6px;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band :is(.work-folder-pane-current-lockup strong, .work-folder-pane-switch-caret) {
+  color: var(--ui-text);
+  text-shadow: none;
+}
+
+:root[data-theme] .app-shell .professional-pane-header.work-folder-identity-header.banner-layout-band .work-folder-pane-title-pill {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* The same layouts in Customize's light and dark previews. */
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) {
+  place-items: center start;
+  padding-inline: 16px;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-compact { height: 64px; min-height: 64px; }
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-band { height: 56px; min-height: 56px; background: var(--ui-surface); }
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-cover { height: 120px; min-height: 120px; place-items: end start; padding-block: 14px; }
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.preview-light.banner-layout-band { --ui-surface: #ffffff; }
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.preview-dark.banner-layout-band { --ui-surface: #1b1e25; }
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-band::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 6px;
+  background: var(--work-folder-banner-wash, none), var(--work-folder-banner-layers, none), rgb(var(--work-folder-banner-base-rgb));
+  background-size: auto, var(--work-folder-banner-size, auto);
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-band.banner-none::before {
+  background: var(--work-folder-accent-solid, var(--ui-accent));
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-band .work-folder-appearance-preview-image {
+  inset: 0 0 auto;
+  height: 6px;
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview.banner-layout-band .work-folder-appearance-preview-copy strong {
+  color: var(--ui-text);
+}
+
+.app-shell .work-folder-appearance-modal .work-folder-appearance-preview:is(.banner-layout-compact, .banner-layout-band, .banner-layout-cover) .work-folder-appearance-preview-copy {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+/* Customize → Banner → Layout: four small diagrams. */
+.work-folder-banner-layouts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.work-folder-banner-layouts button {
+  display: grid;
+  gap: 6px;
+  padding: 6px 6px 8px;
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+  text-align: center;
+}
+
+.work-folder-banner-layouts button:hover {
+  background: var(--ui-surface-hover);
+}
+
+.work-folder-banner-layouts button.active {
+  border-color: var(--work-folder-accent-border-state, var(--ui-accent));
+  box-shadow: 0 0 0 1px var(--work-folder-accent-border-state, var(--ui-accent));
+}
+
+.work-folder-layout-diagram {
+  position: relative;
+  height: 46px;
+  overflow: hidden;
+  background: var(--ui-surface-subtle);
+  border-radius: 5px;
+}
+
+.work-folder-layout-diagram i,
+.work-folder-layout-diagram b {
+  position: absolute;
+  display: block;
+}
+
+.work-folder-layout-diagram i {
+  inset: 4px 4px auto;
+  height: 26px;
+  background: linear-gradient(120deg, var(--work-folder-accent-solid, var(--ui-accent)), var(--work-folder-banner-secondary, var(--ui-accent)));
+  border-radius: 4px;
+  opacity: 0.55;
+}
+
+.work-folder-layout-diagram b {
+  top: 15px;
+  left: 30%;
+  width: 40%;
+  height: 4px;
+  background: var(--ui-text);
+  border-radius: 2px;
+  opacity: 0.7;
+}
+
+.work-folder-layout-diagram:not(.layout-card) b::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -11px;
+  width: 8px;
+  height: 8px;
+  background: var(--work-folder-accent-solid, var(--ui-accent));
+  border-radius: 2px;
+}
+
+.work-folder-layout-diagram.layout-compact i { height: 16px; }
+.work-folder-layout-diagram.layout-compact b { top: 10px; left: 19px; width: 36%; }
+.work-folder-layout-diagram.layout-band i { height: 3px; opacity: 0.85; }
+.work-folder-layout-diagram.layout-band b { top: 15px; left: 19px; width: 36%; }
+.work-folder-layout-diagram.layout-cover i { height: 38px; }
+.work-folder-layout-diagram.layout-cover b { top: 30px; left: 19px; width: 36%; }

@@ -468,7 +468,8 @@ test("every left-pane mode keeps content padding below the shared work-folder ba
 });
 
 test("the appearance preview mirrors the work-folder header rather than the active surface", () => {
-  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy"><strong>\{name\}<\/strong>/);
+  // Compact, Band and Cover lead with the icon tile; every layout shows the work-folder's own name.
+  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy">(?:\{identity\.bannerLayout !== "card" \? <span className="work-folder-pane-layout-icon" aria-hidden="true"><identity\.Icon \/><\/span> : null\})?<strong>\{name\}<\/strong>/);
   assert.doesNotMatch(workFolderChromeSource, /work-folder-appearance-preview-copy"><strong>Files<\/strong>/);
   assert.match(customizationCss, /\.work-folder-appearance-preview\s*\{[\s\S]*?min-height:\s*112px;/);
 });
