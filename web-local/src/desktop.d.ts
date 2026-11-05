@@ -77,6 +77,8 @@ interface WorkFoldDesktopFileMenuRequest {
     shared: boolean;
     worker?: boolean;
   };
+  /** Several rows selected together: the menu offers only what applies to all of them. */
+  selection?: { files: number; folders: number };
   point: { x: number; y: number };
 }
 

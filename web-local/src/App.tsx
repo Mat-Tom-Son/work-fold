@@ -8,9 +8,10 @@ import {
   type WorkFolderAppearanceState,
 } from "../../src/shared/work-folder-appearance";
 
-import { workFolderCustomizationStorageKey, workFolderPathDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
+import { workFolderCustomizationStorageKey, workFolderPathDragType, workFolderPathsDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
 import { copyToClipboard } from "./lib/clipboard";
-import { deleteFolderConfirm } from "./ui-contract";
+import { deleteFolderConfirm, deleteSelectionConfirm } from "./ui-contract";
+import { fileSelectionLabel } from "../../src/shared/file-selection";
 import { ChatActionsPopover } from "./components/chat/ChatActionsPopover";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { WorkFolderSurfaceTabBar } from "./components/chat/WorkFolderSurfaceTabBar";
@@ -64,7 +65,7 @@ import { queueHistoryRequest } from "./lib/history-queue";
 import { chatActivityKey, conversationLifecycleView, resolveChatSnoozePresets } from "./lib/chat-lifecycle";
 import { appChangeDraft, chatContextRequestForTab, chatDraftRequestForTab } from "./lib/chat-context-request";
 import { contributedSurfaces, resolveSurfaceForKey, surfaceMatchesTab } from "./lib/capability-surfaces";
-import { canOpenDirectly, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel } from "./lib/file-actions";
+import { canOpenDirectly, draggedWorkFolderPaths, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel } from "./lib/file-actions";
 import { chatDisplayTitle, formatItemCount } from "./lib/format";
 import { readStoredJsonValue, readStoredValue, writeStoredJsonValue, writeStoredValue } from "./lib/storage";
 import { readWorkFolderSetUpOffers, workFolderSetUpMessage, writeWorkFolderSetUpOffers, type WorkFolderSetUpMode } from "./lib/work-folder-setup";
@@ -77,7 +78,8 @@ import { FileSortMenu } from "./components/tree/FileSortMenu";
 import { isMacOS, workFolderEntryNativePath } from "./lib/platform";
 import { resolveRestrictedAppOpenRequest, restrictedAppRailMode, restrictedAppRailLabel, type RestrictedAppNavigatorTarget } from "./lib/restricted-app-navigation";
 import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestrictedAppChange } from "./lib/restricted-apps";
-import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, removeTreeEntries } from "./lib/tree";
+import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, parentFolderPath, removeTreeEntries } from "./lib/tree";
+import { outermostTreePaths, visibleTreePaths } from "./lib/tree-selection";
 import { normalizeWorkFolderCustomizations } from "./lib/work-folder-customization";
 import { workFolderIdentityFor, workFolderIdentityStyle } from "./lib/work-folder-identity";
 import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "./lib/folder-nesting";
@@ -486,6 +488,10 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   const tree = useWorkFolderTree(workFolder, onError, fixture?.trees[workFolder.id]);
   const [fileSort, setFileSort] = useState<FileSort>(() => readStoredJsonValue(fileSortStorageKey, normalizeFileSort, defaultFileSort));
   const sortedFileEntries = useMemo(() => sortFileTree(tree.visibleEntries, fileSort), [tree.visibleEntries, fileSort]);
+  const fileTreeCollapsedPaths = useMemo(() => tree.query ? new Set<string>() : tree.collapsedPaths, [tree.query, tree.collapsedPaths]);
+  // The rows Files shows, top to bottom: the order Shift-click selects in.
+  const shownTreePaths = useMemo(() => visibleTreePaths(sortedFileEntries, fileTreeCollapsedPaths), [sortedFileEntries, fileTreeCollapsedPaths]);
+  useEffect(() => tree.keepSelectionWithin(shownTreePaths), [shownTreePaths]);
   function changeFileSort(next: FileSort): void {
     setFileSort(next);
     writeStoredJsonValue(fileSortStorageKey, next);
@@ -1292,7 +1298,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       }
     } catch (caught) { onError(errorText(caught)); }
   }
-  function attachToChat(path: string) {
+  function attachToChat(paths: string | readonly string[]) {
     // The Chat in front, else the one the person was last in, else a blank draft.
     const workFolderChats = tabs.surfaceTabs.filter((tab) => tab.kind === "chat" && tab.workFolderId === workFolder.id);
     const existing = workFolderChats.find((tab) => tab.id === tabs.activeSurfaceTabId)
@@ -1300,12 +1306,23 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       ?? workFolderChats.find((tab) => tab.kind === "chat" && !tab.conversationId);
     const surfaceTabId = existing?.id ?? tabs.openChatSurfaceTab(workFolder, null);
     if (existing) tabs.setActiveSurfaceTabId(existing.id);
-    setContextRequest({ id: ++contextRequestId.current, path, workFolderId: workFolder.id, surfaceTabId });
+    setContextRequest({ id: ++contextRequestId.current, paths: typeof paths === "string" ? [paths] : [...paths], workFolderId: workFolder.id, surfaceTabId });
+  }
+
+  /** The rows an action on this row covers: every selected row when it is one of several, else just this row. */
+  function filesSelectionFor(path: string): string[] {
+    if (!path || tree.selectedPaths.size < 2 || !tree.selectedPaths.has(path)) return [path];
+    const shown = shownTreePaths.filter((item) => tree.selectedPaths.has(item));
+    return shown.length > 1 ? shown : [path];
   }
 
   async function openContextMenu(entry: TreeEntry, event: React.MouseEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
+    const selection = filesSelectionFor(entry.path);
+    if (selection.length > 1) { await openSelectionContextMenu(entry, selection, event); return; }
+    // Like Finder, a right-click on a row outside the selection selects just that row.
+    if (entry.path && !tree.selectedPaths.has(entry.path)) tree.setSelectedPath(entry.path);
     const returnFocusTarget = event.currentTarget as HTMLElement;
     const point = { x: Math.round(event.clientX), y: Math.round(event.clientY) };
     const popupFileMenu = window.workFoldDesktop?.workFolder.popupFileMenu;
@@ -1351,6 +1368,34 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       return;
     }
     setFileContextMenu({ entry, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 420), returnFocusTarget });
+  }
+
+  /** Several rows selected together get only what applies to all of them: attach, copy paths, delete. */
+  async function openSelectionContextMenu(entry: TreeEntry, paths: string[], event: React.MouseEvent<HTMLElement>) {
+    const returnFocusTarget = event.currentTarget as HTMLElement;
+    const point = { x: Math.round(event.clientX), y: Math.round(event.clientY) };
+    const entries = paths.map((path) => findTreeEntry(tree.tree, path)).filter((item): item is TreeEntry => Boolean(item));
+    const files = entries.filter((item) => item.kind === "file").length;
+    const canDelete = !entries.some(holdsNestedFolder);
+    const popupFileMenu = window.workFoldDesktop?.workFolder.popupFileMenu;
+    if (isMacOS() && popupFileMenu) {
+      setFileContextMenu(null);
+      try {
+        const command = await popupFileMenu({
+          workFolderId: workFolder.id,
+          path: entry.path,
+          kind: entry.kind,
+          capabilities: { open: false, attach: files === entries.length, history: false, upload: false, rename: false, delete: canDelete, share: false, shared: false },
+          selection: { files, folders: entries.length - files },
+          point,
+        });
+        if (command === "attach-chat") attachToChat(paths);
+        else if (command === "copy-path") await copyPaths(paths);
+        else if (command === "delete") await deleteEntries(paths);
+      } catch (caught) { onError(errorText(caught)); }
+      return;
+    }
+    setFileContextMenu({ entry, selection: entries, x: Math.min(point.x, window.innerWidth - 250), y: Math.min(point.y, window.innerHeight - 200), returnFocusTarget });
   }
   // "Make a work-folder" (2026-10-01): any plain folder below this
   // work-folder's root can become a nested work-folder; its row turns into the door row.
@@ -1433,7 +1478,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
 
   async function moveEntry(sourcePath: string, targetFolderPath: string) {
     if (fixture || !sourcePath || sourcePath === targetFolderPath || isInsideFolder(targetFolderPath, sourcePath)) return;
-    tree.setMovingTreePath(sourcePath);
+    tree.setMovingTreePaths(new Set([sourcePath]));
     try {
       const result = await api<{ moved: { path: string; name: string }; safetyCheckpointId: string }>(`/api/work-folders/${workFolder.id}/move-local-entry`, { method: "POST", body: { sourcePath, targetFolderPath } });
       const preview = moveTreeEntry(tree.tree, sourcePath, targetFolderPath);
@@ -1442,7 +1487,32 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       showHistorySaved(`Moved ${result.moved.name}`);
     }
     catch (caught) { onError(errorText(caught)); }
-    finally { tree.setMovingTreePath(null); }
+    finally { tree.setMovingTreePaths(new Set()); }
+  }
+
+  /** Several rows dragged together: each takes the same move as one row, and stays selected where it lands. */
+  async function moveEntries(sourcePaths: readonly string[], targetFolderPath: string) {
+    const outermost = outermostTreePaths(sourcePaths);
+    if (outermost.length <= 1) { if (outermost[0]) await moveEntry(outermost[0], targetFolderPath); return; }
+    // A folder cannot go inside itself; rows already in the target stay put.
+    if (fixture || outermost.some((path) => path === targetFolderPath || isInsideFolder(targetFolderPath, path))) return;
+    const sources = outermost.filter((path) => parentFolderPath(path) !== targetFolderPath);
+    if (!sources.length) return;
+    tree.setMovingTreePaths(new Set(sources));
+    const moved: string[] = [];
+    try {
+      for (const sourcePath of sources) {
+        const result = await api<{ moved: { path: string; name: string }; safetyCheckpointId: string }>(`/api/work-folders/${workFolder.id}/move-local-entry`, { method: "POST", body: { sourcePath, targetFolderPath } });
+        tree.setTree((current) => moveTreeEntry(current, sourcePath, targetFolderPath).entries);
+        tabs.retargetFileSurfaceTabsForMove(workFolder.id, sourcePath, result.moved.path);
+        moved.push(result.moved.path);
+      }
+    }
+    catch (caught) { onError(errorText(caught)); }
+    finally { tree.setMovingTreePaths(new Set()); }
+    if (!moved.length) return;
+    tree.selectPaths(moved, moved.at(-1));
+    showHistorySaved(`Moved ${formatItemCount(moved.length, "item")}`);
   }
 
   async function deleteEntry(path: string) {
@@ -1468,6 +1538,49 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         });
       },
       onClose: (reason) => { if (reason !== "action") void commitPendingDelete(pending); },
+    });
+  }
+
+  /**
+   * Several rows from Files' selection. Each one takes the same delete as a
+   * single row — its own request, receipt, and busy refusal from the host —
+   * under one Undo (docs/receipts-not-gates.md).
+   */
+  async function deleteEntries(paths: readonly string[]) {
+    const targets = outermostTreePaths(paths);
+    if (targets.length <= 1) { if (targets[0]) await deleteEntry(targets[0]); return; }
+    if (fixture) return;
+    const entries = targets.map((path) => findTreeEntry(tree.tree, path));
+    // Counted the way the menu counts them: every highlighted row goes, a selected folder's rows with it.
+    const files = paths.filter((path) => findTreeEntry(tree.tree, path)?.kind === "file").length;
+    const label = fileSelectionLabel(files, paths.length - files);
+    if (entries.some((entry) => entry?.kind === "folder")) {
+      const confirmed = await requestConfirm({ title: deleteSelectionConfirm.title(label), body: deleteSelectionConfirm.body, confirmLabel: deleteSelectionConfirm.confirmLabel(label), tone: "danger" });
+      if (!confirmed) return;
+    }
+    const selection = [...tree.selectedPaths];
+    const focus = tree.selectedPath;
+    const pendings = targets.map((path, index): PendingDelete => ({
+      workFolderId: workFolder.id,
+      path,
+      name: entries[index]?.name ?? path,
+      selectedPath: null,
+      deletedTabPaths: new Set(tabs.surfaceTabs.flatMap((tab) => tab.kind === "file" && tab.workFolderId === workFolder.id && (tab.path === path || tab.path.startsWith(`${path}/`)) ? [tab.path] : [])),
+    }));
+    for (const pending of pendings) pendingDeletesRef.current.set(pendingDeleteKey(pending), pending);
+    tree.setTree((current) => removeTreeEntries(current, new Set(targets)));
+    showToast({ text: `Removed ${formatItemCount(paths.length, "item")}`, tone: "success", actionLabel: "Undo", durationMs: 6500,
+      onAction: () => {
+        const waiting = pendings.filter((pending) => pendingDeletesRef.current.get(pendingDeleteKey(pending)) === pending);
+        if (!waiting.length) return;
+        for (const pending of waiting) pendingDeletesRef.current.delete(pendingDeleteKey(pending));
+        if (pendings[0]!.workFolderId !== activeWorkFolderIdRef.current) return;
+        void refreshTreeWithPendingDeletes().then(() => {
+          const current = selectedPathRef.current;
+          if (pendings[0]!.workFolderId === activeWorkFolderIdRef.current && (!current || selection.includes(current))) tree.selectPaths(selection, focus);
+        });
+      },
+      onClose: (reason) => { if (reason !== "action") void commitPendingDeletes(pendings); },
     });
   }
 
@@ -1521,6 +1634,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     setVersionHistory({ workFolder: targetWorkFolder, path, name: path.split("/").pop() ?? path });
   }
   async function copyPath(path: string) { const full = workFolderEntryNativePath(workFolder.workFolderRoot, path); await copyToClipboard({ text: full }); showToast({ text: "Path copied", tone: "success" }); }
+  async function copyPaths(paths: readonly string[]) { await copyToClipboard({ text: paths.map((path) => workFolderEntryNativePath(workFolder.workFolderRoot, path)).join("\n") }); showToast({ text: "Paths copied", tone: "success" }); }
 
   function updateDropTarget(event: React.DragEvent<HTMLElement>, target: string) { event.preventDefault(); if (hasNativeFiles(event) || hasWorkFolderPathDrag(event)) { event.dataTransfer.dropEffect = hasNativeFiles(event) ? "copy" : "move"; tree.setDropTargetFolderPath(target); } }
   function clearDropTarget(event?: React.DragEvent<HTMLElement>) { if (event && event.currentTarget.contains(event.relatedTarget as Node | null)) return; tree.setDropTargetFolderPath(null); }
@@ -1539,11 +1653,23 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       catch (caught) { onError(errorText(caught)); }
       return;
     }
-    const source = hasWorkFolderPathDrag(event) ? event.dataTransfer.getData(workFolderPathDragType) || event.dataTransfer.getData("text/plain") : "";
-    if (source) await moveEntry(source, target);
+    const sources = hasWorkFolderPathDrag(event) ? draggedWorkFolderPaths(event.dataTransfer) : [];
+    if (sources.length) await moveEntries(sources, target);
   }
-  function startTreeDrag(path: string, event: React.DragEvent<HTMLElement>) { tree.setMovingTreePath(path); event.dataTransfer.setData(workFolderPathDragType, path); event.dataTransfer.setData("text/plain", path); event.dataTransfer.effectAllowed = "move"; }
-  function endTreeDrag() { tree.setMovingTreePath(null); tree.setDropTargetFolderPath(null); }
+  function startTreeDrag(path: string, event: React.DragEvent<HTMLElement>) {
+    // Dragging a selected row carries every selected row with it, like Finder.
+    const paths = filesSelectionFor(path);
+    tree.setMovingTreePaths(new Set(paths));
+    event.dataTransfer.setData(workFolderPathDragType, path);
+    if (paths.length > 1) {
+      event.dataTransfer.setData(workFolderPathsDragType, JSON.stringify(paths));
+      const files = paths.filter((item) => findTreeEntry(tree.tree, item)?.kind === "file").length;
+      setSelectionDragImage(event, fileSelectionLabel(files, paths.length - files));
+    }
+    event.dataTransfer.setData("text/plain", paths.join("\n"));
+    event.dataTransfer.effectAllowed = "move";
+  }
+  function endTreeDrag() { tree.setMovingTreePaths(new Set()); tree.setDropTargetFolderPath(null); }
 
   function startNativeFileDrag(path: string, event: React.DragEvent<HTMLElement>) {
     if (!event.altKey || !window.workFoldDesktop?.workFolder.startDrag) return false;
@@ -1552,20 +1678,22 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     return true;
   }
 
-  async function commitPendingDelete(pending: PendingDelete) {
+  /** Sends one delete; true when its entry went to Recently Deleted. `announce: false` leaves saying so to the caller. */
+  async function commitPendingDelete(pending: PendingDelete, announce = true): Promise<boolean> {
     const key = pendingDeleteKey(pending);
-    if (pendingDeletesRef.current.get(key) !== pending) return;
+    if (pendingDeletesRef.current.get(key) !== pending) return false;
     pendingDeletesRef.current.delete(key);
     try {
       const result = await deleteLocalFileRequest(pending);
       tabs.closeFileSurfaceTabsForDeletedPaths(pending.workFolderId, pending.deletedTabPaths);
-      if (result.recentlyDeleted) {
+      if (result.recentlyDeleted && announce) {
         showToast({
           text: `${pending.name} is in Recently Deleted — History could not keep a copy of everything in it.`,
           tone: "info",
           durationMs: 8000,
         });
       }
+      return Boolean(result.recentlyDeleted);
     } catch (caught) {
       onError(errorText(caught));
       if (pending.workFolderId === activeWorkFolderIdRef.current) {
@@ -1573,7 +1701,22 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         await refreshTreeWithPendingDeletes();
         if (pending.selectedPath && restoreSelection) tree.setSelectedPath(pending.selectedPath);
       }
+      return false;
     }
+  }
+
+  /** One after another, the way the person could have deleted them; a refused one comes back and the rest still go. */
+  async function commitPendingDeletes(pendings: readonly PendingDelete[]) {
+    const keptInRecentlyDeleted: string[] = [];
+    for (const pending of pendings) if (await commitPendingDelete(pending, false)) keptInRecentlyDeleted.push(pending.name);
+    if (!keptInRecentlyDeleted.length) return;
+    showToast({
+      text: keptInRecentlyDeleted.length === 1
+        ? `${keptInRecentlyDeleted[0]} is in Recently Deleted — History could not keep a copy of everything in it.`
+        : `${formatItemCount(keptInRecentlyDeleted.length, "item")} are in Recently Deleted — History could not keep a copy of everything in them.`,
+      tone: "info",
+      durationMs: 8000,
+    });
   }
 
   function flushAllPendingDeletes(keepalive = false) {
@@ -1855,7 +1998,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding Files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating Files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={tree.query ? new Set() : tree.collapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} movingTreePath={tree.movingTreePath} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntry(path)} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} sharedPaths={sharedPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -1999,7 +2142,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       }}
       onClose={closeWorkFolderAppearance}
     /> : null}
-    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onCopyPath={copyPath} onShowVersionHistory={(path) => openVersionHistory(workFolder, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} canDelete={!holdsNestedFolder(fileContextMenu.entry)} onShare={shareFile} shareWorkFolderId={workFolder.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
+    {fileContextMenu ? <FileContextMenu state={fileContextMenu} onSelect={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onOpenLocal={openLocalPath} canOpenWith={canOpenWith} onAddToChatContext={attachToChat} onAttachSelection={attachToChat} onCopyPath={copyPath} onCopyPaths={copyPaths} onShowVersionHistory={(path) => openVersionHistory(workFolder, path)} onRename={fileContextMenu.entry.path && !holdsNestedFolder(fileContextMenu.entry) ? renameEntry : undefined} onNewFolder={requestNewFolder} onUploadHere={chooseUpload} onRefresh={() => void tree.refresh(false)} onGiveWorker={canGiveOwnWorker(fileContextMenu.entry) ? (path) => void giveOwnWorker(path) : undefined} onDelete={deleteEntry} onDeleteSelection={deleteEntries} canDelete={!(fileContextMenu.selection ?? [fileContextMenu.entry]).some(holdsNestedFolder)} onShare={shareFile} shareWorkFolderId={workFolder.id} fixtureMode={Boolean(fixture)} onClose={() => setFileContextMenu(null)} /> : null}
     {newFolderTarget ? <NewFolderModal target={newFolderTarget} fixtureMode={Boolean(fixture)} onCreated={(folder) => void folderCreated(folder, newFolderTarget)} onClose={() => setNewFolderTarget(null)} /> : null}
     {renameEntryRequest ? <TextInputModal title={`Rename ${renameEntryRequest.name}`} label="Name" initialValue={renameEntryRequest.name} confirmLabel="Rename" onSubmit={submitEntryRename} onClose={() => setRenameEntryRequest(null)} /> : null}
     {chatActions ? <ChatActionsPopover state={chatActions} onRename={renameChat} onLifecycle={(target, conversation, patch) => updateChatLifecycle(target, conversation, patch).then(() => {})} onDelete={deleteChat} onCopy={copyChat} onClose={() => setChatActions(null)} /> : null}
@@ -2098,6 +2241,16 @@ function isQuickLookShortcut(event: KeyboardEvent) {
 function commandPaletteBlockedByDialog() {
   if (typeof document === "undefined") return false;
   return Boolean(document.querySelector(":is(.modal-backdrop, .publish-review-backdrop):not([data-exit-ghost]), [role='dialog'][aria-modal='true']"));
+}
+
+/** Several rows dragged together show one small label, such as "3 Items", instead of the row under the pointer. */
+function setSelectionDragImage(event: React.DragEvent<HTMLElement>, label: string) {
+  const image = document.createElement("div");
+  image.className = "file-selection-drag-image";
+  image.textContent = label;
+  document.body.append(image);
+  event.dataTransfer.setDragImage(image, -10, -10);
+  window.setTimeout(() => image.remove(), 0);
 }
 
 function pendingDeleteKey(pending: Pick<PendingDelete, "workFolderId" | "path">) {

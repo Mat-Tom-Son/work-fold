@@ -15,7 +15,10 @@ import {
   workFolderTreePathMissing,
 } from "../lib/tree";
 import { readStoredJsonValue, writeStoredJsonValue } from "../lib/storage";
+import { treeSelectionRange } from "../lib/tree-selection";
 import type { TreeEntry, WorkFolderFileEvent, WorkFolderSummary } from "../types";
+
+const noPaths: ReadonlySet<string> = new Set();
 
 export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (message: string | null) => void, fixtureTree?: TreeEntry[]) {
   const [tree, setTreeState] = useState<TreeEntry[]>(fixtureTree ?? []);
@@ -26,7 +29,9 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
   const [query, setQuery] = useState("");
   const [searchHydrating, setSearchHydrating] = useState(false);
   const [treeTruncated, setTreeTruncated] = useState(false);
-  const [movingTreePath, setMovingTreePath] = useState<string | null>(null);
+  // Several rows selected together; empty while one row (selectedPath) or none is.
+  const [multiSelection, setMultiSelection] = useState<ReadonlySet<string>>(noPaths);
+  const [movingTreePaths, setMovingTreePaths] = useState<ReadonlySet<string>>(noPaths);
   const [dropTargetFolderPath, setDropTargetFolderPath] = useState<string | null>(null);
   const requestRef = useRef(0);
   const activeWorkFolderIdRef = useRef(workFolder.id);
@@ -48,10 +53,18 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
   const collapsedPathsRef = useRef(collapsedPaths);
   const shownCollapsedPathsRef = useRef(shownCollapsedPaths);
   const selectedPathRef = useRef(selectedPath);
+  const selectedPaths = useMemo(
+    () => multiSelection.size > 1 ? multiSelection : selectedPath ? new Set([selectedPath]) : noPaths,
+    [multiSelection, selectedPath],
+  );
+  const selectedPathsRef = useRef(selectedPaths);
+  // Shift-click selects from here: the row last clicked without Shift.
+  const selectionAnchorRef = useRef<string | null>(selectedPath);
   treeRef.current = tree;
   collapsedPathsRef.current = collapsedPaths;
   shownCollapsedPathsRef.current = shownCollapsedPaths;
   selectedPathRef.current = selectedPath;
+  selectedPathsRef.current = selectedPaths;
   activeWorkFolderIdRef.current = workFolder.id;
 
   function setSearchClosedPaths(workFolderId: string, paths: ReadonlySet<string>) {
@@ -74,10 +87,12 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
     const saved = fixtureTree ? { selectedPath: null, collapsedPaths: new Set<string>() } : readTreeState(workFolder.id);
     requestRef.current += 1;
     setSelectedPathState(saved.selectedPath);
+    setMultiSelection(noPaths);
+    selectionAnchorRef.current = saved.selectedPath;
     setCollapsedPaths(saved.collapsedPaths);
     setSearchClosedPathsState(searchClosedPathsRef.current.get(workFolder.id) ?? new Set());
     setLoadingFolderPaths(new Set());
-    setMovingTreePath(null);
+    setMovingTreePaths(noPaths);
     setDropTargetFolderPath(null);
     setQuery("");
     setSearchHydrating(false);
@@ -246,9 +261,61 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
     refreshTimerRef.current = null; needsFullRefreshRef.current = false; eventPathsRef.current.clear();
   }
 
-  function setSelectedPath(path: string | null) {
+  function writeSelectedPath(path: string | null) {
     setSelectedPathState(path);
+    selectedPathRef.current = path;
     writeTreeState(workFolder.id, { selectedPath: path, collapsedPaths: [...collapsedPathsRef.current] });
+  }
+
+  /** Selects just this row, or nothing: a plain click, a keyboard move, a file tab coming to the front. */
+  function setSelectedPath(path: string | null) {
+    writeSelectedPath(path);
+    setMultiSelection(noPaths);
+    selectedPathsRef.current = path ? new Set([path]) : noPaths;
+    selectionAnchorRef.current = path;
+  }
+
+  /** Selects these rows; `focus` is the one last clicked, which keeps Files' single-row behavior. */
+  function selectPaths(paths: Iterable<string>, focus: string | null = null) {
+    const next = new Set(paths);
+    if (next.size <= 1) {
+      const only = next.values().next().value ?? null;
+      writeSelectedPath(only);
+      setMultiSelection(noPaths);
+      selectedPathsRef.current = only ? new Set([only]) : noPaths;
+      return;
+    }
+    writeSelectedPath(focus && next.has(focus) ? focus : [...next].at(-1)!);
+    setMultiSelection(next);
+    selectedPathsRef.current = next;
+  }
+
+  /** ⌘-click: adds the row to the selection, or takes it out. */
+  function toggleSelectedPath(path: string) {
+    const next = new Set(selectedPathsRef.current);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    selectionAnchorRef.current = path;
+    selectPaths(next, next.has(path) ? path : selectedPathRef.current);
+  }
+
+  /** Shift-click: the shown rows from the last clicked row to this one; with ⌘ as well, added to the selection. */
+  function selectPathRange(path: string, order: readonly string[], additive = false) {
+    const anchor = [selectionAnchorRef.current, selectedPathRef.current].find((candidate): candidate is string => Boolean(candidate && order.includes(candidate))) ?? path;
+    const range = treeSelectionRange(order, anchor, path);
+    if (!range.length) return;
+    selectionAnchorRef.current = anchor;
+    selectPaths(additive ? [...selectedPathsRef.current, ...range] : range, path);
+  }
+
+  /** A row that stops showing (its folder closed, a search hid it, it was deleted) leaves the selection. */
+  function keepSelectionWithin(shownPaths: readonly string[]) {
+    const current = selectedPathsRef.current;
+    if (current.size < 2) return;
+    const shown = new Set(shownPaths);
+    const kept = [...current].filter((path) => shown.has(path));
+    if (kept.length === current.size) return;
+    if (kept.length) selectPaths(kept, selectedPathRef.current);
+    else { setMultiSelection(noPaths); selectedPathsRef.current = selectedPathRef.current ? new Set([selectedPathRef.current]) : noPaths; }
   }
 
   function toggleFolder(path: string, expanded?: boolean) {
@@ -267,8 +334,9 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
   const search = useMemo(() => query.trim() ? searchFileTree(tree, query) : { entries: tree, matchCount: 0 }, [query, tree]);
   return {
     tree, setTree, status, refresh, selectedPath, setSelectedPath, collapsedPaths: shownCollapsedPaths,
+    selectedPaths, selectPaths, toggleSelectedPath, selectPathRange, keepSelectionWithin,
     loadingFolderPaths, query, setQuery, visibleEntries: search.entries, matchCount: search.matchCount,
-    searchHydrating, treeTruncated, toggleFolder, movingTreePath, setMovingTreePath, dropTargetFolderPath, setDropTargetFolderPath,
+    searchHydrating, treeTruncated, toggleFolder, movingTreePaths, setMovingTreePaths, dropTargetFolderPath, setDropTargetFolderPath,
   };
 }
 

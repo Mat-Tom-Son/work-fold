@@ -28,7 +28,7 @@ test("Worker working files remain interactive alongside normal Files", async (t)
     const [selected, select] = useState<string | null>(null);
     return createElement(FileTree, {
       entries, collapsedPaths: collapsed, loadingFolderPaths: new Set<string>(), selectedPath: selected,
-      movingTreePath: null, dropTargetFolderPath: null,
+      dropTargetFolderPath: null,
       onToggleFolder: path => collapse(value => value.has(path) ? new Set() : new Set([path])),
       onSelectFile: select, onFocusEntry: select, onOpenFile: path => opened.push(path),
       onOpenContextMenu: entry => menus.push(entry.path), onRenameEntry: path => renamed.push(path),

@@ -5,6 +5,7 @@ import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
 import { useSharedPages } from "../../hooks/useSharedPages";
 import type { FileContextMenuState } from "../../types";
 import { fileSharing } from "../../ui-contract";
+import { fileSelectionLabel } from "../../../../src/shared/file-selection";
 
 export function FileContextMenu({
   state,
@@ -12,7 +13,9 @@ export function FileContextMenu({
   onOpenLocal,
   canOpenWith = false,
   onAddToChatContext,
+  onAttachSelection,
   onCopyPath,
+  onCopyPaths,
   onShowVersionHistory,
   onRename,
   onNewFolder,
@@ -21,6 +24,7 @@ export function FileContextMenu({
   onRefresh,
   onGiveWorker,
   onDelete,
+  onDeleteSelection,
   canDelete = true,
   onShare,
   shareWorkFolderId,
@@ -32,7 +36,10 @@ export function FileContextMenu({
   onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
   canOpenWith?: boolean;
   onAddToChatContext: (path: string) => void;
+  /** Several selected rows: attaches them together (offered when every one is a file). */
+  onAttachSelection?: (paths: string[]) => void;
   onCopyPath: (path: string) => void | Promise<void>;
+  onCopyPaths?: (paths: string[]) => void | Promise<void>;
   onShowVersionHistory: (path: string) => void;
   onRename?: (path: string) => void;
   onNewFolder?: (parentPath: string) => void;
@@ -42,6 +49,7 @@ export function FileContextMenu({
   /** "Make a work-folder": registers this plain folder as a nested work-folder with its own Worker. */
   onGiveWorker?: (path: string) => void;
   onDelete: (path: string) => void | Promise<void>;
+  onDeleteSelection?: (paths: string[]) => void | Promise<void>;
   /** False for a folder that holds a nested work-folder, which cannot be deleted from here. */
   canDelete?: boolean;
   /** Shares a shareable file, or opens its link when it is already shared. */
@@ -52,12 +60,14 @@ export function FileContextMenu({
   onClose: () => void;
 }) {
   const { entry } = state;
+  // Several rows selected together get only the actions that make sense for all of them.
+  const selection = state.selection && state.selection.length > 1 ? state.selection : null;
   const sharedPages = useSharedPages(fixtureMode);
   const shareable = Boolean(onShare && shareWorkFolderId && entry.kind === "file" && isShareablePath(entry.path));
   const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareWorkFolderId!, entry.path));
   const openLabel = nativeOpenLabel(entry);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path]);
+  useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path, selection?.length]);
 
   function items() { return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []); }
   function closeAndReturnFocus() { onClose(); window.requestAnimationFrame(() => state.returnFocusTarget?.focus()); }
@@ -75,6 +85,17 @@ export function FileContextMenu({
     }
   }
   const run = (action: () => void | Promise<void>) => { onClose(); void action(); };
+  if (selection) {
+    const paths = selection.map((item) => item.path);
+    const files = selection.filter((item) => item.kind === "file").length;
+    return (
+      <div ref={menuRef} className="context-menu" style={{ left: state.x, top: state.y }} role="menu" aria-label={fileSelectionLabel(files, selection.length - files)} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
+        {onAttachSelection && files === selection.length ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAttachSelection(paths))}><CirclePlus size={15} />Attach to Chat</button> : null}
+        {onCopyPaths ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPaths(paths))}><Copy size={15} />Copy Paths</button> : null}
+        {onDeleteSelection && canDelete ? <><div className="context-menu-separator" role="separator" /><button className="danger" type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onDeleteSelection(paths))}><Trash2 size={15} />Delete {fileSelectionLabel(files, selection.length - files)}</button></> : null}
+      </div>
+    );
+  }
   return (
     <div ref={menuRef} className="context-menu" style={{ left: state.x, top: state.y }} role="menu" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
       {entry.kind === "file" && canOpenDirectly(entry.path) ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => { onSelect(entry.path); return onOpenLocal(entry.path, openLabel.office ? "open-native" : "open"); })}><ExternalLink size={15} />{openLabel.text}</button> : null}

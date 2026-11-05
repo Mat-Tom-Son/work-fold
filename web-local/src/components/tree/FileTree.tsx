@@ -3,8 +3,9 @@ import { ArrowRight, ChevronRight, Loader2, SharedOnWeb } from "../chrome/icons"
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
-import { desktopFileDragHint } from "../../lib/platform";
+import { desktopFileDragHint, isMacOS } from "../../lib/platform";
 import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "../../lib/tree";
+import { isSelectionToggleKey } from "../../lib/tree-selection";
 import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../types";
 import { fileSharing } from "../../ui-contract";
@@ -23,7 +24,8 @@ export function FileTree({
   collapsedPaths,
   loadingFolderPaths,
   selectedPath,
-  movingTreePath,
+  selectedPaths,
+  movingTreePaths,
   dropTargetFolderPath,
   checkAttentionPaths = new Set<string>(),
   sharedPaths = new Set<string>(),
@@ -34,6 +36,9 @@ export function FileTree({
   onToggleFolder,
   onSelectFile,
   onFocusEntry,
+  onToggleSelected,
+  onSelectRange,
+  onSelectAll,
   onPreviewFile,
   onOpenFile,
   onOpenContextMenu,
@@ -54,7 +59,9 @@ export function FileTree({
   collapsedPaths: Set<string>;
   loadingFolderPaths: Set<string>;
   selectedPath?: string | null;
-  movingTreePath: string | null;
+  /** Every selected row when several are; a plain click still selects only `selectedPath`. */
+  selectedPaths?: ReadonlySet<string>;
+  movingTreePaths?: ReadonlySet<string>;
   dropTargetFolderPath: string | null;
   checkAttentionPaths?: ReadonlySet<string>;
   /** Files in this work-folder shared as a page; folders never carry the mark. */
@@ -67,6 +74,11 @@ export function FileTree({
   onSelectFile: (path: string) => void;
   /** Keyboard focus lands on a row: move the visual selection with it without opening anything. */
   onFocusEntry?: (path: string) => void;
+  /** ⌘-click (Ctrl-click off the Mac): adds the row to the selection, or takes it out. */
+  onToggleSelected?: (path: string) => void;
+  /** Shift-click or Shift+Arrow: the shown rows from the last clicked one to this one; `additive` keeps what was selected. */
+  onSelectRange?: (path: string, additive: boolean) => void;
+  onSelectAll?: () => void;
   onPreviewFile?: (path: string) => void;
   onOpenFile: (path: string) => void;
   onOpenContextMenu: (entry: TreeEntry, event: React.MouseEvent<HTMLElement>) => void;
@@ -87,6 +99,20 @@ export function FileTree({
   }
   if (!entries.length) return emptyContent ? <div className="empty-inline">{emptyContent}</div> : <EmptyInline text={emptyText} />;
   const searching = Boolean(searchQuery.trim());
+  const severalSelected = (selectedPaths?.size ?? 0) > 1;
+  const isSelected = (path: string) => selectedPaths ? selectedPaths.has(path) : selectedPath === path;
+  // ⌘ on any Mac, the browser host included: there Ctrl-click is a right-click.
+  const mac = isMacOS() || (typeof navigator !== "undefined" && /^Mac/i.test(navigator.platform));
+
+  // A plain click selects one row (a file opens in its tab; a folder opens or
+  // closes). ⌘ and Shift change the selection only, and never open anything.
+  function handleRowClick(event: React.MouseEvent<HTMLButtonElement>, entry: TreeEntry, folderCollapsed: boolean) {
+    const toggle = isSelectionToggleKey(event, mac);
+    if (event.shiftKey && onSelectRange) { onSelectRange(entry.path, toggle); return; }
+    if (toggle && onToggleSelected) { onToggleSelected(entry.path); return; }
+    if (entry.kind === "file") onSelectFile(entry.path);
+    else if (!searching) toggleFolder(entry.path, folderCollapsed);
+  }
 
   function toggleFolder(path: string, collapsed: boolean) {
     openedFolder.current = collapsed ? { path, at: performance.now() } : null;
@@ -103,7 +129,32 @@ export function FileTree({
     }
   }
 
+  // Shift+Arrow grows or shrinks the selection with the focus.
+  function extendSelectionToFocusedTreeRow() {
+    const focused = document.activeElement;
+    if (onSelectRange && focused instanceof HTMLElement && focused.dataset.treeRow === "true" && focused.dataset.treePath) onSelectRange(focused.dataset.treePath, false);
+  }
+
   function handleTreeRowKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: TreeEntry) {
+    if (event.key === "Escape" && severalSelected && onFocusEntry) {
+      // Back to just the focused row; the next Escape clears it.
+      event.preventDefault();
+      event.stopPropagation();
+      onFocusEntry(entry.path);
+      return;
+    }
+    if (onSelectAll && event.key.toLocaleLowerCase() === "a" && isSelectionToggleKey(event, mac) && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      onSelectAll();
+      return;
+    }
+    if (event.shiftKey && onSelectRange && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End")) {
+      event.preventDefault();
+      if (event.key === "Home" || event.key === "End") focusEdgeTreeRow(event.currentTarget, event.key === "Home" ? "first" : "last");
+      else focusAdjacentTreeRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1);
+      extendSelectionToFocusedTreeRow();
+      return;
+    }
     if (entry.nestedFolder && (event.key === "Enter" || event.key === " " || event.key === "ArrowRight")) {
       event.preventDefault();
       const nested = nestedFolders?.get(entry.path);
@@ -128,7 +179,7 @@ export function FileTree({
       reportFocusedTreeRow();
       return;
     }
-    if (event.key === "F2" && onRenameEntry && !searching) {
+    if (event.key === "F2" && onRenameEntry && !searching && !severalSelected) {
       event.preventDefault();
       onRenameEntry(entry.path);
       return;
@@ -176,7 +227,7 @@ export function FileTree({
   }
 
   return (
-    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined}>
+    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined} aria-multiselectable={level === 1 && onToggleSelected ? true : undefined}>
       {entries.map((entry) => {
         if (entry.nestedFolder) {
           const nested = nestedFolders?.get(entry.path);
@@ -185,7 +236,7 @@ export function FileTree({
           return (
             <div className="file-tree-item" key={entry.path}>
               <button
-                className={["file-row", "folder-row", "nested-folder-row", selectedPath === entry.path ? "selected" : ""].filter(Boolean).join(" ")}
+                className={["file-row", "folder-row", "nested-folder-row", isSelected(entry.path) ? "selected" : ""].filter(Boolean).join(" ")}
                 type="button"
                 role="treeitem"
                 aria-level={level}
@@ -227,6 +278,7 @@ export function FileTree({
         const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
         const shared = entry.kind === "file" && sharedPaths.has(entry.path);
         const rowLabel = `${checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`;
+        const selected = isSelected(entry.path);
         return (
           <div className="file-tree-item" key={entry.path}>
             <button
@@ -236,8 +288,8 @@ export function FileTree({
                 entry.kind === "folder" && entry.path === ".worker" ? "worker-scratch" : "",
                 entry.kind === "folder" && dropTargetFolderPath === entry.path ? "drop-target" : "",
                 isInsideFolder(entry.path, dropTargetFolderPath) ? "drop-descendant" : "",
-                selectedPath === entry.path ? "selected" : "",
-                movingTreePath === entry.path ? "moving" : "",
+                selected ? "selected" : "",
+                movingTreePaths?.has(entry.path) ? "moving" : "",
                 exactCheckAttention ? "has-check-attention" : "",
                 descendantCheckAttention ? "contains-check-attention" : "",
                 shared ? "is-shared" : "",
@@ -246,14 +298,14 @@ export function FileTree({
               role="treeitem"
               aria-level={level}
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
-              aria-selected={entry.kind === "file" ? selectedPath === entry.path : undefined}
+              aria-selected={entry.kind === "file" || selected ? selected : undefined}
               aria-label={rowLabel}
               title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
-              onClick={() => entry.kind === "file" ? onSelectFile(entry.path) : !searching && toggleFolder(entry.path, folderCollapsed)}
-              onDoubleClick={() => entry.kind === "file" && onOpenFile(entry.path)}
+              onClick={(event) => handleRowClick(event, entry, folderCollapsed)}
+              onDoubleClick={(event) => entry.kind === "file" && !event.shiftKey && !isSelectionToggleKey(event, mac) && onOpenFile(entry.path)}
               onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
               onContextMenu={(event) => onOpenContextMenu(entry, event)}
               onDragStart={(event) => {
@@ -294,7 +346,8 @@ export function FileTree({
                   collapsedPaths={collapsedPaths}
                   loadingFolderPaths={loadingFolderPaths}
                   selectedPath={selectedPath}
-                  movingTreePath={movingTreePath}
+                  selectedPaths={selectedPaths}
+                  movingTreePaths={movingTreePaths}
                   dropTargetFolderPath={dropTargetFolderPath}
                   checkAttentionPaths={checkAttentionPaths}
                   sharedPaths={sharedPaths}
@@ -304,6 +357,9 @@ export function FileTree({
                   onToggleFolder={onToggleFolder}
                   onSelectFile={onSelectFile}
                   onFocusEntry={onFocusEntry}
+                  onToggleSelected={onToggleSelected}
+                  onSelectRange={onSelectRange}
+                  onSelectAll={onSelectAll}
                   onPreviewFile={onPreviewFile}
                   onOpenFile={onOpenFile}
                   onOpenContextMenu={onOpenContextMenu}

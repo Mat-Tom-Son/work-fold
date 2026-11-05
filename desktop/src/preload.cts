@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
         path: string;
         kind: "file" | "folder";
         capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean };
+        selection?: { files: number; folders: number };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
       popupTabMenu: (request: {

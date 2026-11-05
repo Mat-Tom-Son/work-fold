@@ -1,5 +1,5 @@
 import type React from "react";
-import { workFolderPathDragType } from "../constants";
+import { workFolderPathDragType, workFolderPathsDragType } from "../constants";
 import { desktopPlatform, type DesktopPlatform } from "./platform";
 import { fileExtension } from "./tree";
 import type { ChangeEntry, TreeEntry } from "../types";
@@ -53,6 +53,20 @@ function hasWorkFolderPathDrag(event: React.DragEvent<HTMLElement>): boolean {
   return Array.from(event.dataTransfer.types).includes(workFolderPathDragType);
 }
 
+/**
+ * The rows a Files drag carries: every selected row when several were dragged
+ * together, else the one row. A single-row drag also sets the one-path type,
+ * which older drop targets read.
+ */
+function draggedWorkFolderPaths(dataTransfer: DataTransfer): string[] {
+  try {
+    const several: unknown = JSON.parse(dataTransfer.getData(workFolderPathsDragType) || "null");
+    if (Array.isArray(several) && several.length && several.every((path) => typeof path === "string" && path)) return several;
+  } catch { /* not a several-row drag */ }
+  const one = dataTransfer.getData(workFolderPathDragType) || dataTransfer.getData("text/plain");
+  return one ? [one] : [];
+}
+
 function changeStatusText(change: ChangeEntry): string {
   if (change.kind === "created") return "New local file";
   if (change.kind === "modified") return "Modified locally";
@@ -67,4 +81,4 @@ function treeChangeLabel(change: ChangeEntry): string {
   return "Deleted local";
 }
 
-export { canOpenDirectly, changeStatusText, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };
+export { canOpenDirectly, changeStatusText, draggedWorkFolderPaths, hasNativeFiles, hasWorkFolderPathDrag, nativeOpenLabel, revealInFileManagerLabel, treeChangeLabel };

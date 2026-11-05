@@ -129,6 +129,13 @@ export const deleteFolderConfirm = {
   confirmLabel: "Delete work-folder",
 } as const;
 
+/** Several Files rows deleted together when a folder is among them; `label` reads "3 Items" or "2 Folders". */
+export const deleteSelectionConfirm = {
+  title: (label: string) => `Delete ${label}?`,
+  body: "Everything in them goes to History, or to Recently Deleted if History cannot keep a copy. You can bring them back for 30 days.",
+  confirmLabel: (label: string) => `Delete ${label}`,
+} as const;
+
 /**
  * Settings → Automations → Limits (docs/receipts-not-gates.md, F19 principle 6).
  * Bounds are defaults, not gates: they exist so a runaway stops and so
