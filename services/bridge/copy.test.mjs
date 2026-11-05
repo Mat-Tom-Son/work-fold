@@ -69,6 +69,28 @@ test("remote client keeps the load-bearing copy exact", async () => {
   assert.ok(page.includes("<title>work-fold</title>"));
 });
 
+test("Published is reachable before pairing, while the desktop is off, and beside Settings", async () => {
+  const app = await clientSource("app.js");
+  const published = await clientSource("published.js");
+
+  // The gate screens offer it: the desktop-offline gate and pairing.
+  assert.ok(app.includes('return `<button id="open-published" class="auth-secondary" type="button">Published pages</button>`;'));
+  assert.match(app, /eyebrow: "Desktop offline",[\s\S]*?panel: `<button id="retry" class="primary">Try again<\/button>\$\{publishedEntryMarkup\(\)\}`/);
+  assert.match(app, /eyebrow: "Confirm this browser once",[\s\S]*?\$\{publishedEntryMarkup\(\)\}/);
+  // The offline gate does not continue into pairing underneath it.
+  assert.match(app, /if \(publishedOpen\(\)\) return;/);
+  // The paired sidebar keeps it in the footer, before Settings.
+  assert.match(app, /class="sidebar-foot"[\s\S]*?id="open-published"[\s\S]*?id="account-settings"/);
+
+  // Plain words, and Unpublish says what happened rather than asking first.
+  for (const copy of ["Published", "See entries", "Export as spreadsheet", "Unpublish", "No entries yet.", "Link copied.",
+    "Nothing is published yet. Publish a page from its tab in"]) {
+    assert.ok(published.includes(copy), `missing copy: ${copy}`);
+  }
+  assert.ok(published.includes("Unpublished. Anyone opening the link now sees “Nothing is published here.”"));
+  assert.doesNotMatch(published, /confirm\(|Are you sure/);
+});
+
 test("remote questions live in their owning Chats", async () => {
   const app = await clientSource("app.js");
 
@@ -150,7 +172,7 @@ test("remote client navigation focuses on chats", async () => {
   assert.match(styles, /\.app-shell\[data-sidebar="collapsed"\] \.sidebar \[data-tip\]::after \{\s*\n\s*content: attr\(data-tip\)/);
   assert.match(styles, /@media \(min-width: 860px\) and \(hover: hover\)[\s\S]*?\[data-tip\]:hover::after/);
   assert.match(styles, /\[data-tip\]:focus-visible::after/);
-  for (const name of ["New chat", "Chats", "Settings"]) {
+  for (const name of ["New chat", "Chats", "Settings", "Published"]) {
     assert.ok(app.includes(`data-tip="${name}" aria-label="${name}"`) || app.includes(`aria-label="${name}" data-tip="${name}"`),
       `tooltip and accessible name disagree for ${name}`);
   }

@@ -88,8 +88,8 @@ function Test-WorkFoldActCommand {
     'tools', 'apps', 'automations', 'recently-deleted', 'requests', 'jobs', 'worktrees'
   )
   if ($actGroups -contains $group) { return $true }
-  # Page folders: only `pages validate` exists so far (docs/pages.md).
-  if ($group -ceq 'pages') { return $positional.Count -ge 2 -and [string]$positional[1] -ceq 'validate' }
+  # Page folders (docs/pages.md): check, publish, unpublish, and list.
+  if ($group -ceq 'pages') { return $positional.Count -ge 2 -and @('validate', 'publish', 'unpublish', 'list') -ccontains [string]$positional[1] }
   if ($group -ceq 'checks') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'status' }
   if ($group -ceq 'work-folders') { return $positional.Count -lt 2 -or [string]$positional[1] -cne 'list' }
   return $false

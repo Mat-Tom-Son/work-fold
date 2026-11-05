@@ -801,7 +801,7 @@ test("direct verbs parse with strict shapes", () => {
   for (const argv of [
     ["staged", "list"], ["staged", "show"], ["staged", "cancel"],
     ["automations", "stage"], ["pages", "stage"],
-    ["pages", "share"], ["pages", "share-app"], ["pages", "list"], ["pages", "status"],
+    ["pages", "share"], ["pages", "share-app"], ["pages", "status"],
     ["pages", "revoke"], ["pages", "narrow"], ["pages", "widen"], ["pages", "snapshot-off"],
   ]) {
     assert.throws(() => parseWorkFoldCliActArgv(argv), /Unknown command/, `expected an unknown command for '${argv.join(" ")}'`);

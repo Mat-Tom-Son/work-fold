@@ -701,6 +701,37 @@ export interface WorkFoldActPageValidation {
   problems: Array<{ file: string; message: string; severity: "error" | "warning" }>;
 }
 
+/**
+ * One published page as the act lane reports it (docs/pages.md, "Publishing
+ * (stage 2)"). `url` is the page's link: whoever has it can open the page, so
+ * it is returned to the caller and never written to a receipt, which names
+ * the page by path and `idPrefix` (the page id's first 8 characters).
+ */
+export interface WorkFoldActPagePublication {
+  /** The page folder's work-folder-relative path. */
+  path: string;
+  title: string;
+  /** Null until work-fold.com has said where pages are served (the next check-in). */
+  url: string | null;
+  idPrefix: string;
+  status: "online" | "unpublished";
+  revision: number;
+  publishedAt: string | null;
+  /** The folder's assembled document or page.json differs from what was last published. */
+  changesAvailable: boolean;
+  lastCheckIn: string | null;
+  dataRevision: number;
+  /** Live entries online at the last check-in, when the page service said. */
+  entries: number | null;
+}
+
+/** `pages list`: every page published from this computer. */
+export interface WorkFoldActPublishedPage extends WorkFoldActPagePublication {
+  workFolderId: string;
+  /** Null when that work-folder is no longer registered here. */
+  workFolderName: string | null;
+}
+
 /** The exact installation an install verb produced. Never resolved by display name. */
 export interface WorkFoldActInstalledAppRef {
   workFolderId: string;
@@ -1054,6 +1085,24 @@ export interface WorkFoldActFacade {
    * same problems.
    */
   pagesValidate(input: { workFolder: string; page: string }): Promise<WorkFoldActPageValidation>;
+  /**
+   * Publishes one page folder (docs/pages.md, "Publishing (stage 2)"): the
+   * prepared `page.publish` act, pinned to the work-folder, the path, and the
+   * content digest. Refused with the page's problems when any is an error,
+   * without Web Access, and while an Automation's work is running.
+   */
+  pagesPublish(input: { workFolder: string; page: string; requestId?: string; parentTaskId?: string }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    publication: WorkFoldActPagePublication;
+    uploaded: { files: Array<{ path: string; bytes: number }>; bytes: number };
+  }>;
+  /** Takes a published page offline; its entries are kept and publishing again brings back the same link. */
+  pagesUnpublish(input: { workFolder: string; page: string; requestId?: string; parentTaskId?: string }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    publication: WorkFoldActPagePublication;
+  }>;
+  /** Every page published from this computer, or only one work-folder's. */
+  pagesList(input: { workFolder?: string }): Promise<{ publications: WorkFoldActPublishedPage[] }>;
   historyVersions(input: { workFolder: string; path: string } & HistoryPageOptions): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     path: string;

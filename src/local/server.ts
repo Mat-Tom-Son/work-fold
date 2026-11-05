@@ -375,8 +375,19 @@ import {
 } from "./server-dev-options.js";
 import { isAlwaysHiddenWorkFolderEntry, isWorkFolderIgnored, readWorkFolderIgnoreState, setWorkFolderIgnoreState } from "./work-folder-ignore.js";
 import { canonicalWorkFolderWatchRoot } from "./work-folder-watch.js";
-import { handlePageRoute, servePageFrameAsset } from "./pages/page-routes.js";
+import { handlePageRoute, servePageFrameAsset, type PageRoutePublishing } from "./pages/page-routes.js";
 import { validatePageForAct } from "./pages/page-validate.js";
+import { PageCallError } from "../shared/pages/index.js";
+import { PagesBridgeError, PagesBridgeUnavailableError, type WorkFoldPagesBridge } from "./pages/page-bridge-client.js";
+import { PagePublicationStore } from "./pages/page-publication-store.js";
+import {
+  PagePublishError,
+  PagePublishingService,
+  type PageCheckInSummary,
+  type PagePublishResult,
+  type PageWorkFolderWriteOutcome,
+  type PreparedPagePublish,
+} from "./pages/page-publishing.js";
 import {
   beginWorkFolderRemoval,
   copyPathIntoWorkFolder,
@@ -410,6 +421,7 @@ import {
   resolveNestableFolderPath,
   workFolderRemovalPendingResult,
   touchWorkFolderRoot,
+  withWorkFolderHistoryOperation,
   writeWorkFolderTextFile,
   writeUploadedFiles,
   type WorkFolderMovedEntry,
@@ -485,6 +497,14 @@ export interface LocalApiOptions {
    * without Electron has none.
    */
   browser?: BrowserToolHost;
+  /**
+   * The bridge's device page routes (docs/pages.md, "Publishing (stage 2)").
+   * The desktop passes a client that reads the Web Access settings at call
+   * time; without one, publishing says Web Access isn't set up.
+   */
+  pagesBridge?: WorkFoldPagesBridge | null;
+  /** How often published pages check in while running; 0 turns checking in off (tests). Default one minute. */
+  pagesCheckInIntervalMs?: number;
   /** Failure-injection seam that runs immediately before mandatory post-reservation work-folder validation. */
   beforeRestrictedAppWorkFolderRevalidation?: (workFolderId: string) => Promise<void>;
   maxBodyBytes?: number;
@@ -678,6 +698,8 @@ export interface LocalApiHandle {
   automationSettings: WorkFoldAutomationSettingsFacade;
   /** Recently deleted: the machine-local trash every destructive verb writes to first. */
   recentlyDeleted: WorkFoldRecentlyDeletedStore;
+  /** Published pages (docs/pages.md): the desktop checks in after waking. */
+  pages: { checkIn(): Promise<PageCheckInSummary> };
   close: () => Promise<void>;
 }
 
@@ -712,6 +734,8 @@ interface LocalApiState {
    */
   preparedActs: PreparedActExecutor;
   automations: WorkFoldAutomationService;
+  /** Publishing pages and checking in (docs/pages.md, "Publishing (stage 2)"). */
+  pagePublishing: PagePublishingService;
   workFolderTrustAuthority: RegisteredWorkFolderTrustAuthority;
   workFoldAgentInstructionsError: string | null;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -1026,6 +1050,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     // listens; their fences and hop ports close over this state object.
     preparedActs: undefined as unknown as PreparedActExecutor,
     automations: undefined as unknown as WorkFoldAutomationService,
+    pagePublishing: undefined as unknown as PagePublishingService,
     workFolderTrustAuthority,
     workFoldAgentInstructionsError,
     localFolderGrantProvider: options.localFolderGrantProvider,
@@ -1092,6 +1117,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     adapters: createPreparedActAdapters(state),
     fence: createPreparedActFence(state),
     kernel,
+  });
+  state.pagePublishing = new PagePublishingService({
+    bridge: options.pagesBridge ?? null,
+    store: new PagePublicationStore(),
+    listWorkFolders: () => registeredWorkFolderOutline(),
+    withWorkFolderWrite: (workFolder, operation) => runPageFolderWrite(state, workFolder, operation),
   });
   state.browserAppActions = await BrowserAppActionService.create({
     path: join(workFoldStateRoot(), "restricted-apps", "browser-actions.json"),
@@ -1350,6 +1381,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     await drainRetention();
     throw error;
   }
+  // Published pages check in now and every minute while running (docs/pages.md).
+  state.pagePublishing.start(options.pagesCheckInIntervalMs ?? 60_000);
   extensionUi.on("request", requestListener);
   extensionUi.on("event", eventListener);
   extensionUi.on("settled", settledListener);
@@ -1371,11 +1404,13 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     automations: state.automations,
     automationSettings: createWorkFoldAutomationSettingsFacade(state),
     recentlyDeleted,
+    pages: { checkIn: () => state.pagePublishing.checkIn() },
     close: async () => {
       state.acceptingTurns = false;
       // Withdraw the cadence before any await; already-admitted filesystem
       // cleanup remains owned until the close promise settles below.
       clearInterval(remoteUploadPruneTimer);
+      await state.pagePublishing.close();
       state.modelContextInspector.setEnabled(false);
       await closeMcpSetups(state);
       const browserActionsClosed = state.browserAppActions.close();
@@ -1512,7 +1547,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
   }
 
   // Page folders, their preview, and test entries (docs/pages.md, "Local API").
-  if (await handlePageRoute(req, res, url, { readJson: () => readJsonBody(state, req) })) return;
+  if (await handlePageRoute(req, res, url, { readJson: () => readJsonBody(state, req), publishing: pageRoutePublishing(state) })) return;
 
   const checksStatusMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/checks\/status$/);
   if (checksStatusMatch && method === "GET") {
@@ -7307,6 +7342,48 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async pagesValidate(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
       return runActOperation(() => validatePageForAct(toActWorkFolderRef(workFolder), input.page));
+    },
+    async pagesPublish(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      assertNoAutomationPublishing(state, input.parentTaskId);
+      const requestId = input.requestId?.trim() || randomUUID();
+      const result = await runActOperation(() => runPageActOperation(() => publishPageAct(state, { workFolder, page: input.page, requestId })));
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.publish", workFolder });
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        publication: { path: result.path, title: result.title, idPrefix: result.idPrefix, ...result.publication },
+        uploaded: result.uploaded,
+      };
+    },
+    async pagesUnpublish(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const result = await runActOperation(() => runPageActOperation(() => state.pagePublishing.unpublish(workFolder, input.page)));
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.unpublish", workFolder });
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        publication: { path: result.record.path, title: result.record.title, ...await state.pagePublishing.actView(result.record, workFolder.workFolderRoot) },
+      };
+    },
+    async pagesList(input) {
+      const only = input.workFolder ? await resolveWorkFolder(input.workFolder) : null;
+      const records = (await runActOperation(() => state.pagePublishing.store.list()))
+        .filter((record) => record.publishedAt && (!only || record.workFolderId === only.id));
+      const registered = new Map((await registeredWorkFolderOutline()).map((workFolder) => [workFolder.id, workFolder]));
+      const publications = [];
+      for (const record of records) {
+        const workFolder = registered.get(record.workFolderId) ?? null;
+        publications.push({
+          workFolderId: record.workFolderId,
+          workFolderName: workFolder?.name ?? null,
+          path: record.path,
+          title: record.title,
+          ...await state.pagePublishing.actView(record, workFolder?.workFolderRoot ?? null),
+        });
+      }
+      publications.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "") || a.path.localeCompare(b.path, "en"));
+      return { publications };
     },
     async historyVersions(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
@@ -14030,7 +14107,182 @@ function createPreparedActAdapters(state: LocalApiState): PreparedActAdapters {
     "app.storage.clear": createAppStorageClearAdapter(state),
     "automation.enable": createAutomationEnableAdapter(state),
     "work-folder.delete-folder": createManagedWorkFolderDeletionAdapter(state),
+    "page.publish": createPagePublishAdapter(state),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Publishing pages (docs/pages.md, "Publishing (stage 2)" → "Desktop"). The
+// service lives in src/local/pages/page-publishing.ts; this is its wiring:
+// the History-aware write a check-in makes into a page folder, the prepared
+// `page.publish` act, and the journaled acts behind the publishing routes.
+// ---------------------------------------------------------------------------
+
+/**
+ * One check-in write into a work-folder (docs/pages.md, "Checking in"). It
+ * holds the work-folder's History operation, so it never lands in the middle
+ * of a History capture or restore, and it stays out of a work-folder whose
+ * mutation fence is held (a History restore or a deletion). Busy is not an
+ * error: the next check-in tries again.
+ */
+async function runPageFolderWrite<T>(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  operation: () => Promise<T>,
+): Promise<PageWorkFolderWriteOutcome<T>> {
+  if (state.capabilityMutations.has(workFolder.id)) return { ran: false, reason: "The work-folder is busy with another change." };
+  try {
+    return { ran: true, value: await withWorkFolderHistoryOperation(workFolder.workFolderRoot, operation) };
+  } catch (error) {
+    if ((error as { statusCode?: unknown })?.statusCode === 409) return { ran: false, reason: errorMessage(error) };
+    throw error;
+  }
+}
+
+/** The execution context a `page.publish` act carries: what the recheck assembled. */
+interface PagePublishActContext extends PreparedActOutcome<PagePublishResult> {
+  workFolder: WorkFolderSummary;
+  prepared: PreparedPagePublish;
+}
+
+/**
+ * The one publish door for the page tab and `pages publish`: refuse without
+ * Web Access, check and assemble the page (refusing with its problems), then
+ * run the prepared `page.publish` act pinned to the work-folder, the path, and
+ * the content digest. The caller journaled the request id first.
+ */
+async function publishPageAct(
+  state: LocalApiState,
+  input: { workFolder: WorkFolderSummary; page: unknown; requestId: string },
+): Promise<PagePublishResult> {
+  await state.pagePublishing.requireAvailable();
+  const prepared = await state.pagePublishing.prepare(input.workFolder, input.page);
+  const context: PagePublishActContext = { workFolder: input.workFolder, prepared };
+  await runPreparedActOperation(async () => {
+    const act = prepareAct({
+      kind: "page.publish",
+      parameters: { workFolderId: input.workFolder.id, pagePath: prepared.path },
+      pins: { workFolderId: input.workFolder.id, pagePath: prepared.path, contentDigest: prepared.contentDigest },
+    });
+    await state.preparedActs.run({ act, requestId: input.requestId, context });
+  });
+  if (!context.outcome) throw new Error("The page was not published.");
+  return context.outcome;
+}
+
+/**
+ * `page.publish`: re-reads and re-assembles the page folder inside the act and
+ * refuses when its content digest moved since it was pinned, then uploads
+ * exactly what the recheck assembled.
+ */
+function createPagePublishAdapter(state: LocalApiState): PreparedActAdapter<PagePublishActContext | undefined> {
+  return {
+    // Publishing changes no capability state, and a Worker publishes from
+    // inside its own turn; the service serializes publishes of one page.
+    fenceScope: () => null,
+    async recheckPins(act, context) {
+      if (!context) return "The page to publish was not supplied.";
+      const workFolder = await getWorkFolder(stringPinValue(act, "workFolderId")).catch(() => null);
+      if (!workFolder) return "The work-folder is no longer registered.";
+      const fresh = await state.pagePublishing.prepare(workFolder, stringPinValue(act, "pagePath"));
+      if (fresh.path !== stringPinValue(act, "pagePath")) return "The page folder is not the one this act pinned.";
+      if (fresh.contentDigest !== stringPinValue(act, "contentDigest")) {
+        return "The page changed after it was checked. Publish again to upload the current version.";
+      }
+      context.workFolder = workFolder;
+      context.prepared = fresh;
+      return null;
+    },
+    async execute(_act, context) {
+      if (!context) throw new Error("The page to publish was not supplied.");
+      const outcome = await state.pagePublishing.upload(context.workFolder, context.prepared);
+      context.outcome = outcome;
+      return { detail: outcome.receiptDetail };
+    },
+  };
+}
+
+/** The page tab's publishing routes, journaled as main-window acts beside the CLI's. */
+function pageRoutePublishing(state: LocalApiState): PageRoutePublishing {
+  return {
+    service: state.pagePublishing,
+    async publish(workFolder, page) {
+      const { value } = await runDesktopSettingsAct(state, "pages.publish", async (requestId) => {
+        const result = await publishPageAct(state, { workFolder, page, requestId });
+        return { value: result, detail: result.receiptDetail };
+      });
+      return { publication: value.publication, uploaded: value.uploaded };
+    },
+    async unpublish(workFolder, page) {
+      const { value } = await runDesktopSettingsAct(state, "pages.unpublish", async () => {
+        const result = await state.pagePublishing.unpublish(workFolder, page);
+        return { value: result, detail: result.receiptDetail };
+      });
+      return { publication: value.publication };
+    },
+    async changeData(workFolder, action, body) {
+      const { value } = await runDesktopSettingsAct(state, `pages.data.${action}`, async () => {
+        const result = await state.pagePublishing.changeOnline(workFolder, action, body);
+        return { value: result.value, detail: result.receiptDetail };
+      });
+      return value;
+    },
+  };
+}
+
+/**
+ * Automations can't publish (docs/pages.md). An Automation's steps have no
+ * publish kind, and the act lane refuses `pages publish` while an
+ * Automation's own turn, or work it handed out, is running, or when the named
+ * parent request began with one. A person can still publish from the page tab.
+ */
+function assertNoAutomationPublishing(state: LocalApiState, parentTaskId: string | undefined): void {
+  const refusal = () => new WorkFoldCliError(
+    "conflict",
+    "Automations can't publish pages, and an Automation's work is running now, so work-fold won't publish from the command line until it finishes. The person can publish from the page's tab.",
+  );
+  if (parentTaskId) {
+    const parent = state.requests.byTaskId(parentTaskId);
+    if (parent && (state.requests.get(parent.rootId) ?? parent).kind === "automation") throw refusal();
+  }
+  for (const root of state.requests.list({ kind: "automation" })) {
+    if (root.requestId !== root.rootId || isWorkFoldRequestTerminalState(root.state)) continue;
+    const graph = [root, ...state.requests.rootDescendants(root.requestId)];
+    if (graph.some((record) => record.turns.some((turn) => turn.state === "accepted" || turn.state === "running"))) throw refusal();
+  }
+}
+
+/** The act lane's codes for publishing refusals; everything else goes through runActOperation. */
+async function runPageActOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof PagePublishError) {
+      if (error.code === "WEB_ACCESS_REQUIRED") throw new WorkFoldCliError("unavailable", error.message, { cause: error });
+      if (error.code === "NOT_PUBLISHED") throw new WorkFoldCliError("notFound", error.message, { cause: error });
+      if (error.code === "PAGE_HAS_PROBLEMS") {
+        const errors = (error.problems ?? []).filter((problem) => problem.severity === "error");
+        const listed = errors.slice(0, 5).map((problem) => `${problem.file ? `${problem.file}: ` : ""}${problem.message}`);
+        const more = errors.length > 5 ? ` …and ${errors.length - 5} more.` : "";
+        throw new WorkFoldCliError(
+          "conflict",
+          `${error.message} ${listed.join(" ")}${more} Run pages validate for the whole list.`,
+          { cause: error },
+        );
+      }
+      throw new WorkFoldCliError("conflict", error.message, { cause: error });
+    }
+    if (error instanceof PagesBridgeUnavailableError) throw new WorkFoldCliError("unavailable", error.message, { cause: error });
+    // The page service's own refusals, relayed by the bridge.
+    if (error instanceof PageCallError) {
+      const code = error.code === "UNAVAILABLE" ? "unavailable" : error.code === "NOT_FOUND" ? "notFound" : error.code === "INVALID" || error.code === "TOO_LARGE" ? "usage" : "conflict";
+      throw new WorkFoldCliError(code, error.message, { cause: error });
+    }
+    if (error instanceof PagesBridgeError) {
+      throw new WorkFoldCliError(error.status === 413 ? "usage" : error.status === 404 ? "notFound" : "unavailable", error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 /** The prepared-act pin as bounded text, tolerating the parameter mirror. */

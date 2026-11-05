@@ -5,6 +5,7 @@
  */
 import { createRequire } from "node:module";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
 
 import type { PageSqlDatabase, PageSqlRow, PageSqlValue } from "../../shared/pages/page-sql.js";
 
@@ -23,7 +24,24 @@ function loadSqlite(): typeof import("node:sqlite") {
 /** Opens (creating when missing) one page database file, or `:memory:` for tests. */
 export function openPageSqliteDatabase(path: string): PageSqliteDatabase {
   const { DatabaseSync: Database } = loadSqlite();
-  const database: DatabaseSync = new Database(path, { enableForeignKeyConstraints: false });
+  return wrapDatabase(new Database(path, { enableForeignKeyConstraints: false }));
+}
+
+/**
+ * Opens a finished database file for reading only, as an immutable file: no
+ * locks, no `-journal`, `-wal`, or `-shm` side files beside it, and every
+ * write refused. This is how work-fold reads a page folder's `data.sqlite`
+ * (docs/pages.md, "Publishing (stage 2)"), which only a check-in replaces,
+ * and always by renaming a new file over it.
+ */
+export function openPageSqliteReadOnly(path: string): PageSqliteDatabase {
+  const { DatabaseSync: Database } = loadSqlite();
+  const url = pathToFileURL(path);
+  url.searchParams.set("immutable", "1");
+  return wrapDatabase(new Database(url, { readOnly: true, enableForeignKeyConstraints: false }));
+}
+
+function wrapDatabase(database: DatabaseSync): PageSqliteDatabase {
   const statements = new Map<string, StatementSync>();
   const prepare = (sql: string): StatementSync => {
     let statement = statements.get(sql);

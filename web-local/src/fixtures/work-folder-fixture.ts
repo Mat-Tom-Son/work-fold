@@ -36,8 +36,9 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
       [home.id]: [
         { name: "Kitchen refresh", path: "Kitchen refresh", kind: "folder", hasChildren: true, children: [{ name: "ideas.md", path: "Kitchen refresh/ideas.md", kind: "file", sizeBytes: 5240, updatedAt: now }, { name: "budget.xlsx", path: "Kitchen refresh/budget.xlsx", kind: "file", sizeBytes: 48200, updatedAt: now }] },
         { name: "Garden", path: "Garden", kind: "folder", hasChildren: true, children: [{ name: "ideas.md", path: "Garden/ideas.md", kind: "file", sizeBytes: 1180, updatedAt: now }, { name: "planting-plan.pdf", path: "Garden/planting-plan.pdf", kind: "file", sizeBytes: 812000, updatedAt: now }] },
-        // A page folder (docs/pages.md); its page lives in fixtures/pages-fixture.ts.
-        { name: "Garden Party RSVP", path: "Garden Party RSVP", kind: "folder", hasChildren: true, children: [{ name: "index.html", path: "Garden Party RSVP/index.html", kind: "file", sizeBytes: 2410, updatedAt: now }, { name: "page.json", path: "Garden Party RSVP/page.json", kind: "file", sizeBytes: 602, updatedAt: now }, { name: "notes.html", path: "Garden Party RSVP/notes.html", kind: "file", sizeBytes: 1800, updatedAt: now }] },
+        // A published page folder (docs/pages.md); its page lives in fixtures/pages-fixture.ts,
+        // and data.sqlite holds the entries visitors made online.
+        { name: "Garden Party RSVP", path: "Garden Party RSVP", kind: "folder", hasChildren: true, children: [{ name: "data.sqlite", path: "Garden Party RSVP/data.sqlite", kind: "file", sizeBytes: 28672, updatedAt: now }, { name: "index.html", path: "Garden Party RSVP/index.html", kind: "file", sizeBytes: 2410, updatedAt: now }, { name: "page.json", path: "Garden Party RSVP/page.json", kind: "file", sizeBytes: 602, updatedAt: now }, { name: "notes.html", path: "Garden Party RSVP/notes.html", kind: "file", sizeBytes: 1800, updatedAt: now }] },
         { name: "weekend checklist.md", path: "weekend checklist.md", kind: "file", sizeBytes: 2120, updatedAt: now },
       ],
       [trip.id]: [{ name: "Bookings", path: "Bookings", kind: "folder", hasChildren: true, children: [{ name: "hotel.pdf", path: "Bookings/hotel.pdf", kind: "file", sizeBytes: 222000, updatedAt: now }] }, { name: "itinerary.md", path: "itinerary.md", kind: "file", sizeBytes: 8430, updatedAt: now }],

@@ -218,6 +218,9 @@ work-fold tools enable --path <resource-path> --kind extensions --scope work-fol
 work-fold recently-deleted list --json
 work-fold recently-deleted restore --entry <recently-deleted-id> --json
 work-fold pages validate --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages publish --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages unpublish --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages list --json
 ```
 
 `tools enable|disable` uses Pi's resource filters for `extensions`, `skills`,
@@ -299,10 +302,61 @@ stable shape:
 `valid` is true when no problem is an error; warnings (such as an unused
 `.html` file) never make a page invalid. Problem files are relative to the
 page folder, and `""` means the page folder itself. `summary.tables` is empty
-while `page.json` has errors. Pages themselves never reach the act lane: their
-test entries and the Data view live behind the local API's
-`/api/work-folders/:id/pages` routes, and later publishing verbs join this
-family ([Online pages](online-pages-plan.md)).
+while `page.json` has errors. Test entries and the Data view live behind the
+local API's `/api/work-folders/:id/pages` routes, not the act lane.
+
+`work-fold pages publish --work-folder <id> --page <path> [--json]` puts a page
+online ([Pages](pages.md#desktop)). It makes the folder's bytes reachable by
+anyone with the link, so it runs as the prepared `page.publish` act: the
+journaled request id, then the page checked and assembled exactly as Preview
+does, pinned to the work-folder, the path, and the content digest (SHA-256
+over the canonical `page.json` and the assembled document), rechecked inside
+the act, and uploaded at most once. It refuses with the page's problems
+(`conflict`, naming the first few) when any is an error, with `unavailable`
+until Web Access is set up and turned on, and with `conflict` while an
+Automation's work is running or when `--parent-task` names a request an
+Automation started: Automations can't publish. The first publish chooses the
+page id (`pg_` plus 26 lowercase base32 characters) and keeps it, in the state
+root, for that folder; publishing again uploads changes under the same link
+and keeps the entries. `pages unpublish` is a direct verb that takes the page
+offline and keeps its entries (`notFound` for a page never published), and
+`pages list [--work-folder <id>]` reads every page published from this
+computer. Publish and unpublish accept `--parent-task`.
+
+Only the command's own output carries the link. Receipts name the page by its
+path and the first 8 characters of its id (`page.publish; page Garden Party
+RSVP; id pg_k3x9q; revision 2; 4 files, 18211 bytes`, `page Garden Party
+RSVP; id pg_k3x9q; unpublished`, `pages 3`), and so does the overview. The
+`--json` shapes:
+
+```json
+{
+  "workFolder": { "id": "space-…", "name": "Home", "workFolderRoot": "/…" },
+  "publication": {
+    "path": "Garden Party RSVP",
+    "title": "Garden Party RSVP",
+    "url": "https://pages.work-fold.com/p/pg_…",
+    "idPrefix": "pg_k3x9q",
+    "status": "online",
+    "revision": 2,
+    "publishedAt": "2026-11-05T18:00:00.000Z",
+    "changesAvailable": false,
+    "lastCheckIn": "2026-11-05T18:00:01.000Z",
+    "dataRevision": 14,
+    "entries": 12
+  },
+  "uploaded": { "files": [{ "path": "index.html", "bytes": 9120 }], "bytes": 18211 }
+}
+```
+
+`pages unpublish` returns `workFolder` and `publication` (status
+`unpublished`); `pages list` returns `{ "publications": [...] }`, each a
+`publication` plus `workFolderId` and `workFolderName` (null when that
+work-folder is no longer registered). `url` is null until work-fold.com has
+said where pages are served, which the first check-in learns.
+`changesAvailable` says the folder's assembled document or `page.json`
+differs from what was last published. Entries visitors make online come back
+into the page folder as `data.sqlite` whenever work-fold is running.
 
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
@@ -704,6 +758,7 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | Prepared acts (prepare, pin, journal, execute) | `src/local/prepared-acts.ts` | `tests/prepared-acts.test.ts`, `tests/work-fold-cli-act-receipts.test.ts` |
 | Pages: page.json, rules engine, schema, and Data view | `src/shared/pages/` | `tests/page-declaration.test.ts`, `tests/page-rules-engine.test.ts` |
 | Page folders, assembly, preview databases, routes, and `pages validate` | `src/local/pages/` | `tests/page-folders.test.ts`, `tests/page-routes.test.ts`, `tests/work-fold-cli-pages-verbs.test.ts` |
+| Publishing pages: bridge client, publication records, `page.publish`, checking in, Online entries, and `pages publish`, `unpublish`, and `list` | `src/local/pages/page-bridge-client.ts`, `src/local/pages/page-publication-store.ts`, `src/local/pages/page-publishing.ts`, `desktop/src/pages-bridge.ts` | `tests/page-publishing.test.ts` |
 | Recently deleted (trash store, retention, restore) | `src/local/recently-deleted-store.ts` | `tests/work-fold-recently-deleted-store.test.ts`, `tests/work-fold-cli-recently-deleted-verbs.test.ts`, `tests/recently-deleted-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/agent-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | work-folder turn context and operations guide | `src/local/agent/work-folder-turn-context.ts`, `src/local/agent/work-folder-operations-guide.ts` | `tests/work-folder-turn-context.test.ts`, `tests/work-folder-operations-guide-prompt.test.ts`, `tests/work-fold-agent-turn-context.test.ts` |

@@ -25,8 +25,8 @@ export const workFoldWorkerWorkingFilesGuide = [
 
 /**
  * How a Worker builds a page (docs/pages.md): something other people open on
- * the web, kept in a page folder and tried in its page tab. Publishing is a
- * later stage (docs/online-pages-plan.md), so nothing here offers it.
+ * the web, kept in a page folder and tried in its page tab, and published
+ * with `pages publish` when the person asks (stage 2).
  */
 export function workFolderPagesGuide(executable = "work-fold"): string[] {
   return [
@@ -34,7 +34,7 @@ export function workFolderPagesGuide(executable = "work-fold"): string[] {
     "",
     "A page is something other people will open on the web: a form, sign-up sheet, RSVP, poll, or announcement. Sharing a document means making a page from it. An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections. When it is unclear which they want, ask.",
     "",
-    "A page is a folder holding `page.json`, the entry `index.html`, and its own styles, scripts, and images. A work-folder can hold any number of page folders, never one inside another. Pages can't be published yet, but everything in a page folder will go online when one is, so never put private files, notes, or source documents there; draft in `.worker/`.",
+    "A page is a folder holding `page.json`, the entry `index.html`, and its own styles, scripts, and images. A work-folder can hold any number of page folders, never one inside another. Everything in a page folder except `data.sqlite` goes online when the page is published, so never put private files, notes, or source documents there; draft in `.worker/`.",
     "",
     "`page.json`, for example: `{\"format\":\"work-fold.page/1\",\"title\":\"Book Club Sign-up\",\"tables\":{\"signups\":{\"columns\":{\"name\":{\"type\":\"text\",\"required\":true},\"email\":{\"type\":\"email\",\"required\":true,\"unique\":true},\"book\":{\"type\":\"choice\",\"options\":[\"Dune\",\"Emma\"]}},\"visitors\":[\"add\",\"see-own\"],\"limit\":20}}}`. `format` is exactly `work-fold.page/1`; `title` (up to 120 characters) is required; `description` and `entry` (default `index.html`) are optional; unknown fields are errors. Table and column names are lowercase letters, digits, and `_`, starting with a letter. Column types: `text` and `long-text` (`max`), `number` (`min`, `max`, `integer`), `boolean`, `date`, `email`, `url`, and `choice` (`options`); any column takes `required` and `unique`. `visitors` lists what a visitor may do: `add`, `see-own`, `see-all`, `edit-own`, `delete-own` (default none; the owner may do everything). `limit` caps live rows (default 10,000). A page without tables saves nothing.",
     "",
@@ -56,6 +56,10 @@ export function workFolderPagesGuide(executable = "work-fold"): string[] {
     "- Announcement: a `page.json` with just `format` and `title`, no tables, and the HTML.",
     "",
     `Finish by running \`${executable} pages validate --work-folder <id> --page <path> --json\` with the page folder's work-folder-relative path and fixing every problem it reports. Then tell the person to open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the test entries, which stay on this computer.`,
+    "",
+    `Publishing: publish only when the person asks, with \`${executable} pages publish --work-folder <id> --page <path> --json\`. Anyone with the link can open the page. Tell the person the \`url\` from the result, and list the files it uploaded (\`uploaded.files\`) so nothing went out unnoticed. If it refuses because Web Access isn't set up, say so and point them to Settings → Web Access; if the page has problems, fix them and publish again. Publishing again uploads your changes under the same link and keeps the entries. \`${executable} pages unpublish\` takes a page offline and keeps its entries; \`${executable} pages list --json\` shows every published page.`,
+    "",
+    "Entries real visitors make come back into the page folder as `data.sqlite` while work-fold runs. To answer questions about them, read it with `sqlite3 -readonly`: each table has the declared columns plus `_id`, `_created`, and `_deleted` (null for live entries). Never write to it: work-fold replaces it at every check-in, and changes to entries go through the page's Data view.",
   ];
 }
 

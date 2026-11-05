@@ -343,6 +343,27 @@ Automations are the one thing above work-folders that runs unattended. An automa
 
 Checks do not treat portable data as authority. `.work-fold/checks/` may contain only strict code-free declarations; registration discovers but never enables them. Enablement binds a local grant to the exact declaration digest, installed sensor revision, and implementation/source digest. The runner rejects root, metadata, Pi configuration, nested-work-folder, link/junction, special-file, path-escape, Windows device/ADS, target-count, byte, depth, finding, and duration hazards. Sensors receive a host-created closed projection of designated inputs, not filesystem paths, and findings surface only after independent host re-verification; that boundary is checked again before an old finding is shown, so a target that later falls under another registered work-folder becomes blocked. Infrastructure, admission, skipped-input, persistence, timeout, and damaged-state failures fail closed as health errors. The Files tree fetches aggregate status first and receives only exact current target paths when a decoration is necessary; titles, details, evidence, decisions, runs, and aborts stay behind the trusted renderer's per-launch session token and allowed-origin local API boundary. Check operations reserve their work-folder before asynchronous work and participate in the same removal/capability fence until completion. Removal acquires its Check-cleanup lease before committing an intent, while work-folder creation and registration acquire an exclusive registry-mutation lease before changing target ownership; neither can interleave with evidence work. Run acceptance and terminal state are durable, incomplete startup state becomes `interrupted` without replay, and a terminal-write failure retains the same-process task/capability fence for retry instead of releasing a ghost run. work-folder removal keeps its durable intent until primary and backup Check state have been purged without parsing potentially damaged or future-version bytes; backup recovery strips enablement rather than resurrecting older authority. See [Checks](docs/checks.md).
 
+### Published pages
+
+A page's code is untrusted. In the desktop preview and on the page service it
+runs in an opaque-origin sandboxed frame (`allow-scripts allow-forms`, never
+`allow-same-origin`) under content security rules that deny network access,
+form navigation, nested frames, and remote resources; it reaches nothing but the
+`workFoldPage` calls relayed by a trusted host over a per-view channel. No
+content security rule covers WebRTC, so a page could still reach a STUN server; that gap is
+known and open. Page code never runs on work-fold's servers.
+
+Every page call is checked by the same rules engine locally and online:
+declared tables, column types, visitor permissions, limits, and uniqueness,
+with bound SQL parameters only. Visitors are identified by a random id in a
+page-scoped `HttpOnly` cookie and never see other visitors' ids. The page
+service's publisher and owner API listens on a separate internal port,
+requires a shared secret, and is reached only through the bridge, which
+authenticates the desktop by its device token and the owner by a signed-in
+session (with same-origin and CSRF checks on changes). Page ids carry 130
+random bits and are kept out of receipts, logs, and metrics. Publishing runs
+as a prepared act; Automations and page code cannot publish.
+
 ## Release integrity
 
 Windows packaging and public distribution are inactive. Version tags do not

@@ -1,0 +1,4 @@
+# The repository's .gitignore leaves out dist/, but the bundle is the only
+# thing this service runs, so the upload includes it.
+!dist/
+!dist/server.mjs

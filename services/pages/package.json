@@ -1,0 +1,13 @@
+{
+  "name": "@work-fold/pages",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Serves published work-fold pages to visitors and keeps each page's data.",
+  "engines": {
+    "node": "24"
+  },
+  "scripts": {
+    "start": "node dist/server.mjs"
+  }
+}

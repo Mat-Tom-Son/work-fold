@@ -317,6 +317,31 @@ counts, and whether enrollment is open. Those records intentionally omit
 account and browser ids, addresses, IP addresses, user agents, tokens, public
 keys, ciphertext, prompts, file names, and agent results.
 
+### Published pages
+
+Publishing a page (see [Pages](docs/pages.md)) uploads that page folder's
+files, assembled into one document, plus its `page.json`, to work-fold's page
+service on Railway. `data.sqlite`, hidden files, and everything outside the
+page folder stay local. Anyone with the page's link can open it; the link is
+the only thing that grants access, so work-fold keeps it out of receipts,
+logs, and the overview.
+
+Unlike the retired desktop-served pages, a published page and the entries its
+visitors submit are **readable by work-fold's service**: it has to serve the
+page and check each entry against the page's rules. It stores the published
+document, each page's entries in one SQLite database, and a random visitor id
+per browser in a cookie scoped to that page's link. When backups are
+configured, changed page databases are copied to a private storage bucket.
+Unpublishing takes a page offline and keeps its entries so publishing again
+restores the same link.
+
+While work-fold is running it copies each published page's entries back into
+that page folder as `data.sqlite`. Entries made while previewing are test
+entries kept in work-fold's own storage; they are never uploaded. The bridge
+passes publish, unpublish, and data requests between the desktop or the
+owner's signed-in browser and the page service; it does not keep page content
+or entries.
+
 ### Model providers
 
 When a user sends an agent message, Pi sends the request to the provider and model selected in Settings → AI Models. The request can include the message, relevant conversation history and instructions, explicitly selected text attachments, and tool results produced during the turn. A work-folder's optional **work-folder instructions** stay in machine-local application state rather than the work-folder's folder, but they are appended to every subsequent model request for that work-folder and therefore sent to the selected provider. Management attachments are references: readable text files can be included directly within the shared context budget; folders, binaries, and oversized files are initially path-only; and attached links are listed as data. If the agent later inspects one with filesystem or network tools, information those tools return may become part of model context. If the agent uses filesystem, Extension, or restricted-app tools, information those tools return may likewise become part of later model context. A restricted-app tool receives a bounded action input selected by the agent, and its bounded result can therefore be sent to the model provider as part of the tool exchange or later context.

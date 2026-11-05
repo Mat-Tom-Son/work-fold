@@ -20,9 +20,12 @@ import {
   ChevronRight16Regular, ChevronRight20Regular,
   Circle16Regular, Circle20Regular,
   Clock16Regular, Clock20Regular,
+  CloudArrowUp16Regular, CloudArrowUp20Regular,
+  CloudOff16Regular, CloudOff20Regular,
   Compose16Regular, Compose20Regular,
   Copy16Regular, Copy20Regular,
   CursorClick20Regular,
+  Database16Regular, Database20Regular,
   Delete16Regular, Delete20Regular,
   Dismiss16Regular, Dismiss20Regular,
   Document16Regular, Document20Regular,
@@ -116,6 +119,11 @@ export const MoreHorizontal = icon("MoreHorizontal", MoreHorizontal16Regular, Mo
 export const MousePointerClick = icon("MousePointerClick", CursorClick20Regular);
 /** A page made for other people (docs/pages.md): Files' page folders and the page tab. */
 export const PageIcon = icon("PageIcon", WebAsset16Regular, WebAsset20Regular);
+/** A page's entries: Files shows a page folder's data.sqlite as Data. */
+export const PageDataIcon = icon("PageDataIcon", Database16Regular, Database20Regular);
+/** Publishing a page, and taking it offline. */
+export const CloudUpload = icon("CloudUpload", CloudArrowUp16Regular, CloudArrowUp20Regular);
+export const CloudOff = icon("CloudOff", CloudOff16Regular, CloudOff20Regular);
 export const Pencil = icon("Pencil", Edit16Regular, Edit20Regular);
 export const PencilLine = icon("PencilLine", Edit16Regular, Edit20Regular);
 export const RefreshCw = icon("RefreshCw", ArrowClockwise16Regular, ArrowClockwise20Regular);

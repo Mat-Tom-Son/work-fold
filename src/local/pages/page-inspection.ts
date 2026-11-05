@@ -8,6 +8,7 @@ import type { PageDeclaration, PageInspection, PageProblem } from "../../shared/
 import { formatPageDeclarationProblem, pageEntryProblem, parsePageDeclarationText } from "../../shared/pages/index.js";
 import { processPageEntry, type PageDocumentMode } from "./page-document.js";
 import {
+  type PageFolderFile,
   enclosingPageFolder,
   formatBytes,
   normalizePagePath,
@@ -27,6 +28,8 @@ export interface PageFolderAnalysis extends PageInspection {
   declaration: PageDeclaration | null;
   /** The assembled document ("assemble" mode, no errors), otherwise null. */
   html: string | null;
+  /** The files that make up the page, in path order: what publishing uploads. */
+  files: PageFolderFile[];
 }
 
 export interface PageDeclarationRead {
@@ -140,6 +143,7 @@ export async function analyzePageFolder(workFolderRoot: string, page: unknown, m
     summary: { files: walk.files.size, bytes: walk.bytes },
     declaration,
     html: mode === "assemble" && !hasErrors ? html : null,
+    files: [...walk.files.values()].map((file) => ({ path: file.path, size: file.size })),
   };
 }
 

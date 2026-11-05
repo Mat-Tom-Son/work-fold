@@ -15,6 +15,7 @@ import {
   Power20Regular,
   Sparkle20Regular,
   Subtract20Regular,
+  WebAsset20Regular,
 } from "@fluentui/react-icons";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";
@@ -34,10 +35,11 @@ import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
 import { AutomationsPane } from "./AutomationsPane";
 import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
+import { PublishedPagesPane } from "./PublishedPagesPane";
 
-export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
+export type SettingsPage = "appearance" | "ai-models" | "remote" | "web-access" | "automations" | "apps" | "published" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type SettingsSection = "automations" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "ai-models" | "web-access" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
+type SettingsTabId = "appearance" | "ai-models" | "web-access" | "automations" | "apps" | "published" | "recently-deleted" | "shortcuts" | "about";
 // AI Models edits nobody saved yet: closing Settings and opening it again finds them as left.
 const unsavedAiModelsEdits = new Map<string, AiModelsDraft>();
 
@@ -54,7 +56,7 @@ export function settingsTabForPage(page: SettingsPage, section?: SettingsSection
   return page;
 }
 
-export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFolder, workFolders = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialModelScope, focusAiModel = false, focusWorkerInstructions = false, onAgentConfigured, onModelChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
+export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFolder, workFolders = [], restrictedApps = null, onChangeApp, onOpenAppBuildChat, onOpenAppResultFile, onOpenAppStudio, onOpenPage, agentStatus, fixtureMode = false, initialPage = "appearance", initialSection, initialModelScope, focusAiModel = false, focusWorkerInstructions = false, onAgentConfigured, onModelChanged, onClose, onBackToCustomization, updateStatus, onUpdateAction }: {
   appearance: ApplicationAppearanceController;
   onCustomizeWorkFolder?: (workFolderId: string) => void;
   workFolder: WorkFolderSummary | null;
@@ -65,6 +67,8 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
   onOpenAppBuildChat?: (workFolderId: string, conversationId: string) => void;
   onOpenAppResultFile?: (workFolderId: string, path: string) => void;
   onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
+  /** Settings → Published: opens a page's tab in its work-folder. */
+  onOpenPage?: (workFolderId: string, path: string, title: string) => void;
   agentStatus: AgentStatus;
   fixtureMode?: boolean;
   initialPage?: SettingsPage;
@@ -141,6 +145,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
     { id: "web-access", label: "Web Access", icon: <GlobeCode size={20} strokeWidth={1.5} aria-hidden="true" /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
+    { id: "published", label: "Published", icon: <WebAsset20Regular /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "shortcuts", label: "Shortcut Keys", icon: <Keyboard20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
@@ -220,6 +225,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
                 <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+              </div>
+            ) : null}
+            {page === "published" ? (
+              <div className="settings-tab-panel" id="settings-panel-published" role="tabpanel" aria-labelledby="settings-tab-published">
+                <PublishedPagesPane fixtureMode={fixtureMode} onOpenPage={onOpenPage} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (
