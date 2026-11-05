@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
 import { notifyFolderAutomationsChanged } from "../../hooks/useFolderAutomations";
+import { createFixtureAutomationReads } from "../../fixtures/settings-fixture";
+import { showToast } from "../../ui/feedback";
+import { folderAutomations } from "../../ui-contract";
 import {
   automationCatchUpSentence,
   formatAutomationDateTime as formatDateTime,
@@ -185,8 +188,10 @@ const emptyHistory: AutomationHistoryResponse = { runs: [], truncated: false, da
  * Settings-only projection over the host automation service. The renderer never
  * parses declarations or receipt JSONL itself: the host resolves work-folder names,
  * safe details, run groups, and evidence identifiers before they arrive here.
+ * The browser preview (`?fixture=work-folder`) reads sample automations
+ * instead and changes nothing.
  */
-export function AutomationsPane() {
+export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean } = {}) {
   const [data, setData] = useState<AutomationsResponse | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AutomationDetailView | null>(null);
@@ -201,20 +206,22 @@ export function AutomationsPane() {
   const [proposals, setProposals] = useState<AutomationProposalView[]>([]);
   const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const fixtureReads = useMemo(() => fixtureMode ? createFixtureAutomationReads() : null, [fixtureMode]);
+  const reads = useCallback(() => fixtureReads ?? automationBridge(), [fixtureReads]);
 
   // Pending proposal files are a desktop-only read; without the bridge the
   // section is simply absent and the load error line explains why.
   const loadProposals = useCallback(async () => {
-    const scan = window.workFoldDesktop?.automations?.proposals;
+    const scan = fixtureReads?.proposals ?? window.workFoldDesktop?.automations?.proposals;
     if (!scan) return;
     const next = await scan();
     setProposals((current) => sameProposals(current, next.proposals) ? current : next.proposals);
-  }, []);
+  }, [fixtureReads]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      const scan = window.workFoldDesktop?.automations?.proposals;
+      const scan = fixtureReads?.proposals ?? window.workFoldDesktop?.automations?.proposals;
       if (!scan) return;
       void scan()
         .then((next) => {
@@ -230,7 +237,7 @@ export function AutomationsPane() {
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
     };
-  }, []);
+  }, [fixtureReads]);
 
   const selectAutomation = useCallback((automationId: string | null) => {
     selectedIdRef.current = automationId;
@@ -238,7 +245,7 @@ export function AutomationsPane() {
   }, []);
 
   const loadList = useCallback(async () => {
-    const next = await automationBridge().list();
+    const next = await reads().list();
     setData(next);
     setLoadError(null);
     const current = selectedIdRef.current;
@@ -246,22 +253,22 @@ export function AutomationsPane() {
       ? current
       : next.automations[0]?.automationId ?? null);
     return next;
-  }, [selectAutomation]);
+  }, [reads, selectAutomation]);
 
   const loadSelected = useCallback(async (automationId: string) => {
     const [nextDetail, nextHistory] = await Promise.all([
-      automationBridge().show(automationId),
-      automationBridge().history(automationId),
+      reads().show(automationId),
+      reads().history(automationId),
     ]);
     if (selectedIdRef.current !== automationId) return;
     setDetail(nextDetail.automation);
     setHistory(nextHistory);
     setDetailError(null);
-  }, []);
+  }, [reads]);
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.resolve().then(() => automationBridge().list())
+    void Promise.resolve().then(() => reads().list())
       .then((next) => {
         if (cancelled) return;
         setData(next);
@@ -273,7 +280,7 @@ export function AutomationsPane() {
       })
       .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, [selectAutomation]);
+  }, [reads, selectAutomation]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -288,8 +295,8 @@ export function AutomationsPane() {
     setHistory(emptyHistory);
     setDetailError(null);
     void Promise.resolve().then(() => Promise.all([
-      automationBridge().show(selectedId),
-      automationBridge().history(selectedId),
+      reads().show(selectedId),
+      reads().history(selectedId),
     ]))
       .then(([nextDetail, nextHistory]) => {
         if (cancelled) return;
@@ -299,7 +306,7 @@ export function AutomationsPane() {
       })
       .catch((caught) => { if (!cancelled) setDetailError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, [selectedId]);
+  }, [reads, selectedId]);
 
   const hasActiveRun = Boolean(data?.automations.some((automation) => automation.activeRun))
     || pending.some((key) => key.startsWith("run:"))
@@ -320,7 +327,7 @@ export function AutomationsPane() {
               continue;
             }
             if (automation.activeRun) continue;
-            const recent = await automationBridge().history(automationId).catch(() => null);
+            const recent = await reads().history(automationId).catch(() => null);
             if (recent?.runs.some((run) => run.outcome !== "accepted" && (
               watch.runId ? run.runId === watch.runId : Date.parse(run.startedAt) >= watch.startedAt - 1_000
             ))) {
@@ -336,7 +343,7 @@ export function AutomationsPane() {
         .catch(() => undefined);
     }, 1_500);
     return () => window.clearInterval(timer);
-  }, [hasActiveRun, hasFileWatch, loadList, loadSelected, runWatches, selectedId]);
+  }, [hasActiveRun, hasFileWatch, loadList, loadSelected, reads, runWatches, selectedId]);
 
   const selectedSummary = useMemo(
     () => data?.automations.find((automation) => automation.automationId === selectedId) ?? null,
@@ -345,6 +352,10 @@ export function AutomationsPane() {
 
   async function runAction(key: string, operation: () => Promise<string | null>) {
     if (pending.includes(key)) return;
+    if (fixtureMode) {
+      showToast({ text: folderAutomations.previewDisabled, tone: "info" });
+      return;
+    }
     const watchedAutomationId = key.startsWith("run:") ? key.slice("run:".length) : null;
     if (watchedAutomationId) {
       setRunWatches((current) => ({ ...current, [watchedAutomationId]: { startedAt: Date.now() } }));
@@ -595,6 +606,7 @@ export function AutomationsPane() {
 
                 <AutomationActions
                   automation={detail}
+                  fixtureMode={fixtureMode}
                   pending={pending}
                   storeUnavailable={storeUnavailable}
                   wideningUnavailable={wideningUnavailable}
@@ -630,8 +642,9 @@ export function AutomationsPane() {
   );
 }
 
-function AutomationActions({ automation, pending, storeUnavailable, wideningUnavailable, runQueued, onRun, onRunAdmitted, onDeleted }: {
+function AutomationActions({ automation, fixtureMode, pending, storeUnavailable, wideningUnavailable, runQueued, onRun, onRunAdmitted, onDeleted }: {
   automation: AutomationDetailView;
+  fixtureMode: boolean;
   pending: string[];
   storeUnavailable: boolean;
   wideningUnavailable: boolean;
@@ -707,7 +720,7 @@ function AutomationActions({ automation, pending, storeUnavailable, wideningUnav
             type="button"
             disabled={storeUnavailable || anyPending}
             onClick={() => {
-              if (!window.confirm(`Delete “${automation.title}”? Its run history will remain.`)) return;
+              if (!fixtureMode && !window.confirm(`Delete “${automation.title}”? Its run history will remain.`)) return;
               onRun(`delete:${automation.automationId}`, async () => {
                 await automationBridge().delete(automation.automationId);
                 onDeleted();

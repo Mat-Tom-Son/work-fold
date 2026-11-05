@@ -34,6 +34,7 @@ import {
   type SharedPageView,
 } from "../../lib/page-sharing";
 import { buildFixturePublications, fixtureShareLinkKey, fixtureViewerOrigin } from "../../fixtures/work-folder-fixture";
+import { buildFixtureUpdateStatus, createFixtureRemoteAccess, fixtureAppVersion } from "../../fixtures/settings-fixture";
 import { showToast } from "../../ui/feedback";
 import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { AiModelsPane, type AiModelsDraft, type ModelScope } from "../panes/AiModelsPane";
@@ -102,6 +103,10 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
   const [closeToTrayNotice, setCloseToTrayNotice] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
+  // The browser preview stands in for the shipped app: its version, and a check that found nothing newer.
+  const [fixtureUpdateStatus] = useState(() => fixtureMode ? buildFixtureUpdateStatus() : null);
+  const shownUpdateStatus = updateStatus ?? fixtureUpdateStatus;
+  const updateAction = fixtureMode ? () => showToast({ text: "Checking for updates is disabled in the preview", tone: "info" }) : onUpdateAction;
 
   useEffect(() => { setPage(settingsTabForPage(initialPage, initialSection)); }, [initialPage, initialSection]);
   useEffect(() => {
@@ -215,7 +220,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "web-access" ? (
               <div className="settings-tab-panel" id="settings-panel-web-access" role="tabpanel" aria-labelledby="settings-tab-web-access">
-                <RemoteAccessPane />
+                <RemoteAccessPane fixtureMode={fixtureMode} />
               </div>
             ) : null}
             {page === "shared-pages" ? (
@@ -225,8 +230,8 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "automations" ? (
               <div className="settings-tab-panel" id="settings-panel-automations" role="tabpanel" aria-labelledby="settings-tab-automations">
-                <AutomationsPane />
-                <WorkFoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} />
+                <AutomationsPane fixtureMode={fixtureMode} />
+                <WorkFoldLimitsPane onOpenRecentlyDeleted={() => setPage("recently-deleted")} fixtureMode={fixtureMode} />
               </div>
             ) : null}
             {page === "apps" ? (
@@ -236,7 +241,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             ) : null}
             {page === "recently-deleted" ? (
               <div className="settings-tab-panel" id="settings-panel-recently-deleted" role="tabpanel" aria-labelledby="settings-tab-recently-deleted">
-                <RecentlyDeletedPane />
+                <RecentlyDeletedPane fixtureMode={fixtureMode} />
               </div>
             ) : null}
             {page === "shortcuts" ? (
@@ -248,12 +253,12 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
               <div className="settings-tab-panel" id="settings-panel-about" role="tabpanel" aria-labelledby="settings-tab-about">
                 <section className="settings-section">
                   <WorkFoldLockup className="about-work-fold-brand" />
-                  <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? "Development"}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
+                  <dl className="context-meta-grid"><div><dt>Version</dt><dd>{window.workFoldDesktop?.app.version ?? (fixtureMode ? fixtureAppVersion : "Development")}</dd></div><div><dt>Storage</dt><dd>Local</dd></div><div><dt>License</dt><dd>MIT</dd></div></dl>
                   <IconCredits />
                 </section>
                 <section className="settings-section update-settings-section" aria-labelledby="desktop-update-settings-title">
-                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{updateStatus?.message ?? "Updates require the desktop app."}</p>{updateStatus?.error ? <span className="settings-inline-error" role="alert">{updateStatus.error}</span> : null}{updateStatus?.phase === "downloading" && updateStatus.progressPercent !== null ? <progress max={100} value={updateStatus.progressPercent}>{Math.round(updateStatus.progressPercent)}%</progress> : null}</div>
-                  {onUpdateAction && updateStatus?.supported ? <button className="ui-control" type="button" disabled={updateStatus.phase === "checking" || updateStatus.phase === "downloading" || updateStatus.phase === "installing"} onClick={onUpdateAction}><ArrowClockwise20Regular className={updateStatus.phase === "checking" || updateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(updateStatus)}</button> : null}
+                  <div><div className="settings-section-heading"><h3 id="desktop-update-settings-title">Updates</h3></div><p>{shownUpdateStatus?.message ?? "Updates require the desktop app."}</p>{shownUpdateStatus?.error ? <span className="settings-inline-error" role="alert">{shownUpdateStatus.error}</span> : null}{shownUpdateStatus?.phase === "downloading" && shownUpdateStatus.progressPercent !== null ? <progress max={100} value={shownUpdateStatus.progressPercent}>{Math.round(shownUpdateStatus.progressPercent)}%</progress> : null}</div>
+                  {updateAction && shownUpdateStatus?.supported ? <button className="ui-control" type="button" disabled={shownUpdateStatus.phase === "checking" || shownUpdateStatus.phase === "downloading" || shownUpdateStatus.phase === "installing"} onClick={updateAction}><ArrowClockwise20Regular className={shownUpdateStatus.phase === "checking" || shownUpdateStatus.phase === "downloading" ? "spin" : undefined} />{settingsUpdateActionLabel(shownUpdateStatus)}</button> : null}
                 </section>
               </div>
             ) : null}
@@ -275,8 +280,10 @@ interface RemoteAccessViewStatus {
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
 
-function RemoteAccessPane() {
-  const remote = window.workFoldDesktop?.remoteAccess;
+function RemoteAccessPane({ fixtureMode = false }: { fixtureMode?: boolean }) {
+  // The browser preview shows a set-up address with paired browsers and changes nothing.
+  const [fixtureRemote] = useState(() => fixtureMode ? createFixtureRemoteAccess() : null);
+  const remote = fixtureRemote ?? window.workFoldDesktop?.remoteAccess;
   const [status, setStatus] = useState<RemoteAccessViewStatus | null>(null);
   const [slug, setSlug] = useState("");
   const [password, setPassword] = useState("");
@@ -303,6 +310,10 @@ function RemoteAccessPane() {
 
   async function run(label: string, operation: () => Promise<RemoteAccessViewStatus | void>) {
     if (busy) return;
+    if (fixtureMode) {
+      showToast({ text: remoteAccessSettings.previewDisabled, tone: "info" });
+      return;
+    }
     setBusy(label);
     setError(null);
     try {
@@ -400,8 +411,8 @@ function RemoteAccessPane() {
             <div className="remote-browser-row" key={browser.id}><div><strong>{browser.label}</strong><small>Paired {new Date(browser.approvedAt).toLocaleDateString()}</small></div><button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void run(`revoke-${browser.id}`, () => remote.revokeBrowser(browser.id))}>Revoke</button></div>
           ))}</div> : <div className="remote-browser-empty">No browser is paired yet.</div>}
           <div className="remote-access-danger-actions">
-            <button className="ui-control danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
-            <button className="ui-control danger" type="button" disabled={Boolean(busy)} onClick={() => { if (window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy) || !status.approvedBrowsers.length} onClick={() => { if (fixtureMode || window.confirm("Remove every paired browser? Each one has to be paired again from this desktop.")) void run("revoke-all", () => remote.revokeAll()); }}>Remove all browsers</button>
+            <button className="ui-control danger" type="button" disabled={Boolean(busy)} onClick={() => { if (fixtureMode || window.confirm("Remove this private address and all web access? This cannot be undone.")) void run("remove", () => remote.remove()); }}>Remove web access</button>
           </div>
         </section>
       ) : null}

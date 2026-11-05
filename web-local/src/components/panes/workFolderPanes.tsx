@@ -41,6 +41,7 @@ import type {
 import { WorkFolderIconGlyph } from "../chrome/common";
 import { requestConfirm, showToast } from "../../ui/feedback";
 import { ChatContentSearch } from "./ChatContentSearch";
+import type { FixtureRestorePoint } from "../../fixtures/work-folder-files";
 
 export function WorkFoldersPane({
   workFolder,
@@ -389,7 +390,7 @@ export function ChatsPane({
   );
 }
 
-interface HistoryRestorePreview {
+export interface HistoryRestorePreview {
   checkpointId: string;
   scope: "full" | "targeted";
   restoreFiles: string[];
@@ -400,9 +401,11 @@ interface HistoryRestorePreview {
   conflicts: string[];
 }
 
-export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
+export function HistoryPane({ workFolder, fixtureItems, fixtureRestorePoints, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
   workFolder: WorkFolderSummary;
   fixtureItems?: WorkFolderCheckpoint[];
+  /** The preview's restore point pages and Compare views, by restore point. */
+  fixtureRestorePoints?: Record<string, FixtureRestorePoint>;
   refreshRequest?: number;
   selectedCheckpointId?: string;
   onOpen?: (item: WorkFolderCheckpoint) => void;
@@ -421,7 +424,11 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   useEffect(() => {
     let cancelled = false;
     setPreview(null); setPreviewError("");
-    if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
+    if (selectedCheckpointId && fixtureItems) {
+      const fixturePreview = fixtureRestorePoints?.[selectedCheckpointId]?.preview;
+      if (fixturePreview) setPreview(fixturePreview);
+      else setPreviewError("Restore previews are unavailable for demonstration data.");
+    }
     if (!fixtureItems) {
       // An obsolete effect skips its reads; one already sent still finishes
       // before the next starts (development Strict Mode replay, a quickly
@@ -441,7 +448,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
       });
     }
     return () => { cancelled = true; };
-  }, [workFolder.id, selectedCheckpointId, fixtureItems, refreshRequest, previewRevision]);
+  }, [workFolder.id, selectedCheckpointId, fixtureItems, fixtureRestorePoints, refreshRequest, previewRevision]);
 
   useEffect(() => { setNotice(""); }, [workFolder.id, fixtureItems]);
 
@@ -463,7 +470,11 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   }
 
   async function restore(item: WorkFolderCheckpoint) {
-    if (fixtureItems) return;
+    if (fixtureItems) {
+      if (selectedCheckpointId === item.checkpointId) showToast({ text: "Restoring is disabled in the preview", tone: "info" });
+      else onOpen?.(item);
+      return;
+    }
     if (selectedCheckpointId !== item.checkpointId && onOpen) { onOpen(item); return; }
     let reviewed: HistoryRestorePreview;
     try {
@@ -495,6 +506,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     const selected = items.find((item) => item.checkpointId === selectedCheckpointId);
     const changes = preview ? restorePointChanges(preview) : [];
     const leftAlone = preview ? restorePointLeftAlone(preview) : [];
+    const fixtureComparisons = fixtureItems ? fixtureRestorePoints?.[selectedCheckpointId]?.comparisons : undefined;
     return <div className="work-folder-pane-content history-pane professional-surface professional-history history-review">
       <header className="history-review-header">
         <div className="history-review-identity">
@@ -520,9 +532,9 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
                 {change.detail ?? pathFolder(change.path) ? <small>{change.detail ?? pathFolder(change.path)}</small> : null}
               </span>
               <span className="history-change-kind">{change.kind}</span>
-              {change.kind !== "Moved" && !fixtureItems ? <button className="ui-control ui-control--quiet compact" type="button" aria-expanded={comparing} onClick={() => setComparisonPath(comparing ? "" : change.path)}>{comparing ? "Hide" : "Compare"}</button> : null}
+              {change.kind !== "Moved" && (!fixtureItems || fixtureComparisons?.[change.path]) ? <button className="ui-control ui-control--quiet compact" type="button" aria-expanded={comparing} onClick={() => setComparisonPath(comparing ? "" : change.path)}>{comparing ? "Hide" : "Compare"}</button> : null}
             </div>
-            {comparing ? <HistoryFileComparison workFolderId={workFolder.id} path={change.path} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
+            {comparing ? <HistoryFileComparison workFolderId={workFolder.id} path={change.path} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} fixtureComparison={fixtureComparisons?.[change.path]} /> : null}
           </li>;
         })}</ul>
       </section> : null}

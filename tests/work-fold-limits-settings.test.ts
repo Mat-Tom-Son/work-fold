@@ -53,7 +53,7 @@ test("the surface every limit message names is a real fold Settings section", ()
   }
   assert.match(settingsSource, /type SettingsSection = [^;]*\| "limits";/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
-  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
+  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane fixtureMode=\{fixtureMode\} \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} fixtureMode=\{fixtureMode\} \/>/);
 });
 
 test("the Limits pane reads the frozen contracts instead of retyping them", () => {

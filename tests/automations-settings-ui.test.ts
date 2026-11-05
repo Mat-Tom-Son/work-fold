@@ -28,7 +28,7 @@ test("General Settings includes Automations without introducing a builder", () =
   assert.match(settingsSource, /id: "shared-pages", label: "Shared Pages"/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
   assert.match(settingsSource, /id: "recently-deleted", label: "Recently Deleted"/);
-  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane \/>/);
+  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane fixtureMode=\{fixtureMode\} \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `automations show` prints are mirrored here, so both
   // surfaces tell a person the same thing (docs/automations.md).

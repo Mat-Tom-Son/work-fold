@@ -13,6 +13,7 @@ import {
   workFoldRecentlyDeletedDefaultRetentionDays,
 } from "../../../../src/shared/work-fold-limits";
 import { api, errorText } from "../../lib/api";
+import { showToast } from "../../ui/feedback";
 import { workFoldLimitsSettings } from "../../ui-contract";
 
 /**
@@ -41,13 +42,15 @@ interface RequestSettingsResponse {
  * Settings act; without the app it shows the shipped default, disabled, and
  * says why. Turning it off changes nothing about what is recorded.
  */
-function ContinuationsSwitch() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
+function ContinuationsSwitch({ fixtureMode = false }: { fixtureMode?: boolean }) {
+  // The browser preview shows the shipped default as the saved value and changes nothing.
+  const [enabled, setEnabled] = useState<boolean | null>(fixtureMode ? workFoldRequestContinuationsDefaultEnabled : null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (fixtureMode) return;
     let cancelled = false;
     (async () => {
       try {
@@ -58,9 +61,13 @@ function ContinuationsSwitch() {
       }
     })().catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [fixtureMode]);
 
   async function save(next: boolean): Promise<void> {
+    if (fixtureMode) {
+      showToast({ text: workFoldLimitsSettings.previewDisabled, tone: "info" });
+      return;
+    }
     setBusy(true);
     setNotice(null);
     setError(null);
@@ -119,7 +126,7 @@ function LimitRows({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
-export function WorkFoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDeleted?: () => void }) {
+export function WorkFoldLimitsPane({ onOpenRecentlyDeleted, fixtureMode = false }: { onOpenRecentlyDeleted?: () => void; fixtureMode?: boolean }) {
   const assistant = restrictedAppAssistantLimits;
   const inference = restrictedAppInferenceLimits;
   const automation = workFoldAutomationDeclarationBounds;
@@ -168,7 +175,7 @@ export function WorkFoldLimitsPane({ onOpenRecentlyDeleted }: { onOpenRecentlyDe
           ["Kept for", `${requests.retentionDays} days`],
         ]}
       />
-      <ContinuationsSwitch />
+      <ContinuationsSwitch fixtureMode={fixtureMode} />
 
       <h4 id="work-fold-limits-jobs-title">{workFoldLimitsSettings.jobsHeading}</h4>
       <LimitRows

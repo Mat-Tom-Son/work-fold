@@ -113,6 +113,7 @@ export const recentlyDeletedSettings = {
   empty: "Nothing here.",
   heldNote: "Held: contains legacy Workspace records. Cannot be deleted here.",
   damagedNote: "Some items could not be read.",
+  previewDisabled: "Changing Recently Deleted is disabled in the preview",
 } as const;
 
 /**
@@ -144,6 +145,7 @@ export const workFoldLimitsSettings = {
   jobsHeading: "Background Jobs",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
+  previewDisabled: "Changing limits is disabled in the preview",
   automationsHeading: "Automations",
   appAutomationsHeading: "App Automations",
   deletedHeading: "Recently Deleted",
@@ -158,6 +160,7 @@ export const workFoldLimitsSettings = {
  */
 export const remoteAccessSettings = {
   pairedBrowserTrust: "Paired browsers can read or change accessible files and run local commands.",
+  previewDisabled: "Changing web access is disabled in the preview",
 } as const;
 
 /**

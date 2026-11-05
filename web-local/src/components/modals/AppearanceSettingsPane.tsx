@@ -4,6 +4,7 @@ import { applicationPalettes, builtInAppearancePresets, defaultApplicationAppear
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { maximumAppearanceImportBytes } from "../../lib/application-appearance-store";
 import { typographyFontOptionsForPlatform } from "../../constants";
+import { desktopPlatform } from "../../lib/platform";
 import type { WorkFolderSummary } from "../../types";
 
 export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWorkFolder, interfaceExtra }: {
@@ -23,7 +24,7 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
   const importRevision = useRef(0);
   useEffect(() => () => { importRevision.current += 1; }, []);
   useEffect(() => { setAccentDraft(null); setAccentError(null); }, [p.accent]);
-  const fontOptions = typographyFontOptionsForPlatform(window.workFoldDesktop?.app.platform);
+  const fontOptions = typographyFontOptionsForPlatform(desktopPlatform());
   const atDefaults = JSON.stringify(p) === JSON.stringify(defaultApplicationAppearance);
   const update = (patch: Partial<ApplicationAppearance>) => store.update(patch);
   function runPreset(action: () => void) {

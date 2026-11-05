@@ -16,3 +16,7 @@ body {
 }
 
 :root[data-window-material="vibrancy"] body { background: transparent; }
+
+/* The inert preview (`?fixture=agent`) stands in for the popover's material. */
+:root[data-preview-window="mac"] { background: #e3e3e5; }
+:root[data-preview-window="mac"][data-theme="dark"] { background: #29292c; }

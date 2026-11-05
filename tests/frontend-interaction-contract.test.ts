@@ -89,7 +89,7 @@ test("Settings keeps older page ids landing on the tab that now holds their cont
   }
   const settings = desktopDialogs[0] ?? "";
   assert.doesNotMatch(settings, /label: "Desktop"/);
-  assert.match(settings, /<AutomationsPane \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
+  assert.match(settings, /<AutomationsPane fixtureMode=\{fixtureMode\} \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} fixtureMode=\{fixtureMode\} \/>/);
   assert.match(settings, /interfaceExtra=\{closeWindowControl\}/);
 });
 

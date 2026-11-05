@@ -1,6 +1,7 @@
 import type { AgentExtensionSurface, AgentStatus, TreeEntry, WorkFolderCheckpoint, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../types";
 import type { SharedPageView } from "../lib/page-sharing";
 import { automationTriggerSummary, type FolderAutomationView } from "../../../src/shared/automation-presentation";
+import { buildFixtureFileContents, buildFixtureRestorePoints, type FixtureRestorePoint } from "./work-folder-files";
 
 export interface WorkFolderUiFixture {
   workFolders: WorkFolderSummary[];
@@ -9,6 +10,10 @@ export interface WorkFolderUiFixture {
   trees: Record<string, TreeEntry[]>;
   conversations: Record<string, WorkFolderFixtureConversation[]>;
   checkpoints: Record<string, WorkFolderCheckpoint[]>;
+  /** Restore point pages and their Compare views, by restore point id. */
+  restorePoints: Record<string, FixtureRestorePoint>;
+  /** Text a file tab shows, by work-folder and path. */
+  fileContents: Record<string, Record<string, string>>;
   surfaces: Record<string, AgentExtensionSurface[]>;
   agent: AgentStatus;
 }
@@ -16,15 +21,15 @@ export interface WorkFolderUiFixture {
 export function buildWorkFolderFixture(): WorkFolderUiFixture {
   const now = "2026-07-10T18:30:00.000Z";
   const snoozedUntil = new Date(Date.now() + 22 * 60 * 60 * 1_000).toISOString();
-  const home: WorkFolderSummary = { id: "fixture-home", name: "Home projects", workFolderRoot: "C:\\Users\\you\\Documents\\Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
-  const trip: WorkFolderSummary = { id: "fixture-trip", name: "Japan trip", workFolderRoot: "G:\\My Drive\\Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
+  const home: WorkFolderSummary = { id: "fixture-home", name: "Home projects", workFolderRoot: "/Users/you/Documents/Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
+  const trip: WorkFolderSummary = { id: "fixture-trip", name: "Japan trip", workFolderRoot: "/Users/you/Library/CloudStorage/GoogleDrive-you@example.com/My Drive/Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
   return {
     workFolders: [home, trip], activeWorkFolderId: home.id,
     customizations: {
       [home.id]: { color: "#0d74ce", color2: "#5c7c2e", iconName: "home", bannerName: "horizon" },
       [trip.id]: { color: "#6550b9", color2: "#c2298a", iconName: "airplane", bannerName: "aurora" },
     },
-    agent: { ready: true, configured: true, provider: "openrouter", model: "anthropic/claude-sonnet-4", piVersion: "0.80.3", projectTrusted: true, error: null },
+    agent: { ready: true, configured: true, provider: "openrouter", model: "anthropic/claude-sonnet-4", piVersion: "1.1.0", projectTrusted: true, error: null },
     trees: {
       [home.id]: [
         { name: "Kitchen refresh", path: "Kitchen refresh", kind: "folder", hasChildren: true, children: [{ name: "ideas.md", path: "Kitchen refresh/ideas.md", kind: "file", sizeBytes: 5240, updatedAt: now }, { name: "budget.xlsx", path: "Kitchen refresh/budget.xlsx", kind: "file", sizeBytes: 48200, updatedAt: now }] },
@@ -41,7 +46,7 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
           { id: "thinking-2", kind: "thinking", text: "", phase: "complete", durationMs: 2_600 },
           { id: "tool-2", kind: "tool", toolName: "read", text: "Read finished", detail: "Kitchen refresh/budget.xlsx", phase: "complete" },
           { id: "tool-3", kind: "tool", toolName: "bash", text: "Bash finished", detail: "python3 -c \"import openpyxl; wb = openpyxl.load_workbook('Kitchen refresh/budget.xlsx'); print(sum(c.value or 0 for c in wb.active['C'][1:]))\"", phase: "complete" },
-          { id: "tool-4", kind: "tool", toolName: "edit", text: "Edit finished", detail: "C:\\Users\\you\\Documents\\Home projects/Kitchen refresh/ideas.md", phase: "complete" },
+          { id: "tool-4", kind: "tool", toolName: "edit", text: "Edit finished", detail: "/Users/you/Documents/Home projects/Kitchen refresh/ideas.md", phase: "complete" },
           { id: "tool-5", kind: "tool", toolName: "write", text: "Write finished", detail: "weekend checklist.md", phase: "complete" },
           { id: "thinking-3", kind: "thinking", text: "The cabinetry line is the whole difference:\n\n```\nFixed-price quote ....... cabinetry included, no change orders unless the scope itself changes after signing\nAllowance quote ......... cabinetry allowance only, so the final cost moves with the finish choices\n```\n\nI’ll put that in a short table.", phase: "complete", durationMs: 3_900 },
         ], messages: [{ id: "u1", role: "user", content: "Compare the two estimates and make me a short decision table.", createdAt: now }, { id: "a1", role: "assistant", content: [
@@ -64,10 +69,16 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
           "Decision: wait for the cabinetry clarification, then choose the fixed-price quote if scope is equivalent.",
           "```",
         ].join("\n"), createdAt: now }] },
-        { id: "fixture-chat-2", title: "Plan this weekend", createdAt: now, updatedAt: "2026-07-09T16:00:00.000Z", archivedAt: null, snoozedUntil, messages: [{ id: "u2", role: "user", content: "Turn my checklist into a realistic Saturday plan.", createdAt: now }] },
+        { id: "fixture-chat-2", title: "Plan this weekend", createdAt: now, updatedAt: "2026-07-09T16:00:00.000Z", archivedAt: null, snoozedUntil, messages: [
+          { id: "u2", role: "user", content: "Turn my checklist into a realistic Saturday plan.", createdAt: now },
+          { id: "c2", role: "system", kind: "context_compaction", content: "Conversation context compacted. Earlier messages were summarized to make room; your chat history is still available.", createdAt: now },
+          { id: "a2", role: "assistant", content: "Saturday fits if the hardware store comes first and the garden waits until after lunch. I moved the contractor call to 4:00 so it lands after the measurements, and left Sunday afternoon open.", createdAt: now },
+        ] },
       ],
       [trip.id]: [{ id: "fixture-chat-3", title: "Build a relaxed itinerary", createdAt: now, updatedAt: now, archivedAt: "2026-07-11T12:00:00.000Z", snoozedUntil: null, messages: [{ id: "u3", role: "user", content: "Use the bookings and make a relaxed seven-day itinerary.", createdAt: now }] }],
     },
+    restorePoints: buildFixtureRestorePoints(now, new Date().toISOString()),
+    fileContents: buildFixtureFileContents(home.id, trip.id),
     checkpoints: {
       [home.id]: [{ checkpointId: "cp-home-1", createdAt: now, label: "Before reorganizing project notes", reason: "before_turn", fileCount: 5 }],
       [trip.id]: [{ checkpointId: "cp-trip-1", createdAt: now, label: "Before itinerary edits", reason: "before_turn", fileCount: 2 }],
@@ -78,8 +89,8 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
         title: "Connected inbox",
         description: "Connected work that needs attention in this work-folder.",
         icon: "mail",
-        extensionPath: "C:\\Users\\you\\Documents\\Home projects\\.pi\\npm\\connected-inbox\\index.ts",
-        manifestPath: "C:\\Users\\you\\Documents\\Home projects\\.pi\\npm\\connected-inbox\\surface.json",
+        extensionPath: "/Users/you/Documents/Home projects/.pi/npm/connected-inbox/index.ts",
+        manifestPath: "/Users/you/Documents/Home projects/.pi/npm/connected-inbox/surface.json",
         source: "This work-folder · local Pi package",
         scope: "project",
         origin: "top-level",
@@ -127,7 +138,7 @@ export function buildFixtureFolderAutomations(): Record<string, FolderAutomation
       cooldownMinutes: 30,
     }),
     nextRunAt: null,
-    lastRun: { at: "2026-07-10T17:45:00.000Z", outcome: "succeeded" as const },
+    lastRun: { at: "2026-11-03T17:45:00.000Z", outcome: "succeeded" as const },
   };
   return {
     "fixture-home": [

@@ -23,12 +23,14 @@ type FileMenuItem = { key: string; label: string; icon: ReactNode; run: () => vo
 
 type FilePreview = { kind: "text" | "image" | "pdf" | "none"; reason?: string; content?: string; truncated?: boolean; sizeBytes: number };
 
-export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
+export function FileDetailsPane({ workFolder, path, entry, active = true, fixtureMode = false, fixtureText, canOpenWith = false, onOpenLocal, onAddToChatContext, onShowVersionHistory, onRename, shareRequestId, onOpenSettings }: {
   workFolder: WorkFolderSummary;
   path: string;
   entry: TreeEntry | null;
   active?: boolean;
   fixtureMode?: boolean;
+  /** The preview's text for this file, when it has some. */
+  fixtureText?: string;
   canOpenWith?: boolean;
   onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
   onAddToChatContext: (path: string) => void;
@@ -72,7 +74,7 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
     let cancelled = false;
     setLoading(true); setMissing(false); setInfo(null);
     if (fixtureMode) {
-      setInfo(entry ? { name: entry.name, path: entry.path, kind: entry.kind, sizeBytes: entry.sizeBytes ?? 0, createdAt: workFolder.createdAt, modifiedAt: entry.updatedAt ?? workFolder.updatedAt, mimeType: "application/octet-stream" } : null);
+      setInfo(entry ? { name: entry.name, path: entry.path, kind: entry.kind, sizeBytes: fixtureText === undefined ? entry.sizeBytes ?? 0 : new TextEncoder().encode(fixtureText).length, createdAt: workFolder.createdAt, modifiedAt: entry.updatedAt ?? workFolder.updatedAt, mimeType: "application/octet-stream" } : null);
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -81,18 +83,21 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
       .catch((caught) => { if (!cancelled) { const message = errorText(caught); const gone = message.includes("not found") || message.includes("ENOENT") || message.includes("no longer"); setMissing(gone); if (!gone) setContentKey(`${fileKey}\0`); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [entry, fixtureMode, path, workFolder.id]);
+  }, [entry, fixtureMode, fixtureText, path, workFolder.id]);
   // The tab shows the file itself, not a card about it: bounded text, common
   // image types, and PDFs render inline; everything else keeps the actions.
   useEffect(() => {
-    if (fixtureMode) { setPreview(null); return; }
+    if (fixtureMode) {
+      setPreview(fixtureText === undefined ? null : { kind: "text", content: fixtureText, sizeBytes: new TextEncoder().encode(fixtureText).length });
+      return;
+    }
     if (!contentKey) return;
     let cancelled = false;
     void api<{ preview: FilePreview }>(`/api/work-folders/${workFolder.id}/file-preview?path=${encodeURIComponent(path)}`)
       .then((result) => { if (!cancelled) setPreview(result.preview); })
       .catch(() => { if (!cancelled) setPreview(null); });
     return () => { cancelled = true; };
-  }, [contentKey, fixtureMode]);
+  }, [contentKey, fixtureMode, fixtureText]);
   const previewKind = preview?.kind;
   useEffect(() => {
     if (!contentKey || (previewKind !== "image" && previewKind !== "pdf")) return;
@@ -133,7 +138,7 @@ export function FileDetailsPane({ workFolder, path, entry, active = true, fixtur
     copiedTimerRef.current = null;
     setCopyState("copying");
     try {
-      const text = await (await workFolderRawFileBlob(workFolder.id, path, controller.signal)).text();
+      const text = fixtureMode ? fixtureText ?? "" : await (await workFolderRawFileBlob(workFolder.id, path, controller.signal)).text();
       if (controller.signal.aborted) return;
       if (markdown) await copyMarkdownToClipboard(text);
       else await copyToClipboard({ text });
