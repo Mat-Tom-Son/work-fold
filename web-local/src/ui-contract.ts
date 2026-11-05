@@ -126,7 +126,7 @@ export const recentlyDeletedSettings = {
 export const deleteFolderConfirm = {
   title: (name: string) => `Delete ${name}?`,
   body: "Everything in it goes to History, or to Recently Deleted if History cannot keep a copy. You can bring it back for 30 days.",
-  confirmLabel: "Delete work-folder",
+  confirmLabel: "Delete Folder",
 } as const;
 
 /**

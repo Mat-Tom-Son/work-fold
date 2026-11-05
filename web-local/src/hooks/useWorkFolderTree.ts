@@ -7,6 +7,7 @@ import {
   collectOpenFolderPaths,
   findTreeEntry,
   groupTreePathsByDepth,
+  keepLoadedChildren,
   removeTreeEntries,
   searchFileTree,
   setTreeEntryChildren,
@@ -274,13 +275,15 @@ export function useWorkFolderTree(workFolder: WorkFolderSummary, onError: (messa
 
 async function refreshLoadedChildren(workFolderId: string, root: TreeEntry[], cached: TreeEntry[], collapsed: Set<string>, eventPaths?: string[]) {
   const loaded = collectLoadedFolderPaths(cached, collapsed, eventPaths);
-  let next = root;
+  // Folders the refresh does not reload keep the rows they already had; an
+  // event-scoped refresh reloads only the folders its paths touch.
+  let next = keepLoadedChildren(root, cached);
   let truncated = false;
   for (const paths of groupTreePathsByDepth(loaded)) {
     const refreshable = paths.filter((path) => findTreeEntry(next, path));
     const batch = await refreshFolderBatch(workFolderId, refreshable);
     truncated ||= batch.truncated;
-    for (const result of batch.results) if (result && findTreeEntry(next, result.path)) next = setTreeEntryChildren(next, result.path, result.children);
+    for (const result of batch.results) if (result && findTreeEntry(next, result.path)) next = setTreeEntryChildren(next, result.path, keepLoadedChildren(result.children, cached));
   }
   return { tree: next, truncated };
 }
