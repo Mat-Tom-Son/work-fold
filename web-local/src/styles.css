@@ -19456,12 +19456,12 @@ to {
 }
 
 :root[data-theme] .app-shell .chat-other-work-folders {
-  margin-top: 20px;
+  margin-top: 8px;
   padding-top: 0;
 }
 
 :root[data-theme] .app-shell .chat-shelves {
-  margin-top: 26px;
+  margin-top: 8px;
   padding-top: 0;
 }
 
@@ -22537,5 +22537,28 @@ to {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+}
+
+/* Chats: date headings in a long history, and Snoozed and Archived rows
+   aligned with every other row. */
+.app-shell .chat-date-group {
+  display: grid;
+  gap: 2px;
+}
+
+.app-shell .chat-date-group + .chat-date-group {
+  margin-top: 8px;
+}
+
+.app-shell .chat-date-group-label {
+  margin: 0;
+  padding: 4px 8px 2px 16px;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+.app-shell .chat-shelf-list {
+  padding-left: 0;
 }
 

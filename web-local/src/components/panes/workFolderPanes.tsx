@@ -140,6 +140,29 @@ export function WorkFoldersPane({
   );
 }
 
+/** Chats grouped the way people remember them: Today, Yesterday, the last week, the last month, Earlier. */
+export function chatDateGroups(chats: ConversationSummary[], now: number): Array<{ label: string; chats: ConversationSummary[] }> {
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const day = 24 * 60 * 60 * 1_000;
+  const labelFor = (updatedAt: string) => {
+    const time = Date.parse(updatedAt);
+    if (!Number.isFinite(time) || time >= startOfToday.getTime()) return "Today";
+    if (time >= startOfToday.getTime() - day) return "Yesterday";
+    if (time >= startOfToday.getTime() - 7 * day) return "Previous 7 Days";
+    if (time >= startOfToday.getTime() - 30 * day) return "Previous 30 Days";
+    return "Earlier";
+  };
+  const groups: Array<{ label: string; chats: ConversationSummary[] }> = [];
+  for (const chat of chats) {
+    const label = labelFor(chat.updatedAt);
+    const group = groups.at(-1)?.label === label ? groups.at(-1)! : groups.find((item) => item.label === label);
+    if (group) group.chats.push(chat);
+    else groups.push({ label, chats: [chat] });
+  }
+  return groups;
+}
+
 export function ChatsPane({
   workFolder,
   workFolders,
@@ -265,6 +288,22 @@ export function ChatsPane({
     );
   }
 
+  // A long history reads by date; a short one, or a search, stays one list.
+  function renderDatedChatList(item: WorkFolderSummary, list: ConversationSummary[], className: string, emptyText: string | null): ReactNode {
+    const groups = chatDateGroups(list, now);
+    if (normalized || groups.length < 2) return renderChatList(item, list, className, emptyText);
+    return (
+      <div className={`chat-work-folder-list ${className}`}>
+        {groups.map(({ label, chats }) => (
+          <div className="chat-date-group" key={label} role="group" aria-label={label}>
+            <h4 className="chat-date-group-label">{label}</h4>
+            {renderChatRows(chats.map((chat) => ({ item, chat })), false)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const currentList = chatsFor(workFolder);
   const currentIdentity = workFolderIdentityFor(workFolder, customizations);
   const otherWorkFolderGroups = workFolders
@@ -305,7 +344,7 @@ export function ChatsPane({
             <strong>{workFolder.name}</strong>
             <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(workFolder)} aria-label={`New Chat in ${workFolder.name}`} title="New Chat"><Chat16Regular /></button>
           </div>
-          {renderChatList(workFolder, currentList, "chat-work-folder-list-current", normalized ? null : nestedRows.length ? null : "No Chats Yet")}
+          {renderDatedChatList(workFolder, currentList, "chat-work-folder-list-current", normalized ? null : nestedRows.length ? null : "No Chats Yet")}
           {nestedRows.map(({ workFolder: item, depth }) => {
             const identity = workFolderIdentityFor(item, customizations);
             const list = chatsFor(item);

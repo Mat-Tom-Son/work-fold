@@ -21,6 +21,9 @@ export interface WorkFolderUiFixture {
 export function buildWorkFolderFixture(): WorkFolderUiFixture {
   const now = "2026-07-10T18:30:00.000Z";
   const snoozedUntil = new Date(Date.now() + 22 * 60 * 60 * 1_000).toISOString();
+  // Chat times relative to now, so the Chats list shows a realistic history.
+  const ago = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1_000).toISOString();
+  const pastChat = (id: string, title: string, hours: number, ask: string) => ({ id, title, createdAt: ago(hours), updatedAt: ago(hours), messages: [{ id: `${id}-u`, role: "user" as const, content: ask, createdAt: ago(hours) }] });
   const home: WorkFolderSummary = { id: "fixture-home", name: "Home projects", workFolderRoot: "/Users/you/Documents/Home projects", location: { kind: "local", storage: "linked" }, createdAt: now, updatedAt: now };
   const trip: WorkFolderSummary = { id: "fixture-trip", name: "Japan trip", workFolderRoot: "/Users/you/Library/CloudStorage/GoogleDrive-you@example.com/My Drive/Japan trip", location: { kind: "local", storage: "linked", providerHint: "google-drive" }, createdAt: now, updatedAt: now };
   return {
@@ -40,7 +43,7 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
     },
     conversations: {
       [home.id]: [
-        { id: "fixture-chat-1", title: "Compare contractor estimates", createdAt: now, updatedAt: now, runtimePreviews: [
+        { id: "fixture-chat-1", title: "Compare contractor estimates", createdAt: ago(0.4), updatedAt: ago(0.4), runtimePreviews: [
           { id: "thinking-1", kind: "thinking", text: "I compared the scope and **checked the allowance assumptions before summarizing the tradeoffs.", phase: "complete", durationMs: 4_200 },
           { id: "tool-1", kind: "tool", toolName: "read", text: "Read finished", detail: "Kitchen refresh/ideas.md", phase: "complete" },
           { id: "thinking-2", kind: "thinking", text: "", phase: "complete", durationMs: 2_600 },
@@ -74,8 +77,18 @@ export function buildWorkFolderFixture(): WorkFolderUiFixture {
           { id: "c2", role: "system", kind: "context_compaction", content: "Conversation context compacted. Earlier messages were summarized to make room; your chat history is still available.", createdAt: now },
           { id: "a2", role: "assistant", content: "Saturday fits if the hardware store comes first and the garden waits until after lunch. I moved the contractor call to 4:00 so it lands after the measurements, and left Sunday afternoon open.", createdAt: now },
         ] },
+        pastChat("fixture-chat-4", "Draft a reply to the contractor", 3, "Draft a short reply asking for the cabinetry allowance in writing."),
+        pastChat("fixture-chat-5", "Find a dishwasher under $900", 26, "Find three quiet dishwashers under $900 that fit a 24-inch opening."),
+        pastChat("fixture-chat-6", "Summarize the garden plan", 24 * 3, "Summarize planting-plan.pdf into a one-page checklist."),
+        pastChat("fixture-chat-7", "Paint color shortlist", 24 * 9, "Pick three warm whites that work with sage cabinets."),
+        pastChat("fixture-chat-8", "Insurance renewal questions", 24 * 36, "What should I ask before renewing the home insurance?"),
+        pastChat("fixture-chat-9", "Organize receipts by month", 24 * 95, "Sort the receipts folder into one folder per month."),
       ],
-      [trip.id]: [{ id: "fixture-chat-3", title: "Build a relaxed itinerary", createdAt: now, updatedAt: now, archivedAt: "2026-07-11T12:00:00.000Z", snoozedUntil: null, messages: [{ id: "u3", role: "user", content: "Use the bookings and make a relaxed seven-day itinerary.", createdAt: now }] }],
+      [trip.id]: [
+        pastChat("fixture-chat-trip-1", "Compare JR Pass options", 30, "Is a 7-day JR Pass worth it for this itinerary?"),
+        pastChat("fixture-chat-trip-2", "Restaurant list for Kyoto", 24 * 12, "Make a short list of quiet dinner spots near the ryokan."),
+        { id: "fixture-chat-3", title: "Build a relaxed itinerary", createdAt: now, updatedAt: now, archivedAt: "2026-07-11T12:00:00.000Z", snoozedUntil: null, messages: [{ id: "u3", role: "user", content: "Use the bookings and make a relaxed seven-day itinerary.", createdAt: now }] },
+      ],
     },
     restorePoints: buildFixtureRestorePoints(now, new Date().toISOString()),
     fileContents: buildFixtureFileContents(home.id, trip.id),
