@@ -34,6 +34,7 @@ window.add(box)
 box.pack_start(Gtk.Label(label="Temporary acceptance test. This window closes automatically."), False, False, 0)
 text = Gtk.TextView()
 text.get_accessible().set_name("Document text")
+text.get_buffer().connect("changed", lambda buffer: buffer.place_cursor(buffer.get_end_iter()))
 box.pack_start(text, True, True, 0)
 button = Gtk.Button(label="Save document")
 def save(_):
@@ -76,15 +77,24 @@ Gtk.main()
     assert.ok(editor, `The document text field must be editable through AT-SPI: ${JSON.stringify(look.outline)}`);
     // Exact bytes distinguish precomposed/decomposed accents and retain
     // non-Latin scripts and emoji that physical XKB typing cannot represent.
-    const sentence = "Linux accessibility: café / cafe\u0301 — Grüße; 日本語; 你好; العربية; हिन्दी; 👩🏽‍💻.\nSecond line: € @ {text}.";
+    let sentence = "Linux accessibility: café / cafe\u0301 — Grüße; 日本語; 你好; العربية; हिन्दी; 👩🏽‍💻.\nSecond line: € @ {text}.";
     const edited = await command("act", { lookId: look.lookId, action: "setText", target: { ref: editor.ref }, params: { text: sentence }, policy: "ax_only" });
     assert.equal(edited.outcome, "worked");
     assert.equal(edited.performed.delivery, "ax");
     look = await command("look", { rootRef: owned.rootRef, includeImage: false });
+    const insertionTarget = nodes(look.outline).find(node => node.title === "Document text" && node.canSetValue);
+    assert.ok(insertionTarget, "The editor must remain observable after replacement");
+    const suffix = "\nInserted at the caret: é / 日本語 / 👩🏽‍💻.";
+    const typed = await command("act", { lookId: look.lookId, action: "typeText", target: { ref: insertionTarget.ref }, params: { text: suffix }, policy: "ax_only" });
+    assert.equal(typed.outcome, "worked", "Semantic insertion verifies the actual resulting field");
+    sentence += suffix;
+    look = await command("look", { rootRef: owned.rootRef, includeImage: false });
     const save = nodes(look.outline).find(node => node.title === "Save document" && node.canPress);
     assert.ok(save, "The Save button must expose an accessible action");
     const saved = await command("act", { lookId: look.lookId, action: "press", target: { ref: save.ref }, policy: "ax_only" });
-    assert.equal(saved.outcome, "worked");
+    // DoAction accepting a dispatch does not itself prove that Save completed.
+    // The exact file bytes below independently establish that outcome.
+    assert.equal(saved.outcome, "unknown");
     assert.equal(saved.performed.delivery, "ax");
     let contents;
     for (let attempt = 0; attempt < 30; attempt++) {

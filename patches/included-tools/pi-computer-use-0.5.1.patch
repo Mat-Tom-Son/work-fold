@@ -99,10 +99,78 @@ index eec9992..16a675e 100644
  	});
  }
 diff --git a/native/linux/bridge-rs/src/atspi.rs b/native/linux/bridge-rs/src/atspi.rs
-index c90c85d..69f6a0d 100644
+index c90c85d..142583b 100644
 --- a/native/linux/bridge-rs/src/atspi.rs
 +++ b/native/linux/bridge-rs/src/atspi.rs
-@@ -185,13 +185,8 @@ impl AtspiClient {
+@@ -24,6 +24,9 @@ const MAX_ATSPI_ACTIONS: usize = 64;
+ const EDITABLE_TEXT: &str = "org.a11y.atspi.EditableText";
+ const TEXT: &str = "org.a11y.atspi.Text";
+ 
++mod actions;
++mod validation;
++
+ #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+ pub struct AccessibleRef {
+     pub destination: String,
+@@ -42,6 +45,8 @@ pub struct Rect {
+ pub struct RootSnapshot {
+     pub accessible: AccessibleRef,
+     pub pid: u64,
++    pub process_instance: Option<String>,
++    pub toolkit: String,
+     pub name: String,
+     pub app_name: String,
+     pub role: String,
+@@ -61,10 +66,14 @@ pub struct NodeSnapshot {
+     pub role: String,
+     pub description: String,
+     pub value: String,
++    pub value_readable: bool,
+     pub interfaces: HashSet<String>,
+     pub bounds: Option<Rect>,
+     pub is_secure: bool,
+     pub depth: usize,
++    pub native_id: String,
++    pub identity_readable: bool,
++    pub truncated: bool,
+ }
+ 
+ impl NodeSnapshot {
+@@ -78,10 +87,14 @@ impl NodeSnapshot {
+             role: String::new(),
+             description: String::new(),
+             value: String::new(),
++            value_readable: false,
+             interfaces: HashSet::new(),
+             bounds: None,
+             is_secure: false,
+             depth: 0,
++            native_id: String::new(),
++            identity_readable: true,
++            truncated: false,
+         }
+     }
+ 
+@@ -160,18 +173,6 @@ impl AtspiClient {
+         }
+     }
+ 
+-    async fn interfaces(&self, accessible: &AccessibleRef) -> HashSet<String> {
+-        match self.proxy(accessible, ACCESSIBLE).await {
+-            Ok(proxy) => proxy
+-                .call::<_, _, Vec<String>>("GetInterfaces", &())
+-                .await
+-                .unwrap_or_default()
+-                .into_iter()
+-                .collect(),
+-            Err(_) => HashSet::new(),
+-        }
+-    }
+-
+     async fn bounds(&self, accessible: &AccessibleRef) -> Option<Rect> {
+         let proxy = self.proxy(accessible, COMPONENT).await.ok()?;
+         let (x, y, width, height): (i32, i32, i32, i32) =
+@@ -185,13 +186,8 @@ impl AtspiClient {
      }
  
      async fn application_pid(&self, accessible: &AccessibleRef) -> u64 {
@@ -118,7 +186,7 @@ index c90c85d..69f6a0d 100644
          let Ok(bus) = Proxy::new(
              &self.connection,
              DBUS_DESTINATION,
-@@ -209,7 +204,7 @@ impl AtspiClient {
+@@ -209,7 +205,7 @@ impl AtspiClient {
              )
              .await
              .ok();
@@ -127,7 +195,182 @@ index c90c85d..69f6a0d 100644
      }
  
      pub async fn list_roots(
-@@ -524,16 +519,6 @@ fn relative_coordinate(value: i32, origin: i32) -> i32 {
+@@ -236,6 +232,14 @@ impl AtspiClient {
+                     frame: self.bounds(&window).await,
+                     accessible: window,
+                     pid,
++                    process_instance: validation::process_instance(pid),
++                    toolkit: match self.proxy(&app, "org.a11y.atspi.Application").await {
++                        Ok(proxy) => proxy
++                            .get_property::<String>("ToolkitName")
++                            .await
++                            .unwrap_or_default(),
++                        Err(_) => String::new(),
++                    },
+                     name: if name.is_empty() {
+                         app_name.clone()
+                     } else {
+@@ -269,31 +273,54 @@ impl AtspiClient {
+         max_nodes: usize,
+         max_depth: usize,
+     ) -> Result<Vec<NodeSnapshot>, ProtocolError> {
+-        let mut result = Vec::new();
++        let mut result: Vec<NodeSnapshot> = Vec::new();
+         let mut seen = HashSet::new();
+         let mut queue = VecDeque::from([(start.clone(), None, 0usize)]);
++        let mut incomplete = false;
+         while let Some((accessible, parent, depth)) = queue.pop_front() {
+-            if result.len() >= max_nodes || depth > max_depth || !seen.insert(accessible.clone()) {
++            if result.len() >= max_nodes {
++                incomplete = true;
++                break;
++            }
++            if !seen.insert(accessible.clone()) {
++                incomplete = true;
+                 continue;
+             }
+-            let interfaces = self.interfaces(&accessible).await;
+-            let role = self.role(&accessible).await;
+-            let name = self.string_property(&accessible, "Name").await;
+-            let description = self.string_property(&accessible, "Description").await;
++            let (role, name, description, interfaces, identity_readable) =
++                self.identity_fields(&accessible).await;
+             let is_secure =
+                 role.eq_ignore_ascii_case("password text") || role.eq_ignore_ascii_case("password");
+-            let value = if !is_secure && interfaces.contains(TEXT) {
+-                self.read_text(&accessible).await.unwrap_or_default()
++            let (value, value_readable) = if !is_secure && interfaces.contains(TEXT) {
++                match self.read_text(&accessible).await {
++                    Ok(text) => (text, true),
++                    Err(_) => {
++                        incomplete = true;
++                        (String::new(), false)
++                    }
++                }
+             } else {
+-                String::new()
++                (String::new(), false)
+             };
+-            let children = self.children(&accessible).await.unwrap_or_default();
+-            for child in children {
+-                queue.push_back((child, Some(accessible.clone()), depth + 1));
++            let mut truncated = !identity_readable;
++            match self.children(&accessible).await {
++                Err(_) => truncated = true,
++                Ok(children) => {
++                    if depth >= max_depth && !children.is_empty() {
++                        truncated = true;
++                    } else {
++                        let room = max_nodes.saturating_sub(result.len() + queue.len() + 1);
++                        truncated |= children.len() > room;
++                        for child in children.into_iter().take(room) {
++                            queue.push_back((child, Some(accessible.clone()), depth + 1));
++                        }
++                    }
++                }
+             }
++            incomplete |= truncated;
+             result.push(NodeSnapshot {
+                 reference: String::new(),
+                 bounds: self.bounds(&accessible).await,
++                native_id: self.string_property(&accessible, "AccessibleId").await,
+                 accessible,
+                 parent,
+                 name,
+@@ -303,8 +330,16 @@ impl AtspiClient {
+                 interfaces,
+                 is_secure,
+                 depth,
++                identity_readable,
++                truncated,
++                value_readable,
+             });
+         }
++        if incomplete {
++            if let Some(root) = result.first_mut() {
++                root.truncated = true;
++            }
++        }
+         Ok(result)
+     }
+ 
+@@ -315,49 +350,6 @@ impl AtspiClient {
+             .await
+             .map_err(atspi_error)
+     }
+-
+-    pub async fn press(&self, node: &NodeSnapshot) -> Result<bool, ProtocolError> {
+-        if !node.interfaces.contains(ACTION) {
+-            return Err(ProtocolError::new(
+-                "Target does not expose the AT-SPI Action interface",
+-                ErrorCode::CapabilityDeferred,
+-            ));
+-        }
+-        let proxy = self.proxy(&node.accessible, ACTION).await?;
+-        let action_count = bounded_action_count(proxy.get_property::<i32>("NActions").await.ok())?;
+-        let mut names = Vec::new();
+-        if action_count > 1 {
+-            names.reserve(action_count);
+-            for index in 0..action_count {
+-                let name: String = proxy
+-                    .call("GetName", &(index as i32))
+-                    .await
+-                    .unwrap_or_default();
+-                names.push(name);
+-            }
+-        }
+-        let Some(action_index) = selected_action_index(action_count, &names) else {
+-            return Ok(false);
+-        };
+-        proxy
+-            .call("DoAction", &(action_index))
+-            .await
+-            .map_err(atspi_error)
+-    }
+-
+-    pub async fn set_text(&self, node: &NodeSnapshot, text: &str) -> Result<bool, ProtocolError> {
+-        if !node.interfaces.contains(EDITABLE_TEXT) {
+-            return Err(ProtocolError::new(
+-                "Target does not expose the AT-SPI EditableText interface",
+-                ErrorCode::CapabilityDeferred,
+-            ));
+-        }
+-        let proxy = self.proxy(&node.accessible, EDITABLE_TEXT).await?;
+-        proxy
+-            .call("SetTextContents", &(text))
+-            .await
+-            .map_err(atspi_error)
+-    }
+ }
+ 
+ pub fn root_json(reference: &str, root: &RootSnapshot, z_order: usize) -> Value {
+@@ -398,7 +390,7 @@ pub fn root_json(reference: &str, root: &RootSnapshot, z_order: usize) -> Value
+     })
+ }
+ 
+-pub fn outline_json(root: &RootSnapshot, nodes: &[NodeSnapshot], max_nodes: usize) -> Value {
++pub fn outline_json(root: &RootSnapshot, nodes: &[NodeSnapshot], _max_nodes: usize) -> Value {
+     let mut descendants: HashMap<AccessibleRef, Vec<Value>> = HashMap::new();
+     let mut roots = Vec::new();
+     for node in nodes.iter().rev() {
+@@ -430,6 +422,7 @@ pub fn outline_json(root: &RootSnapshot, nodes: &[NodeSnapshot], max_nodes: usiz
+             "title": node.name,
+             "description": node.description,
+             "value": if node.is_secure { "" } else { &node.value },
++            "valueReadable": node.value_readable,
+             "actions": actions,
+             "canPress": can_press,
+             "canFocus": false,
+@@ -442,7 +435,7 @@ pub fn outline_json(root: &RootSnapshot, nodes: &[NodeSnapshot], max_nodes: usiz
+             "focused": false,
+             "offscreen": node.bounds.is_none(),
+             "pictureOnly": false,
+-            "truncated": nodes.len() >= max_nodes && node.depth == 0,
++            "truncated": node.truncated,
+             "text": if node.value.is_empty() || node.is_secure { json!([]) } else {
+                 json!([{"string":node.value,"confidence":1.0,"rect":rect}])
+             },
+@@ -524,16 +517,6 @@ fn relative_coordinate(value: i32, origin: i32) -> i32 {
      value.saturating_sub(origin)
  }
  
@@ -144,7 +387,7 @@ index c90c85d..69f6a0d 100644
  fn unavailable(error: impl std::fmt::Display) -> ProtocolError {
      ProtocolError::new(
          format!("AT-SPI2 is unavailable: {error}"),
-@@ -585,15 +570,6 @@ mod tests {
+@@ -585,15 +568,6 @@ mod tests {
          assert_eq!(relative_coordinate(355, 100), 255);
      }
  
@@ -160,8 +403,580 @@ index c90c85d..69f6a0d 100644
      #[tokio::test]
      #[ignore = "requires a live session AT-SPI bus"]
      async fn connects_through_get_address_method() {
+@@ -610,6 +584,8 @@ mod tests {
+                 path: "/window".into(),
+             },
+             pid: 42,
++            process_instance: None,
++            toolkit: String::new(),
+             name: "Editor".into(),
+             app_name: "Text Editor".into(),
+             role: "frame".into(),
+diff --git a/native/linux/bridge-rs/src/atspi/actions.rs b/native/linux/bridge-rs/src/atspi/actions.rs
+new file mode 100644
+index 0000000..407ef59
+--- /dev/null
++++ b/native/linux/bridge-rs/src/atspi/actions.rs
+@@ -0,0 +1,195 @@
++use super::*;
++
++fn absent(message: &str) -> ProtocolError {
++    ProtocolError::new(message, ErrorCode::CapabilityDeferred)
++}
++fn uncertain() -> ProtocolError {
++    ProtocolError::new("The accessibility operation may have taken effect. Observe before continuing; do not automatically repeat it.", ErrorCode::InterruptedUnknown)
++}
++fn preflight(message: &str) -> ProtocolError {
++    ProtocolError::new(message, ErrorCode::InvalidRequest)
++}
++fn result(outcome: &str, value: Option<&str>) -> Value {
++    let mut result = json!({"outcome":outcome,"performed":{"grounding":"description","delivery":"ax","deltaSource":"snapshot"}});
++    if let Some(value) = value {
++        result["evidence"] = json!({"value":value});
++    }
++    result
++}
++
++impl AtspiClient {
++    pub async fn press(&self, node: &NodeSnapshot) -> Result<Value, ProtocolError> {
++        if !node.interfaces.contains(ACTION) {
++            return Err(absent("Target does not expose the AT-SPI Action interface"));
++        }
++        let proxy = self.proxy(&node.accessible, ACTION).await?;
++        let count = bounded_action_count(Some(
++            proxy
++                .get_property::<i32>("NActions")
++                .await
++                .map_err(atspi_error)?,
++        ))?;
++        let mut names = Vec::new();
++        if count > 1 {
++            for index in 0..count {
++                names.push(
++                    proxy
++                        .call::<_, _, String>("GetName", &(index as i32))
++                        .await
++                        .map_err(atspi_error)?,
++                );
++            }
++        }
++        let index = selected_action_index(count, &names)
++            .ok_or_else(|| absent("Target advertises no activation action"))?;
++        let accepted: bool = proxy
++            .call("DoAction", &index)
++            .await
++            .map_err(|_| uncertain())?;
++        // A completed dispatch is not an independently observed outcome.
++        if accepted {
++            Ok(result("unknown", None))
++        } else {
++            Err(uncertain())
++        }
++    }
++
++    async fn readable_value(&self, node: &NodeSnapshot) -> Option<String> {
++        if node.is_secure || !node.interfaces.contains(TEXT) {
++            None
++        } else {
++            self.read_text(&node.accessible).await.ok()
++        }
++    }
++
++    async fn text_result(
++        &self,
++        node: &NodeSnapshot,
++        before: Option<&str>,
++        expected: Option<&str>,
++    ) -> Value {
++        let value = self.readable_value(node).await;
++        let outcome = match (value.as_deref(), expected) {
++            (Some(actual), Some(expected)) if actual == expected => "worked",
++            (Some(actual), _) if before == Some(actual) => "didnt",
++            _ => "unknown",
++        };
++        result(outcome, value.as_deref())
++    }
++
++    pub async fn set_text(&self, node: &NodeSnapshot, text: &str) -> Result<Value, ProtocolError> {
++        if !node.interfaces.contains(EDITABLE_TEXT) {
++            return Err(absent(
++                "Target does not expose the AT-SPI EditableText interface",
++            ));
++        }
++        let before = self.readable_value(node).await;
++        let proxy = self.proxy(&node.accessible, EDITABLE_TEXT).await?;
++        let _accepted: bool = proxy
++            .call("SetTextContents", &text)
++            .await
++            .map_err(|_| uncertain())?;
++        Ok(self.text_result(node, before.as_deref(), Some(text)).await)
++    }
++
++    /// Insert at the live caret, replacing only an explicitly selected range.
++    /// All offsets and input are validated before a selection is removed.
++    pub async fn insert_text(
++        &self,
++        node: &NodeSnapshot,
++        text: &str,
++        toolkit: &str,
++    ) -> Result<Value, ProtocolError> {
++        if !node.interfaces.contains(EDITABLE_TEXT) {
++            return Err(absent(
++                "Target does not expose the AT-SPI EditableText interface",
++            ));
++        }
++        if !node.interfaces.contains(TEXT) {
++            return Err(preflight(
++                "Semantic insertion requires a readable caret and selection",
++            ));
++        }
++        let proxy = self.proxy(&node.accessible, TEXT).await?;
++        let caret: i32 = proxy
++            .get_property("CaretOffset")
++            .await
++            .map_err(|_| preflight("The caret is unavailable; no text was entered"))?;
++        let count: i32 = proxy
++            .call("GetNSelections", &())
++            .await
++            .map_err(|_| preflight("The selection is unavailable; no text was entered"))?;
++        if caret < 0 || !(0..=1).contains(&count) {
++            return Err(preflight(
++                "The caret or selection is ambiguous; no text was entered",
++            ));
++        }
++        let (start, end) = if count == 1 {
++            let (a, b): (i32, i32) = proxy
++                .call("GetSelection", &0i32)
++                .await
++                .map_err(|_| preflight("The selection is unavailable; no text was entered"))?;
++            (a.min(b), a.max(b))
++        } else {
++            (caret, caret)
++        };
++        if start < 0 {
++            return Err(preflight(
++                "The selection offset is invalid; no text was entered",
++            ));
++        }
++        let length = if toolkit.to_lowercase().starts_with("qt") {
++            text.encode_utf16().count()
++        } else {
++            text.len()
++        };
++        let length = i32::try_from(length).map_err(|_| preflight("The input text is too long"))?;
++        let before = self.readable_value(node).await;
++        let expected = match before.as_deref() {
++            Some(old) => {
++                let chars: Vec<char> = old.chars().collect();
++                if end as usize > chars.len() || caret as usize > chars.len() {
++                    return Err(preflight("The selection lies outside the current text"));
++                }
++                Some(
++                    chars[..start as usize]
++                        .iter()
++                        .chain(text.chars().collect::<Vec<_>>().iter())
++                        .chain(chars[end as usize..].iter())
++                        .collect::<String>(),
++                )
++            }
++            None => None,
++        };
++        if text.is_empty() && start == end {
++            return Ok(result("worked", before.as_deref()));
++        }
++        let editable = self.proxy(&node.accessible, EDITABLE_TEXT).await?;
++        let deleted = start < end;
++        if deleted {
++            let accepted: bool = editable
++                .call("DeleteText", &(start, end))
++                .await
++                .map_err(|_| uncertain())?;
++            if !accepted {
++                return Err(uncertain());
++            }
++        }
++        if !text.is_empty() {
++            let accepted: bool = editable
++                .call("InsertText", &(start, text, length))
++                .await
++                .map_err(|_| uncertain())?;
++            if !accepted {
++                return Err(uncertain());
++            }
++        }
++        let checked = self
++            .text_result(node, before.as_deref(), expected.as_deref())
++            .await;
++        if deleted && checked["outcome"] != "worked" {
++            return Err(uncertain());
++        }
++        Ok(checked)
++    }
++}
+diff --git a/native/linux/bridge-rs/src/atspi/validation.rs b/native/linux/bridge-rs/src/atspi/validation.rs
+new file mode 100644
+index 0000000..d398b21
+--- /dev/null
++++ b/native/linux/bridge-rs/src/atspi/validation.rs
+@@ -0,0 +1,116 @@
++use super::*;
++
++pub(super) fn process_instance(pid: u64) -> Option<String> {
++    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
++    stat.get(stat.rfind(')')? + 1..)?
++        .split_whitespace()
++        .nth(19)
++        .map(str::to_owned)
++}
++
++fn stale(message: &str) -> ProtocolError {
++    ProtocolError::new(
++        format!("{message}; find and observe the target again"),
++        ErrorCode::StaleRef,
++    )
++}
++
++impl AtspiClient {
++    pub(super) async fn identity_fields(
++        &self,
++        node: &AccessibleRef,
++    ) -> (String, String, String, HashSet<String>, bool) {
++        let Ok(proxy) = self.proxy(node, ACCESSIBLE).await else {
++            return (
++                String::new(),
++                String::new(),
++                String::new(),
++                HashSet::new(),
++                false,
++            );
++        };
++        let role = proxy.call::<_, _, String>("GetRoleName", &()).await;
++        let name = proxy.get_property::<String>("Name").await;
++        let description = proxy.get_property::<String>("Description").await;
++        let interfaces = proxy.call::<_, _, Vec<String>>("GetInterfaces", &()).await;
++        let readable = role.as_ref().is_ok_and(|role| !role.is_empty())
++            && name.is_ok()
++            && description.is_ok()
++            && interfaces.is_ok();
++        (
++            role.unwrap_or_default(),
++            name.unwrap_or_default(),
++            description.unwrap_or_default(),
++            interfaces.unwrap_or_default().into_iter().collect(),
++            readable,
++        )
++    }
++
++    /// Addresses are lookup hints. Recheck ownership, ancestry and stable
++    /// evidence before delivering any effect to an observed control.
++    pub async fn validate_node(
++        &self,
++        root: &RootSnapshot,
++        nodes: &HashMap<String, NodeSnapshot>,
++        node: &NodeSnapshot,
++    ) -> Result<NodeSnapshot, ProtocolError> {
++        if root.process_instance.is_none()
++            || root.process_instance != process_instance(root.pid)
++            || self.application_pid(&root.accessible).await != root.pid
++        {
++            return Err(stale(
++                "The owning application changed or cannot be identified",
++            ));
++        }
++        let roots = self.list_roots(Some(root.pid)).await?;
++        if !roots.iter().any(|live| live.accessible == root.accessible) {
++            return Err(stale("The observed window is no longer registered"));
++        }
++        let mut current = node;
++        let mut seen = HashSet::new();
++        while current.accessible != root.accessible {
++            if !seen.insert(current.accessible.clone()) {
++                return Err(stale("The observed ancestry is cyclic"));
++            }
++            let parent = current
++                .parent
++                .as_ref()
++                .ok_or_else(|| stale("The control has no proven window ancestry"))?;
++            let children = self
++                .children(parent)
++                .await
++                .map_err(|_| stale("The control's parent could not be verified"))?;
++            if !children.contains(&current.accessible) {
++                return Err(stale("The control left its observed parent"));
++            }
++            if parent == &root.accessible {
++                break;
++            }
++            current = nodes
++                .values()
++                .find(|saved| &saved.accessible == parent)
++                .ok_or_else(|| stale("The control's ancestry is incomplete"))?;
++        }
++        let (role, name, description, interfaces, readable) =
++            self.identity_fields(&node.accessible).await;
++        let native_id = self.string_property(&node.accessible, "AccessibleId").await;
++        if !node.identity_readable
++            || !readable
++            || role != node.role
++            || name != node.name
++            || description != node.description
++            || (!node.native_id.is_empty() && native_id != node.native_id)
++            || (node.name.is_empty() && node.description.is_empty() && node.native_id.is_empty())
++        {
++            return Err(stale(
++                "The observed control's identity changed or is unreadable",
++            ));
++        }
++        let mut live = node.clone();
++        live.is_secure =
++            role.eq_ignore_ascii_case("password text") || role.eq_ignore_ascii_case("password");
++        live.interfaces = interfaces;
++        live.bounds = self.bounds(&node.accessible).await;
++        Ok(live)
++    }
++}
+diff --git a/native/linux/bridge-rs/src/error.rs b/native/linux/bridge-rs/src/error.rs
+index 4bbd483..e636fc8 100644
+--- a/native/linux/bridge-rs/src/error.rs
++++ b/native/linux/bridge-rs/src/error.rs
+@@ -3,6 +3,8 @@ use std::fmt;
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+ pub enum ErrorCode {
++    #[serde(rename = "interrupted_unknown")]
++    InterruptedUnknown,
+     #[serde(rename = "capability_deferred")]
+     CapabilityDeferred,
+     #[serde(rename = "unsupported_command")]
+diff --git a/native/linux/bridge-rs/src/main.rs b/native/linux/bridge-rs/src/main.rs
+index afcc65d..7d1d47f 100644
+--- a/native/linux/bridge-rs/src/main.rs
++++ b/native/linux/bridge-rs/src/main.rs
+@@ -350,6 +350,7 @@ async fn look(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value, Pr
+         .unwrap_or((1.0, 1.0));
+     scale_outline_rects(&mut outline, scale_x, scale_y);
+     let mut response = json!({
++        "complete": !nodes.iter().any(|node| node.truncated),
+         "lookId": look_id,
+         "capturedAt": now_seconds(),
+         "window": {
+@@ -420,26 +421,47 @@ async fn act(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value, Pro
+ 
+     if let Some(reference) = target.get("ref").and_then(Value::as_str) {
+         let node = lock(state)?.element(look_id, reference)?;
+-        match action {
+-            "press" | "click" => {
+-                if let Ok(worked) = client.press(&node).await {
+-                    return Ok(
+-                        json!({"outcome":if worked{"worked"}else{"didnt"},"performed":semantic_performed()}),
+-                    );
+-                }
+-            }
+-            "setText" | "typeText" => {
+-                let text = params.get("text").and_then(Value::as_str).unwrap_or("");
+-                if let Ok(worked) = client.set_text(&node, text).await {
+-                    return Ok(
+-                        json!({"outcome":if worked{"worked"}else{"didnt"},"performed":semantic_performed(),"evidence":{"value":text}}),
+-                    );
++        let live = client
++            .validate_node(&record.root, &record.nodes, &node)
++            .await?;
++        let semantic = match action {
++            "press" | "click" => Some(client.press(&live).await),
++            "setText" => Some(
++                client
++                    .set_text(
++                        &live,
++                        params.get("text").and_then(Value::as_str).unwrap_or(""),
++                    )
++                    .await,
++            ),
++            "typeText" => Some(
++                client
++                    .insert_text(
++                        &live,
++                        params.get("text").and_then(Value::as_str).unwrap_or(""),
++                        &record.root.toolkit,
++                    )
++                    .await,
++            ),
++            _ => None,
++        };
++        match semantic {
++            Some(Ok(result)) => return Ok(result),
++            Some(Err(error)) if error.code == ErrorCode::CapabilityDeferred => {
++                if policy == PhysicalPolicy::AxOnly {
++                    return Err(error);
+                 }
+             }
+-            _ => {}
++            Some(Err(error)) => return Err(error),
++            None => {}
++        }
++        // Only a missing capability before dispatch permits physical fallback.
++        if node.bounds != live.bounds {
++            return Err(ProtocolError::new(
++                "Element geometry changed; observe again",
++                ErrorCode::StaleRef,
++            ));
+         }
+-        // Semantic delivery was attempted first. Only an explicitly physical-capable
+-        // policy may fall back to the element centre.
+         let bounds = node.bounds.ok_or_else(|| {
+             ProtocolError::new(
+                 "Element has no coordinate fallback",
+@@ -661,7 +683,8 @@ async fn act_batch(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Valu
+     for (index, action) in actions.iter().enumerate() {
+         match act(state, action).await {
+             Ok(step) => {
+-                let stopped = step.get("outcome").and_then(Value::as_str) == Some("didnt");
++                let stopped = step.get("outcome").and_then(Value::as_str) == Some("didnt")
++                    || step.get("error").is_some();
+                 steps.push(step);
+                 if stopped {
+                     stopped_at = Some(index);
+@@ -669,7 +692,7 @@ async fn act_batch(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Valu
+                 }
+             }
+             Err(error) => {
+-                steps.push(json!({"outcome":"didnt","error":{"code":error.code.to_string(),"message":error.message}}));
++                steps.push(json!({"outcome":if error.code == ErrorCode::InterruptedUnknown {"unknown"} else {"didnt"},"error":{"code":error.code.to_string(),"message":error.message}}));
+                 stopped_at = Some(index);
+                 break;
+             }
+@@ -688,13 +711,13 @@ async fn act_batch(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Valu
+ }
+ 
+ fn batch_outcome(steps: &[Value], stopped: bool) -> &'static str {
+-    if stopped {
+-        "didnt"
+-    } else if steps
++    if steps
+         .iter()
+         .any(|step| step.get("outcome").and_then(Value::as_str) == Some("unknown"))
+     {
+         "unknown"
++    } else if stopped {
++        "didnt"
+     } else {
+         "worked"
+     }
+@@ -710,10 +733,18 @@ async fn read_text(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Valu
+             ErrorCode::SecureTextUnreadable,
+         ));
+     }
+-    let text = AtspiClient::connect()
+-        .await?
+-        .read_text(&node.accessible)
++    let client = AtspiClient::connect().await?;
++    let record = lock(state)?.look(look_id)?;
++    let live = client
++        .validate_node(&record.root, &record.nodes, &node)
+         .await?;
++    if live.is_secure {
++        return Err(ProtocolError::new(
++            "Secure text cannot be read",
++            ErrorCode::SecureTextUnreadable,
++        ));
++    }
++    let text = client.read_text(&live.accessible).await?;
+     let characters = text.chars().collect::<Vec<_>>();
+     let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(4096) as usize;
+@@ -761,7 +792,8 @@ async fn wait_for(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value
+                     ErrorCode::StaleRef,
+                 ));
+             }
+-            Some(lock(state)?.element(look_id, scope_ref)?)
++            let node = lock(state)?.element(look_id, scope_ref)?;
++            Some((record, node))
+         }
+         (None, Some(_)) => return Err(invalid("scopeRef requires lookId")),
+         _ => None,
+@@ -777,9 +809,12 @@ async fn wait_for(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value
+     let mut node_count = 0;
+     while Instant::now() < deadline {
+         let nodes = match &scope {
+-            Some(scope) => {
++            Some((record, scope)) => {
++                let live = client
++                    .validate_node(&record.root, &record.nodes, scope)
++                    .await?;
+                 client
+-                    .snapshot_from(&scope.accessible, DEFAULT_MAX_NODES, 20)
++                    .snapshot_from(&live.accessible, DEFAULT_MAX_NODES, 20)
+                     .await?
+             }
+             None => client.snapshot(&root, DEFAULT_MAX_NODES, 20).await?,
+@@ -788,7 +823,8 @@ async fn wait_for(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value
+         let found = nodes
+             .iter()
+             .any(|node| matches_scoped_node(node, scope_exact, &text, &role, &value));
+-        if found != gone {
++        let complete = !nodes.iter().any(|node| node.truncated);
++        if found != gone && (!gone || complete) {
+             return Ok(
+                 json!({"found":true,"gone":if gone {Some(true)} else {None::<bool>},"nodeCount":node_count}),
+             );
+@@ -798,10 +834,6 @@ async fn wait_for(state: &Arc<Mutex<HelperState>>, args: &Value) -> Result<Value
+     Ok(json!({"found":false,"timedOut":true,"nodeCount":node_count}))
+ }
+ 
+-fn semantic_performed() -> Value {
+-    json!({"grounding":"description","delivery":"ax","deltaSource":"snapshot"})
+-}
+-
+ fn matches_scoped_node(
+     node: &NodeSnapshot,
+     scope_exact: bool,
+@@ -880,10 +912,14 @@ mod tests {
+             role: "push button".into(),
+             description: "Writes changes".into(),
+             value: String::new(),
++            value_readable: false,
+             interfaces: HashSet::new(),
+             bounds: None,
+             is_secure: false,
+             depth: 0,
++            native_id: String::new(),
++            identity_readable: true,
++            truncated: false,
+         }
+     }
+ 
+@@ -907,12 +943,6 @@ mod tests {
+         ));
+     }
+ 
+-    #[test]
+-    fn semantic_delivery_uses_shared_ax_label() {
+-        assert_eq!(semantic_performed()["delivery"], "ax");
+-        assert_eq!(semantic_performed()["grounding"], "description");
+-    }
+-
+     #[test]
+     fn matching_is_case_insensitive_and_conjunctive() {
+         let node = node();
+@@ -987,6 +1017,8 @@ mod tests {
+                 path: "/window".into(),
+             },
+             pid: 1,
++            process_instance: None,
++            toolkit: String::new(),
+             name: "Window".into(),
+             app_name: "App".into(),
+             role: "frame".into(),
+@@ -1068,7 +1100,7 @@ mod tests {
+         );
+         assert_eq!(
+             batch_outcome(&[json!({"outcome":"unknown"})], true),
+-            "didnt"
++            "unknown"
+         );
+     }
+ }
 diff --git a/native/linux/bridge-rs/src/state.rs b/native/linux/bridge-rs/src/state.rs
-index 189fead..bb2fba4 100644
+index 189fead..b502293 100644
 --- a/native/linux/bridge-rs/src/state.rs
 +++ b/native/linux/bridge-rs/src/state.rs
 @@ -1,5 +1,7 @@
@@ -183,7 +998,7 @@ index 189fead..bb2fba4 100644
      roots: HashMap<String, RootSnapshot>,
      root_refs: HashMap<AccessibleRef, String>,
      looks: HashMap<String, LookRecord>,
-@@ -24,6 +27,25 @@ pub struct HelperState {
+@@ -24,6 +27,28 @@ pub struct HelperState {
      next_look: u64,
  }
  
@@ -199,9 +1014,12 @@ index 189fead..bb2fba4 100644
 +    fn default() -> Self {
 +        Self {
 +            generation: fresh_generation(),
-+            roots: HashMap::new(), root_refs: HashMap::new(),
-+            looks: HashMap::new(), look_order: VecDeque::new(),
-+            next_root: 0, next_look: 0,
++            roots: HashMap::new(),
++            root_refs: HashMap::new(),
++            looks: HashMap::new(),
++            look_order: VecDeque::new(),
++            next_root: 0,
++            next_look: 0,
 +        }
 +    }
 +}
@@ -209,7 +1027,7 @@ index 189fead..bb2fba4 100644
  impl HelperState {
      pub fn replace_roots(&mut self, roots: Vec<RootSnapshot>) -> Vec<(String, RootSnapshot)> {
          let mut next = HashMap::new();
-@@ -35,7 +57,7 @@ impl HelperState {
+@@ -35,7 +60,7 @@ impl HelperState {
                  .cloned()
                  .unwrap_or_else(|| {
                      self.next_root += 1;
@@ -218,7 +1036,7 @@ index 189fead..bb2fba4 100644
                  });
              self.root_refs
                  .insert(root.accessible.clone(), reference.clone());
-@@ -69,7 +91,7 @@ impl HelperState {
+@@ -69,7 +94,7 @@ impl HelperState {
          base: Option<&LookRecord>,
      ) -> (String, Vec<NodeSnapshot>) {
          self.next_look += 1;
@@ -227,17 +1045,53 @@ index 189fead..bb2fba4 100644
          let mut nodes = base.map(|record| record.nodes.clone()).unwrap_or_default();
          let existing_refs = base
              .map(|record| {
-@@ -175,7 +197,8 @@ impl HelperState {
+@@ -86,8 +111,20 @@ impl HelperState {
+                 .get(&node.accessible)
+                 .cloned()
+                 .unwrap_or_else(|| format!("linux:{look_id}:@e{}", index + 1));
+-            nodes.insert(node.reference.clone(), node.clone());
+-            output.push(node);
++            // The scoped response has its own root; only stored identity
++            // evidence retains the original window ancestry.
++            output.push(node.clone());
++            if node.parent.is_none() && node.accessible != root.accessible {
++                if let Some(previous) = base.and_then(|record| {
++                    record
++                        .nodes
++                        .values()
++                        .find(|old| old.accessible == node.accessible)
++                }) {
++                    node.parent = previous.parent.clone();
++                }
++            }
++            nodes.insert(node.reference.clone(), node);
+         }
+         let (image_width, image_height) = base
+             .map(|record| (record.image_width, record.image_height))
+@@ -175,7 +212,12 @@ impl HelperState {
  
  pub fn fresh_state_id() -> String {
      static NEXT: AtomicU64 = AtomicU64::new(1);
 -    format!("w-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 +    static GENERATION: OnceLock<String> = OnceLock::new();
-+    format!("w-{}-{}", GENERATION.get_or_init(fresh_generation), NEXT.fetch_add(1, Ordering::Relaxed))
++    format!(
++        "w-{}-{}",
++        GENERATION.get_or_init(fresh_generation),
++        NEXT.fetch_add(1, Ordering::Relaxed)
++    )
  }
  
  #[cfg(test)]
-@@ -213,6 +236,21 @@ mod tests {
+@@ -193,6 +235,8 @@ mod tests {
+         RootSnapshot {
+             accessible: accessible(n),
+             pid: n as u64,
++            process_instance: None,
++            toolkit: String::new(),
+             name: format!("root {n}"),
+             app_name: format!("app {n}"),
+             role: "frame".into(),
+@@ -213,6 +257,32 @@ mod tests {
          assert!(state.root(&first[0].0).is_none());
      }
  
@@ -245,20 +1099,539 @@ index 189fead..bb2fba4 100644
 +    fn restarted_helper_cannot_rebind_old_roots_looks_or_elements() {
 +        let mut first = HelperState::default();
 +        let old_root = first.replace_roots(vec![root(1)])[0].0.clone();
-+        let (old_look, old_nodes) = first.insert_look(root(1), vec![NodeSnapshot::minimal(accessible(1))], None);
++        let (old_look, old_nodes) =
++            first.insert_look(root(1), vec![NodeSnapshot::minimal(accessible(1))], None);
 +        let mut restarted = HelperState::default();
 +        let new_root = restarted.replace_roots(vec![root(2)])[0].0.clone();
-+        let (new_look, _) = restarted.insert_look(root(2), vec![NodeSnapshot::minimal(accessible(2))], None);
++        let (new_look, _) =
++            restarted.insert_look(root(2), vec![NodeSnapshot::minimal(accessible(2))], None);
 +        assert_ne!(old_root, new_root);
 +        assert_ne!(old_look, new_look);
 +        assert!(restarted.root(&old_root).is_none());
-+        assert_eq!(restarted.look(&old_look).unwrap_err().code, ErrorCode::StaleLook);
-+        assert_eq!(restarted.element(&new_look, &old_nodes[0].reference).unwrap_err().code, ErrorCode::StaleRef);
++        assert_eq!(
++            restarted.look(&old_look).unwrap_err().code,
++            ErrorCode::StaleLook
++        );
++        assert_eq!(
++            restarted
++                .element(&new_look, &old_nodes[0].reference)
++                .unwrap_err()
++                .code,
++            ErrorCode::StaleRef
++        );
 +    }
 +
      #[test]
      fn look_history_is_bounded_and_refs_are_look_scoped() {
          let mut state = HelperState::default();
+diff --git a/native/linux/bridge-rs/tests/accessibility_contract.rs b/native/linux/bridge-rs/tests/accessibility_contract.rs
+new file mode 100644
+index 0000000..aac4d3f
+--- /dev/null
++++ b/native/linux/bridge-rs/tests/accessibility_contract.rs
+@@ -0,0 +1,502 @@
++//! Real helper protocol against a private, synthetic accessibility bus.
++use serde_json::{json, Value};
++use std::{
++    io::{BufRead, BufReader, Write},
++    process::{Child, Command, Stdio},
++    sync::{Arc, Mutex},
++};
++use zbus::zvariant::OwnedObjectPath;
++
++const ACC: &str = "org.a11y.atspi.Accessible";
++const ACTION: &str = "org.a11y.atspi.Action";
++const TEXT: &str = "org.a11y.atspi.Text";
++const EDIT: &str = "org.a11y.atspi.EditableText";
++
++struct State {
++    bus: String,
++    label: String,
++    value: String,
++    caret: i32,
++    selection: Option<(i32, i32)>,
++    ignore: bool,
++    error_after_effect: bool,
++    insert_false: bool,
++    broken: bool,
++    detached: bool,
++    effects: usize,
++    replacements: usize,
++    insertions: usize,
++    toolkit: String,
++    caret_unreadable: bool,
++}
++impl Default for State {
++    fn default() -> Self {
++        Self {
++            bus: String::new(),
++            label: "Save draft".into(),
++            value: "prefix".into(),
++            caret: 6,
++            selection: None,
++            ignore: false,
++            error_after_effect: false,
++            insert_false: false,
++            broken: false,
++            detached: false,
++            effects: 0,
++            replacements: 0,
++            insertions: 0,
++            toolkit: String::new(),
++            caret_unreadable: false,
++        }
++    }
++}
++struct Bus(String);
++#[zbus::interface(name = "org.a11y.Bus")]
++impl Bus {
++    fn get_address(&self) -> &str {
++        &self.0
++    }
++}
++
++struct Accessible {
++    kind: &'static str,
++    state: Arc<Mutex<State>>,
++}
++#[zbus::interface(name = "org.a11y.atspi.Accessible")]
++impl Accessible {
++    fn get_children(&self) -> zbus::fdo::Result<Vec<(String, OwnedObjectPath)>> {
++        let state = self.state.lock().unwrap();
++        if self.kind == "window" && state.broken {
++            return Err(zbus::fdo::Error::Failed("unreadable children".into()));
++        }
++        let paths: Vec<&str> = match self.kind {
++            "registry" => vec!["/app"],
++            "app" => vec!["/window"],
++            "window" if state.detached => vec!["/editor"],
++            "window" => vec!["/button", "/editor"],
++            "button" => vec!["/nested"],
++            _ => vec![],
++        };
++        Ok(paths
++            .into_iter()
++            .map(|path| (state.bus.clone(), path.try_into().unwrap()))
++            .collect())
++    }
++    fn get_role_name(&self) -> &str {
++        match self.kind {
++            "window" => "frame",
++            "button" => "push button",
++            "editor" => "text",
++            "app" => "application",
++            _ => "label",
++        }
++    }
++    fn get_interfaces(&self) -> Vec<&str> {
++        let mut out = vec![ACC, "org.a11y.atspi.Component"];
++        if self.kind == "button" {
++            out.push(ACTION);
++        }
++        if self.kind == "editor" {
++            out.extend([TEXT, EDIT]);
++        }
++        out
++    }
++    #[zbus(property)]
++    fn name(&self) -> String {
++        if self.kind == "button" {
++            self.state.lock().unwrap().label.clone()
++        } else {
++            self.kind.into()
++        }
++    }
++    #[zbus(property)]
++    fn description(&self) -> &str {
++        ""
++    }
++    #[zbus(property)]
++    fn accessible_id(&self) -> &str {
++        self.kind
++    }
++}
++struct Component;
++#[zbus::interface(name = "org.a11y.atspi.Component")]
++impl Component {
++    fn get_extents(&self, _coordinate: u32) -> (i32, i32, i32, i32) {
++        (0, 0, 500, 300)
++    }
++}
++struct Action(Arc<Mutex<State>>);
++#[zbus::interface(name = "org.a11y.atspi.Action")]
++impl Action {
++    #[zbus(property)]
++    fn n_actions(&self) -> i32 {
++        1
++    }
++    fn get_name(&self, _index: i32) -> &str {
++        "click"
++    }
++    fn do_action(&self, _index: i32) -> zbus::fdo::Result<bool> {
++        let mut state = self.0.lock().unwrap();
++        state.effects += 1;
++        if state.error_after_effect {
++            Err(zbus::fdo::Error::Failed("reply lost after effect".into()))
++        } else {
++            Ok(true)
++        }
++    }
++}
++struct Text(Arc<Mutex<State>>);
++#[zbus::interface(name = "org.a11y.atspi.Text")]
++impl Text {
++    fn get_text(&self, start: i32, end: i32) -> String {
++        let state = self.0.lock().unwrap();
++        state
++            .value
++            .chars()
++            .skip(start.max(0) as usize)
++            .take(if end < 0 {
++                usize::MAX
++            } else {
++                (end - start).max(0) as usize
++            })
++            .collect()
++    }
++    #[zbus(property)]
++    fn caret_offset(&self) -> zbus::fdo::Result<i32> {
++        let state = self.0.lock().unwrap();
++        if state.caret_unreadable {
++            Err(zbus::fdo::Error::Failed("caret unavailable".into()))
++        } else {
++            Ok(state.caret)
++        }
++    }
++    fn get_n_selections(&self) -> i32 {
++        i32::from(self.0.lock().unwrap().selection.is_some())
++    }
++    fn get_selection(&self, _index: i32) -> (i32, i32) {
++        self.0.lock().unwrap().selection.unwrap()
++    }
++}
++struct Editable(Arc<Mutex<State>>);
++#[zbus::interface(name = "org.a11y.atspi.EditableText")]
++impl Editable {
++    fn set_text_contents(&self, text: &str) -> bool {
++        let mut state = self.0.lock().unwrap();
++        state.replacements += 1;
++        if !state.ignore {
++            state.value = text.into();
++        }
++        true
++    }
++    fn delete_text(&self, start: i32, end: i32) -> bool {
++        let mut state = self.0.lock().unwrap();
++        state.value = state
++            .value
++            .chars()
++            .enumerate()
++            .filter_map(|(i, c)| (!(start as usize..end as usize).contains(&i)).then_some(c))
++            .collect();
++        true
++    }
++    fn insert_text(&self, position: i32, text: &str, length: i32) -> bool {
++        let mut state = self.0.lock().unwrap();
++        state.insertions += 1;
++        assert_eq!(
++            length as usize,
++            if state.toolkit == "Qt" {
++                text.encode_utf16().count()
++            } else {
++                text.len()
++            }
++        );
++        if state.insert_false {
++            return false;
++        }
++        if !state.ignore {
++            let mut chars: Vec<char> = state.value.chars().collect();
++            chars.splice(position as usize..position as usize, text.chars());
++            state.value = chars.into_iter().collect();
++        }
++        true
++    }
++}
++struct Application(Arc<Mutex<State>>);
++#[zbus::interface(name = "org.a11y.atspi.Application")]
++impl Application {
++    #[zbus(property)]
++    fn toolkit_name(&self) -> String {
++        self.0.lock().unwrap().toolkit.clone()
++    }
++}
++
++struct Fixture {
++    daemon: Child,
++    helper: Child,
++    output: BufReader<std::process::ChildStdout>,
++    _connection: zbus::Connection,
++    state: Arc<Mutex<State>>,
++    root: String,
++}
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        let _ = self.helper.kill();
++        let _ = self.helper.wait();
++        let _ = self.daemon.kill();
++        let _ = self.daemon.wait();
++    }
++}
++impl Fixture {
++    async fn new() -> Self {
++        let mut daemon = Command::new("dbus-daemon")
++            .args(["--session", "--nofork", "--print-address=1"])
++            .stdout(Stdio::piped())
++            .spawn()
++            .unwrap();
++        let mut address = String::new();
++        BufReader::new(daemon.stdout.take().unwrap())
++            .read_line(&mut address)
++            .unwrap();
++        let address = address.trim().to_owned();
++        let state = Arc::new(Mutex::new(State::default()));
++        let connection = zbus::connection::Builder::address(address.as_str())
++            .unwrap()
++            .build()
++            .await
++            .unwrap();
++        state.lock().unwrap().bus = connection.unique_name().unwrap().to_string();
++        connection
++            .object_server()
++            .at("/org/a11y/bus", Bus(address.clone()))
++            .await
++            .unwrap();
++        for (path, kind) in [
++            ("/org/a11y/atspi/accessible/root", "registry"),
++            ("/app", "app"),
++            ("/window", "window"),
++            ("/button", "button"),
++            ("/editor", "editor"),
++            ("/nested", "label"),
++        ] {
++            connection
++                .object_server()
++                .at(
++                    path,
++                    Accessible {
++                        kind,
++                        state: state.clone(),
++                    },
++                )
++                .await
++                .unwrap();
++            connection
++                .object_server()
++                .at(path, Component)
++                .await
++                .unwrap();
++        }
++        connection
++            .object_server()
++            .at("/button", Action(state.clone()))
++            .await
++            .unwrap();
++        connection
++            .object_server()
++            .at("/app", Application(state.clone()))
++            .await
++            .unwrap();
++        connection
++            .object_server()
++            .at("/editor", Text(state.clone()))
++            .await
++            .unwrap();
++        connection
++            .object_server()
++            .at("/editor", Editable(state.clone()))
++            .await
++            .unwrap();
++        connection.request_name("org.a11y.Bus").await.unwrap();
++        connection
++            .request_name("org.a11y.atspi.Registry")
++            .await
++            .unwrap();
++        let mut helper = Command::new(env!("CARGO_BIN_EXE_linux-bridge"))
++            .env("DBUS_SESSION_BUS_ADDRESS", address)
++            .env("XDG_SESSION_TYPE", "x11")
++            .env_remove("DISPLAY")
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .spawn()
++            .unwrap();
++        let output = BufReader::new(helper.stdout.take().unwrap());
++        let mut fixture = Self {
++            daemon,
++            helper,
++            output,
++            _connection: connection,
++            state,
++            root: String::new(),
++        };
++        fixture.root = fixture.call("listRoots", json!({"pid":std::process::id()}))["result"]
++            ["roots"][0]["rootRef"]
++            .as_str()
++            .unwrap()
++            .into();
++        fixture
++    }
++    fn call(&mut self, cmd: &str, args: Value) -> Value {
++        writeln!(
++            self.helper.stdin.as_mut().unwrap(),
++            "{}",
++            json!({"protocolVersion":4,"id":cmd,"cmd":cmd,"args":args})
++        )
++        .unwrap();
++        let mut line = String::new();
++        self.output.read_line(&mut line).unwrap();
++        serde_json::from_str(&line).unwrap()
++    }
++    fn look(&mut self) -> Value {
++        self.call("look", json!({"rootRef":self.root,"includeImage":false}))["result"].clone()
++    }
++    fn request(look: &Value, title: &str, action: &str, text: &str) -> Value {
++        let node = look["outline"]["children"]
++            .as_array()
++            .unwrap()
++            .iter()
++            .find(|node| node["title"] == title)
++            .unwrap();
++        json!({"lookId":look["lookId"],"action":action,"target":{"ref":node["ref"]},"params":{"text":text},"policy":"ax_only"})
++    }
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn changed_or_detached_controls_refuse_without_effects() {
++    let mut f = Fixture::new().await;
++    let look = f.look();
++    f.state.lock().unwrap().label = "Send payment".into();
++    let r = f.call("act", Fixture::request(&look, "Save draft", "press", ""));
++    assert_eq!(r["error"]["code"], "stale_ref", "{r}");
++    assert_eq!(f.state.lock().unwrap().effects, 0);
++    f.state.lock().unwrap().label = "Save draft".into();
++    f.state.lock().unwrap().detached = true;
++    let r = f.call("act", Fixture::request(&look, "Save draft", "press", ""));
++    assert_eq!(r["error"]["code"], "stale_ref", "{r}");
++    assert_eq!(f.state.lock().unwrap().effects, 0);
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn ignored_text_is_not_success_or_requested_value_evidence() {
++    let mut f = Fixture::new().await;
++    let look = f.look();
++    f.state.lock().unwrap().ignore = true;
++    let r = f.call(
++        "act",
++        Fixture::request(&look, "editor", "setText", "expected"),
++    );
++    assert_eq!(r["result"]["outcome"], "didnt", "{r}");
++    assert_ne!(r["result"]["evidence"]["value"], "expected");
++    assert_eq!(f.state.lock().unwrap().value, "prefix");
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn post_dispatch_errors_stop_batches_as_unknown_without_replay() {
++    let mut f = Fixture::new().await;
++    let look = f.look();
++    f.state.lock().unwrap().error_after_effect = true;
++    let action = Fixture::request(&look, "Save draft", "press", "");
++    let r = f.call("actBatch", json!({"actions":[action.clone(),action]}));
++    assert_eq!(r["result"]["outcome"], "unknown", "{r}");
++    assert_eq!(r["result"]["stoppedAt"], 0);
++    assert_eq!(f.state.lock().unwrap().effects, 1);
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn typing_inserts_at_caret_and_replaces_only_the_selection() {
++    let mut f = Fixture::new().await;
++    for (value, caret, selection, text, expected) in [
++        ("prefix", 6, None, "suffix", "prefixsuffix"),
++        ("a👩éz", 2, Some((1, 3)), "日本", "a日本z"),
++        ("ab", 1, Some((1, 1)), "é👩", "aé👩b"),
++    ] {
++        {
++            let mut s = f.state.lock().unwrap();
++            s.value = value.into();
++            s.caret = caret;
++            s.selection = selection;
++        }
++        let look = f.look();
++        let r = f.call("act", Fixture::request(&look, "editor", "typeText", text));
++        assert_eq!(f.state.lock().unwrap().value, expected, "{r}");
++        assert_eq!(r["result"]["outcome"], "worked", "{r}");
++    }
++    assert_eq!(f.state.lock().unwrap().replacements, 0);
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn failed_insert_after_selection_delete_remains_unknown() {
++    let mut f = Fixture::new().await;
++    f.state.lock().unwrap().selection = Some((0, 3));
++    f.state.lock().unwrap().insert_false = true;
++    let look = f.look();
++    let r = f.call(
++        "actBatch",
++        json!({"actions":[Fixture::request(&look,"editor","typeText","x")]}),
++    );
++    assert_eq!(r["result"]["outcome"], "unknown", "{r}");
++    assert_eq!(f.state.lock().unwrap().value, "fix");
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn qt_unicode_insertion_uses_its_toolkits_length_unit() {
++    let mut f = Fixture::new().await;
++    f.state.lock().unwrap().toolkit = "Qt".into();
++    f.call("listRoots", json!({"pid":std::process::id()}));
++    let look = f.look();
++    let r = f.call("act", Fixture::request(&look, "editor", "typeText", "é👩"));
++    assert_eq!(r["result"]["outcome"], "worked", "{r}");
++    assert_eq!(f.state.lock().unwrap().value, "prefixé👩");
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn unavailable_caret_refuses_before_any_text_mutation() {
++    let mut f = Fixture::new().await;
++    f.state.lock().unwrap().caret_unreadable = true;
++    let look = f.look();
++    let r = f.call(
++        "act",
++        Fixture::request(&look, "editor", "typeText", "private input"),
++    );
++    assert_eq!(r["ok"], false, "{r}");
++    assert!(!r.to_string().contains("private input"));
++    let state = f.state.lock().unwrap();
++    assert_eq!(state.value, "prefix");
++    assert_eq!(state.replacements + state.insertions, 0);
++}
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn incomplete_reads_and_depth_cuts_are_explicit() {
++    let mut f = Fixture::new().await;
++    let r = f.call(
++        "look",
++        json!({"rootRef":f.root,"includeImage":false,"maxDepth":1}),
++    );
++    assert_eq!(r["result"]["outline"]["truncated"], true, "{r}");
++    f.state.lock().unwrap().broken = true;
++    let r = f.look();
++    assert_eq!(r["outline"]["truncated"], true, "{r}");
++    let r = f.call(
++        "atspiWaitFor",
++        json!({"rootRef":f.root,"text":"missing","gone":true,"timeoutMs":100}),
++    );
++    assert_eq!(
++        r["result"]["found"], false,
++        "Unread children cannot prove absence: {r}"
++    );
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn scoped_observations_keep_a_visible_root_and_proven_window_ancestry() {
++    let mut f = Fixture::new().await;
++    let look = f.look();
++    let request = Fixture::request(&look, "Save draft", "press", "");
++    let scoped = f.call("look", json!({"rootRef":f.root,"includeImage":false,"baseLookId":look["lookId"],"scopeRef":request["target"]["ref"]}));
++    assert_eq!(
++        scoped["result"]["outline"]["title"], "Save draft",
++        "{scoped}"
++    );
++    let acted = f.call("act", json!({"lookId":scoped["result"]["lookId"],"action":"press","target":{"ref":scoped["result"]["outline"]["ref"]},"policy":"ax_only"}));
++    assert_eq!(acted["result"]["outcome"], "unknown", "{acted}");
++    assert_eq!(f.state.lock().unwrap().effects, 1);
++}
 diff --git a/native/macos/agent_cursor.swift b/native/macos/agent_cursor.swift
 new file mode 100644
 index 0000000..0efeac7
@@ -1649,7 +3022,7 @@ index 12524b1..a248e6a 100755
  const packageJsonPath = path.join(rootDir, "package.json");
  const releaseRepo = "injaneity/pi-computer-use";
 diff --git a/src/actions.ts b/src/actions.ts
-index 27decd0..66bed7c 100644
+index 27decd0..82bda1e 100644
 --- a/src/actions.ts
 +++ b/src/actions.ts
 @@ -8,7 +8,7 @@ export type PreparedAction =
@@ -1682,8 +3055,23 @@ index 27decd0..66bed7c 100644
  		case "scroll": return { action: operation, target, params: { scrollX: scrollDelta(action.scrollX), scrollY: scrollDelta(action.scrollY) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
  		case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
  		case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+@@ -125,6 +128,12 @@ export function outcomeAfterObservedValues(
+ 	valueForRef: (ref: string) => string | undefined,
+ ): "worked" | "didnt" | "unknown" {
+ 	if (actions.length === 0 || actions.some((action) => action.action !== "setText" || !action.ref)) return current;
+-	const matches = actions.every((action) => valueForRef(action.ref!) === (action.text ?? ""));
+-	return matches ? "worked" : current;
++	const lastWrites = new Map(actions.map(action => [action.ref!, action.text ?? ""]));
++	let unreadable = false;
++	for (const [ref, expected] of lastWrites) {
++		const actual = valueForRef(ref);
++		if (actual === undefined) unreadable = true;
++		else if (actual !== expected) return "didnt";
++	}
++	return unreadable ? (current === "didnt" ? "didnt" : "unknown") : "worked";
+ }
 diff --git a/src/bridge.ts b/src/bridge.ts
-index a1f3a86..d40776e 100644
+index a1f3a86..0fd84f8 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
 @@ -8,10 +8,10 @@ import path from "node:path";
@@ -1836,7 +3224,23 @@ index a1f3a86..d40776e 100644
  		.map((page) => ({
  			app: "Browser",
  			pid: 0,
-@@ -1825,7 +1854,7 @@ function aggregateExecutions(steps: ExecutionTrace[]): ExecutionTrace {
+@@ -1811,21 +1840,21 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
+ 	for (const action of actions) {
+ 		const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
+ 		steps.push(step);
+-		if (step.outcome === "didnt") break;
++		if (step.outcome === "didnt" || step.error) break;
+ 	}
+ 	return aggregateExecutions(steps);
+ }
+ 
+ function aggregateExecutions(steps: ExecutionTrace[]): ExecutionTrace {
+ 	const outcomes = steps.map((step) => step.outcome);
+-	const outcome: ActOutcome = outcomes.includes("didnt") ? "didnt" : outcomes.includes("unknown") ? "unknown" : "worked";
++	const outcome: ActOutcome = outcomes.includes("unknown") ? "unknown" : outcomes.includes("didnt") ? "didnt" : "worked";
+ 	const fallback = steps.find((step) => step.escalatedToForeground);
+ 	return executionTrace("act", steps.every((step) => step.variant === "stealth") ? "stealth" : "default", {
+ 		outcome,
  		steps,
  		actionCount: steps.length,
  		rootDelta: steps.flatMap((step) => step.rootDelta ?? []),
@@ -1845,7 +3249,60 @@ index a1f3a86..d40776e 100644
  		escalatedToForeground: Boolean(fallback),
  		escalationReason: fallback?.escalationReason,
  		backgroundAttempt: fallback?.backgroundAttempt,
-@@ -2175,7 +2204,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
+@@ -1867,6 +1896,7 @@ async function terminalDesktopActionResult(
+ 		// A failed identity probe cannot prove that the root closed.
+ 	}
+ 	const targetClosed = exactRootAvailable === false;
++	const interrupted = execution.error?.code === "interrupted_unknown" || execution.steps?.some(step => step.error?.code === "interrupted_unknown");
+ 	if (targetClosed && !(execution.rootDelta ?? []).some((delta) => delta.change === "closed" && delta.pid === target.pid && (delta.ref === target.windowRef || delta.ref === target.nativeWindowRef))) {
+ 		execution.rootDelta = [
+ 			...(execution.rootDelta ?? []),
+@@ -1880,7 +1910,7 @@ async function terminalDesktopActionResult(
+ 			},
+ 		];
+ 	}
+-	if (targetClosed && condition) {
++	if (targetClosed && condition && !interrupted) {
+ 		const verificationStatus = condition.gone ? "verified" : "failed";
+ 		execution.verification = {
+ 			status: verificationStatus,
+@@ -1918,9 +1948,10 @@ async function terminalDesktopActionResult(
+ 		execution,
+ 		error: { code, message },
+ 	};
++	const delivery = interrupted ? "The action may have been delivered" : "The action was delivered";
+ 	const result = targetClosed
+-		? `The action was delivered, and its source root ${target.appName} — ${target.windowTitle} closed before a successor observation could be captured.`
+-		: `The action was delivered, but its source root ${target.appName} — ${target.windowTitle} could not be observed afterward: ${message}`;
++		? `${delivery}, and its source root ${target.appName} — ${target.windowTitle} closed before a successor observation could be captured.`
++		: `${delivery}, but its source root ${target.appName} — ${target.windowTitle} could not be observed afterward: ${message}`;
+ 	return {
+ 		content: [{ type: "text", text: `${result}\nNo successor state was created. Call find_roots, then observe_ui to continue.` }],
+ 		details,
+@@ -1941,8 +1972,9 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
+ 		const headless = getComputerUseConfig().headless;
+ 		const execution = await dispatchUiTransaction(actions, target, look, headless, signal);
+ 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
++		const interrupted = execution.error?.code === "interrupted_unknown" || execution.steps?.some(step => step.error?.code === "interrupted_unknown");
+ 		try {
+-			if (condition) {
++			if (condition && !interrupted) {
+ 				const { text: expectedText, role: expectedRole, value: expectedValue, scopeExact, gone, timeoutMs } = condition;
+ 				const beforePresent = outlineConditionPresent(look.parsedOutline!, condition);
+ 				const desiredWasPreexisting = beforePresent !== gone;
+@@ -1976,7 +2008,10 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
+ 				await sleep(settleMsForExecution(execution), signal);
+ 			}
+ 			const capture = await captureCurrentTarget(signal, "auto", AUTO_IMAGE_MAX_DIMENSION, target);
+-			execution.outcome = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions, (ref) => nodeByRef(capture.outline, ref)?.value);
++			if (!interrupted) execution.outcome = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions, (ref) => {
++                const node = nodeByRef(capture.outline, ref);
++                return !node || node.valueReadable === false || /password|secure/i.test(`${node.role} ${node.subrole}`) ? undefined : node.value;
++            });
+ 			for (const action of executedActions) {
+ 				state.currentNote = noteAfterAct(state.currentNote ?? noteBefore, action.ref, capture.outline, { window: noteWindowForTarget(capture.target, capture.look), rootDelta: execution.rootDelta });
+ 			}
+@@ -2175,7 +2210,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
  	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
  	const url = requestedUrl ?? "about:blank";
  	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
@@ -1854,7 +3311,7 @@ index a1f3a86..d40776e 100644
  	runtimeState.managedBrowser?.kill("SIGTERM");
  	const args = [
  		`--remote-debugging-port=${port}`,
-@@ -2276,27 +2305,41 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
+@@ -2276,27 +2311,41 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
  		_onUpdate: AgentToolUpdateCallback<D> | undefined,
  		ctx: ExtensionContext,
  	): Promise<AgentToolResult<D>> => {
@@ -1913,7 +3370,7 @@ index a1f3a86..d40776e 100644
  	savedStates.clear();
  	clearStoredOutputs();
  	runtimeState.windowRefs.clear();
-@@ -2403,3 +2446,9 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
+@@ -2403,3 +2452,9 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
  		}
  	}
  }
@@ -1987,6 +3444,43 @@ index 660ed48..5201362 100644
  }
  
  export interface StateTargetParams {
+diff --git a/src/outline.ts b/src/outline.ts
+index 67849ae..2c15f76 100644
+--- a/src/outline.ts
++++ b/src/outline.ts
+@@ -25,6 +25,7 @@ export interface OutlineNode {
+ 	title: string;
+ 	description: string;
+ 	value: string;
++	valueReadable?: boolean;
+ 	actions: string[];
+ 	canPress: boolean;
+ 	canFocus: boolean;
+@@ -184,6 +185,7 @@ function parseNode(raw: unknown, parent?: OutlineNode): OutlineNode {
+ 		title: toString(record.title),
+ 		description: toString(record.description),
+ 		value: toString(record.value),
++		...(typeof record.valueReadable === "boolean" ? { valueReadable: record.valueReadable } : {}),
+ 		actions: Array.isArray(record.actions) ? record.actions.filter((value): value is string => typeof value === "string") : [],
+ 		canPress: toBoolean(record.canPress),
+ 		canFocus: toBoolean(record.canFocus),
+@@ -574,6 +576,7 @@ function copyNodeFields(target: OutlineNode, source: OutlineNode, preserveWireRe
+ 	target.title = source.title;
+ 	target.description = source.description;
+ 	target.value = source.value;
++	target.valueReadable = source.valueReadable;
+ 	target.actions = [...source.actions];
+ 	target.canPress = source.canPress;
+ 	target.canFocus = source.canFocus;
+@@ -586,7 +589,7 @@ function copyNodeFields(target: OutlineNode, source: OutlineNode, preserveWireRe
+ 	target.focused = source.focused;
+ 	target.offscreen = source.offscreen;
+ 	target.pictureOnly = source.pictureOnly;
+-	target.truncated = false;
++	target.truncated = source.truncated;
+ 	target.scrollExtent = source.scrollExtent ? { ...source.scrollExtent } : undefined;
+ 	target.text = source.text.map((text) => ({ ...text, rect: text.rect ? { ...text.rect } : undefined }));
+ }
 diff --git a/src/output.ts b/src/output.ts
 index 2cfa6b6..88b5563 100644
 --- a/src/output.ts

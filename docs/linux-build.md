@@ -7,6 +7,12 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
+The local 0.15.2 candidate adds the reviewed Linux accessibility identity,
+uncertain-effect, observed-value, caret-insertion and incomplete-tree fixes,
+plus Tcl 8/9-compatible interactive terminal byte relaying. It retains the
+0.15.1 feature baseline below. The preview link above continues to identify
+0.15.1 until this candidate is published.
+
 The 0.15.1 preview integrates main through `d7743a6` (Mac 0.15.0).
 It adds page folders with Preview and Data views, online-page publishing support,
 Files multi-select and grouped restore points, banner customization layouts,
@@ -237,6 +243,10 @@ conversation. Minimize keeps that entry available; Close quits and removes it.
   Stop sharing remains available during setup and active work. See the limits below.
   Chromium may expose text fields without EditableText support; an accessible
   tree does not establish that every control supports semantic editing.
+  Changed accessibility targets require a fresh observation. Accepted dispatches
+  and uncertain effects remain distinct from verified outcomes; text writes are
+  checked against readable values. Semantic typing inserts at the caret rather
+  than replacing the whole field. Partial trees retain truncation markers.
 - **Chrome:** a native Rust bootstrap with the pinned Store origin and private
   loopback protocol. Connect Chrome writes only the user-level native-messaging
   manifest. Google Chrome and the Store companion are separate installations.

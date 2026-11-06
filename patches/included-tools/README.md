@@ -53,6 +53,31 @@ cannot collide with another Chat's new observations. The Rust regression suite
 checks this across independent helper states. Concurrent calls wait for a
 stopping helper to drain before starting its replacement.
 
+The Linux accessibility patch also validates live refs against the recorded
+process start time, D-Bus owner, registered window, parent chain and stable
+control evidence. It does not substitute another control when an address is
+reused or detached. Post-dispatch errors return `interrupted_unknown`; batches
+stop and preserve uncertainty, without retrying through physical input. A
+successful `DoAction` reply means dispatched, not a verified application result.
+
+`setText` uses replacement and verifies readable values. `typeText` reads the
+caret/selection and uses `InsertText`, deleting only a nonempty selection;
+partial deletion/insertion stays uncertain. Insertion lengths follow the
+[AT-SPI byte-length contract](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/method.EditableText.insert_text.html),
+with Qt's bridge using UTF-16 units. Password values remain unreadable and are
+never echoed as evidence. The additive `valueReadable` outline field distinguishes
+an actual empty value from unavailable text. Existing protocol 4 envelopes and
+tool names remain unchanged.
+
+Depth/node cuts and failed tree reads mark the affected observation incomplete;
+Pi retains those flags when grafting scoped observations. A missing match in an
+incomplete tree never satisfies a disappearance condition. Contradictory successor
+values override a claimed write success, and uncertainty cannot be erased by a
+preexisting value or a failed successor capture. The private D-Bus fixture in
+`native/linux/bridge-rs/tests/accessibility_contract.rs` drives the real helper
+and asserts independent application state. It runs in `desktop:linux-native-tests`;
+`tests/computer-semantics.test.ts` checks the Pi result path and scoped outlines.
+
 ## Pi AI 1.1.0 identity retention
 
 The native direct ChatGPT OAuth flow now verifies the returned ID token against

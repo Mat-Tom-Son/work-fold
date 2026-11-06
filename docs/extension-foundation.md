@@ -126,6 +126,18 @@ Another Chat receives a busy result while that turn controls the desktop. Normal
 completion releases control without ending sharing. Cancelling or disposing the
 controlling Chat stops sharing; removing an idle Chat or Folder does not.
 
+Linux accessibility actions recheck the application process instance, registered
+window, parent chain and stable control identity before dispatch. Changed or
+unreadable identities require a new observation. Semantic dispatch errors after
+a write remain uncertain and stop the transaction without physical fallback.
+An accepted activation is unverified until an independent observation or explicit
+postcondition proves its result. Text writes use actual readable successor values;
+`setText` replaces the field, while `typeText` inserts at the caret and replaces
+only a selected range. Unavailable caret/selection information refuses insertion
+before editing. Incomplete tree reads and traversal cuts retain truncation markers,
+including scoped expansion; an incomplete tree cannot establish that a condition
+disappeared. These corrections use the existing Pi tools and helper protocol.
+
 A shared monitor has its own target kind and no PID, window id or semantic tree.
 Visual observation returns the granted PipeWire frame. Pixel actions use the
 portal/EIS mapping and compositor geometry, including qualified fractional
