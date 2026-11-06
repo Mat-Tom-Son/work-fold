@@ -4,7 +4,7 @@
 
 The visual thesis is a quiet, readable workspace whose materials and typography feel personal while its navigation remains familiar. The Appearance page starts with small palette previews for the selected light/dark mode, then a live conversation and file-list sample, followed by reading, spacing, and accessibility controls. Existing work-folder identity is reached through the Customize work-folder popup.
 
-Selection feedback is immediate; preview changes follow the actual controls. Hover and focus use the existing short transitions. Reduced motion removes those transitions, and no decorative animation is added to Settings.
+Selection feedback is immediate; preview changes follow the actual controls. Hover and focus use the existing short transitions. Settings opens like every dialog, and each page fades up as it opens (2026-11-02, [Motion](visual-design.md#motion-2026-11-02)). Reduced motion removes those transitions and animations.
 
 Application preferences describe the person's working environment. work-folder appearance describes the working context. Changing the former must not overwrite a work-folder's colors, icon, banner, or portable content. Native window controls, navigation order, minimum navigation targets, action semantics, and non-color status cues remain invariant.
 

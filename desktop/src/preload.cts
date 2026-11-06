@@ -56,13 +56,18 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
         path: string;
         kind: "file" | "folder";
         capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean };
+        selection?: { files: number; folders: number };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
       popupTabMenu: (request: {
         chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
-        tab?: { hasOthers: boolean };
+        tab?: { hasOthers: boolean; hasRight: boolean; canReopen: boolean };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-tab-menu", request),
+      popupHeaderMenu: (request: {
+        actions: { newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean };
+        point: { x: number; y: number };
+      }) => ipcRenderer.invoke("work-fold:work-folder:popup-header-menu", request),
     } : {}),
     setActiveWorkFolder: (workFolderId: string | null) => ipcRenderer.invoke("work-fold:work-folder:set-active-work-folder", workFolderId),
     onOpenWorkFolder: (callback: (workFolderId: string, view?: "checks") => void) => {

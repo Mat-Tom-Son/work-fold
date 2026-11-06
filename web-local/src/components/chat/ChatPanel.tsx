@@ -7,7 +7,7 @@ import { useWorkRequest } from "../../hooks/useWorkRequest";
 import { WorkRequest, openWorkFile } from "./WorkRequest";
 import type * as React from "react";
 import { Add16Regular, ArrowDown20Regular, ArrowUp20Regular, Chat16Regular, ChevronDown16Regular, ChevronLeft16Regular, Desktop20Regular, Search16Regular } from "@fluentui/react-icons";
-import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "lucide-react";
+import { AlertTriangle, Archive, CircleCheck, Clock3, Loader2, Square, X } from "../chrome/icons";
 
 import { chatDraftDebounceMs, genericChatEmptyGreetings, workFolderPathDragType } from "../../constants";
 import { createFixtureContextAttachment, fixtureConversationSummary } from "../../fixtures/shared";
@@ -15,7 +15,7 @@ import { ApiError, api, createEventSource, errorText, isTransientNetworkError, r
 import { requestConnectAi } from "../../lib/connect-ai";
 import { conversationLifecycleView } from "../../lib/chat-lifecycle";
 import { createChatTurnStateGate, observeChatTurnState } from "../../lib/chat-turn-state";
-import { hasNativeFiles } from "../../lib/file-actions";
+import { draggedWorkFolderPaths, hasNativeFiles } from "../../lib/file-actions";
 import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { displayModelLabel } from "../../lib/model-display";
 import { thinkingLevelLabel } from "../../lib/thinking-levels";
@@ -34,6 +34,7 @@ import {
   writeStoredChatDraft,
   writeStoredPendingChatSend,
 } from "../../lib/format";
+import { glideFrom } from "../../lib/motion";
 import { latestAssistantMessageId as findLatestAssistantMessageId, settledTurnHasNewAssistantMessage } from "../../lib/chat-turn-artifacts";
 import { assistantTurnView } from "../../lib/chat-work-trail";
 import type { AssistantPresentation } from "../../../../src/shared/chat-presentation";
@@ -142,7 +143,7 @@ export function ChatPanel({
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   draftRequest?: ChatDraftRequest | null;
-  onAddPathToChatContext?: (path: string) => void;
+  onAddPathToChatContext?: (paths: readonly string[]) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenWorkFolderFile?: (path: string) => void;
   onConversationActivated?: (conversation: ConversationSummary | null) => void;
@@ -229,6 +230,7 @@ export function ChatPanel({
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(null);
   const [conversationRuntime, setConversationRuntime] = useState<ConversationRuntime | null>(null);
+  const [compactPending, setCompactPending] = useState(false);
   const [modelStatus, setModelStatus] = useState<AgentStatus | null>(null);
   const [composerState, setComposerState] = useState<ComposerState | null>(null);
   const [composerModelRevision, setComposerModelRevision] = useState(0);
@@ -286,6 +288,9 @@ export function ChatPanel({
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
+  // Where the composer stood under a new Chat's greeting when its first message went.
+  const composerGlideFromRef = useRef<DOMRect | null>(null);
   const userPinnedToBottomRef = useRef(true);
   const streamingBufferRef = useRef("");
   const streamingFlushRef = useRef<number | null>(null);
@@ -293,6 +298,8 @@ export function ChatPanel({
   const runtimePreviewIdRef = useRef(0);
   const workFolderIdRef = useRef(workFolder.id);
   const messagesLoadGenerationRef = useRef(0);
+  const runtimeUpdateRevisionRef = useRef(0);
+  const compactionNoticeOwnersRef = useRef(new Map<string, string>());
   const settlingTurnRef = useRef(false);
   const settlementRetryTimerRef = useRef<number | null>(null);
   useEffect(() => () => {
@@ -497,6 +504,8 @@ export function ChatPanel({
   }, [workFolder.id, fixtureMode, modelConfigurationRevision, composerModelRevision]);
 
   useEffect(() => {
+    runtimeUpdateRevisionRef.current++;
+    compactionNoticeOwnersRef.current.clear();
     setConversationRuntime(null);
   }, [workFolder.id, conversation?.id]);
 
@@ -511,13 +520,13 @@ export function ChatPanel({
       setConversationRuntime(null);
       return;
     }
-    if (running) return;
     if (fixtureMode) {
       setConversationRuntime(fixtureConversationRuntime);
       return;
     }
+    const revision = runtimeUpdateRevisionRef.current;
     void loadConversationRuntime(conversationId).then((runtime) => {
-      if (!cancelled) setConversationRuntime(runtime);
+      if (!cancelled && revision === runtimeUpdateRevisionRef.current) setConversationRuntime(runtime);
     });
     return () => {
       cancelled = true;
@@ -556,7 +565,7 @@ export function ChatPanel({
     if (fixtureConversation && fixtureConversationSummaryValue) {
       setConversation(fixtureConversationSummaryValue);
       onConversationActivated?.(fixtureConversationSummaryValue);
-      setMessages(fixtureConversation.messages.filter((message) => message.role !== "system"));
+      setMessages(fixtureConversation.messages.filter((message) => message.role !== "system" || message.kind === "context_compaction"));
       setStreamingAssistant(fixtureConversation.streamingAssistant ?? (fixtureRunning && !eventPreviews.length ? "I’m reading the selected files and checking the generated outputs now." : ""));
       setContextAttachments(fixtureConversation.contextAttachments ?? []);
     } else {
@@ -606,7 +615,7 @@ export function ChatPanel({
   useEffect(() => {
     if (!conversation || !shouldKeepEventStreamOpen) return;
     const conversationId = conversation.id;
-    let openedOnce = false;
+    let closed = false;
     const turnStateGate = createChatTurnStateGate();
     eventStreamReadyConversationIdRef.current = null;
     // Queue numbers belong to one Chat's stream; a new Chat starts from its own.
@@ -615,13 +624,16 @@ export function ChatPanel({
     source.onopen = () => {
       eventStreamReadyConversationIdRef.current = conversationId;
       setError(null);
-      if (openedOnce && !pendingSendRef.current && !postingPendingSendRef.current) {
-        // Reconcile messages that may have landed while Windows was asleep or
-        // the renderer was disconnected. Runtime previews remain intact while
-        // a turn is still active.
+      const revision = runtimeUpdateRevisionRef.current;
+      void loadConversationRuntime(conversationId).then((runtime) => {
+        if (!closed && runtime && revision === runtimeUpdateRevisionRef.current) setConversationRuntime(runtime);
+      });
+      if (!pendingSendRef.current && !postingPendingSendRef.current) {
+        // A newly reopened stream may belong to an inactive tab, not just a
+        // reconnect. Reconcile saved background compaction notices in both
+        // cases. Runtime previews remain intact while a turn is active.
         void loadMessages(conversationId, false).catch(() => undefined);
       }
-      openedOnce = true;
       if (pendingSendRef.current?.conversation.id === conversationId) void postPendingMessage();
     };
     source.onerror = (streamError) => {
@@ -654,6 +666,15 @@ export function ChatPanel({
     source.onmessage = (event) => {
       const data = JSON.parse(event.data) as ChatStreamEvent;
       if (data.conversationId !== conversationId) return;
+      if (data.type === "runtime" && data.runtime) {
+        runtimeUpdateRevisionRef.current++;
+        setConversationRuntime(data.runtime);
+      }
+      if (data.type === "context_compacted" && data.chatMessage?.kind === "context_compaction") {
+        const notice = data.chatMessage;
+        compactionNoticeOwnersRef.current.set(notice.id, `${workFolder.id}:${conversationId}`);
+        setMessages((current) => current.some((message) => message.id === notice.id) ? current : [...current, notice]);
+      }
       const turnFrame = data.type === "turn_state" || data.type === "turn_snapshot";
       if (!turnFrame && data.turnId && activeStreamTurnIdRef.current && data.turnId !== activeStreamTurnIdRef.current) return;
       if (data.type === "turn_state" || data.type === "turn_snapshot") {
@@ -799,6 +820,7 @@ export function ChatPanel({
       }
     };
     return () => {
+      closed = true;
       if (eventStreamReadyConversationIdRef.current === conversationId) eventStreamReadyConversationIdRef.current = null;
       source.close();
       cancelStreamingFlush();
@@ -808,7 +830,7 @@ export function ChatPanel({
 
   useEffect(() => {
     if (!contextPathRequest) return;
-    void attachContextPath(contextPathRequest.path);
+    void (async () => { for (const path of contextPathRequest.paths) await attachContextPath(path); })();
   }, [contextPathRequest?.id]);
 
   useEffect(() => {
@@ -1146,6 +1168,12 @@ export function ChatPanel({
   // A new Chat puts the composer under its greeting, with the work-folder's
   // recent Chats below, until the first message is sent (2026-10-27).
   const startLayout = !hasTranscript && !conversation && !targetConversationId && lifecycleView === "active";
+  // The first message carries the composer from under the greeting to its place at the bottom.
+  useLayoutEffect(() => {
+    const from = composerGlideFromRef.current;
+    composerGlideFromRef.current = null;
+    if (!startLayout) glideFrom(composerRef.current, from);
+  }, [startLayout]);
   const recentChats = useMemo(() => startLayout
     ? conversations
       .filter((item) => conversationLifecycleView(item) === "active")
@@ -1187,7 +1215,7 @@ export function ChatPanel({
     try {
       if (fixtureMode) return [];
       const result = await api<{ messages: ChatMessage[] }>(`/api/work-folders/${workFolder.id}/conversations/${conversationId}`);
-      transcript = result.messages.filter((message) => message.role !== "system");
+      transcript = result.messages.filter((message) => message.role !== "system" || message.kind === "context_compaction");
       if (generation !== messagesLoadGenerationRef.current) return transcript;
       if (settleStreamingTurn) {
         keepSettledTurnArtifacts = settledTurnHasNewAssistantMessage(
@@ -1206,7 +1234,11 @@ export function ChatPanel({
         } else {
           suppressMessageEnterIdsRef.current.clear();
         }
-        return transcript;
+        // A read begun before a background compaction may arrive after its
+        // saved notice event. Keep that notice until the next read includes it.
+        const ids = new Set(transcript.map((message) => message.id));
+        return [...transcript, ...current.filter((message) => message.kind === "context_compaction" && !ids.has(message.id)
+          && compactionNoticeOwnersRef.current.get(message.id) === `${workFolder.id}:${conversationId}`)];
       });
       applyModelConversationTitle(conversationId, result.messages);
       if (pinToBottom) {
@@ -1291,6 +1323,7 @@ export function ChatPanel({
     cancelStreamingFlush();
     setStreamingAssistant("");
     const sentDraftStorageKey = draftStorageKey;
+    if (startLayout) composerGlideFromRef.current = composerRef.current?.getBoundingClientRect() ?? null;
     const addressedWorkFolderIds = addressedFolderIds(content, mentionFolders);
     if (contentOverride === undefined) setDraft("");
     setRunning(true);
@@ -1587,9 +1620,25 @@ export function ChatPanel({
     }
   }
 
+  /** Compact Chat in the context popover; the inert preview only pretends. */
+  function compactFromContextMenu(): void {
+    if (fixtureMode) {
+      setConversationRuntime((current) => {
+        if (!current) return current;
+        const contextTokens = Math.min(current.usage.contextTokens ?? 0, 4_200);
+        const contextPercent = current.usage.contextWindow ? (contextTokens / current.usage.contextWindow) * 100 : null;
+        return { ...current, usage: { ...current.usage, contextTokens, contextPercent } };
+      });
+      showToast({ text: "Compacted this Chat's working context.", tone: "success" });
+      return;
+    }
+    void compactConversation();
+  }
+
   async function compactConversation(customInstructions?: string, typedCommand?: string) {
     if (running || fixtureMode || !conversation) return;
     setRunning(true);
+    setCompactPending(true);
     setError(null);
     try {
       await api<{ compacted: boolean }>(`/api/work-folders/${workFolder.id}/conversations/${conversation.id}/compact`, {
@@ -1604,6 +1653,8 @@ export function ChatPanel({
       setError(errorText(compactError));
       // Put the command back only into an empty composer, as a failed send does.
       if (typedCommand) setDraft((current) => (current.trim() ? current : typedCommand));
+    } finally {
+      setCompactPending(false);
     }
   }
 
@@ -1703,10 +1754,6 @@ export function ChatPanel({
     return byCandidate;
   }, [fixtureMode, fixtureTreeEntries, workFolder.id]);
 
-  function droppedWorkFolderPath(event: React.DragEvent<HTMLElement>): string {
-    return event.dataTransfer.getData(workFolderPathDragType);
-  }
-
   function hasWorkFolderPathDrag(event: React.DragEvent<HTMLElement>): boolean {
     return Array.from(event.dataTransfer.types).includes(workFolderPathDragType);
   }
@@ -1742,8 +1789,8 @@ export function ChatPanel({
     event.preventDefault();
     setDragActive(false);
     if (acceptsWorkFolderPath) {
-      const path = droppedWorkFolderPath(event);
-      if (path) onAddPathToChatContext?.(path);
+      const paths = draggedWorkFolderPaths(event.dataTransfer);
+      if (paths.length) onAddPathToChatContext?.(paths);
       return;
     }
     void attachDroppedNativeFiles(event.dataTransfer);
@@ -1921,7 +1968,7 @@ export function ChatPanel({
                 {queuedSend}
                 {queuedHeld ? <span className="queued-send-held">Not sent: the work was stopped.</span> : null}
               </div>
-              <button type="button" className="queued-send-cancel" aria-label="Cancel queued message" title="Cancel" onClick={returnQueuedSendToComposer}>
+              <button type="button" className="queued-send-cancel" aria-label="Cancel Queued Message" title="Cancel" onClick={returnQueuedSendToComposer}>
                 <X size={13} />
               </button>
             </div>
@@ -1954,6 +2001,7 @@ export function ChatPanel({
         </div>
       ) : null}
       <form
+        ref={composerRef}
         className={dragActive ? "composer composer-drop-active" : "composer"}
         hidden={lifecycleView !== "active"}
         onDragEnter={handleComposerDragEnter}
@@ -2140,15 +2188,18 @@ export function ChatPanel({
               type="button"
               onClick={toggleComposerCommands}
               aria-expanded={commandMenuOpen}
-              title="Browse commands and Skills"
+              title="Browse Commands and Skills"
             >
               <span aria-hidden="true">/</span>
               <span>Commands</span>
             </button>
             <span className="composer-capability-spacer" />
-            {modelStatus?.configured && conversationRuntime
-              ? <ConversationContextMeter runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
-              : modelStatus?.configured && composerState?.model
+            {modelStatus?.configured && conversationRuntime ? (
+              <>
+                <ConversationContextControl runtime={conversationRuntime} busy={running || requestBusy} compacting={conversationRuntime.isCompacting || compactPending} onCompact={compactFromContextMenu} />
+                <ConversationModel runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
+              </>
+            ) : modelStatus?.configured && composerState?.model
                 ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
                 : modelStatus && !modelStatus.configured
                   ? <button className="composer-connect-ai" type="button" onClick={() => requestConnectAi()} title="Connect an AI provider so this Worker can start">Connect AI</button>
@@ -2158,7 +2209,7 @@ export function ChatPanel({
                 <Square size={14} />
               </button>
             ) : (
-              <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send message">
+              <button className="send-button" type="submit" disabled={!draft.trim()} aria-label="Send Message">
                 <FluentGlyph icon={ArrowUp20Regular} size={17} />
               </button>
             )}
@@ -2216,37 +2267,90 @@ function RestrictedAppAddedNotice({ proposal, busy, onOpen, onRetry, onDismiss }
   );
 }
 
-function ConversationContextMeter({ runtime, status, workFolderName, picker, reasoning }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
+/** The context ring beside the model chip; its popover shows usage and compacts the Chat. */
+function ConversationContextControl({ runtime, busy, compacting, onCompact }: { runtime: ConversationRuntime; busy: boolean; compacting: boolean; onCompact: () => void }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuId = useId();
+  useDismissOnOutsideInteraction(open, containerRef, () => setOpen(false), triggerRef);
+  const { contextTokens, contextWindow, totalTokens } = runtime.usage;
   const percent = runtime.usage.contextPercent === null
     ? null
     : Math.max(0, Math.min(100, runtime.usage.contextPercent));
-  const contextLabel = runtime.usage.contextTokens === null
-    ? "Context recalculates after the next reply"
-    : `${formatTokenCount(runtime.usage.contextTokens)} of ${formatTokenCount(runtime.usage.contextWindow)} context`;
+  const warning = percent !== null && percent >= 85;
+  const contextLabel = compacting ? "Compacting conversation context"
+    : contextTokens === null
+      ? "Context recalculates after the next model reply"
+      : `Estimated ${formatTokenCount(contextTokens)} of ${formatTokenCount(contextWindow)} context`;
+  const processed = `${formatTokenCount(totalTokens)} tokens processed in this Chat`;
+  return (
+    <div className="composer-context-control" ref={containerRef} onBlurCapture={(event) => {
+      if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    }}>
+      <button
+        ref={triggerRef}
+        className={`conversation-context-meter${warning ? " warning" : ""}${open ? " active" : ""}`}
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        aria-label={`Context. ${contextLabel}`}
+        title={`${contextLabel} · ${processed}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle className="track" cx="12" cy="12" r="10" />
+          {percent !== null ? <circle className="value" cx="12" cy="12" r="3.75" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
+        </svg>
+      </button>
+      {open ? (
+        <div className="composer-command-menu composer-context-menu" id={menuId} role="dialog" aria-label="Context">
+          <div className="composer-command-menu-heading"><span>Context</span></div>
+          <div className="composer-context-body">
+            {percent !== null && contextTokens !== null ? (
+              <>
+                <p className="composer-context-summary">
+                  <strong>{Math.round(percent)}%</strong>
+                  <span>{formatTokenCount(contextTokens)} of {formatTokenCount(contextWindow)} tokens</span>
+                </p>
+                <div className={warning ? "composer-context-bar warning" : "composer-context-bar"} aria-hidden="true">
+                  <span style={{ width: `${percent}%` }} />
+                </div>
+              </>
+            ) : (
+              <p className="composer-context-summary pending">{compacting ? "Compacting…" : "Updates after the next reply"}</p>
+            )}
+            <p className="composer-context-detail">{processed}</p>
+          </div>
+          <button
+            className="composer-context-compact"
+            type="button"
+            disabled={busy || compacting}
+            title={compacting ? undefined : busy ? "Compact between turns" : "Summarize earlier messages to free up context"}
+            onClick={onCompact}
+          >
+            {compacting ? <Loader2 className="spin" size={13} aria-hidden="true" /> : null}
+            {compacting ? "Compacting" : "Compact Chat"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConversationModel({ runtime, status, workFolderName, picker, reasoning }: { runtime: ConversationRuntime; status: AgentStatus; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {
   const modelLabel = runtime.model?.name
     ?? runtime.model?.id
     ?? displayModelLabel(status.provider ?? "", status.model ?? "");
-  const title = [
-    modelLabel,
-    contextLabel,
-    `${formatTokenCount(runtime.usage.totalTokens)} processed this Chat`,
-  ].join(" · ");
   return (
     <ComposerModelPicker
       {...picker}
       reasoning={reasoning}
-      className={`conversation-context-meter${percent !== null && percent >= 85 ? " warning" : ""}`}
-      ariaLabel={`Change the model saved for ${workFolderName}. ${title}`}
-      title={`${title} · Change the model saved for ${workFolderName}`}
+      className="composer-model-chip"
+      ariaLabel={`Change the model saved for ${workFolderName}. Selected model: ${modelLabel}`}
+      title={`${modelLabel} · Change the model saved for ${workFolderName}`}
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
-        {percent !== null ? <circle className="value" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} /> : null}
-      </svg>
       <span className="conversation-context-model">{modelLabel}</span>
-      {percent !== null && percent >= 50 ? (
-        <span className="conversation-context-value">{`${Math.round(percent)}% of context`}</span>
-      ) : null}
     </ComposerModelPicker>
   );
 }
@@ -2413,7 +2517,7 @@ function ComposerModelPicker({
     : shownModel;
   const filterable = models.length > composerModelFilterThreshold;
   const view = composerModelListView(models, filterable ? query : "", saved);
-  const heading = forNewChats ? "Model for new Chats" : "Model";
+  const heading = forNewChats ? "Model for New Chats" : "Model";
   const noMatches = filterable && query.trim() !== "" && !view.groups.length;
 
   function focusOption(edge: "start" | "end"): boolean {
@@ -2502,7 +2606,7 @@ function ComposerModelPicker({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={reasoning ? `${ariaLabel}. Reasoning: ${thinkingLevelLabel(reasoning.level)}` : ariaLabel}
-        title={disabled ? "Model and reasoning changes apply between turns" : reasoning ? `${title} · Reasoning: ${thinkingLevelLabel(reasoning.level)}` : title}
+        title={[title, reasoning ? `Reasoning: ${thinkingLevelLabel(reasoning.level)}` : null, disabled ? "Model and reasoning changes apply between turns" : null].filter(Boolean).join(" · ")}
         onClick={() => { if (!disabled) setOpen((current) => !current); }}
         onKeyDown={(event) => {
           if (disabled || (event.key !== "ArrowDown" && event.key !== "ArrowUp")) return;
@@ -2559,18 +2663,18 @@ function ComposerModelPicker({
                   {group.models.map(renderOption)}
                 </div>
               ))}
-              {noMatches ? <div className="composer-model-status" role="status">No matching models</div> : null}
+              {noMatches ? <div className="composer-model-status" role="status">No Matching Models</div> : null}
             </div>
           ) : loading ? (
             <div className="composer-model-status" role="status">Loading models</div>
           ) : !error ? (
-            <div className="composer-model-status" role="status">No connected models</div>
+            <div className="composer-model-status" role="status">No Connected Models</div>
           ) : null}
           {error ? <div className="composer-model-error" role="alert">{error}</div> : null}
           {reasoning ? (
             <div className="composer-reasoning">
               <div className="composer-command-menu-heading" id={`${menuId}-reasoning`}>
-                <span>{reasoning.forThisChat ? "Reasoning for this Chat" : "Reasoning"}</span>
+                <span>{reasoning.forThisChat ? "Reasoning for This Chat" : "Reasoning"}</span>
               </div>
               <div className="composer-reasoning-levels" role="radiogroup" aria-labelledby={`${menuId}-reasoning`}>
                 {reasoning.levels.map((level) => (
@@ -2600,7 +2704,7 @@ function ComposerModelPicker({
               onOpenModelSettings?.();
             }}
           >
-            Model settings
+            Model Settings
           </button>
         </div>
       ) : null}
@@ -2614,13 +2718,10 @@ function ConfiguredModel({ model, workFolderName, picker, reasoning }: { model: 
     <ComposerModelPicker
       {...picker}
       reasoning={reasoning}
-      className="conversation-context-meter configured"
+      className="composer-model-chip configured"
       ariaLabel={`Change the model saved for ${workFolderName}. Selected model: ${label}`}
       title={`Selected model for new Chats: ${label} · Change the model saved for ${workFolderName}`}
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle className="track" cx="12" cy="12" r="9" pathLength="100" />
-      </svg>
       <span className="conversation-context-model">{label}</span>
     </ComposerModelPicker>
   );
@@ -2737,11 +2838,11 @@ function ComposerAttachMenu({
         ref={triggerRef}
         className={open ? "composer-attach-trigger active" : "composer-attach-trigger"}
         type="button"
-        aria-label="Attach files"
+        aria-label="Attach Files"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        title="Attach files"
+        title="Attach Files"
         onClick={() => setOpen((current) => !current)}
       >
         <Add16Regular aria-hidden="true" />
@@ -2764,7 +2865,7 @@ function ComposerAttachMenu({
         />
       ) : null}
       {open && view === "choose" ? (
-        <div className="composer-command-menu composer-attach-menu" id={menuId} role="menu" aria-label="Attach files">
+        <div className="composer-command-menu composer-attach-menu" id={menuId} role="menu" aria-label="Attach Files">
           <button type="button" role="menuitem" autoFocus onClick={() => setView("files")}>
             <span className="composer-attach-option-icon" style={workFolderIdentityStyle(identity)}><WorkFolderIconGlyph icon={identity.Icon} size={18} /></span>
             <span className="composer-attach-option-copy">
@@ -2815,7 +2916,7 @@ function ComposerAttachMenu({
           </div>
           {error ? <div className="composer-model-error" role="alert">{error}</div>
             : !files ? <div className="composer-model-status" role="status">Loading files</div>
-              : !visible.length ? <div className="composer-model-status" role="status">{query.trim() ? "No matching files" : "No files yet"}</div>
+              : !visible.length ? <div className="composer-model-status" role="status">{query.trim() ? "No Matching Files" : "No Files Yet"}</div>
                 : (
                   <div
                     className="composer-attach-options"
@@ -2852,7 +2953,7 @@ function commandSourceLabel(source: AgentCommand["source"]): string {
   if (source === "skill") return "Skill";
   if (source === "prompt") return "Prompt";
   if (source === "extension") return "Extension";
-  return "Built-in";
+  return "Built-In";
 }
 
 function formatTokenCount(value: number | null): string {

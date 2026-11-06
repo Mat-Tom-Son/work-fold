@@ -762,41 +762,6 @@ test("direct verbs parse with strict shapes", () => {
     /--work-folder cannot be used with 'automations enable'/,
   );
 
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "share", "--work-folder", "work-folder-1", "--path", "reports/weekly.md", "--title", "Weekly report"]),
-    { name: "pages.share", output: "human", workFolder: "work-folder-1", path: "reports/weekly.md", title: "Weekly report" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "share", "--work-folder", "work-folder-1", "--path", "weekly.md", "--title", "Weekly", "--snapshot"]),
-    { name: "pages.share", output: "human", workFolder: "work-folder-1", path: "weekly.md", title: "Weekly", snapshot: true },
-  );
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "share", "--path", "weekly.md", "--title", "W"]), /explicit --work-folder/);
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "share", "--work-folder", "work-folder-1", "--path", "a.md", "--title", "A", "--message", "x"]),
-    /--message cannot be used with 'pages share'/,
-  );
-
-  // Rung 3: hosted-app exposure. The pins come from the installed Instance's
-  // reviewed manifest host-side; argv names only the identity.
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "share-app", "--work-folder", "work-folder-1", "--instance", "feature-installation-1"]),
-    { name: "pages.share-app", output: "human", workFolder: "work-folder-1", instance: "feature-installation-1" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "share-app", "--work-folder", "work-folder-1", "--instance", "fi-1", "--parent-task", "task-9", "--json"]),
-    { name: "pages.share-app", output: "json", workFolder: "work-folder-1", instance: "fi-1", parentTaskId: "task-9" },
-  );
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "share-app", "--instance", "fi-1"]), /explicit --work-folder/);
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "share-app", "--work-folder", "work-folder-1", "--instance", "fi-1", "--title", "T"]),
-    /--title cannot be used with 'pages share-app'/,
-  );
-  assert.throws(
-    () => parseWorkFoldCliActArgv(["pages", "share-app", "--work-folder", "work-folder-1", "--instance", "fi-1", "--snapshot"]),
-    /--snapshot cannot be used with 'pages share-app'/,
-    "apps have no snapshot lane; asleep is the only offline state",
-  );
-
   // Recently deleted sits above work-folders too (docs/receipts-not-gates.md, F20):
   // each item names the work-folder it came from, so neither verb takes --work-folder
   assert.deepEqual(parseWorkFoldCliActArgv(["recently-deleted", "list", "--json"]), { name: "recently-deleted.list", output: "json" });
@@ -828,13 +793,16 @@ test("direct verbs parse with strict shapes", () => {
     /--parent-task cannot be used with 'recently-deleted list'/,
   );
 
-  // The pending-decision family, permanent deletion, and the retired holding
-  // spellings of the automation and outward-exposure verbs are gone from the
-  // vocabulary (docs/receipts-not-gates.md, F19/F20): unknown commands, not
-  // refusals with a story.
+  // The pending-decision family, permanent deletion, the retired holding
+  // spellings of the automation and outward-exposure verbs, and the retired
+  // desktop-served sharing verbs are gone from the vocabulary
+  // (docs/receipts-not-gates.md, F19/F20): unknown commands, not refusals
+  // with a story.
   for (const argv of [
     ["staged", "list"], ["staged", "show"], ["staged", "cancel"],
     ["automations", "stage"], ["pages", "stage"],
+    ["pages", "share"], ["pages", "share-app"], ["pages", "status"],
+    ["pages", "revoke"], ["pages", "narrow"], ["pages", "widen"], ["pages", "snapshot-off"],
   ]) {
     assert.throws(() => parseWorkFoldCliActArgv(argv), /Unknown command/, `expected an unknown command for '${argv.join(" ")}'`);
   }
@@ -847,11 +815,6 @@ test("direct verbs parse with strict shapes", () => {
 test("formerly gated verbs execute through the facade and receipt without a decision id", async () => {
   const workFolderRef = { id: "work-folder-1", name: "Fold work-folder", workFolderRoot: "/tmp/fold" };
   const appRef = { workFolderId: "work-folder-1", appId: "quote-board", featureInstallationId: "feature-installation-1", digest: "f".repeat(64), title: "Quote board", version: "0.9.0" };
-  const publication = {
-    publicationId: "pub-1", kind: "page", workFolderId: "work-folder-1", workFolderName: "Fold work-folder", relativePath: "reports/weekly.md", title: "Weekly report",
-    state: "active", live: true, serveRatePerMinute: 60, byteBudgetPerDay: 268435456, snapshotEnabled: false,
-    createdAt, updatedAt: createdAt, bridgeSlot: "pending", viewerPath: "/p/pub-1",
-  };
   const calls: Array<{ method: string; input?: unknown }> = [];
   let automationsEnableAlready = false;
   const facade = {
@@ -897,20 +860,6 @@ test("formerly gated verbs execute through the facade and receipt without a deci
         enabledAt: "2026-09-01T12:00:00.000Z",
         alreadyEnabled: automationsEnableAlready,
         stoppedRunId: null,
-      };
-    },
-    pagesShare: async (input: unknown) => {
-      calls.push({ method: "pagesShare", input });
-      return { workFolder: workFolderRef, publication };
-    },
-    pagesShareApp: async (input: unknown) => {
-      calls.push({ method: "pagesShareApp", input });
-      return {
-        workFolder: workFolderRef,
-        publication: {
-          ...publication, publicationId: "pub-app", kind: "app", relativePath: undefined, title: "Fixture app", viewerPath: "/a/pub-app",
-          appInstanceId: "feature-installation-1", releaseDigest: `sha256:${"a".repeat(64)}`, viewerEntry: "viewer.html", viewerSurface: ["entry:viewer.html", "data:public/"],
-        },
       };
     },
     appsInstallPreview: async (input: unknown) => {
@@ -1011,19 +960,6 @@ test("formerly gated verbs execute through the facade and receipt without a deci
   assert.equal(lastOk().detail, `automation.enable; automation automation-weekly; digest ${"e".repeat(64)}; already enabled`);
   automationsEnableAlready = false;
 
-  const page = await execute(["pages", "share", "--work-folder", "work-folder-1", "--path", "reports/weekly.md", "--title", "Weekly report"]);
-  assert.equal(page.exitCode, 0);
-  assert.match(page.stdout, /^Sharing "Weekly report" \(reports\/weekly\.md\) from Fold work-folder \[work-folder-1\] at \/p\/pub-1\. Reveal the link in Settings → Shared pages\.\n$/);
-  assert.equal(lastOk().detail, "publish.viewer.expose; source reports/weekly.md; publication pub-1");
-  assert.deepEqual(lastOk().undoRef, { kind: "publicationId", value: "pub-1" });
-
-  const hostedApp = await execute(["pages", "share-app", "--work-folder", "work-folder-1", "--instance", "feature-installation-1"]);
-  assert.equal(hostedApp.exitCode, 0);
-  assert.match(hostedApp.stdout, /^Sharing "Fixture app" \(App Instance feature-installation-1\) from Fold work-folder \[work-folder-1\] at \/a\/pub-app\.\n$/);
-  assert.equal(calls.at(-1)?.method, "pagesShareApp");
-  assert.equal((calls.at(-1)?.input as { instance: string }).instance, "feature-installation-1");
-  assert.equal(lastOk().detail, `publish.viewer.expose; appInstanceId feature-installation-1; releaseDigest sha256:${"a".repeat(64)}; publication pub-app`);
-
   // The host creates the review itself and installs it at once through the
   // same digest-checked path a Chat proposal uses.
   records.length = 0;
@@ -1057,14 +993,11 @@ test("formerly gated verbs execute through the facade and receipt without a deci
 
 test("remote lineage on a work-fold agent parent stamps the browser identity on act receipts", async () => {
   const facade = {
-    pagesRevoke: async () => ({
-      publication: { publicationId: "pub-1", kind: "page", workFolderId: "work-folder-1", title: "Weekly", state: "revoked", live: false, serveRatePerMinute: 60, byteBudgetPerDay: 1, snapshotEnabled: false, createdAt, updatedAt: createdAt, bridgeSlot: "pending", viewerPath: "/p/pub-1" },
-      alreadyRevoked: false,
-    }),
+    automationsDisable: async () => ({ automationId: "automation-1", disabled: true, digest: "e".repeat(64), stoppedRunId: null }),
   } as unknown as WorkFoldActFacade;
   const records: Array<Record<string, unknown>> = [];
   const response = await executeWorkFoldCliActRequest(
-    createWorkFoldCliActRequest({ id: randomUUID(), argv: ["pages", "revoke", "--publication", "pub-1", "--parent-task", "task-remote"], cwd, actToken: token }),
+    createWorkFoldCliActRequest({ id: randomUUID(), argv: ["automations", "disable", "--automation", "automation-1", "--parent-task", "task-remote"], cwd, actToken: token }),
     {
       version: "test",
       getActFacade: () => ({ facade, token }),
@@ -1080,57 +1013,6 @@ test("remote lineage on a work-fold agent parent stamps the browser identity on 
     ["accepted", "task-remote", "browser-9", "grant-9"],
     ["ok", "task-remote", "browser-9", "grant-9"],
   ]);
-});
-
-test("pages widen parses strictly, dispatches to the facade, journals, and names old and new values", async () => {
-  // Widening in place (docs/shared-pages.md, amended 2026-09-24).
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--serve-rate", "120", "--byte-budget", "536870912", "--snapshot", "--parent-task", "task-1"]),
-    { name: "pages.widen", output: "human", publication: "pub-1", serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshot: true, parentTaskId: "task-1" },
-  );
-  assert.deepEqual(
-    parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--snapshot", "--json"]),
-    { name: "pages.widen", output: "json", publication: "pub-1", snapshot: true },
-  );
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1"]), /to widen/);
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--serve-rate", "120"]), /--publication/);
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--serve-rate", "1.5"]), /positive integer/);
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--work-folder", "work-folder-1", "--snapshot"]), /--work-folder cannot be used with 'pages widen'/);
-  assert.throws(() => parseWorkFoldCliActArgv(["pages", "widen", "--publication", "pub-1", "--title", "x", "--snapshot"]), /--title cannot be used with 'pages widen'/);
-
-  const calls: unknown[] = [];
-  const facade = {
-    pagesWiden: async (input: unknown) => {
-      calls.push(input);
-      return {
-        publication: { publicationId: "pub-1", kind: "page", workFolderId: "work-folder-1", title: "Weekly", state: "active", live: true, serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshotEnabled: true, createdAt, updatedAt: createdAt, bridgeSlot: "confirmed", viewerPath: "/p/pub-1" },
-        priorServeRatePerMinute: 60,
-        priorByteBudgetPerDay: 268435456,
-        priorSnapshotEnabled: false,
-      };
-    },
-  } as unknown as WorkFoldActFacade;
-  const records: Array<Record<string, unknown>> = [];
-  const requestId = randomUUID();
-  const response = await executeWorkFoldCliActRequest(
-    createWorkFoldCliActRequest({ id: requestId, argv: ["pages", "widen", "--publication", "pub-1", "--serve-rate", "120", "--byte-budget", "536870912", "--snapshot"], cwd, actToken: token }),
-    {
-      version: "test",
-      getActFacade: () => ({ facade, token }),
-      receipts: {
-        hasAccepted: async () => false,
-        append: async (record) => { records.push({ ...record }); return true; },
-      },
-    },
-  );
-  assert.equal(response.exitCode, 0, response.stderr);
-  assert.deepEqual(calls, [{ publication: "pub-1", serveRatePerMinute: 120, byteBudgetPerDay: 536870912, snapshot: true, requestId }]);
-  assert.deepEqual(records.map((record) => [record.command, record.outcome]), [["pages.widen", "accepted"], ["pages.widen", "ok"]]);
-  assert.equal(
-    response.stdout,
-    'Widened "Weekly" [pub-1]: serve rate 60 -> 120/min, byte budget 268435456 -> 536870912/day, snapshot caching off -> on. '
-      + "The link is unchanged; narrow again with 'pages narrow' or 'pages snapshot-off'.\n",
-  );
 });
 
 test("agent overview parses strictly, dispatches to the facade, journals, and renders the digest", async () => {

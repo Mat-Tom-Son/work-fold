@@ -705,9 +705,8 @@ The plan items shipped as follows:
   related automations, not a second management home.
 - **Read-lane automation status.** All automation commands remain act-lane.
 - **Hosted or remote execution.** Automations run only on this desktop while
-  the app runs; outward exposure of anything an automation produces stays in
-  [the publishing ladder](shared-pages.md) with its own grants, and no
-  automation step may create or widen viewer exposure.
+  the app runs, and no automation step can publish anything (see the
+  [Online pages plan](online-pages-plan.md)).
 - **A general job system.** 64 run slots by default, generous bounds,
   four step kinds. If a flow does not fit, it belongs to a work-folder app's named
   automations, a Check, or a person.

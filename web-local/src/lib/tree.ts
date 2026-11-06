@@ -51,6 +51,30 @@ export function treeContainsUnloadedFolders(entries: TreeEntry[]): boolean {
   return false;
 }
 
+/**
+ * A fresh, shallow listing keeps the rows already loaded under each folder
+ * that is still there, so a refresh never closes a folder someone had open.
+ * Folders the refresh reloads get their new rows afterwards.
+ */
+export function keepLoadedChildren(fresh: TreeEntry[], cached: TreeEntry[]): TreeEntry[] {
+  const cachedFolders = new Map<string, TreeEntry>();
+  const index = (items: TreeEntry[]) => {
+    for (const entry of items) {
+      if (entry.kind !== "folder") continue;
+      cachedFolders.set(entry.path, entry);
+      if (entry.children) index(entry.children);
+    }
+  };
+  index(cached);
+  const visit = (items: TreeEntry[]): TreeEntry[] => items.map((entry) => {
+    if (entry.kind !== "folder" || entry.nestedFolder) return entry;
+    if (entry.children) return { ...entry, children: visit(entry.children) };
+    const before = cachedFolders.get(entry.path);
+    return before?.children && !before.nestedFolder ? { ...entry, children: before.children } : entry;
+  });
+  return visit(fresh);
+}
+
 export function setTreeEntryChildren(entries: TreeEntry[], path: string, children: TreeEntry[]): TreeEntry[] {
   let changed = false;
   const nextEntries = entries.map((entry) => {

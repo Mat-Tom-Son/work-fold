@@ -51,11 +51,11 @@ export const browserPermissionNames: Record<BrowserSitePermission, string> = {
   microphone: "Microphone",
   location: "Location",
   notifications: "Notifications",
-  midi: "MIDI devices",
+  midi: "MIDI Devices",
   clipboard: "Clipboard",
-  windows: "Window management",
+  windows: "Window Management",
   idle: "Activity",
-  popups: "Pop-ups",
+  popups: "Pop-Ups",
 };
 
 /** What the renderer shows for one browser tab; the desktop host sends it on every change. */

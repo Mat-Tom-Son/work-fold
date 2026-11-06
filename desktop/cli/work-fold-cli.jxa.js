@@ -75,8 +75,10 @@ function isActCommand(argumentsList) {
   if (argumentsList.includes("--help") || argumentsList.includes("-h")) return false;
   const positional = argumentsList.filter((token) => token !== "--json");
   const group = positional[0] || "";
-  const actGroups = ["chat", "chats", "files", "agent", "history", "search", "tools", "apps", "automations", "pages", "recently-deleted", "requests", "jobs", "worktrees"];
+  const actGroups = ["chat", "chats", "files", "agent", "history", "search", "tools", "apps", "automations", "recently-deleted", "requests", "jobs", "worktrees"];
   if (actGroups.includes(group)) return true;
+  // Page folders (docs/pages.md): check, publish, unpublish, and list.
+  if (group === "pages") return ["validate", "publish", "unpublish", "list"].includes(positional[1]);
   if (group === "checks") return positional[1] !== "status";
   return group === "work-folders" && positional[1] !== "list";
 }

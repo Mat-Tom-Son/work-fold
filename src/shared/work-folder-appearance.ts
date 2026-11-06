@@ -21,6 +21,15 @@ export type WorkFolderAppearanceBannerImagePosition = "top" | "center" | "bottom
 export const workFolderAppearanceBannerPresetIds = ["tide", "ember", "fold", "dusk"] as const;
 export type WorkFolderAppearanceBannerPresetId = typeof workFolderAppearanceBannerPresetIds[number];
 export interface WorkFolderAppearanceBannerFraming { x: number; y: number; zoom: number }
+/** How the banner sits above the work-folder's pane. Card is the original. */
+export const workFolderAppearanceBannerLayouts = ["card", "compact", "band", "cover"] as const;
+export type WorkFolderAppearanceBannerLayout = typeof workFolderAppearanceBannerLayouts[number];
+/** The icon beside the name on the banner (2026-11-05). */
+export const workFolderAppearanceBannerIconStyles = ["none", "plain", "square", "circle"] as const;
+export type WorkFolderAppearanceBannerIconStyle = typeof workFolderAppearanceBannerIconStyles[number];
+/** What sits behind the name on the banner (2026-11-05). Accent is the work-folder color. */
+export const workFolderAppearanceBannerTitleFills = ["frosted", "solid", "accent", "none"] as const;
+export type WorkFolderAppearanceBannerTitleFill = typeof workFolderAppearanceBannerTitleFills[number];
 
 export function normalizeWorkFolderAppearanceBannerFraming(value: unknown): WorkFolderAppearanceBannerFraming | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -51,6 +60,9 @@ export interface WorkFolderAppearanceCustomization {
   bannerImagePosition?: WorkFolderAppearanceBannerImagePosition;
   bannerPreset?: WorkFolderAppearanceBannerPresetId;
   bannerFraming?: WorkFolderAppearanceBannerFraming;
+  bannerLayout?: WorkFolderAppearanceBannerLayout;
+  bannerIconStyle?: WorkFolderAppearanceBannerIconStyle;
+  bannerTitleFill?: WorkFolderAppearanceBannerTitleFill;
 }
 
 export type WorkFolderAppearanceCustomizationMap = Record<string, WorkFolderAppearanceCustomization>;
@@ -195,6 +207,15 @@ export function normalizeWorkFolderAppearanceCustomization(
   }
   const framing = normalizeWorkFolderAppearanceBannerFraming(record.bannerFraming);
   if (framing) customization.bannerFraming = framing;
+  if (workFolderAppearanceBannerLayouts.includes(record.bannerLayout as WorkFolderAppearanceBannerLayout)) {
+    customization.bannerLayout = record.bannerLayout as WorkFolderAppearanceBannerLayout;
+  }
+  if (workFolderAppearanceBannerIconStyles.includes(record.bannerIconStyle as WorkFolderAppearanceBannerIconStyle)) {
+    customization.bannerIconStyle = record.bannerIconStyle as WorkFolderAppearanceBannerIconStyle;
+  }
+  if (workFolderAppearanceBannerTitleFills.includes(record.bannerTitleFill as WorkFolderAppearanceBannerTitleFill)) {
+    customization.bannerTitleFill = record.bannerTitleFill as WorkFolderAppearanceBannerTitleFill;
+  }
 
   return hasWorkFolderAppearanceCustomization(customization) ? customization : {};
 }
@@ -252,7 +273,10 @@ export function hasWorkFolderAppearanceCustomization(
     || customization.bannerImage
     || customization.bannerImagePosition
     || customization.bannerPreset
-    || customization.bannerFraming,
+    || customization.bannerFraming
+    || customization.bannerLayout
+    || customization.bannerIconStyle
+    || customization.bannerTitleFill,
   );
 }
 
@@ -399,6 +423,9 @@ export function upgradeWorkFolderAppearanceCustomization(
     ...(normalized.bannerImagePosition ? { bannerImagePosition: normalized.bannerImagePosition } : {}),
     ...(normalized.bannerPreset ? { bannerPreset: normalized.bannerPreset } : {}),
     ...(normalized.bannerFraming ? { bannerFraming: normalized.bannerFraming } : {}),
+    ...(normalized.bannerLayout ? { bannerLayout: normalized.bannerLayout } : {}),
+    ...(normalized.bannerIconStyle ? { bannerIconStyle: normalized.bannerIconStyle } : {}),
+    ...(normalized.bannerTitleFill ? { bannerTitleFill: normalized.bannerTitleFill } : {}),
   };
   return upgraded;
 }

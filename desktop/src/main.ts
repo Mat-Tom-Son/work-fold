@@ -110,9 +110,13 @@ import {
   nativeTabMenuItems,
   parseNativeTabMenuRequest,
   type NativeTabMenuCommand,
-  type NativeTabMenuItem,
   type NativeTabMenuRequest,
 } from "./tab-context-menu.js";
+import {
+  nativeWorkFolderMenuItems,
+  parseNativeWorkFolderMenuRequest,
+  type NativeWorkFolderMenuCommand,
+} from "./work-folder-context-menu.js";
 import { openFileWithPickedApp, openWithDialogOptions, type OpenWithLaunchPlan } from "./open-with.js";
 import { desktopWindowMaterial, shouldUseMacVibrancy, shouldUseWindowsMica } from "./window-material.js";
 import { GracefulQuitCoordinator, type QuitPreparationOutcome } from "./quit-coordinator.js";
@@ -122,10 +126,10 @@ import { BuiltInBrowser, parseBrowserCommand, parseBrowserTabsSync, parseBrowser
 import { isBrowserPageId } from "../../src/shared/browser.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
 import { resolveDesktopApplicationVersion } from "./application-version.js";
+import { createDesktopPagesBridge } from "./pages-bridge.js";
 import {
   RemoteAccessClient,
   RemoteBridgeRequestError,
-  createRemoteBridgePublicationSync,
   generateRemoteDeviceKeys,
   remoteBridgeRequestTimeoutMs,
   runRemoteAccountRemoval,
@@ -227,6 +231,8 @@ let resolveWorkFoldAgentLineageParent: ((taskId: string) => { taskId: string } |
  * API exists; both calls are safe no-ops after close.
  */
 let automationPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
+/** Published pages check in after waking (docs/pages.md, "Checking in"). */
+let pagesCheckIn: (() => Promise<unknown>) | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -789,8 +795,8 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       checkService: host.checks,
       // The exact instance the injected Check and restricted-app services
       // publish into, so desktop settles reach automation triggers; and the CLI
-      // host's own act-receipts journal, so Settings acts, publications, and
-      // CLI acts share one ledger file and one at-most-once gate.
+      // host's own act-receipts journal, so Settings acts and CLI acts share
+      // one ledger file and one at-most-once gate.
       settleSignal: host.settleSignal,
       actReceipts: host.cli.receipts,
       localFolderGrantProvider: { consumeLocalFolderGrant },
@@ -802,14 +808,9 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).
       onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
-      // Shared pages (docs/shared-pages.md): publication keys
-      // live in operating-system-encrypted secure settings beside the other
-      // Remote access material, and the slot/snapshot sync lane reads the
-      // current Remote access credential at call time — unconfigured means
-      // slot syncs stay honestly pending while deletions are already
-      // satisfied by the account cascade.
-      publicationKeys: host.settings.publicationKeyStore(),
-      publicationBridge: createRemoteBridgePublicationSync(() => host.settings.getRemoteAccess()),
+      // Publishing pages (docs/pages.md, "Publishing (stage 2)") calls the
+      // bridge with the Web Access device token, read at call time.
+      pagesBridge: createDesktopPagesBridge(host.settings),
     });
     // The per-launch act token authorizes the CLI act lane for exactly this
     // interactive run; without a readable token file, act commands stay
@@ -818,6 +819,7 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     actFacade = api.actFacade;
     resolveWorkFoldAgentLineageParent = api.resolveWorkFoldAgentLineageParent;
     automationPowerLifecycle = api.automations;
+    pagesCheckIn = () => api.pages.checkIn();
     try {
       await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
@@ -839,16 +841,6 @@ async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLoca
     onStatus: (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("work-fold:remote-access:status", status);
     },
-    // The desktop side of the serving path: `viewer.fetch` renders through
-    // the publication authority's effect-time recheck, reconnects re-drive
-    // pending slot syncs and snapshot seeds, and the bridge's resting notice
-    // becomes the publisher-facing health note the overview surfaces.
-    viewerPages: {
-      servePage: (publicationId) => api.publications.serveViewerPage(publicationId),
-      serveAppCall: (publicationId, call) => api.publications.serveViewerAppCall(publicationId, call),
-      onDeviceConnected: () => api.publications.redriveBridgeSync(),
-      noteResting: (publicationId, reason) => api.publications.noteViewerResting(publicationId, reason),
-    },
   });
   const settings = await host.settings.getRemoteAccess();
   if (settings?.enabled) await remoteAccessClient.start();
@@ -859,10 +851,10 @@ async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise
   const unverifiedBrowserLabel = JSON.stringify(pairing.label);
   const options = {
     type: "question" as const,
-    title: "Confirm remote browser",
+    title: "Confirm Remote Browser",
     message: "Pair this remote browser?",
     detail: `Unverified browser-supplied label: ${unverifiedBrowserLabel}\n\nConfirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
-    buttons: ["Pair browser", "Decline"],
+    buttons: ["Pair Browser", "Decline"],
     defaultId: 0,
     cancelId: 1,
     noLink: true,
@@ -1208,7 +1200,7 @@ async function openModelContextWindow(): Promise<void> {
     if (quitting) return;
     modelContextWindow ??= new ModelContextWindow({
       url: `${appProtocol}://app/index.html?dev-context`,
-      title: `Inspect context — ${productName}`,
+      title: `Inspect Context — ${productName}`,
       preload: join(dirnameFromFile(currentFile), "model-context-preload.cjs"),
       createWindow: (options) => new BrowserWindow(options),
       request: async ({ path, method, body }) => {
@@ -1268,8 +1260,8 @@ function registerIpc(): void {
   ipcMain.handle("work-fold:work-folder:choose-folder", async (event) => {
     assertTrustedRenderer(event);
     const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a folder", properties: ["openDirectory", "createDirectory"] })
-      : await dialog.showOpenDialog({ title: "Choose a folder", properties: ["openDirectory", "createDirectory"] });
+      ? await dialog.showOpenDialog(mainWindow, { title: "Choose a Folder", properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ title: "Choose a Folder", properties: ["openDirectory", "createDirectory"] });
     const workFolderRoot = result.filePaths[0];
     if (result.canceled || !workFolderRoot) return null;
     return { path: workFolderRoot, folderGrantId: createFolderGrant(workFolderRoot) };
@@ -1392,6 +1384,12 @@ function registerIpc(): void {
     assertTrustedMainRenderer(event);
     if (process.platform !== "darwin") return Promise.resolve(null);
     return popupNativeTabMenu(parseNativeTabMenuRequest(value));
+  });
+  ipcMain.handle("work-fold:work-folder:popup-header-menu", (event, value: unknown): Promise<NativeWorkFolderMenuCommand | null> => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "darwin") return Promise.resolve(null);
+    const request = parseNativeWorkFolderMenuRequest(value);
+    return popupNativeCommandMenu(nativeWorkFolderMenuItems(request), request.point);
   });
   ipcMain.handle("work-fold:work-folder:set-active-work-folder", async (event, value: unknown) => {
     assertTrustedMainRenderer(event);
@@ -1723,8 +1721,8 @@ function buildApplicationMenuTemplate(): MenuItemConstructorOptions[] {
 function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemConstructorOptions[] {
   if (menuId === "file") {
     const items: MenuItemConstructorOptions[] = [
-      { label: "Create new work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-work-folder") },
-      { label: "Use existing folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
+      { label: "Create New work-folder", accelerator: "CommandOrControl+N", click: () => sendRendererMenuCommand("new-work-folder") },
+      { label: "Use Existing Folder...", accelerator: "CommandOrControl+O", click: () => sendRendererMenuCommand("open-local-folder") },
       ...(process.platform === "darwin" ? [{
         label: "Open Recent",
         role: "recentDocuments" as const,
@@ -2161,28 +2159,38 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
 }
 
 function popupNativeTabMenu(request: NativeTabMenuRequest): Promise<NativeTabMenuCommand | null> {
+  return popupNativeCommandMenu(nativeTabMenuItems(request), request.point);
+}
+
+type NativeCommandMenuItem<Command extends string> =
+  | { type: "separator" }
+  | { type: "item"; label: string; command: Command; sublabel?: string; enabled?: false }
+  | { type: "submenu"; label: string; items: NativeCommandMenuItem<Command>[] };
+
+/** Shows a native menu at a point in the app's CSS pixels; resolves with the chosen command, or null. */
+function popupNativeCommandMenu<Command extends string>(items: NativeCommandMenuItem<Command>[], point: { x: number; y: number }): Promise<Command | null> {
   const window = mainWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
     return Promise.reject(new Error("The work-fold window is not available."));
   }
   return new Promise((resolveCommand) => {
     let settled = false;
-    const finish = (command: NativeTabMenuCommand | null) => {
+    const finish = (command: Command | null) => {
       if (settled) return;
       settled = true;
       resolveCommand(command);
     };
-    const template = (items: NativeTabMenuItem[]): MenuItemConstructorOptions[] => items.map((item) => {
+    const template = (entries: NativeCommandMenuItem<Command>[]): MenuItemConstructorOptions[] => entries.map((item) => {
       if (item.type === "separator") return { type: "separator" };
       if (item.type === "submenu") return { label: item.label, submenu: template(item.items) };
       return { label: item.label, ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
     });
     // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
     const zoom = window.webContents.getZoomFactor() || 1;
-    Menu.buildFromTemplate(template(nativeTabMenuItems(request))).popup({
+    Menu.buildFromTemplate(template(items)).popup({
       window,
-      x: Math.round(request.point.x * zoom),
-      y: Math.round(request.point.y * zoom),
+      x: Math.round(point.x * zoom),
+      y: Math.round(point.y * zoom),
       // The menu can report closing before the chosen item's click runs.
       callback: () => setTimeout(() => finish(null), 0),
     });
@@ -2573,6 +2581,8 @@ function configurePowerMonitor(): void {
     void remoteAccessClient?.recoverConnection().catch((error) => {
       console.warn(`${productName} could not recover Web Access after resume: ${errorMessage(error)}`);
     });
+    // Entries visitors made while the computer slept come back into page folders.
+    setTimeout(() => { void pagesCheckIn?.().catch(() => undefined); }, resumeRendererHealthDelayMs);
     setTimeout(ensureRendererAfterResume, resumeRendererHealthDelayMs);
     setTimeout(() => { void checkForUpdates(false); }, resumeUpdateCheckDelayMs);
   });
@@ -2742,7 +2752,7 @@ function buildEditableContextMenuTemplate(window: BrowserWindow, params: Context
     template.push(...(suggestions.length ? suggestions.map((suggestion) => ({
       label: suggestion,
       click: () => window.webContents.replaceMisspelling(suggestion),
-    })) : [{ label: "No suggestions", enabled: false }]));
+    })) : [{ label: "No Suggestions", enabled: false }]));
     template.push({ label: "Add to Dictionary", click: () => window.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord) }, { type: "separator" });
   }
   template.push(

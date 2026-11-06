@@ -273,8 +273,9 @@ can be replaced through **Change API Key** without removing it first; Cancel
 clears the entered replacement and keeps the saved key. Provider connections
 are shared; **Save Model** separately saves the displayed Worker's or work-fold
 agent's model. Connecting or replacing a credential preserves model drafts and
-does not save a new model default. Azure's **Save Azure settings** saves its
-endpoint and deployment names; selecting a deployment uses **Save Model**.
+does not save a new model default. Foundry's **Save Azure settings** (OpenAI)
+or **Save Foundry settings** saves that connection's endpoint, deployment names,
+and optional base-model choices; selecting a deployment uses **Save Model**.
 Failed saves keep the entered key for correction;
 successful saves clear it. Keys are never read back into the form or carried
 across provider or scope changes. Account sign-in and Azure deployment setup
@@ -292,35 +293,104 @@ Neither a saved credential nor a successful catalog refresh proves inference or
 account eligibility. Provider information and callback prompts remain on trusted
 desktop surfaces; credentials never enter the renderer's status response.
 
-In **Settings → AI Models**, Azure OpenAI accepts an endpoint, an API key,
+In **Settings → AI Models**, Microsoft Foundry accepts an endpoint, an API key,
 and **Deployment names**, separated by commas or new lines. Copy the Name
 under Deployment info in Azure. These names become the Azure model choices;
 there is no prerequisite catalog-model selection or user-written mapping.
 Choose the deployment this Worker or the work-fold agent uses in the model
-picker after saving the connection. All names use the same endpoint. Resource endpoints and pasted
-Responses URLs (including the portal's `api-version` query) normalize to
-`/openai/v1`; the saved API version is `v1`.
+picker after saving the connection. Three independently saved Pi providers can
+coexist: **Microsoft Foundry / Azure (OpenAI)** (`azure`, preserving existing
+connections), **Microsoft Foundry (Chat Completions)** (`azure-chat-completions`),
+and **Microsoft Foundry (Anthropic)** (`azure-anthropic`). Each has its own key,
+endpoint, and deployment names. OpenAI resource and full inference URLs normalize
+to `/openai/v1`; Claude resource and Messages URLs normalize to `/anthropic`.
+An endpoint for the other protocol is rejected. The original Azure/OpenAI
+provider retains Pi's per-model Responses or Chat Completions choice, including
+existing saved deployments. The separate Chat Completions provider selects
+that format explicitly. Portal `api-version` queries
+are removed; the Azure Responses transport retains its native Pi `v1` setting.
 
 work-fold registers the entered names through Pi's native ModelRuntime on
-each runtime load. Model metadata follows Pi's CLI resolution policy, which
-uses catalog metadata where available and a provider fallback for unknown
-names. The request's model ID is always the exact entered deployment name,
+each runtime load. Model metadata uses Pi's catalog where available. The
+original Azure provider retains Pi's CLI fallback policy for compatibility;
+new Chat Completions and Anthropic connections use Pi's generic custom-model
+limits for unknown aliases (128,000 context tokens, 16,384 output tokens, no
+reasoning claim or known price; text input for Chat Completions, text and image
+input for Anthropic). The selector labels unmatched names **Default limits
+(no matching Pi model)**. **Deployment model details** optionally selects a base-model id from
+Pi's Azure or Anthropic catalog for each custom name. Explicit ids are validated
+before any credential changes. A saved base-model id removed from Pi's catalog
+leaves only that deployment unavailable; Settings stays usable, exposes the
+saved selection, and lets the person repair it or remove the connection.
+The request's model ID is always the exact entered deployment name,
 even when Pi's fuzzy matcher suggests a catalog entry. Pi `models.json`
-model definitions and overrides remain available for precise metadata when
-a custom deployment name hides its underlying model's capabilities.
+model definitions and overrides remain available. Registrations select Pi's
+`azure-openai-responses`, `openai-completions`, or `anthropic-messages` adapter;
+work-fold adds no inference transport or response parser. Saved connections
+register as native Pi providers, so the person's `models.json` definitions and
+overrides compose above the app's declarations. Unsaved placeholders preserve
+existing user-defined providers. Foundry Anthropic metadata disables the
+unsupported server-side `fallbacks` parameter and caps Sonnet 4.5 at Foundry's
+200,000-token context limit. The selected connection
+owns its endpoint and key; Pi's request-time `ModelAuth.baseUrl` binds that key
+to the saved endpoint even when `models.json` declares another base URL. Model
+definitions sharing that provider id use the same saved connection; separate
+resources/keys need separate provider ids. Headers from a source model are not copied to it.
 
 Settings persist in the provider credential's Pi `env` values:
-`AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_VERSION`, and the JSON name list
-`WORKFOLD_AZURE_OPENAI_DEPLOYMENTS`. Identity mappings in
+`AZURE_OPENAI_BASE_URL` (OpenAI) or `ANTHROPIC_FOUNDRY_BASE_URL` (Anthropic),
+`AZURE_OPENAI_API_VERSION`, the JSON name list
+`WORKFOLD_AZURE_OPENAI_DEPLOYMENTS`, and optional native base-model ids in
+`WORKFOLD_FOUNDRY_MODEL_IDS`. Identity mappings in
 `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` keep ambient aliases from redirecting the
 entered names. The desktop uses its existing encrypted CredentialStore host;
 these settings are shared across work-folders and the work-fold agent. Saving
 with a blank key preserves the current key or Azure API-key environment
-reference. The form only reads back the endpoint and names, never the key or
+reference. The encrypted host store delegates key-reference resolution to Pi's
+native in-memory CredentialStore for `$ENV` references. API-key text starting
+with `!` stays literal in desktop credential storage; executable credential
+configuration stays in Pi's `models.json` path. Deployment
+edits preserve the raw stored reference, and first connections can use a key
+already supplied through the provider environment. The form only reads back the endpoint and names, never the key or
 other provider environment values. Removing the stored credential removes
 its stored connection settings; external environment configuration can still
-apply. Saving validates configuration without making a paid inference request,
-claiming the connection was tested, or discovering or creating deployments.
+apply. Removing one connection leaves the other formats connected. Saving
+validates configuration without making a paid inference request, claiming the
+connection was tested, or discovering or creating deployments. API-key setup
+covers compatible chat deployments; Entra authentication and image-generation,
+embedding, audio, and other non-chat operations are not part of this form.
+
+For a model outside Pi's Azure base-model catalog, native `models.json`
+`modelOverrides` can supply the deployment's exact capabilities. For example:
+
+```json
+{
+  "providers": {
+    "azure-chat-completions": {
+      "modelOverrides": {
+        "my-llama-deployment": {
+          "contextWindow": 131072,
+          "maxTokens": 16384,
+          "input": ["text"],
+          "reasoning": false
+        }
+      }
+    }
+  }
+}
+```
+
+Use the limits and capabilities of the actual deployment; the example is not a
+claim about every Llama model. Malformed saved Foundry metadata disables only
+that app connection and shows a correction/removal message in Settings. Raw
+parser errors and credential-store values are never returned to the renderer.
+While those settings are malformed, its stored key is unavailable to inference,
+including additional `models.json` definitions, until it is repaired or removed.
+
+Endpoint and API-key requirements were checked against Microsoft's
+[Foundry endpoints](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/endpoints)
+and [Claude deployment guide](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude),
+and Anthropic's [Claude in Foundry guide](https://platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-foundry).
 
 Model-provider credentials belong to **Settings → AI Models** and application/Pi storage, never to a work-folder. They are machine-wide connections. The selected provider/model pair is a separate machine-local preference keyed by portable work-folder identity, with one additional preference for the work-fold agent; each work-folder may also keep bounded machine-local **work-folder instructions** under that same identity. Instructions are appended through Pi's native system-prompt override after work-fold's required prompt, never written into `.work-fold/` or `.pi/`, and sent to the selected provider with every subsequent turn in that work-folder. The work-fold agent may inspect and change a work-folder's model default and instructions through `work-folders assistant`, but it cannot enter, replace, remove, or inspect provider credentials. The desktop path supports API-key setup and exposes Pi's provider OAuth flows when a provider advertises one. work-fold opens the provider URL in the system browser, handles device-code and manual-code prompts in native desktop UI, and persists the result through its existing encrypted Pi CredentialStore host. OpenRouter's tool-capable text-model list can be refreshed explicitly from its live API; normalized model metadata and the last successful response are cached in app state without the credential and injected into each fresh cwd-specific Pi registry so display and execution use the same catalog. A failed refresh keeps the previous live cache or Pi's built-in catalog. Support must still be described provider by provider: the presence of a Pi OAuth implementation is not proof that every account tier, billing policy, or packaged release flow has been verified. Restricted-app connections, including an app's OAuth setup, instead live with that app in **Settings → Apps**.
 

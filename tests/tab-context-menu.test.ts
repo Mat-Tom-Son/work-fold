@@ -17,10 +17,10 @@ function outline(value: unknown): unknown[] {
 }
 
 test("a Chat tab's native menu holds the Chat's actions, then the tab strip's", () => {
-  assert.deepEqual(outline({ chat: { lifecycle: "active", snooze }, tab: { hasOthers: true }, point: { x: 10.4, y: 20.6 } }), [
+  assert.deepEqual(outline({ chat: { lifecycle: "active", snooze }, tab: { hasOthers: true, hasRight: true, canReopen: false }, point: { x: 10.4, y: 20.6 } }), [
     "Rename…", "Make a Copy", "—",
     { Snooze: ["In 1 hour (3:45 PM)", "Tomorrow (9:00 AM)"] }, "Archive", "Delete Chat", "—",
-    "Close Tab", "Close Other Tabs",
+    "Close Tab", "Close Other Tabs", "Close Tabs to the Right", "—", "Reopen Closed Tab (off)",
   ]);
   const snoozeItems = nativeTabMenuItems(parseNativeTabMenuRequest({ chat: { lifecycle: "active", snooze }, point: { x: 0, y: 0 } }))
     .flatMap((item) => item.type === "submenu" ? item.items : []);
@@ -37,17 +37,20 @@ test("snoozed and archived Chats offer the way back, and the Chats list has no t
 });
 
 test("any other tab can be closed from its menu", () => {
-  assert.deepEqual(outline({ tab: { hasOthers: false }, point: { x: 0, y: 0 } }), ["Close Tab", "Close Other Tabs (off)"]);
-  assert.deepEqual(parseNativeTabMenuRequest({ tab: { hasOthers: true }, point: { x: -5, y: 2_000_000.2 } }).point, { x: 0, y: 1_000_000 });
+  assert.deepEqual(outline({ tab: { hasOthers: false, hasRight: false, canReopen: true }, point: { x: 0, y: 0 } }), [
+    "Close Tab", "Close Other Tabs (off)", "Close Tabs to the Right (off)", "—", "Reopen Closed Tab",
+  ]);
+  assert.deepEqual(parseNativeTabMenuRequest({ tab: { hasOthers: true, hasRight: false, canReopen: false }, point: { x: -5, y: 2_000_000.2 } }).point, { x: 0, y: 1_000_000 });
 });
 
 test("tab menu requests take only data, never labels or commands", () => {
   assert.throws(() => parseNativeTabMenuRequest({ point: { x: 0, y: 0 } }), /invalid/);
-  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: true }, label: "Run", point: { x: 0, y: 0 } }), /invalid/);
+  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: true, hasRight: true, canReopen: true }, label: "Run", point: { x: 0, y: 0 } }), /invalid/);
   assert.throws(() => parseNativeTabMenuRequest({ chat: { lifecycle: "gone", snooze: [] }, point: { x: 0, y: 0 } }), /invalid/);
   assert.throws(() => parseNativeTabMenuRequest({ chat: { lifecycle: "active", snooze: [{ ...snooze[0], command: "delete" }] }, point: { x: 0, y: 0 } }), /snooze/);
   assert.throws(() => parseNativeTabMenuRequest({ chat: { lifecycle: "active", snooze: [{ ...snooze[0], id: "Hour:Now" }] }, point: { x: 0, y: 0 } }), /snooze/);
   assert.throws(() => parseNativeTabMenuRequest({ chat: { lifecycle: "active", snooze: [{ ...snooze[0], label: "x".repeat(81) }] }, point: { x: 0, y: 0 } }), /snooze/);
-  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: "yes" }, point: { x: 0, y: 0 } }), /invalid/);
-  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: true }, point: { x: Number.NaN, y: 0 } }), /position/);
+  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: "yes", hasRight: true, canReopen: true }, point: { x: 0, y: 0 } }), /invalid/);
+  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: true }, point: { x: 0, y: 0 } }), /invalid/);
+  assert.throws(() => parseNativeTabMenuRequest({ tab: { hasOthers: true, hasRight: true, canReopen: true }, point: { x: Number.NaN, y: 0 } }), /position/);
 });

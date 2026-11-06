@@ -7,6 +7,14 @@ macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/t
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
+The local 0.15.1 candidate integrates main through `d7743a6` (Mac 0.15.0).
+It adds page folders with Preview and Data views, online-page publishing support,
+Files multi-select and grouped restore points, banner customization layouts,
+live context/model account improvements, and the latest UI refinements. It
+retains Linux's native CLI, window controls, browser input/capture fixes, keyrings
+and app-wide Wayland sharing. The preview link above continues to identify
+0.13.5 until this candidate is published.
+
 The 0.13.5 preview integrates main through `48e08f4` (Mac 0.13.3).
 It adds interruption recovery, idle Chat compaction, shared queue and steering,
 the refreshed Chat composer and reply files, current-file copying, and the

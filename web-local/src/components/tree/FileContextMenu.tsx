@@ -1,10 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Share2, Trash2, Upload } from "lucide-react";
+import { AppWindow, CirclePlus, Copy, ExternalLink, FilePlus2, FolderOpen, FolderPlus, History, PencilLine, RefreshCw, Trash2, Upload } from "../chrome/icons";
 import { canOpenDirectly, nativeOpenLabel, revealInFileManagerLabel } from "../../lib/file-actions";
-import { activeSharedPageFor, isShareablePath } from "../../lib/page-sharing";
-import { useSharedPages } from "../../hooks/useSharedPages";
 import type { FileContextMenuState } from "../../types";
-import { fileSharing } from "../../ui-contract";
+import { fileSelectionLabel } from "../../../../src/shared/file-selection";
 
 export function FileContextMenu({
   state,
@@ -12,7 +10,9 @@ export function FileContextMenu({
   onOpenLocal,
   canOpenWith = false,
   onAddToChatContext,
+  onAttachSelection,
   onCopyPath,
+  onCopyPaths,
   onShowVersionHistory,
   onRename,
   onNewFolder,
@@ -21,10 +21,8 @@ export function FileContextMenu({
   onRefresh,
   onGiveWorker,
   onDelete,
+  onDeleteSelection,
   canDelete = true,
-  onShare,
-  shareWorkFolderId,
-  fixtureMode = false,
   onClose,
 }: {
   state: FileContextMenuState;
@@ -32,7 +30,10 @@ export function FileContextMenu({
   onOpenLocal: (path: string, action: "reveal" | "open" | "open-native" | "open-with") => void | Promise<void>;
   canOpenWith?: boolean;
   onAddToChatContext: (path: string) => void;
+  /** Several selected rows: attaches them together (offered when every one is a file). */
+  onAttachSelection?: (paths: string[]) => void;
   onCopyPath: (path: string) => void | Promise<void>;
+  onCopyPaths?: (paths: string[]) => void | Promise<void>;
   onShowVersionHistory: (path: string) => void;
   onRename?: (path: string) => void;
   onNewFolder?: (parentPath: string) => void;
@@ -42,22 +43,17 @@ export function FileContextMenu({
   /** "Make a work-folder": registers this plain folder as a nested work-folder with its own Worker. */
   onGiveWorker?: (path: string) => void;
   onDelete: (path: string) => void | Promise<void>;
+  onDeleteSelection?: (paths: string[]) => void | Promise<void>;
   /** False for a folder that holds a nested work-folder, which cannot be deleted from here. */
   canDelete?: boolean;
-  /** Shares a shareable file, or opens its link when it is already shared. */
-  onShare?: (path: string) => void;
-  /** The work-folder the menu's entries belong to, for the Share / Shared label. */
-  shareWorkFolderId?: string;
-  fixtureMode?: boolean;
   onClose: () => void;
 }) {
   const { entry } = state;
-  const sharedPages = useSharedPages(fixtureMode);
-  const shareable = Boolean(onShare && shareWorkFolderId && entry.kind === "file" && isShareablePath(entry.path));
-  const alreadyShared = shareable && Boolean(activeSharedPageFor(sharedPages, shareWorkFolderId!, entry.path));
+  // Several rows selected together get only the actions that make sense for all of them.
+  const selection = state.selection && state.selection.length > 1 ? state.selection : null;
   const openLabel = nativeOpenLabel(entry);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path]);
+  useEffect(() => { window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()); }, [entry.path, selection?.length]);
 
   function items() { return Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []); }
   function closeAndReturnFocus() { onClose(); window.requestAnimationFrame(() => state.returnFocusTarget?.focus()); }
@@ -75,16 +71,26 @@ export function FileContextMenu({
     }
   }
   const run = (action: () => void | Promise<void>) => { onClose(); void action(); };
+  if (selection) {
+    const paths = selection.map((item) => item.path);
+    const files = selection.filter((item) => item.kind === "file").length;
+    return (
+      <div ref={menuRef} className="context-menu" style={{ left: state.x, top: state.y }} role="menu" aria-label={fileSelectionLabel(files, selection.length - files)} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
+        {onAttachSelection && files === selection.length ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAttachSelection(paths))}><CirclePlus size={15} />Attach to Chat</button> : null}
+        {onCopyPaths ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPaths(paths))}><Copy size={15} />Copy Paths</button> : null}
+        {onDeleteSelection && canDelete ? <><div className="context-menu-separator" role="separator" /><button className="danger" type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onDeleteSelection(paths))}><Trash2 size={15} />Delete {fileSelectionLabel(files, selection.length - files)}</button></> : null}
+      </div>
+    );
+  }
   return (
     <div ref={menuRef} className="context-menu" style={{ left: state.x, top: state.y }} role="menu" onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} onKeyDown={handleKeyDown}>
       {entry.kind === "file" && canOpenDirectly(entry.path) ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => { onSelect(entry.path); return onOpenLocal(entry.path, openLabel.office ? "open-native" : "open"); })}><ExternalLink size={15} />{openLabel.text}</button> : null}
-      {entry.kind === "file" && canOpenWith ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open-with"))}><AppWindow size={15} />Open with</button> : null}
+      {entry.kind === "file" && canOpenWith ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open-with"))}><AppWindow size={15} />Open With</button> : null}
       {entry.kind === "folder" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "open"))}><FolderOpen size={15} />Open Folder</button> : null}
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onOpenLocal(entry.path, "reveal"))}><FolderOpen size={15} />{revealInFileManagerLabel()}</button>
       <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onCopyPath(entry.path))}><Copy size={15} />Copy {entry.kind === "folder" ? "Folder" : "File"} Path</button>
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onAddToChatContext(entry.path))}><CirclePlus size={15} />Attach to Chat</button> : null}
       {entry.kind === "file" ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShowVersionHistory(entry.path))}><History size={15} />Version History</button> : null}
-      {shareable && onShare ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onShare(entry.path))}><Share2 size={15} />{alreadyShared ? fileSharing.shared : fileSharing.share}</button> : null}
       {entry.kind === "folder" && (onNewFolder || onNewFile || onUploadHere || onRefresh) ? <div className="context-menu-separator" role="separator" /> : null}
       {entry.kind === "folder" && onNewFolder ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFolder(entry.path))}><FolderPlus size={15} />New Folder Here</button> : null}
       {entry.kind === "folder" && onNewFile ? <button type="button" role="menuitem" tabIndex={-1} onClick={() => run(() => onNewFile(entry.path))}><FilePlus2 size={15} />New File Here</button> : null}

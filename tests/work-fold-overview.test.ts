@@ -5,12 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { ChatMessage, ConversationSummary } from "../src/local/agent/chat-store.js";
-import type { WorkFoldCliActReceipt } from "../src/local/cli/act-receipts.js";
+import { WorkFoldCliActReceipts, type WorkFoldCliActReceipt } from "../src/local/cli/act-receipts.js";
 import type { WorkFoldCheckStatusSnapshot } from "../src/local/checks/check-types.js";
 import {
   composeWorkFoldOverview,
   createWorkFoldOverviewAutomationRunReader,
-  createWorkFoldOverviewViewerGrantReader,
   workFoldOverviewChatRecordFromMessages,
   workFoldOverviewChangesPerKindCap,
   workFoldOverviewChangesTotalCap,
@@ -89,10 +88,8 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
 
   // Since you last looked: newest first.
   assert.deepEqual(first.changes.map((item) => item.id), [
-    "viewer-grants:pub-1:revoked",
     "act-receipts:req-1",
     "history-checkpoints:work-folder-a:cp-1",
-    "viewer-grants:pub-1:created",
     "act-receipts:req-2",
     "app-automation-receipts:ar-1",
     "checks:work-folder-a:run-1",
@@ -105,20 +102,20 @@ test("composeWorkFoldGlance is deterministic and orders every section", async ()
     "chats:chat-x:msg-arch",
     "chats:chat-x:msg-ren",
   ]);
-  assert.equal(first.changes[8].headline, "Request done");
-  assert.equal(first.changes[9].headline, "Request ran out of time");
-  assert.deepEqual(first.changes[9].ref, { taskId: "task-expired", conversationId: "mgmt-1", requestId: "req-expired" });
+  assert.equal(first.changes[6].headline, "Request done");
+  assert.equal(first.changes[7].headline, "Request ran out of time");
+  assert.deepEqual(first.changes[7].ref, { taskId: "task-expired", conversationId: "mgmt-1", requestId: "req-expired" });
   assert.ok(!first.changes.some((item) => item.id === "agent-requests:req-plain-old"), "a plain work-folder turn's settle is its turn-settled item, not a second request item");
-  assert.equal(first.cursor, "2026-08-10T10:58:00.000Z/viewer-grants:pub-1:revoked");
-  const actItem = first.changes[1];
+  assert.equal(first.cursor, "2026-08-10T10:50:00.000Z/act-receipts:req-1");
+  const actItem = first.changes[0];
   assert.equal(actItem.headline, "Performed files.add — restore point saved");
   assert.equal(actItem.workFolderName, "work-folder-gone (removed)", "an unregistered work-folder renders the id plus (removed)");
   assert.deepEqual(actItem.ref, { checkpointId: "cp-9", requestId: "req-1" });
-  assert.equal(first.changes[4].headline, "chat.rename failed");
-  assert.equal(first.changes[5].headline, 'Inbox automation "Collect new mail" succeeded');
-  assert.equal(first.changes[6].headline, "Check run failed — 2 findings admitted");
-  assert.equal(first.changes[7].headline, 'Automation "Weekly handoff" failed — 1/3 steps completed');
-  assert.equal(first.changes[12].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
+  assert.equal(first.changes[2].headline, "chat.rename failed");
+  assert.equal(first.changes[3].headline, 'Inbox automation "Collect new mail" succeeded');
+  assert.equal(first.changes[4].headline, "Check run failed — 2 findings admitted");
+  assert.equal(first.changes[5].headline, 'Automation "Weekly handoff" failed — 1/3 steps completed');
+  assert.equal(first.changes[10].headline, '"Waiting" snoozed until 2026-08-10T11:30:00.000Z');
 
   // Checks: one row per work-folder with configured Checks; unconfigured is absent.
   assert.deepEqual(first.checks, [{
@@ -275,10 +272,13 @@ test("changes are bounded per kind and in total, newest first", async () => {
         outcome: "success" as const,
         finishedAt: stamp(index),
       })),
-      viewerGrants: async () => indexes.map((index) => ({
-        publicationId: `pub-${index}`,
-        event: "created" as const,
-        at: stamp(index),
+      automationRuns: async () => indexes.map((index) => ({
+        runId: `rr-${index}`,
+        automationId: "automation-1",
+        state: "succeeded" as const,
+        startedAt: stamp(index),
+        endedAt: stamp(index),
+        hops: [],
       })),
     },
   });
@@ -531,116 +531,6 @@ test("tolerant automation-run reader derives runs and hop outcomes from the jour
   }
 });
 
-test("tolerant viewer-grant reader emits created, revoked, and health-note events", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "workspace-overview-stores-"));
-  try {
-    const reader = createWorkFoldOverviewViewerGrantReader({ stateRoot: sandbox });
-    assert.deepEqual(await reader(), [], "a missing store renders absent");
-
-    await mkdir(join(sandbox, "shared-pages"), { recursive: true });
-    await writeFile(join(sandbox, "shared-pages", "publications.json"), JSON.stringify({
-      version: 1,
-      publications: [
-        {
-          publicationId: "pub-1",
-          workFolderId: "work-folder-a",
-          createdAt: "2026-08-10T10:00:00.000Z",
-          title: "Quarterly report",
-          // The record's one bounded health note becomes the publisher-facing
-          // change event, carrying the recorded title and precise reason.
-          lastProblem: {
-            state: "not-available",
-            reason: "the designated file does not exist as a regular file",
-            at: "2026-08-10T11:00:00.000Z",
-          },
-        },
-        {
-          publicationId: "pub-2",
-          createdAt: "2026-08-10T09:00:00.000Z",
-          revokedAt: "2026-08-10T10:30:00.000Z",
-          // An unknown problem state is bookkeeping damage, dropped without
-          // poisoning the record's lifecycle events.
-          lastProblem: { state: "unheard-of", reason: "x", at: "2026-08-10T10:00:00.000Z" },
-        },
-        { publicationId: "", createdAt: "2026-08-10T09:00:00.000Z" },
-      ],
-    }), "utf8");
-    assert.deepEqual(await reader(), [
-      { publicationId: "pub-1", event: "created", at: "2026-08-10T10:00:00.000Z", workFolderId: "work-folder-a" },
-      {
-        publicationId: "pub-1",
-        event: "not-available",
-        at: "2026-08-10T11:00:00.000Z",
-        workFolderId: "work-folder-a",
-        title: "Quarterly report",
-        reason: "the designated file does not exist as a regular file",
-      },
-      { publicationId: "pub-2", event: "created", at: "2026-08-10T09:00:00.000Z" },
-      { publicationId: "pub-2", event: "revoked", at: "2026-08-10T10:30:00.000Z" },
-    ]);
-  } finally {
-    await rm(sandbox, { recursive: true, force: true });
-  }
-});
-
-test("publication health notes render as publisher-facing change items", async () => {
-  // The audience saw the deliberately vague page (docs/shared-pages.md,
-  // "Honest states"); the person gets the precise reason here, as a
-  // publication-state change item beside — never instead of — the grant's
-  // lifecycle items.
-  const snapshot = await composeWorkFoldOverview({
-    now: new Date(composedAtIso),
-    workFolders: [alpha],
-    sources: {
-      viewerGrants: async () => [
-        { publicationId: "pub-1", event: "created", at: "2026-08-10T10:00:00.000Z", workFolderId: "work-folder-a" },
-        {
-          publicationId: "pub-1",
-          event: "not-available",
-          at: "2026-08-10T11:00:00.000Z",
-          workFolderId: "work-folder-a",
-          title: "Quarterly report",
-          reason: "the designated file could not be read",
-        },
-        {
-          publicationId: "pub-2",
-          event: "resting",
-          at: "2026-08-10T11:30:00.000Z",
-          title: "Busy page",
-          reason: "it hit its serves-per-minute budget at the relay",
-        },
-        { publicationId: "pub-3", event: "resting", at: "2026-08-10T11:45:00.000Z" },
-      ],
-    },
-  });
-  const states = snapshot.changes.filter((item) => item.kind === "publication-state");
-  assert.deepEqual(
-    states.map((item) => item.id),
-    [
-      "viewer-grants:pub-3:problem:2026-08-10T11:45:00.000Z",
-      "viewer-grants:pub-2:problem:2026-08-10T11:30:00.000Z",
-      "viewer-grants:pub-1:problem:2026-08-10T11:00:00.000Z",
-    ],
-    "the item id carries the note's timestamp so a recurrence after recovery is a new item",
-  );
-  assert.equal(
-    states[2].headline,
-    '"Quarterly report" isn\'t reaching viewers — the designated file could not be read',
-  );
-  assert.equal(states[2].workFolderName, "Alpha");
-  assert.deepEqual(states[2].ref, { publicationId: "pub-1" });
-  assert.equal(states[1].headline, '"Busy page" is resting — it hit its serves-per-minute budget at the relay');
-  assert.equal(
-    states[0].headline,
-    "A shared page is resting — its viewer budget is used up",
-    "a note without a recorded title or reason stays honest and generic",
-  );
-  assert.ok(
-    snapshot.changes.some((item) => item.kind === "viewer-grant-changed" && item.id === "viewer-grants:pub-1:created"),
-    "a health note renders beside the grant-lifecycle item, under its own per-kind budget",
-  );
-});
-
 function fullFixtureSources(): WorkFoldOverviewSourceReaders {
   return {
     runningTasks: async () => [
@@ -757,10 +647,6 @@ function fullFixtureSources(): WorkFoldOverviewSourceReaders {
         ],
       },
     ],
-    viewerGrants: async () => [
-      { publicationId: "pub-1", event: "created", at: "2026-08-10T10:40:00.000Z", workFolderId: "work-folder-a" },
-      { publicationId: "pub-1", event: "revoked", at: "2026-08-10T10:58:00.000Z", workFolderId: "work-folder-a" },
-    ],
   };
 }
 
@@ -794,9 +680,28 @@ test("the local API wires the overview's live-registry readers end to end", asyn
       handler: async () => await new Promise((resolve) => setTimeout(resolve, 150)),
     });
   }\n`, "utf8");
+  // State an older build left behind when desktop-served sharing existed: its
+  // publication store and the receipts of a share. Both stay inert; the
+  // receipts are ordinary ledger history.
+  const stateRoot = join(sandbox, "state");
+  await mkdir(join(stateRoot, "shared-pages"), { recursive: true });
+  await writeFile(join(stateRoot, "shared-pages", "publications.json"), JSON.stringify({
+    version: 1,
+    publications: [{ publicationId: "pub-old", workFolderId: "work-folder-old", title: "Old page", createdAt: "2026-08-10T10:00:00.000Z", state: "active" }],
+  }), "utf8");
+  const oldReceipts = new WorkFoldCliActReceipts({ stateRoot });
+  await oldReceipts.append({ requestId: "req-old-share", command: "pages.share", outcome: "accepted" });
+  await oldReceipts.append({
+    requestId: "req-old-share",
+    command: "pages.share",
+    outcome: "ok",
+    surface: "cli",
+    detail: "publish.viewer.expose; source notes.md; publication pub-old",
+    undoRef: { kind: "publicationId", value: "pub-old" },
+  });
   const api = await startLocalApi({
     port: 0,
-    stateBase: join(sandbox, "state"),
+    stateBase: stateRoot,
     workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: {
@@ -841,13 +746,6 @@ test("the local API wires the overview's live-registry readers end to end", asyn
       return status.task.state !== "accepted" && status.task.state !== "running";
     });
 
-    // A shared page creates grant records.
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "notes.md"), "# Notes\n", "utf8");
-    const page = await api.publications.activate(
-      { workFolderId: workFolder.workFolder.id, relativePath: "notes.md", title: "Notes page" },
-      { requestId: "req-overview-page" },
-    );
-
     const pending = await api.kernel.getOverview({ kind: "system" });
     assert.equal(pending.kind, "work-fold.overview.experimental");
     assert.deepEqual(pending.unavailable, [], "every wired source reads cleanly");
@@ -865,7 +763,7 @@ test("the local API wires the overview's live-registry readers end to end", asyn
       "chat-renamed",
       "chat-lifecycle",
       "check-run-settled",
-      "viewer-grant-changed",
+      "act-performed",
     ] as const) {
       assert.ok(changeKinds.has(expected), `changes include ${expected}`);
     }
@@ -876,33 +774,17 @@ test("the local API wires the overview's live-registry readers end to end", asyn
     assert.equal(settledRunItem?.ref?.runId, checkRun.runId, "the content-free settled-run accessor names the run");
     assert.match(settledRunItem?.headline ?? "", /1 finding admitted/);
 
-    // A serve refusal is vague to the audience and precise to the publisher:
-    // deleting the source and serving records the bounded health note, and
-    // the next digest renders it as a publication-state change item.
-    await rm(join(workFolder.workFolder.workFolderRoot, "notes.md"), { force: true });
-    const refusal = await api.publications.serveViewerPage(page.publicationId);
-    assert.equal(refusal.state, "not-available", "the viewer-facing refusal stays typed and content-free");
-    const troubled = await api.kernel.getOverview({ kind: "system" });
-    const problemItem = troubled.changes.find((item) => item.kind === "publication-state");
-    assert.ok(problemItem, "the serve refusal surfaces as a publisher-facing change item");
-    assert.match(problemItem!.headline, /"Notes page" isn't reaching viewers — /);
-    assert.equal(problemItem!.ref?.publicationId, page.publicationId);
-    assert.equal(problemItem!.workFolderName, "Glanced", "the health item resolves its work-folder name");
-
-    // Revoking the page turns the grant into records, and the publication
-    // service's own act receipts reach the ledger reader.
-    await api.publications.revoke(page.publicationId, { requestId: "req-overview-revoke" });
-    const settled = await api.kernel.getOverview({ kind: "system" });
+    // The act-receipts ledger reader surfaces the older build's share
+    // receipt as ordinary history; its leftover publication store adds nothing.
     assert.ok(
-      settled.changes.some((item) => item.kind === "act-performed" && item.ref?.requestId === "req-overview-revoke"),
-      "the act-receipts ledger reader surfaces the revocation receipt",
+      pending.changes.some((item) => item.kind === "act-performed" && item.ref?.requestId === "req-old-share"),
+      "a receipt for a removed verb still reads as a performed act",
     );
-    assert.equal(
-      settled.changes.filter((item) => item.kind === "viewer-grant-changed").length,
-      2,
-      "the publication reader emits created and revoked events",
+    assert.ok(
+      !pending.changes.some((item) => item.id.startsWith("viewer-grants:")),
+      "a leftover publication store is never read",
     );
-    assert.ok(settled.cursor, "recorded changes produce a cursor for seen markers");
+    assert.ok(pending.cursor, "recorded changes produce a cursor for seen markers");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

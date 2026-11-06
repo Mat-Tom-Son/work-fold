@@ -41,6 +41,7 @@ import type {
 import { WorkFolderIconGlyph } from "../chrome/common";
 import { requestConfirm, showToast } from "../../ui/feedback";
 import { ChatContentSearch } from "./ChatContentSearch";
+import type { FixtureRestorePoint } from "../../fixtures/work-folder-files";
 
 export function WorkFoldersPane({
   workFolder,
@@ -76,11 +77,11 @@ export function WorkFoldersPane({
       <div className="professional-work-folder-actions" aria-label="Add a work-folder">
         <button className="professional-work-folder-action" type="button" onClick={onOpenFolder}>
           <span className="professional-work-folder-action-icon" aria-hidden="true"><FolderOpen20Regular /></span>
-          <strong>Use existing folder</strong>
+          <strong>Use Existing Folder</strong>
         </button>
         <button className="professional-work-folder-action" type="button" onClick={onCreate}>
           <span className="professional-work-folder-action-icon" aria-hidden="true"><FolderAdd20Regular /></span>
-          <strong>Create new work-folder</strong>
+          <strong>Create New work-folder</strong>
         </button>
       </div>
 
@@ -137,6 +138,29 @@ export function WorkFoldersPane({
       </section>
     </div>
   );
+}
+
+/** Chats grouped the way people remember them: Today, Yesterday, the last week, the last month, Earlier. */
+export function chatDateGroups(chats: ConversationSummary[], now: number): Array<{ label: string; chats: ConversationSummary[] }> {
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const day = 24 * 60 * 60 * 1_000;
+  const labelFor = (updatedAt: string) => {
+    const time = Date.parse(updatedAt);
+    if (!Number.isFinite(time) || time >= startOfToday.getTime()) return "Today";
+    if (time >= startOfToday.getTime() - day) return "Yesterday";
+    if (time >= startOfToday.getTime() - 7 * day) return "Previous 7 Days";
+    if (time >= startOfToday.getTime() - 30 * day) return "Previous 30 Days";
+    return "Earlier";
+  };
+  const groups: Array<{ label: string; chats: ConversationSummary[] }> = [];
+  for (const chat of chats) {
+    const label = labelFor(chat.updatedAt);
+    const group = groups.at(-1)?.label === label ? groups.at(-1)! : groups.find((item) => item.label === label);
+    if (group) group.chats.push(chat);
+    else groups.push({ label, chats: [chat] });
+  }
+  return groups;
 }
 
 export function ChatsPane({
@@ -245,7 +269,7 @@ export function ChatsPane({
             className="chat-work-folder-row-actions"
             type="button"
             aria-label={`Actions for ${chat.title}`}
-            title="Chat actions"
+            title="Chat Actions"
             onClick={(event) => onActions(item, chat, event)}
           >
             <MoreHorizontal16Regular />
@@ -260,6 +284,22 @@ export function ChatsPane({
       <div className={`chat-work-folder-list ${className}`}>
         {renderChatRows(list.map((chat) => ({ item, chat })), false)}
         {!list.length && emptyText ? <span className="chat-work-folder-empty">{emptyText}</span> : null}
+      </div>
+    );
+  }
+
+  // A long history reads by date; a short one, or a search, stays one list.
+  function renderDatedChatList(item: WorkFolderSummary, list: ConversationSummary[], className: string, emptyText: string | null): ReactNode {
+    const groups = chatDateGroups(list, now);
+    if (normalized || groups.length < 2) return renderChatList(item, list, className, emptyText);
+    return (
+      <div className={`chat-work-folder-list ${className}`}>
+        {groups.map(({ label, chats }) => (
+          <div className="chat-date-group" key={label} role="group" aria-label={label}>
+            <h4 className="chat-date-group-label">{label}</h4>
+            {renderChatRows(chats.map((chat) => ({ item, chat })), false)}
+          </div>
+        ))}
       </div>
     );
   }
@@ -294,7 +334,7 @@ export function ChatsPane({
             placeholder="Search Chats"
             aria-label="Search Chats"
           />
-          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear Chat search" title="Clear Chat search"><Dismiss16Regular /></button> : null}
+          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear Chat Search" title="Clear Chat Search"><Dismiss16Regular /></button> : null}
         </label>
       </div>
       <div className="chat-work-folder-groups">
@@ -304,7 +344,7 @@ export function ChatsPane({
             <strong>{workFolder.name}</strong>
             <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(workFolder)} aria-label={`New Chat in ${workFolder.name}`} title="New Chat"><Chat16Regular /></button>
           </div>
-          {renderChatList(workFolder, currentList, "chat-work-folder-list-current", normalized ? null : nestedRows.length ? null : "No Chats yet")}
+          {renderDatedChatList(workFolder, currentList, "chat-work-folder-list-current", normalized ? null : nestedRows.length ? null : "No Chats Yet")}
           {nestedRows.map(({ workFolder: item, depth }) => {
             const identity = workFolderIdentityFor(item, customizations);
             const list = chatsFor(item);
@@ -348,7 +388,7 @@ export function ChatsPane({
                     </button>
                     <button className="ui-control ui-control--icon" type="button" onClick={() => onNew(item)} aria-label={`New Chat in ${item.name}`} title="New Chat"><Chat16Regular /></button>
                   </div>
-                  {expanded ? <div id={`chat-other-work-folder-${item.id}`}>{renderChatList(item, list, "chat-work-folder-list-other", "No Chats yet")}</div> : null}
+                  {expanded ? <div id={`chat-other-work-folder-${item.id}`}>{renderChatList(item, list, "chat-work-folder-list-other", "No Chats Yet")}</div> : null}
                 </div>
               );
             })}
@@ -389,7 +429,7 @@ export function ChatsPane({
   );
 }
 
-interface HistoryRestorePreview {
+export interface HistoryRestorePreview {
   checkpointId: string;
   scope: "full" | "targeted";
   restoreFiles: string[];
@@ -400,9 +440,11 @@ interface HistoryRestorePreview {
   conflicts: string[];
 }
 
-export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
+export function HistoryPane({ workFolder, fixtureItems, fixtureRestorePoints, refreshRequest = 0, selectedCheckpointId, onOpen, onRestored, onError }: {
   workFolder: WorkFolderSummary;
   fixtureItems?: WorkFolderCheckpoint[];
+  /** The preview's restore point pages and Compare views, by restore point. */
+  fixtureRestorePoints?: Record<string, FixtureRestorePoint>;
   refreshRequest?: number;
   selectedCheckpointId?: string;
   onOpen?: (item: WorkFolderCheckpoint) => void;
@@ -421,7 +463,11 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   useEffect(() => {
     let cancelled = false;
     setPreview(null); setPreviewError("");
-    if (selectedCheckpointId && fixtureItems) setPreviewError("Restore previews are unavailable for demonstration data.");
+    if (selectedCheckpointId && fixtureItems) {
+      const fixturePreview = fixtureRestorePoints?.[selectedCheckpointId]?.preview;
+      if (fixturePreview) setPreview(fixturePreview);
+      else setPreviewError("Restore previews are unavailable for demonstration data.");
+    }
     if (!fixtureItems) {
       // An obsolete effect skips its reads; one already sent still finishes
       // before the next starts (development Strict Mode replay, a quickly
@@ -441,7 +487,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
       });
     }
     return () => { cancelled = true; };
-  }, [workFolder.id, selectedCheckpointId, fixtureItems, refreshRequest, previewRevision]);
+  }, [workFolder.id, selectedCheckpointId, fixtureItems, fixtureRestorePoints, refreshRequest, previewRevision]);
 
   useEffect(() => { setNotice(""); }, [workFolder.id, fixtureItems]);
 
@@ -463,7 +509,11 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
   }
 
   async function restore(item: WorkFolderCheckpoint) {
-    if (fixtureItems) return;
+    if (fixtureItems) {
+      if (selectedCheckpointId === item.checkpointId) showToast({ text: "Restoring is disabled in the preview", tone: "info" });
+      else onOpen?.(item);
+      return;
+    }
     if (selectedCheckpointId !== item.checkpointId && onOpen) { onOpen(item); return; }
     let reviewed: HistoryRestorePreview;
     try {
@@ -475,7 +525,7 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     const confirmed = await requestConfirm({
       title: reviewed.scope === "targeted" ? "Undo these changes?" : `Restore ${workFolder.name} to ${formatDate(item.createdAt)}?`,
       body: `${changing} ${changing === 1 ? "file changes" : "files change"}. Your current files are saved first, so you can undo this from History.`,
-      confirmLabel: reviewed.scope === "targeted" ? "Undo changes" : "Restore", tone: "danger",
+      confirmLabel: reviewed.scope === "targeted" ? "Undo Changes" : "Restore", tone: "danger",
     });
     if (!confirmed) return;
     setBusy(true);
@@ -495,14 +545,15 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
     const selected = items.find((item) => item.checkpointId === selectedCheckpointId);
     const changes = preview ? restorePointChanges(preview) : [];
     const leftAlone = preview ? restorePointLeftAlone(preview) : [];
+    const fixtureComparisons = fixtureItems ? fixtureRestorePoints?.[selectedCheckpointId]?.comparisons : undefined;
     return <div className="work-folder-pane-content history-pane professional-surface professional-history history-review">
       <header className="history-review-header">
         <div className="history-review-identity">
-          <h1>{selected ? restorePointTitle(selected) : "Restore point"}</h1>
+          <h1>{selected ? restorePointTitle(selected) : "Restore Point"}</h1>
           {selected ? <p className="history-detail-meta">{formatDate(selected.createdAt)}</p> : null}
         </div>
         {preview && changes.length ? <button className="ui-control ui-control--primary" type="button" disabled={busy || !selected || preview.conflicts.length > 0} onClick={() => selected && void restore(selected)}>
-          {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo these changes" : "Restore"}
+          {busy ? "Restoring…" : preview.scope === "targeted" ? "Undo These Changes" : "Restore"}
         </button> : null}
       </header>
       {previewError ? <p role="alert">{previewError}</p> : null}
@@ -520,9 +571,9 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
                 {change.detail ?? pathFolder(change.path) ? <small>{change.detail ?? pathFolder(change.path)}</small> : null}
               </span>
               <span className="history-change-kind">{change.kind}</span>
-              {change.kind !== "Moved" && !fixtureItems ? <button className="ui-control ui-control--quiet compact" type="button" aria-expanded={comparing} onClick={() => setComparisonPath(comparing ? "" : change.path)}>{comparing ? "Hide" : "Compare"}</button> : null}
+              {change.kind !== "Moved" && (!fixtureItems || fixtureComparisons?.[change.path]) ? <button className="ui-control ui-control--quiet compact" type="button" aria-expanded={comparing} onClick={() => setComparisonPath(comparing ? "" : change.path)}>{comparing ? "Hide" : "Compare"}</button> : null}
             </div>
-            {comparing ? <HistoryFileComparison workFolderId={workFolder.id} path={change.path} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} /> : null}
+            {comparing ? <HistoryFileComparison workFolderId={workFolder.id} path={change.path} fromCheckpointId={selectedCheckpointId} refreshRequest={refreshRequest + previewRevision} fixtureComparison={fixtureComparisons?.[change.path]} /> : null}
           </li>;
         })}</ul>
       </section> : null}
@@ -536,11 +587,11 @@ export function HistoryPane({ workFolder, fixtureItems, refreshRequest = 0, sele
         <div className="history-title"><h2>History</h2><span>{items.length} restore {items.length === 1 ? "point" : "points"}</span></div>
         {notice ? <p className="history-save-status" role="status"><Checkmark16Regular />{notice}</p> : null}
         <button className="ui-control ui-control--primary" type="button" onClick={() => void savePoint()} disabled={busy || Boolean(fixtureItems)}>
-          {busy ? <ArrowSync16Regular className="spin" /> : <Clock16Regular />}Save restore point
+          {busy ? <ArrowSync16Regular className="spin" /> : <Clock16Regular />}Save Restore Point
         </button>
       </div>
       <div className="history-journal">
-        {!items.length ? <EmptyState icon={<History20Regular />} title="No restore points yet" detail="Save a restore point to keep a version of this work-folder." /> : null}
+        {!items.length ? <EmptyState icon={<History20Regular />} title="No Restore Points Yet" detail="Save a restore point to keep a version of this work-folder." /> : null}
         {historyDateGroups(items).map(({label,points}) => <section key={label} className="history-day"><h3>{label}</h3><div>{points.map(item => <button className={item.checkpointId===selectedCheckpointId ? "history-entry selected" : "history-entry"} aria-current={item.checkpointId===selectedCheckpointId ? "true" : undefined} type="button" key={item.checkpointId} disabled={!onOpen && (busy || Boolean(fixtureItems))} onClick={()=>onOpen ? onOpen(item) : void restore(item)} aria-label={`Review ${restorePointTitle(item)}`}>
           <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}</time>
           <span><strong>{restorePointTitle(item)}</strong><small>{item.fileCount} {item.fileCount === 1 ? 'file' : 'files'}</small></span>

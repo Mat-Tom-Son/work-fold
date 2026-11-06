@@ -3,7 +3,21 @@ import type { AppTypographyFont } from "../types";
 type DesktopPlatform = NodeJS.Platform | undefined;
 
 function desktopPlatform(): DesktopPlatform {
-  return typeof window === "undefined" ? undefined : window.workFoldDesktop?.app?.platform;
+  if (typeof window === "undefined") return undefined;
+  return window.workFoldDesktop?.app?.platform ?? previewPlatform();
+}
+
+/**
+ * The inert UI previews (`/?fixture=work-folder`, `/popover.html?fixture=agent`)
+ * draw the Mac app, the active desktop lane: Mac words, key glyphs, and window
+ * chrome. `&platform=browser` shows the plain browser rendering instead.
+ */
+function previewPlatform(): DesktopPlatform {
+  if (typeof window === "undefined" || window.workFoldDesktop) return undefined;
+  const params = new URLSearchParams(window.location.search);
+  const fixture = params.get("fixture");
+  if (fixture !== "work-folder" && fixture !== "agent") return undefined;
+  return params.get("platform") === "browser" ? undefined : "darwin";
 }
 
 function isMacOS(platform: DesktopPlatform = desktopPlatform()): boolean {
@@ -28,5 +42,5 @@ function workFolderEntryNativePath(rootPath: string, relativePath: string, platf
   return [root, ...segments].join(separator);
 }
 
-export { desktopFileDragHint, desktopPlatform, isMacOS, typographyFontForPlatform, workFolderEntryNativePath };
+export { desktopFileDragHint, desktopPlatform, isMacOS, previewPlatform, typographyFontForPlatform, workFolderEntryNativePath };
 export type { DesktopPlatform };

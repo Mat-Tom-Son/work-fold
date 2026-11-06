@@ -19,20 +19,11 @@ plaintext persistence, not an untrusted-origin guarantee: the service also
 serves the browser JavaScript, so the hosted client and bridge are trusted parts
 of this alpha's full-authority boundary.
 
-The `pages-*` labels under the base domain are the viewer namespace for the
-publishing ladder, which a desktop that shares pages now drives end to end.
+The `pages` and `pages-*` labels under the base domain are reserved.
 Enrollment rejects the exact slug `pages` and any slug beginning `pages-` as
-real prefix logic, and a `pages-*` host is diverted before personal-slug
-resolution: it serves viewer routes or nothing — never the management client,
-its sign-in, its cookies, or the device lane. Durable `bridge_publications`
-and `bridge_publication_snapshots` rows are content-free slot records —
-identifiers, budgets, aggregate served-byte counters, revocation state, and
-bounded snapshot ciphertext only for publications that explicitly opted in;
-never titles, file names, source paths, or page bytes. The device-token-
-authenticated `PUT`/`DELETE /api/device/publications/:id` and snapshot routes
-are idempotent by operation id and are driven by the desktop's publication
-store as pages are shared, narrowed, and revoked. Viewer operation names never enter the management operation allowlist,
-and no viewer endpoint exists on the management origin.
+real prefix logic, and such a host is answered before personal-slug resolution
+with a plain not-found response — never the management client, its sign-in,
+its cookies, or the device lane.
 
 Unauthenticated password work has its own process-local admission boundary.
 Malformed or reserved addresses are rejected before password verification;
@@ -78,15 +69,30 @@ needed, with Attach and Send/Stop at its edges. Navigation, menus and secondary
 actions use the same restrained hover surface. On phones the same sidebar
 becomes a focus-trapped drawer.
 
-**Shared pages** replaces the work-folder picker in the sidebar footer. Its
-popup reads up to 32 active publications through capability-advertised
-`pages.list`, carrying only title, kind, health and publication identity. Clicking
-one calls `pages.link` to reveal its current key, then opens the exact isolated
-`pages-<slug>` viewer origin with the key in the fragment and no window opener.
-The encrypted desktop response supplies the viewer origin; the relay and list
-never receive plaintext keys. Links stay transient and are not stored. Closing,
-revocation or disconnect fences late replies. This is navigation to existing
-shares; sharing and management remain in the desktop.
+## Online pages
+
+The bridge is the front door to the page service for publishers
+([Pages, "Publishing (stage 2)"](../../docs/pages.md#bridge)). The desktop
+publishes, unpublishes, checks in, and changes online entries under
+`/api/device/pages` with its device token. The owner's browser reads pages and
+entries, exports a spreadsheet, and unpublishes under `/api/pages` with the
+password session alone — no paired browser and no running desktop — and
+unpublishing also needs the same origin and the session's CSRF token. The web
+client's **Published** view uses those routes; it opens from the offline and
+pairing screens and from the paired sidebar, next to Settings.
+
+Each route calls the page service's internal API with the authenticated
+account's id in the path and the shared secret in `x-work-fold-pages-secret`.
+Page ids must be `pg_` plus 26 lowercase base32 characters (`a`–`z`, `2`–`7`)
+before anything is proxied. Publish bodies stream through up to 26 MiB and
+data changes up to 8 MiB (the page service's own bound); every other page
+route keeps the ordinary 96 KiB JSON bound. Snapshots and
+spreadsheets stream back without being held whole. The page service's status
+and `{ error, code, message, field }` pass through; when it can't be reached
+the answer is a 502 with a plain message, and without configuration every page
+route answers 503 "Online pages aren't available yet." Owner reads, exports,
+and unpublishes, and device publishes and other device page calls, have their
+own process-local rate limits. Page ids and links are never logged.
 
 ## Local development
 
@@ -94,9 +100,7 @@ The inert `?fixture=chat` preview opens a finished conversation. Four saved Chat
 have distinct transcripts and keep their own drafts; Rename/Delete only change
 the in-memory fixture. Use `activity=running` explicitly to review streaming and
 Stop, or `work=question|saved-answer|partial|interrupted` for the durable-question
-states. The Shared pages popup has three distinct sample documents; a local
-`pages-casey.localhost` viewer preview with `fixture=1` is inert. Fixture
-navigation never calls the desktop or relay API.
+states. Fixture navigation never calls the desktop or relay API.
 
 Use Node 24 (matching the root `.nvmrc`) and a local PostgreSQL database.
 Run these commands from the repository root:
@@ -107,6 +111,22 @@ DATABASE_URL=postgresql://localhost/work_fold_bridge \
 WORKFOLD_ALLOW_PUBLIC_ENROLLMENT=1 \
 npm start --prefix services/bridge
 ```
+
+Without PostgreSQL, run the bridge on the in-memory database the tests use. It
+listens on `127.0.0.1:$PORT` (8790 by default) with public enrollment on, and
+forgets every address and session when it stops:
+
+```bash
+npm ci --prefix services/bridge
+PORT=8790 npm run dev:memory --prefix services/bridge
+```
+
+To run the whole online-pages flow locally, start the page service and pass the
+same `WORKFOLD_PAGES_*` settings to the runner, for example
+`WORKFOLD_PAGES_INTERNAL_URL=http://127.0.0.1:8792`,
+`WORKFOLD_PAGES_INTERNAL_SECRET=<the page service's secret>`, and
+`WORKFOLD_PAGES_PUBLIC_ORIGIN=http://127.0.0.1:8791`. `?fixture=chat&published=1`
+(or `published=page`) previews the Published view with canned pages.
 
 For a local desktop build, set `WORKFOLD_REMOTE_BRIDGE_URL` to the local bridge
 origin. Loopback browser URLs use `http://127.0.0.1:<port>/?slug=<address>`
@@ -126,6 +146,18 @@ Configuration:
 - `WORKFOLD_BRIDGE_DB_SSL=disable|require|verify-full` — optional explicit SSL
   override. If omitted, the PostgreSQL connection string and driver defaults
   apply.
+- `WORKFOLD_PAGES_INTERNAL_URL` — the page service's internal address, reached
+  over Railway's private network (for example
+  `http://pages.railway.internal:8081`). No credentials, query, or fragment.
+- `WORKFOLD_PAGES_INTERNAL_SECRET` — the shared secret the page service checks
+  in `x-work-fold-pages-secret`; 16 to 512 visible ASCII characters, the same
+  value on both services.
+- `WORKFOLD_PAGES_PUBLIC_ORIGIN` — the origin visitors open pages at (for
+  example `https://pages.work-fold.com`; `http:` only on loopback). The page
+  list and a publish's answer carry it as `pagesOrigin`; clients build links
+  as `<origin>/p/<pageId>`.
+  Set all three page settings or none. A partial or invalid set leaves online
+  pages off with one startup warning that never repeats the values.
 
 Run the relay integration suite with `npm test`.
 

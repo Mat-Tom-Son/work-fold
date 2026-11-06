@@ -1,16 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ModelCatalogList, modelCatalogKey } from "./ModelCatalogList";
 import { ImageModelSection, type ImageModelSettings } from "./ImageModelSection";
+import { ProviderAccountDetails } from "./ProviderAccountDetails";
 import { ConnectAi, featuredProviders } from "../onboarding/ConnectAi";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw } from "../chrome/icons";
 import { Eye20Regular, EyeOff20Regular } from "@fluentui/react-icons";
 import { api, errorText } from "../../lib/api";
 import { subscribeControlEvents } from "../../lib/control-events";
 import { resolveModelSelection } from "../../lib/model-selection";
 import type { AgentModel, AgentModelCatalog, AgentProvider, AgentStatus, WorkFolderSummary } from "../../types";
-import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, parseAzureDeploymentNames, type AzureOpenAIConnection } from "../../../../src/shared/azure-openai";
+import { AZURE_OPENAI_PROVIDER, foundryProvider, normalizeFoundryConnection, parseAzureDeploymentNames, type FoundryConnection } from "../../../../src/shared/foundry";
 
-const emptyAzureConnection: AzureOpenAIConnection = { baseUrl: "", deployments: [] };
+const emptyAzureConnection: FoundryConnection = { baseUrl: "", deployments: [] };
 
 export type ModelScope = "work-folder" | "agent";
 
@@ -48,8 +49,9 @@ function beginAiModelsMutation(): (() => void) | null {
   return operation.release;
 }
 
-type AzureConnectionDraft = { baseUrl: string; deployments: string };
-export type AiModelsDraft = { model?: { provider: string; model: string }; connectionProvider?: string; instructions?: string; azure?: AzureConnectionDraft };
+type AzureConnectionDraft = { baseUrl: string; deployments: string; modelIds?: Record<string, string> };
+type FoundrySettings = { foundry?: Record<string, FoundryConnection>; foundryModels?: Record<string, Array<{ id: string; name: string }>>; foundryErrors?: Record<string, string> };
+export type AiModelsDraft = { model?: { provider: string; model: string }; connectionProvider?: string; instructions?: string; azure?: AzureConnectionDraft; foundry?: Record<string, AzureConnectionDraft> };
 export function AiModelsPane(props: AiModelsProps & {
   /** Unsaved edits per scope; a host that outlives this pane passes one so closing it keeps them. */
   drafts?: Map<string, AiModelsDraft>;
@@ -125,10 +127,10 @@ export function AiModelsPane(props: AiModelsProps & {
   return (
     <div className={embedded ? "assistant-settings-panel professional-setup" : "work-folder-pane-content ai-models-pane professional-surface professional-setup"}>
       {workFolder ? <fieldset className="ai-models-scope-control">
-        <legend>Model defaults</legend>
+        <legend>Model Defaults</legend>
         <label className={scope === "work-folder" ? "active" : ""}>
           <input type="radio" name="ai-model-scope" value="work-folder" checked={scope === "work-folder"} onChange={() => changeScope("work-folder")} />
-          <span>This worker<small>{workFolder.name}</small></span>
+          <span>This Worker<small>{workFolder.name}</small></span>
         </label>
         <label className={scope === "agent" ? "active" : ""}>
           <input type="radio" name="ai-model-scope" value="agent" checked={scope === "agent"} onChange={() => changeScope("agent")} />
@@ -182,7 +184,10 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   const [showApiKey, setShowApiKey] = useState(false);
   const apiKeyField = useRef<HTMLInputElement>(null);
   const [azure, setAzure] = useState<AzureConnectionDraft>(() => azureConnectionDraft(emptyAzureConnection));
-  const [savedAzure, setSavedAzure] = useState<AzureOpenAIConnection>(emptyAzureConnection);
+  const [savedFoundry, setSavedFoundry] = useState<Record<string, FoundryConnection>>({});
+  const [foundryModels, setFoundryModels] = useState<NonNullable<FoundrySettings["foundryModels"]>>({});
+  const [foundryErrors, setFoundryErrors] = useState<Record<string, string>>({});
+  const savedAzure = savedFoundry[provider] ?? emptyAzureConnection;
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const onSnapshotRef = useRef(onSnapshot);
@@ -286,20 +291,23 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   const replaceableApiKey = apiKeySupported && removableAuth;
   const oauthSupported = Boolean(selectedProvider?.oauthAvailable);
   const accountOnly = !apiKeySupported && Boolean(selectedProvider?.oauth);
-  const isAzure = provider === AZURE_OPENAI_PROVIDER;
-  const azureChanged = JSON.stringify(azure) !== JSON.stringify(azureConnectionDraft(savedAzure));
+  const foundrySpec = foundryProvider(provider);
+  const isAzure = Boolean(foundrySpec);
+  const azureChanged = isAzure && JSON.stringify(azure) !== JSON.stringify(azureConnectionDraft(savedAzure));
+  const unavailableDeployments = savedAzure.deployments.filter((id) => savedAzure.modelIds && Object.hasOwn(savedAzure.modelIds, id)
+    && !models.some((item) => item.provider === provider && item.id === id));
   const catalog = catalogs.find((item) => item.provider === provider);
   const providerName = selectedProvider?.name ?? provider;
   const modelChanged = modelProvider !== scopeStatus.provider || model !== scopeStatus.model;
   const instructionsChanged = instructions.trim() !== savedInstructions;
   const operationBusy = mutationBusy || refreshing;
   currentForm.current = { dirty: modelChanged || instructionsChanged || editingApiKey || Boolean(apiKey) || azureChanged, loading: loading || Boolean(loadError),
-    snapshot: settingsSnapshot({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure }) };
+    snapshot: settingsSnapshot({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedFoundry.azure, foundry: savedFoundry, foundryModels, foundryErrors }) };
 
   useEffect(() => {
     if (loading || loadError) return;
-    onSnapshotRef.current?.({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedAzure });
-  }, [loading, loadError, models, providerCatalog, catalogs, scopeStatus, savedInstructions, savedAzure]);
+    onSnapshotRef.current?.({ models, providers: providerCatalog, catalogs, status: scopeStatus, instructions: savedInstructions, azure: savedFoundry.azure, foundry: savedFoundry, foundryModels, foundryErrors });
+  }, [loading, loadError, models, providerCatalog, catalogs, scopeStatus, savedInstructions, savedFoundry, foundryModels, foundryErrors]);
 
   useEffect(() => {
     if (editingApiKey && active) apiKeyField.current?.focus();
@@ -315,17 +323,22 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     setScopeStatus(result.status);
     setInstructions(draft.instructions ?? result.instructions ?? "");
     setSavedInstructions(result.instructions ?? "");
-    setAzure(draft.azure ?? azureConnectionDraft(result.azure ?? emptyAzureConnection));
-    setSavedAzure(result.azure ?? emptyAzureConnection);
+    const nextFoundry = loadedFoundry(result);
+    setSavedFoundry(nextFoundry);
+    setFoundryModels(result.foundryModels ?? {});
+    setFoundryErrors(result.foundryErrors ?? {});
     const first = result.models.find((item) => item.provider === result.status.provider && item.id === result.status.model)
       ?? result.models.find((item) => item.authConfigured);
     const nextProvider = draft.model?.provider ?? first?.provider ?? "";
     const nextConnection = draft.connectionProvider ?? provider;
     // With nothing connected, start on the first featured provider rather than the alphabetical first.
-    setProvider(connections.some(item => item.id === nextConnection) ? nextConnection
+    const selectedConnection = connections.some(item => item.id === nextConnection) ? nextConnection
       : connections.find(item => item.id === result.status.provider)?.id ?? connections.find(item => item.configured)?.id
         ?? featuredProviders.map((item) => connections.find((connection) => connection.id === item.provider)).find(Boolean)?.id
-        ?? connections[0]?.id ?? "");
+        ?? connections[0]?.id ?? "";
+    setProvider(selectedConnection);
+    setAzure(draft.foundry?.[selectedConnection] ?? (selectedConnection === AZURE_OPENAI_PROVIDER ? draft.azure : undefined)
+      ?? azureConnectionDraft(nextFoundry[selectedConnection] ?? emptyAzureConnection));
     setModelProvider(nextProvider);
     const requestedModel = draft.model?.model ?? result.status.model ?? "";
     setModel(resolveModelSelection(result.models, nextProvider, requestedModel));
@@ -391,6 +404,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     providerRevision.current += 1;
     refresh.current?.abort();
     setProvider(next);
+    setAzure(readDraft().foundry?.[next] ?? azureConnectionDraft(savedFoundry[next] ?? emptyAzureConnection));
     editDraft(draft => ({ ...draft, connectionProvider: next }));
     setApiKey("");
     setEditingApiKey(false);
@@ -398,12 +412,19 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     setConnectionFeedback(null);
   }
 
+  function editFoundry(next: AzureConnectionDraft) {
+    const canonical = canonicalFoundryDraft(next);
+    setAzure(canonical);
+    editDraft((draft) => ({ ...draft, azure: undefined, foundry: { ...draft.foundry, [provider]: canonical } }));
+    setConnectionFeedback(null);
+  }
+
   async function configure(kind: "model" | "key" | "oauth" | "setup") {
     if (loading || refresh.current || (kind === "model" ? !modelProvider || !model || !selectedModel?.authConfigured || !modelChanged : !provider)
       || (kind === "key" && (isAzure ? !authConfigured && !apiKey.trim() : (authConfigured && !(replaceableApiKey && editingApiKey)) || !apiKey.trim()))) return;
-    let submittedAzure: AzureOpenAIConnection | undefined;
+    let submittedAzure: FoundryConnection | undefined;
     if (kind === "key" && isAzure) {
-      try { submittedAzure = serializeAzureConnection(azure); }
+      try { submittedAzure = serializeAzureConnection(azure, provider); }
       catch (caught) { setConnectionFeedback({ error: true, text: errorText(caught) }); return; }
     }
     const release = beginMutation();
@@ -415,15 +436,21 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     feedback(null);
     const submittedApiKey = kind === "key" ? apiKey.trim() : "";
     try {
-      const result = fixtureMode ? { status: kind === "model" ? { ...scopeStatus, configured: true, provider: modelProvider, model } : scopeStatus, azure: submittedAzure, models: undefined }
-        : await api<{ status: AgentStatus; azure?: AzureOpenAIConnection; models?: AgentModel[]; providers?: AgentProvider[] }>(kind === "setup" ? "/api/agent/login" : kind === "oauth" ? "/api/agent/oauth" : "/api/agent/configure", {
+      const result = fixtureMode ? { status: kind === "model" ? { ...scopeStatus, configured: true, provider: modelProvider, model } : scopeStatus, foundry: submittedAzure ? { ...savedFoundry, [provider]: submittedAzure } : undefined, models: undefined }
+        : await api<FoundrySettings & { status: AgentStatus; azure?: FoundryConnection; models?: AgentModel[]; providers?: AgentProvider[] }>(kind === "setup" ? "/api/agent/login" : kind === "oauth" ? "/api/agent/oauth" : "/api/agent/configure", {
           method: "POST",
-          body: { ...modelScopeBody(scope, workFolder), provider: kind === "model" ? modelProvider : provider, ...(kind === "model" ? { model } : {}), ...(kind === "setup" ? { method: "api_key" } : {}), ...(submittedApiKey ? { apiKey: submittedApiKey } : {}), ...(submittedAzure ? { azure: submittedAzure } : {}) },
+          body: { ...modelScopeBody(scope, workFolder), provider: kind === "model" ? modelProvider : provider, ...(kind === "model" ? { model } : {}), ...(kind === "setup" ? { method: "api_key" } : {}), ...(submittedApiKey ? { apiKey: submittedApiKey } : {}), ...(submittedAzure ? { [provider === AZURE_OPENAI_PROVIDER ? "azure" : "foundry"]: submittedAzure } : {}) },
         });
       editDraft((draft) => ({ ...draft, model: kind === "model" && draft.model?.provider === modelProvider && draft.model?.model === model ? undefined : draft.model,
-        ...(submittedAzure ? { azure: undefined } : {}) }));
+        ...(submittedAzure ? { azure: undefined, foundry: Object.fromEntries(Object.entries(draft.foundry ?? {}).filter(([id]) => id !== provider)) } : {}) }));
       if (!live.current) return;
-      if (result.azure) { setAzure(azureConnectionDraft(result.azure)); setSavedAzure(result.azure); }
+      if (result.foundry || ("azure" in result && result.azure)) {
+        const settings = loadedFoundry(result);
+        setSavedFoundry((current) => ({ ...current, ...settings }));
+        if (settings[provider]) setAzure(azureConnectionDraft(settings[provider]!));
+      }
+      if ("foundryModels" in result && result.foundryModels) setFoundryModels(result.foundryModels);
+      if ("foundryErrors" in result && result.foundryErrors) setFoundryErrors(result.foundryErrors);
       if (result.models) setModels(result.models);
       else if (connection) setModels((current) => current.map((item) => item.provider === provider ? {
         ...item, authConfigured: true, authSource: "stored", authType: kind === "oauth" ? "oauth" : "api_key",
@@ -434,7 +461,7 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
       } : item));
       if (connection) { setApiKey(""); setEditingApiKey(false); setShowApiKey(false); }
       reportConfigured(result.status);
-      feedback({ text: submittedAzure ? "Azure settings saved" : connection ? "Connection saved" : "Model saved" });
+      feedback({ text: submittedAzure ? provider === AZURE_OPENAI_PROVIDER ? "Azure settings saved" : "Foundry settings saved" : connection ? "Connection saved" : "Model saved" });
     } catch (caught) { if (live.current) feedback({ error: true, text: errorText(caught) }); }
     finally { if (live.current) setSaving(null); release(); }
   }
@@ -450,16 +477,21 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
       const result = fixtureMode ? {
         models: models.map((item) => item.provider === provider ? { ...item, authConfigured: false } : item),
         status: { ...scopeStatus, configured: false },
-        azure: isAzure ? emptyAzureConnection : undefined,
-      } : await api<{ models: AgentModel[]; status: AgentStatus; azure?: AzureOpenAIConnection; providers?: AgentProvider[] }>("/api/agent/auth", {
+        foundry: isAzure ? { ...savedFoundry, [provider]: emptyAzureConnection } : undefined,
+      } : await api<FoundrySettings & { models: AgentModel[]; status: AgentStatus; azure?: FoundryConnection; providers?: AgentProvider[] }>("/api/agent/auth", {
         method: "DELETE", body: { ...modelScopeBody(scope, workFolder), provider },
       });
       if (!live.current) return;
       setModels(result.models);
+      if ("foundryErrors" in result && result.foundryErrors) setFoundryErrors(result.foundryErrors);
       setProviderCatalog(connectionProviders(result));
-      if (result.azure) {
-        setSavedAzure(result.azure);
-        if (!azureChanged) { setAzure(azureConnectionDraft(result.azure)); editDraft((draft) => ({ ...draft, azure: undefined })); }
+      if (result.foundry || ("azure" in result && result.azure)) {
+        const settings = loadedFoundry(result);
+        setSavedFoundry((current) => ({ ...current, ...settings }));
+        if (!azureChanged && settings[provider]) {
+          setAzure(azureConnectionDraft(settings[provider]!));
+          editDraft((draft) => ({ ...draft, azure: undefined, foundry: Object.fromEntries(Object.entries(draft.foundry ?? {}).filter(([id]) => id !== provider)) }));
+        }
       }
       setApiKey("");
       setEditingApiKey(false);
@@ -525,9 +557,9 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   if (loadError) return <div className="ai-models-settings-section"><AiModelsOperationStatus feedback={{ error: true, text: loadError }} /><button className="ui-control" type="button" onClick={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }}>Try Again</button></div>;
 
   return <>
-    {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
+    {externalChange ? <div className="ai-models-external-change"><span>Saved settings have changed.</span><button className="ui-control ai-models-refresh" type="button" disabled={operationBusy} onClick={() => { localRevision.current += 1; editDraft(() => ({})); setExternalChange(false); setLoading(true); setLoadAttempt((current) => current + 1); }}>Reload Saved Settings</button></div> : null}
     {!connectedModels.length && providerCatalog.length ? <section className="ai-models-settings-section ai-models-connect" aria-labelledby="ai-models-connect-heading">
-      <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect your AI</h3></div>
+      <div className="ai-models-section-heading"><h3 id="ai-models-connect-heading">Connect Your AI</h3></div>
       <p className="professional-field-hint">Sign in with an account you already have, or paste an API key. Every Worker shares the connection.</p>
       <ConnectAi providers={providerCatalog} fixtureMode={fixtureMode} onConnected={() => { localRevision.current += 1; setLoadAttempt((current) => current + 1); }} />
     </section> : null}
@@ -551,46 +583,59 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
     </section> : null}
     <section className="ai-models-settings-section" aria-labelledby="ai-models-connection-heading">
       <div className="ai-models-connection-panel">
-        <div className="ai-models-section-heading"><h3 id="ai-models-connection-heading">Provider connections</h3></div>
+        <div className="ai-models-section-heading"><h3 id="ai-models-connection-heading">Provider Connections</h3></div>
         <label className="professional-field"><span className="sr-only">Provider</span>
           <select aria-label="Provider" value={provider} disabled={mutationBusy || !providers.length} onChange={(event) => changeProvider(event.target.value)}>
             {[true, false].map(connected => {
-              // ChatGPT sign-in lives under OpenAI; the legacy entry shows only while it is connected.
-              const options = providerCatalog.filter(item => item.configured === connected && (item.id !== "openai-codex" || item.configured || item.id === provider));
-              return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</optgroup> : null;
+              const options = providerCatalog.filter(item => (item.configured && !foundryErrors[item.id]) === connected);
+              return options.length ? <optgroup key={String(connected)} label={connected ? "Connected" : "Available"}>{options.map(item => <option value={item.id} key={item.id}>{item.id === "openai-codex" ? "OpenAI (Codex subscription)" : item.name}</option>)}</optgroup> : null;
             })}
           </select>
         </label>
         <div className="ai-models-connection-row">
-          <div><p>{providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
+          <div><p>{foundryErrors[provider] ? "Saved key · connection setup needed" : providerCredentialStatus(providerAuth) ?? "Not connected"}</p></div>
           <div className="ai-models-connection-controls">
-            {catalog?.refreshable ? <button className="ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
+            {catalog?.refreshable ? <button className="ui-control ai-models-refresh" type="button" disabled={operationBusy || !authConfigured} title={authConfigured ? `Refresh ${providerName} Models${catalog.refreshedAt ? ` · Updated ${formatCatalogDate(catalog.refreshedAt)}` : ""}` : `Connect ${providerName} to refresh models`} onClick={() => void refreshModels()}><RefreshCw className={refreshing ? "spin" : undefined} />{refreshing ? "Refreshing…" : "Refresh"}</button> : null}
             {replaceableApiKey && !isAzure ? <button className="ui-control" type="button" disabled={operationBusy} aria-expanded={editingApiKey} aria-controls="ai-models-key-form" onClick={() => { setEditingApiKey((current) => !current); setApiKey(""); setShowApiKey(false); setConnectionFeedback(null); }}>{editingApiKey ? "Cancel" : "Change API Key"}</button> : null}
-            {removableAuth ? <button className="ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
+            {removableAuth ? <button className="ui-control danger ai-models-remove-credential" type="button" disabled={operationBusy} onClick={() => void removeCredential()}>{saving === "remove" ? "Removing…" : providerAuth?.authType === "oauth" ? "Disconnect Account" : "Remove API Key"}</button> : null}
           </div>
         </div>
+        {authConfigured && providerAuth?.authType === "oauth" && (provider === "openai" || provider === "openai-codex") ? <ProviderAccountDetails
+          key={provider} provider={provider} scope={scope} workFolderId={workFolder?.id} revision={providerCatalog} active={active} fixtureMode={fixtureMode}
+          busy={operationBusy} onReconnect={oauthSupported ? () => void configure("oauth") : undefined}
+          onSelectCodex={providerCatalog.some(item => item.id === "openai-codex" && item.oauth) ? () => changeProvider("openai-codex") : undefined}
+        /> : null}
+        {provider === "openai-codex" ? <p className="professional-field-hint">Uses Codex subscription access and can show this connection's workspace, usage limits and reset times. Connecting an account keeps an already configured model selection.</p> : null}
         {(!authConfigured || isAzure || editingApiKey) && apiKeySupported && provider ? <form id="ai-models-key-form" className={`ai-models-key-connection${isAzure ? " ai-models-azure-connection" : ""}`} onSubmit={(event) => { event.preventDefault(); void configure("key"); }}>
           {isAzure ? <>
-            <label className="professional-field"><span className="professional-field-label">Azure endpoint</span><input id="ai-models-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder="https://your-resource.openai.azure.com" spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => {
-              const next = { ...azure, baseUrl: event.target.value }; setAzure(next); editDraft((draft) => ({ ...draft, azure: next })); setConnectionFeedback(null);
-            }} /></label>
-            <label className="professional-field"><span className="professional-field-label">Deployment names</span><textarea id="ai-models-azure-deployments" value={azure.deployments} maxLength={25800} rows={2} placeholder="my-deployment, another-deployment" spellCheck={false} autoComplete="off" disabled={mutationBusy} aria-describedby="ai-models-azure-deployment-help" onChange={(event) => {
-              const next = { ...azure, deployments: event.target.value };
-              setAzure(next);
-              editDraft((draft) => ({ ...draft, azure: next }));
-              setConnectionFeedback(null);
+            {foundryErrors[provider] ? <p className="professional-field-hint" role="alert">{foundryErrors[provider]}</p> : null}
+            <p className="professional-field-hint">{foundrySpec?.api === "anthropic-messages" ? "For Claude deployments using Anthropic Messages." : foundrySpec?.api === "openai-completions" ? "For deployments using OpenAI Chat Completions." : "For OpenAI-compatible deployments. Pi chooses Responses or Chat Completions from its model metadata."} Each Foundry connection keeps its own endpoint, key, and deployments.</p>
+            <label className="professional-field"><span className="professional-field-label">Azure Endpoint</span><input id="ai-models-azure-endpoint" type="url" value={azure.baseUrl} maxLength={2048} placeholder={foundrySpec?.api === "anthropic-messages" ? "https://your-resource.services.ai.azure.com/anthropic" : "https://your-resource.services.ai.azure.com/openai/v1"} spellCheck={false} autoComplete="off" disabled={mutationBusy} onChange={(event) => editFoundry({ ...azure, baseUrl: event.target.value })} /></label>
+            <label className="professional-field"><span className="professional-field-label">Deployment Names</span><textarea id="ai-models-azure-deployments" value={azure.deployments} maxLength={25800} rows={2} placeholder="my-deployment, another-deployment" spellCheck={false} autoComplete="off" disabled={mutationBusy} aria-describedby="ai-models-azure-deployment-help" onChange={(event) => {
+              editFoundry({ ...azure, deployments: event.target.value });
             }} /><span className="professional-field-hint" id="ai-models-azure-deployment-help">Deployment names, separated by commas or new lines.</span></label>
+            {unavailableDeployments.length ? <p className="professional-field-hint" role="status">Choose a base model again in Deployment Model Details before using: {unavailableDeployments.join(", ")}.</p> : null}
+            {parseAzureDeploymentNames(azure.deployments).length > 0 && foundryModels[provider]?.length ? <details className="ai-models-foundry-models" open={unavailableDeployments.length ? true : undefined}><summary>Deployment Model Details</summary>
+              <p className="professional-field-hint">If a deployment has a custom name, choose its base model so Pi uses the right context, image, and reasoning capabilities.</p>
+              {parseAzureDeploymentNames(azure.deployments).map((id, index) => <label className="professional-field" key={id}><span className="professional-field-label">Base Model for {id}</span>
+                <select id={`ai-models-foundry-base-${index}`} disabled={mutationBusy} value={azure.modelIds?.[id] ?? ""} onChange={(event) => {
+                  const modelIds = Object.fromEntries(Object.entries(azure.modelIds ?? {}).filter(([name]) => name !== id));
+                  if (event.target.value) Object.defineProperty(modelIds, id, { value: event.target.value, enumerable: true });
+                  editFoundry({ ...azure, modelIds });
+                }}><option value="">{foundryModels[provider]!.some((item) => item.id === id) ? "Automatic (Pi Catalog)" : "Default Limits (No Matching Pi Model)"}</option>{azure.modelIds?.[id] && !foundryModels[provider]!.some((item) => item.id === azure.modelIds?.[id]) ? <option value={azure.modelIds[id]}>Saved Base Model: {azure.modelIds[id]}</option> : null}{foundryModels[provider]!.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.id})</option>)}</select>
+              </label>)}
+            </details> : null}
           </> : null}
-          <label className="professional-field"><span className="professional-field-label">{isAzure && authConfigured ? "Replace API key (optional)" : editingApiKey ? "New API Key" : "API Key"}</span>
+          <label className="professional-field"><span className="professional-field-label">{isAzure && authConfigured ? "Replace API Key (Optional)" : editingApiKey ? "New API Key" : "API Key"}</span>
             <span className="ai-models-key-input"><input ref={apiKeyField} id="ai-models-api-key" type={showApiKey ? "text" : "password"} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setConnectionFeedback(null); }} placeholder={isAzure && authConfigured ? "Leave blank to keep the current key" : `Paste your ${providerName} API key`} autoComplete="off" spellCheck={false} disabled={mutationBusy} />
-              <button className="ai-models-key-visibility" type="button" aria-label={showApiKey ? "Hide API key" : "Show API key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
+              <button className="ai-models-key-visibility" type="button" aria-label={showApiKey ? "Hide API Key" : "Show API Key"} aria-pressed={showApiKey} disabled={mutationBusy} onClick={() => setShowApiKey((current) => !current)}>{showApiKey ? <EyeOff20Regular aria-hidden="true" /> : <Eye20Regular aria-hidden="true" />}</button>
             </span>
           </label>
-          <div className="ai-models-form-actions ai-models-connection-actions"><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || (isAzure ? !parseAzureDeploymentNames(azure.deployments).length || !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim()) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? "Save Azure settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
+          <div className="ai-models-form-actions ai-models-connection-actions"><button className="ui-control ui-control--primary" type="submit" disabled={operationBusy || (isAzure ? !parseAzureDeploymentNames(azure.deployments).length || !azure.baseUrl.trim() || (!authConfigured && !apiKey.trim()) || (authConfigured && !azureChanged && !apiKey.trim()) : !apiKey.trim())}>{saving === "connection" ? "Saving…" : isAzure ? provider === AZURE_OPENAI_PROVIDER ? "Save Azure Settings" : "Save Foundry Settings" : editingApiKey ? "Save API Key" : "Connect Provider"}</button></div>
         </form> : null}
         {oauthSupported || selectedProvider?.guidedSetup ? <div className="ai-models-provider-actions">
-          {oauthSupported ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : providerAuth?.authType === "oauth" ? "Reconnect account" : selectedProvider?.oauthLabel ?? "Connect account"}</button> : null}
-          {selectedProvider?.guidedSetup ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("setup")}>Guided setup</button> : null}
+          {oauthSupported ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("oauth")}>{saving === "connection" ? "Connecting…" : providerAuth?.authType === "oauth" ? "Reconnect Account" : selectedProvider?.oauthLabel ?? "Connect Account"}</button> : null}
+          {selectedProvider?.guidedSetup ? <button className="ui-control" type="button" disabled={operationBusy} onClick={() => void configure("setup")}>Guided Setup</button> : null}
         </div> : null}
         {accountOnly && !oauthSupported ? <p className="professional-field-hint">Account sign-in is available in the desktop app.</p> : null}
         {!apiKeySupported && !selectedProvider?.oauth ? <p className="professional-field-hint">Uses credentials configured outside work-fold.</p> : null}
@@ -609,17 +654,27 @@ function AiModelsScopeSettings({ workFolder, status, scope, fixtureMode = false,
   </>;
 }
 
-function azureConnectionDraft(connection: AzureOpenAIConnection): AzureConnectionDraft {
-  return { baseUrl: connection.baseUrl, deployments: connection.deployments.join(", ") };
+function azureConnectionDraft(connection: FoundryConnection): AzureConnectionDraft {
+  return canonicalFoundryDraft({ baseUrl: connection.baseUrl, deployments: connection.deployments.join(", "), modelIds: connection.modelIds });
 }
 
-function serializeAzureConnection(draft: AzureConnectionDraft): AzureOpenAIConnection {
-  return normalizeAzureOpenAIConnection({ baseUrl: draft.baseUrl, deployments: parseAzureDeploymentNames(draft.deployments) });
+function canonicalFoundryDraft(draft: AzureConnectionDraft): AzureConnectionDraft {
+  const entries = Object.entries(draft.modelIds ?? {}).filter(([, id]) => Boolean(id)).sort(([a], [b]) => a.localeCompare(b));
+  return { baseUrl: draft.baseUrl, deployments: draft.deployments, ...(entries.length ? { modelIds: Object.fromEntries(entries) } : {}) };
 }
 
-type AiModelsSettingsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: AzureOpenAIConnection; imageModels?: ImageModelSettings };
+function serializeAzureConnection(draft: AzureConnectionDraft, providerId: string): FoundryConnection {
+  const deployments = parseAzureDeploymentNames(draft.deployments);
+  const modelIds = Object.fromEntries(Object.entries(draft.modelIds ?? {}).filter(([id]) => deployments.includes(id)));
+  return normalizeFoundryConnection({ baseUrl: draft.baseUrl, deployments, ...(Object.keys(modelIds).length ? { modelIds } : {}) }, providerId);
+}
+
+type AiModelsSettingsResponse = FoundrySettings & { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus; catalogs: AgentModelCatalog[]; instructions: string | null; azure?: FoundryConnection; imageModels?: ImageModelSettings };
+function loadedFoundry(result: FoundrySettings & { azure?: FoundryConnection }): Record<string, FoundryConnection> {
+  return { ...result.foundry, [AZURE_OPENAI_PROVIDER]: result.azure ?? result.foundry?.[AZURE_OPENAI_PROVIDER] ?? emptyAzureConnection };
+}
 function settingsSnapshot(result: AiModelsSettingsResponse): string {
-  return JSON.stringify([result.status.provider, result.status.model, result.status.configured, result.models, connectionProviders(result), result.catalogs, result.instructions ?? "", result.azure ?? emptyAzureConnection]);
+  return JSON.stringify([result.status.provider, result.status.model, result.status.configured, result.models, connectionProviders(result), result.catalogs, result.instructions ?? "", loadedFoundry(result), result.foundryModels ?? {}, result.foundryErrors ?? {}]);
 }
 
 type AiModelsFeedback = { text: string; error?: boolean };

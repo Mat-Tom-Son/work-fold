@@ -681,36 +681,55 @@ export interface WorkFoldActAutomationReceipt {
 }
 
 /**
- * Bounded projection of one publication grant record (docs/shared-pages.md).
- * The share link's key and full link never appear anywhere in the act lane;
- * a publication is identified by `publicationId` and its viewer path only.
+ * `pages validate` (docs/pages.md, "For the Worker"): one page folder's
+ * problems and a summary. A stable `--json` shape; problem files are
+ * relative to the page folder, and "" means the page folder itself.
  */
-export interface WorkFoldActPublicationRef {
-  publicationId: string;
-  kind: "page" | "app";
-  workFolderId: string;
-  /** Resolved current work-folder name, when the work-folder is still registered. */
-  workFolderName?: string;
-  /** Page slots only: the one designated work-folder-relative file. */
-  relativePath?: string;
-  /** Hosted-app slots only (docs/shared-pages.md, rung 3): the exposure's pinned identities. */
-  appInstanceId?: string;
-  releaseDigest?: string;
-  viewerEntry?: string;
-  viewerSurface?: string[];
+export interface WorkFoldActPageValidation {
+  workFolder: WorkFoldActWorkFolderRef;
+  /** The page folder's work-folder-relative path. */
+  page: string;
+  /** True when no problem is an error. Warnings (such as unused .html files) don't make a page invalid. */
+  valid: boolean;
+  summary: {
+    title: string;
+    entry: string;
+    tables: Array<{ name: string; columns: string[]; visitors: string[]; limit: number }>;
+    files: number;
+    bytes: number;
+  };
+  problems: Array<{ file: string; message: string; severity: "error" | "warning" }>;
+}
+
+/**
+ * One published page as the act lane reports it (docs/pages.md, "Publishing
+ * (stage 2)"). `url` is the page's link: whoever has it can open the page, so
+ * it is returned to the caller and never written to a receipt, which names
+ * the page by path and `idPrefix` (the page id's first 8 characters).
+ */
+export interface WorkFoldActPagePublication {
+  /** The page folder's work-folder-relative path. */
+  path: string;
   title: string;
-  state: "active" | "revoked" | "expired";
-  live: boolean;
-  serveRatePerMinute: number;
-  byteBudgetPerDay: number;
-  snapshotEnabled: boolean;
-  createdAt: string;
-  updatedAt: string;
-  revokedAt?: string;
-  expiresAt?: string;
-  bridgeSlot: "pending" | "confirmed";
-  bridgeCleanup?: "pending" | "ok";
-  viewerPath: string;
+  /** Null until work-fold.com has said where pages are served (the next check-in). */
+  url: string | null;
+  idPrefix: string;
+  status: "online" | "unpublished";
+  revision: number;
+  publishedAt: string | null;
+  /** The folder's assembled document or page.json differs from what was last published. */
+  changesAvailable: boolean;
+  lastCheckIn: string | null;
+  dataRevision: number;
+  /** Live entries online at the last check-in, when the page service said. */
+  entries: number | null;
+}
+
+/** `pages list`: every page published from this computer. */
+export interface WorkFoldActPublishedPage extends WorkFoldActPagePublication {
+  workFolderId: string;
+  /** Null when that work-folder is no longer registered here. */
+  workFolderName: string | null;
 }
 
 /** The exact installation an install verb produced. Never resolved by display name. */
@@ -1060,6 +1079,30 @@ export interface WorkFoldActFacade {
     unchangedFileCount: number;
     skippedLargeFileCount: number;
   }>;
+  /**
+   * Checks one page folder (docs/pages.md): page.json, the entry, every
+   * reference, sizes, and nested pages. Read-only; the page tab shows the
+   * same problems.
+   */
+  pagesValidate(input: { workFolder: string; page: string }): Promise<WorkFoldActPageValidation>;
+  /**
+   * Publishes one page folder (docs/pages.md, "Publishing (stage 2)"): the
+   * prepared `page.publish` act, pinned to the work-folder, the path, and the
+   * content digest. Refused with the page's problems when any is an error,
+   * without Web Access, and while an Automation's work is running.
+   */
+  pagesPublish(input: { workFolder: string; page: string; requestId?: string; parentTaskId?: string }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    publication: WorkFoldActPagePublication;
+    uploaded: { files: Array<{ path: string; bytes: number }>; bytes: number };
+  }>;
+  /** Takes a published page offline; its entries are kept and publishing again brings back the same link. */
+  pagesUnpublish(input: { workFolder: string; page: string; requestId?: string; parentTaskId?: string }): Promise<{
+    workFolder: WorkFoldActWorkFolderRef;
+    publication: WorkFoldActPagePublication;
+  }>;
+  /** Every page published from this computer, or only one work-folder's. */
+  pagesList(input: { workFolder?: string }): Promise<{ publications: WorkFoldActPublishedPage[] }>;
   historyVersions(input: { workFolder: string; path: string } & HistoryPageOptions): Promise<{
     workFolder: WorkFoldActWorkFolderRef;
     path: string;
@@ -1182,8 +1225,8 @@ export interface WorkFoldActFacade {
    * portable `.work-fold/` identity remain — for both storage kinds: a
    * managed work-folder's registration removal records a preserve-disposition
    * intent that provably holds no deletion authority. It runs the same App
-   * Studio impact checks, publication blocks, and automation revocation
-   * cascades as the desktop removal path. Deleting a managed folder is
+   * Studio impact checks and automation revocation cascades as the desktop
+   * removal path. Deleting a managed folder is
    * `workFoldersDelete`, a direct receipted verb on the prepared-act path.
    */
   workFoldersRename(input: { workFolder: string; name: string; parentTaskId?: string }): Promise<{
@@ -1637,7 +1680,7 @@ export interface WorkFoldActFacade {
   }>;
   /**
    * Recently deleted (docs/receipts-not-gates.md, F20). It sits above
-   * work-folders, like automations and pages, so neither verb takes
+   * work-folders, like automations, so neither verb takes
    * `--work-folder`; each entry names the work-folder it came from. Listing is content-free: ids, kinds,
    * paths, sizes, and dates, never file contents. Nothing empties the store —
    * only its retention window does, and that lives in Settings.
@@ -1701,38 +1744,6 @@ export interface WorkFoldActFacade {
     alreadyEnabled: boolean;
     stoppedRunId: string | null;
   }>;
-  /**
-   * Shares one work-folder file as a page (docs/shared-pages.md), pinning the
-   * work-folder id, exact relative path, title, budgets, and snapshot flag per the
-   * publishing mutation ledger, and activating the publication at once.
-   */
-  pagesShare(input: {
-    workFolder: string;
-    path: string;
-    title: string;
-    snapshot?: boolean;
-    parentTaskId?: string;
-    requestId?: string;
-  }): Promise<{
-    workFolder: WorkFoldActWorkFolderRef;
-    publication: WorkFoldActPublicationRef;
-  }>;
-  /**
-   * Hosted-app shape (docs/shared-pages.md, rung 3): puts one installed
-   * App Instance at the person's address, pinning the App Instance id, exact
-   * Release digest, viewer entry, and the complete viewer-readable surface.
-   * Eligibility requires an installed Release-backed Instance whose reviewed
-   * manifest declares a viewer surface.
-   */
-  pagesShareApp(input: {
-    workFolder: string;
-    instance: string;
-    parentTaskId?: string;
-    requestId?: string;
-  }): Promise<{
-    workFolder: WorkFoldActWorkFolderRef;
-    publication: WorkFoldActPublicationRef;
-  }>;
 
   /**
    * Automation management verbs (docs/automations.md). Automations are above
@@ -1793,58 +1804,6 @@ export interface WorkFoldActFacade {
     receipts: WorkFoldActAutomationReceipt[];
     truncated: boolean;
     damagedLineCount: number;
-  }>;
-
-  /**
-   * Shared-page verbs (docs/shared-pages.md, plan item 4).
-   * Listing and status are content-bearing act reads over the machine-local
-   * grant records; revoke, budget narrowing, and snapshot-off are direct
-   * verbs that only reduce exposure, and `pagesWiden` raises budgets or
-   * turns snapshot caching on in place under its own receipt, keeping the
-   * slot, key, and link (docs/shared-pages.md, amended 2026-09-24).
-   * Revocation is desktop-first: the grant dies before bridge cleanup is
-   * attempted, and unconfirmed cleanup is reported honestly.
-   */
-  pagesList(): Promise<{ publications: WorkFoldActPublicationRef[] }>;
-  pagesStatus(input: { publication: string }): Promise<{ publication: WorkFoldActPublicationRef }>;
-  pagesRevoke(input: { publication: string; parentTaskId?: string; requestId?: string }): Promise<{
-    publication: WorkFoldActPublicationRef;
-    /** True when the slot was already revoked: revocation is idempotent and the receipt says so. */
-    alreadyRevoked: boolean;
-  }>;
-  pagesNarrow(input: {
-    publication: string;
-    serveRatePerMinute?: number;
-    byteBudgetPerDay?: number;
-    parentTaskId?: string;
-    requestId?: string;
-  }): Promise<{
-    publication: WorkFoldActPublicationRef;
-    priorServeRatePerMinute: number;
-    priorByteBudgetPerDay: number;
-  }>;
-  /**
-   * Widens one page in place: a higher serve rate or daily byte budget (up
-   * to the ceilings) or the sleep copy on. A value below the current budget
-   * is refused as narrowing, and apps have no sleep copy.
-   */
-  pagesWiden(input: {
-    publication: string;
-    serveRatePerMinute?: number;
-    byteBudgetPerDay?: number;
-    snapshot?: boolean;
-    parentTaskId?: string;
-    requestId?: string;
-  }): Promise<{
-    publication: WorkFoldActPublicationRef;
-    priorServeRatePerMinute: number;
-    priorByteBudgetPerDay: number;
-    priorSnapshotEnabled: boolean;
-  }>;
-  pagesSnapshotOff(input: { publication: string; parentTaskId?: string; requestId?: string }): Promise<{
-    publication: WorkFoldActPublicationRef;
-    /** False when snapshot caching was already off; the narrowing is still receipted. */
-    wasEnabled: boolean;
   }>;
 
   /**

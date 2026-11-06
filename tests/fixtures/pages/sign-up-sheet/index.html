@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Volunteer Sign-up</title>
+  <link rel="stylesheet" href="css/style.css" media="screen">
+  <link rel="icon" href="images/logo.svg">
+  <link rel="canonical" href="https://example.com/sign-up">
+  <script src="app.js" defer></script>
+  <style>
+    .hero { background-image: url('images/bg.svg'); }
+  </style>
+</head>
+<body>
+  <img class="logo" src="images/logo.svg" srcset="images/logo.svg 1x, images/bg.svg 2x" alt="Fair logo">
+  <div class="banner" style="background: url(images/bg.svg) no-repeat"></div>
+  <form data-page-table="signups">
+    <input name="name" required>
+    <input name="email" type="email" required>
+    <select name="shift"><option>Morning</option><option>Afternoon</option></select>
+    <button>Sign up</button>
+    <p data-page-message></p>
+  </form>
+  <a href="https://example.com/fair">About the fair</a>
+  <script type="module">
+    const count = await window.workFoldPage.count("signups");
+    document.querySelector(".count").textContent = String(count);
+  </script>
+  <p class="count"></p>
+</body>
+</html>

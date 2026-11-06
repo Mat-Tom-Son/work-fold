@@ -75,8 +75,8 @@ export function migrateApplicationAppearance(theme: unknown, typography: unknown
 type Ground = { canvas: string; surface: string; subtle: string; hover: string; border: string; strong: string; text: string; muted: string };
 export const applicationPalettes: Record<Choice<"palette">, { name: string; light: Ground; dark: Ground; accent: string }> = {
   original: { name: "Original", accent: "#0b6fd6",
-    light: { canvas: "#e9eae6", surface: "#fafbf8", subtle: "#f0f1ed", hover: "#dce2d8", border: "#dce0d7", strong: "#c3cabe", text: "#29322f", muted: "#6b736e" },
-    dark: { canvas: "#202425", surface: "#242a2c", subtle: "#292f31", hover: "#414b4d", border: "#394143", strong: "#4a5455", text: "#e6eae7", muted: "#a9b3ae" } },
+    light: { canvas: "#e9eae6", surface: "#fafbf8", subtle: "#f0f1ed", hover: "#dce2d8", border: "#dce0d7", strong: "#c3cabe", text: "#29322f", muted: "#5c6460" },
+    dark: { canvas: "#202425", surface: "#242a2c", subtle: "#292f31", hover: "#414b4d", border: "#394143", strong: "#4a5455", text: "#e6eae7", muted: "#b3bcb7" } },
   paper: { name: "Paper", accent: "#397451",
     light: { canvas: "#eeeae2", surface: "#faf7f0", subtle: "#f0ebe0", hover: "#e7e0d3", border: "#dcd4c6", strong: "#b9af9c", text: "#302d27", muted: "#696154" },
     dark: { canvas: "#1c1a17", surface: "#24211d", subtle: "#2c2822", hover: "#383229", border: "#494238", strong: "#726857", text: "#f1eade", muted: "#bcb19f" } },
@@ -84,7 +84,7 @@ export const applicationPalettes: Record<Choice<"palette">, { name: string; ligh
     light: { canvas: "#efefef", surface: "#fafafa", subtle: "#ededed", hover: "#e3e3e3", border: "#d8d8d8", strong: "#b7b7b7", text: "#252525", muted: "#616161" },
     dark: { canvas: "#171717", surface: "#202020", subtle: "#292929", hover: "#343434", border: "#404040", strong: "#686868", text: "#eeeeee", muted: "#b4b4b4" } },
   slate: { name: "Slate", accent: "#267994",
-    light: { canvas: "#e9eef2", surface: "#f6f9fb", subtle: "#e7edf1", hover: "#dbe4eb", border: "#cdd8e0", strong: "#9badbc", text: "#243541", muted: "#536977" },
+    light: { canvas: "#e9eef2", surface: "#f6f9fb", subtle: "#e7edf1", hover: "#dbe4eb", border: "#cdd8e0", strong: "#9badbc", text: "#243541", muted: "#516674" },
     dark: { canvas: "#121b21", surface: "#1a272f", subtle: "#22343e", hover: "#2b424e", border: "#354c5a", strong: "#577582", text: "#e5eff4", muted: "#a5bcc9" } },
   ink: { name: "Ink", accent: "#7772c3",
     light: { canvas: "#e9e9eb", surface: "#ffffff", subtle: "#ededf0", hover: "#e0e0e5", border: "#ceced5", strong: "#9e9eaa", text: "#18181c", muted: "#575762" },

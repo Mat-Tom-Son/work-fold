@@ -16,8 +16,8 @@ export function WorkFolderSetUpCard({ workFolderName, onSetUp, onDismiss }: {
       <strong>{workFolderName}</strong>
       <p>Your Worker can look over this folder and set it up for you.</p>
       <div className="work-folder-setup-actions">
-        <button type="button" className="ui-control ui-control--primary" onClick={() => onSetUp("full")}>Set up for me</button>
-        <button type="button" className="ui-control" onClick={() => onSetUp("look")}>Just the look</button>
+        <button type="button" className="ui-control ui-control--primary" onClick={() => onSetUp("full")}>Set Up for Me</button>
+        <button type="button" className="ui-control" onClick={() => onSetUp("look")}>Just the Look</button>
       </div>
     </section>
   );

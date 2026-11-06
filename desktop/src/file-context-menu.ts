@@ -1,4 +1,5 @@
 import { extname, isAbsolute } from "node:path";
+import { fileSelectionLabel } from "../../src/shared/file-selection.js";
 
 export type NativeFileMenuCommand =
   | "open"
@@ -7,7 +8,6 @@ export type NativeFileMenuCommand =
   | "copy-path"
   | "attach-chat"
   | "version-history"
-  | "share"
   | "new-folder"
   | "upload-here"
   | "refresh"
@@ -26,12 +26,15 @@ export interface NativeFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
-    /** The file type can be shared as a page; `shared` says it already is. */
-    share: boolean;
-    shared: boolean;
     /** A plain folder inside this work-folder that can become its own work-folder (optional; older renderers omit it). */
     worker?: boolean;
   };
+  /**
+   * Set when the clicked row is one of several selected together (optional;
+   * older renderers omit it). The menu then offers only the actions that apply
+   * to all of them, and the renderer applies the command to the whole selection.
+   */
+  selection?: { files: number; folders: number };
   point: { x: number; y: number };
 }
 
@@ -39,10 +42,12 @@ export type NativeFileMenuItem =
   | { type: "separator" }
   | { type: "item"; label: string; command: NativeFileMenuCommand; icon?: "work-fold" };
 
-const requestKeys = new Set(["workFolderId", "path", "kind", "capabilities", "point"]);
-const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "share", "shared", "worker"]);
+const requestKeys = new Set(["workFolderId", "path", "kind", "capabilities", "selection", "point"]);
+const capabilityKeys = new Set(["open", "attach", "history", "upload", "rename", "delete", "worker"]);
 const optionalCapabilityKeys = new Set(["worker"]);
 const pointKeys = new Set(["x", "y"]);
+const selectionKeys = new Set(["files", "folders"]);
+const maxSelectionCount = 1_000_000;
 
 export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuRequest {
   if (!isRecord(value) || !hasOnlyKeys(value, requestKeys)) throw new Error("The native file menu request is invalid.");
@@ -65,6 +70,7 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
     if (typeof capabilities[key] !== "boolean") throw new Error("Native file menu capabilities are invalid.");
   }
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error("The native file menu position is invalid.");
+  const selection = value.selection === undefined ? undefined : parseSelection(value.selection);
   return {
     workFolderId,
     path,
@@ -76,10 +82,9 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
       upload: capabilities.upload as boolean,
       rename: capabilities.rename as boolean,
       delete: capabilities.delete as boolean,
-      share: capabilities.share as boolean,
-      shared: capabilities.shared as boolean,
       ...(capabilities.worker === true ? { worker: true } : {}),
     },
+    ...(selection ? { selection } : {}),
     point: {
       x: Math.max(0, Math.min(1_000_000, Math.round(point.x as number))),
       y: Math.max(0, Math.min(1_000_000, Math.round(point.y as number))),
@@ -87,7 +92,16 @@ export function parseNativeFileMenuRequest(value: unknown): NativeFileMenuReques
   };
 }
 
+function parseSelection(value: unknown): { files: number; folders: number } {
+  if (!isRecord(value) || !hasOnlyKeys(value, selectionKeys)) throw new Error("The native file menu selection is invalid.");
+  const { files, folders } = value;
+  const count = (item: unknown): item is number => Number.isSafeInteger(item) && (item as number) >= 0 && (item as number) <= maxSelectionCount;
+  if (!count(files) || !count(folders) || files + folders < 2) throw new Error("The native file menu selection is invalid.");
+  return { files, folders };
+}
+
 export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileMenuItem[] {
+  if (request.selection) return nativeSelectionMenuItems(request, request.selection);
   const items: NativeFileMenuItem[] = [];
   if (request.capabilities.open) {
     items.push({
@@ -107,9 +121,6 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
   if (request.kind === "file" && request.capabilities.history) {
     items.push({ type: "item", label: "Version History", command: "version-history" });
   }
-  if (request.kind === "file" && request.capabilities.share) {
-    items.push({ type: "item", label: request.capabilities.shared ? "Shared" : "Share", command: "share" });
-  }
   if (request.kind === "folder") {
     items.push(
       { type: "separator" },
@@ -128,6 +139,17 @@ export function nativeFileMenuItems(request: NativeFileMenuRequest): NativeFileM
     if (request.capabilities.delete) {
       items.push({ type: "item", label: `Delete ${request.kind === "folder" ? "Folder" : "File"}`, command: "delete" });
     }
+  }
+  return items;
+}
+
+/** Several rows selected together: attach (files only), copy their paths, delete them. Single-row actions are left out. */
+function nativeSelectionMenuItems(request: NativeFileMenuRequest, selection: { files: number; folders: number }): NativeFileMenuItem[] {
+  const items: NativeFileMenuItem[] = [];
+  if (request.capabilities.attach && selection.folders === 0) items.push({ type: "item", label: "Attach to Chat", command: "attach-chat" });
+  items.push({ type: "item", label: "Copy Paths", command: "copy-path" });
+  if (request.capabilities.delete) {
+    items.push({ type: "separator" }, { type: "item", label: `Delete ${fileSelectionLabel(selection.files, selection.folders)}`, command: "delete" });
   }
   return items;
 }

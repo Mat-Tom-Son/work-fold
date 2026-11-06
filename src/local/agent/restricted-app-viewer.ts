@@ -1,23 +1,20 @@
 import { posix } from "node:path";
 
 import { parseAppPlatformArtifactDigest } from "./app-platform-artifact.js";
-import {
-  restrictedAppViewerSurfacePins,
-  type RestrictedAppManifest,
-} from "./restricted-app-manifest.js";
+import type { RestrictedAppManifest } from "./restricted-app-manifest.js";
 import { snapshotRestrictedAppPackage } from "./restricted-app-package.js";
 import type { RestrictedAppStorageJsonValue, RestrictedAppStorageOwner } from "./restricted-app-storage.js";
 
 /**
- * The desktop viewer adapter for "an app at your address"
- * (docs/shared-pages.md, rung 3). A viewer is an unauthenticated audience,
- * never a Principal: this adapter enforces the viewer-safe broker table
- * desktop-side, at effect time, over the same installed-instance authority
- * records the sandboxed desktop host uses — never in app code, never at the
- * relay. The closed call vocabulary is the entire reachable surface:
+ * The read-only web view of an installed app's reviewed `viewer` surface, as
+ * a paired browser opens it from a Chat result link. The desktop enforces the
+ * viewer-safe broker table here, at effect time, over the same
+ * installed-instance records the sandboxed desktop host uses — never in app
+ * code, never at the relay. The closed call vocabulary is the entire
+ * reachable surface:
  *
- * - `entry` / `asset`: exact staged bytes of the installed Release revision,
- *   re-hashed against the install receipt on every serve, nothing else.
+ * - `entry` / `asset`: exact staged bytes of the installed revision,
+ *   re-hashed against the install receipt on every read, nothing else.
  * - `data.keys` / `data.get`: reads of instance-owned storage, and only under
  *   the key prefixes the reviewed manifest marks viewer-readable.
  *
@@ -25,7 +22,7 @@ import type { RestrictedAppStorageJsonValue, RestrictedAppStorageOwner } from ".
  * writes, Worker actions and tool invocations, network egress,
  * connections and credentials, work-folder files, notifications, automations and
  * jobs, OAuth, and host-UI powers. Principal- and role-owned data is
- * structurally unreachable — the adapter builds only the instance-owned
+ * structurally unreachable — the reader builds only the instance-owned
  * storage owner and exposes no owner parameter (the host-derived-Principal
  * rule of src/local/agent/private-hosted-app-service.ts stays untouched).
  */
@@ -59,10 +56,9 @@ export type RestrictedAppViewerDenialCode = "viewer-scope" | "not-found" | "too-
 
 /**
  * One served viewer answer: either the successful read, or a typed refusal
- * the audience may see. Refusals here are viewer-visible by design — they
- * ride inside the encrypted payload, so the relay stays content-free while
- * the app (and its author) gets an honest typed answer instead of a vague
- * page state.
+ * the reader may see. Refusals here are visible by design — they ride inside
+ * the encrypted response, so the relay stays content-free while the app (and
+ * its author) gets an honest typed answer instead of a vague failure.
  */
 export type RestrictedAppViewerCallResult =
   | { ok: true; result: RestrictedAppViewerServedResult }
@@ -75,31 +71,16 @@ export type RestrictedAppViewerServedResult =
   | { kind: "data.get"; key: string; present: boolean; value?: RestrictedAppStorageJsonValue };
 
 /**
- * A serve outcome distinguishes what the audience may know (`served`, with a
- * possibly-refusing payload) from what only the publisher may know
- * (`not-available` and its precise reason, surfaced through the overview).
+ * A serve outcome distinguishes a read the app answered (`served`, with a
+ * possibly-refusing payload) from an installation that cannot serve right now
+ * (`not-available` and its reason).
  */
 export type RestrictedAppViewerServeOutcome =
   | { state: "served"; result: RestrictedAppViewerCallResult }
   | { state: "not-available"; reason: string };
 
 /**
- * The exposure identity pinned by the `publish.viewer.expose` act (hosted-app
- * shape): App Instance id, exact Release digest, viewer entry, and the
- * complete viewer-readable surface. The serve path re-verifies the *surface*
- * on every call — an update that kept the reviewed viewer surface identical
- * rides the normal update-review lane and keeps serving, while any widened or
- * moved surface stops serving until a fresh receipted exposure.
- */
-export interface RestrictedAppViewerExposurePins {
-  appInstanceId: string;
-  releaseDigest: string;
-  viewerEntry: string;
-  viewerSurface: string[];
-}
-
-/**
- * The installed-instance projection the adapter enforces over: the same
+ * The installed-instance projection the reader enforces over: the same
  * fields `RestrictedAppService.runtimeDescriptor` returns. The staged root
  * is re-hashed byte-exactly against the install receipt before any asset
  * leaves the desktop.
@@ -128,41 +109,8 @@ export interface RestrictedAppViewerStorageReads {
   get(owner: RestrictedAppStorageOwner, key: string): Promise<RestrictedAppStorageJsonValue | undefined>;
 }
 
-export interface RestrictedAppViewerAdapterOptions {
-  /**
-   * Resolves one installed App Instance by its machine-unique
-   * `featureInstallationId`, across every registered work-folder. Absent means not
-   * installed anywhere on this machine.
-   */
-  resolveInstance(appInstanceId: string): Promise<RestrictedAppViewerInstanceProjection | null>;
-  storage: RestrictedAppViewerStorageReads;
-  /** Per-asset plaintext bound; the publication service's ciphertext bound still applies after encryption. */
-  maximumAssetBytes?: number;
-}
-
-/**
- * One viewer asset read whole into memory. A page published through the relay
- * is still bounded afterwards by the publication service's own ciphertext cap.
- */
+/** One viewer asset read whole into memory. */
 export const RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES = 64 * 1024 * 1024;
-
-/** What staging and decision-time recheck need to know about one exposable instance. */
-export type RestrictedAppViewerExposure =
-  | {
-    eligible: true;
-    workFolderId: string;
-    title: string;
-    appId: string;
-    pins: RestrictedAppViewerExposurePins;
-  }
-  | { eligible: false; issue: string };
-
-export interface RestrictedAppViewerAdapter {
-  /** Resolves the exposure identity for staging and for decision-time pin recheck. */
-  resolveExposure(appInstanceId: string): Promise<RestrictedAppViewerExposure>;
-  /** Serves one viewer call under the pinned surface, at effect time. */
-  serve(pins: RestrictedAppViewerExposurePins, call: unknown): Promise<RestrictedAppViewerServeOutcome>;
-}
 
 const viewerAssetMediaTypes: Readonly<Record<string, string>> = Object.freeze({
   ".html": "text/html",
@@ -238,76 +186,10 @@ export function parseRestrictedAppViewerCall(value: unknown):
   return denial(`"${kind}" is not viewer-reachable. Viewers may read the app's reviewed entry, its staged assets, and its viewer-readable data — nothing else.`);
 }
 
-export function createRestrictedAppViewerAdapter(options: RestrictedAppViewerAdapterOptions): RestrictedAppViewerAdapter {
-  const maximumAssetBytes = options.maximumAssetBytes ?? RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES;
-
-  const resolveExposure = async (appInstanceId: string): Promise<RestrictedAppViewerExposure> => {
-    if (typeof appInstanceId !== "string" || !appInstanceId.trim()) {
-      return { eligible: false, issue: "An App Instance id is required." };
-    }
-    const instance = await options.resolveInstance(appInstanceId.trim());
-    if (!instance) return { eligible: false, issue: "No installed App Instance has this id on this machine." };
-    if (instance.runtimeInstanceKind !== "app" || instance.releaseDigest === null) {
-      return { eligible: false, issue: "Only an installed App Instance of a prepared Release can be put at your address; local development previews cannot." };
-    }
-    const viewer = instance.manifest.viewer;
-    if (!viewer) {
-      return { eligible: false, issue: "This app's reviewed manifest declares no viewer surface, so it has nothing to serve to viewers." };
-    }
-    return {
-      eligible: true,
-      workFolderId: instance.workFolderId,
-      title: instance.manifest.title,
-      appId: instance.manifest.id,
-      pins: {
-        appInstanceId: instance.featureInstallationId,
-        releaseDigest: instance.releaseDigest,
-        viewerEntry: viewer.entry,
-        viewerSurface: restrictedAppViewerSurfacePins(viewer),
-      },
-    };
-  };
-
-  const serve = async (pins: RestrictedAppViewerExposurePins, callValue: unknown): Promise<RestrictedAppViewerServeOutcome> => {
-    // Parse first: a forbidden or malformed call is a viewer-visible typed
-    // refusal even when the app behind it currently has a serve problem —
-    // the denial matrix must not leak instance state.
-    const parsed = parseRestrictedAppViewerCall(callValue);
-    if ("denial" in parsed) {
-      return { state: "served", result: { ok: false, ...parsed.denial } };
-    }
-    const call = parsed.call;
-
-    const instance = await options.resolveInstance(pins.appInstanceId);
-    if (!instance) return { state: "not-available", reason: "its App Instance is no longer installed on this machine" };
-    if (instance.runtimeInstanceKind !== "app" || instance.releaseDigest === null) {
-      return { state: "not-available", reason: "its App Instance is no longer an installed Release" };
-    }
-    const viewer = instance.manifest.viewer;
-    if (!viewer) {
-      return { state: "not-available", reason: "the installed app no longer declares a viewer surface, so it has nothing to serve" };
-    }
-    // Effect-time surface recheck: the reviewed viewer surface must equal the
-    // exposure's pins exactly. An unchanged-surface update (new digest, same
-    // surface) keeps serving; a widened or moved surface stops until a fresh
-    // receipted exposure names it.
-    if (viewer.entry !== pins.viewerEntry || !sameStringList(restrictedAppViewerSurfacePins(viewer), pins.viewerSurface)) {
-      return {
-        state: "not-available",
-        reason: "the installed app's viewer surface changed after it was put at your address; share it again to put the new surface there",
-      };
-    }
-
-    return readRestrictedAppWebView(instance, call, options.storage, maximumAssetBytes);
-  };
-
-  return { resolveExposure, serve };
-}
-
 /**
- * Read the reviewed web-view surface under authority established by the caller.
- * Publication adapters authorize the link; approved-browser adapters pin the
- * exact installation and current authority. This helper grants neither.
+ * Read the reviewed web-view surface under authority established by the caller:
+ * the approved-browser path pins the exact installation and current authority.
+ * This helper grants neither.
  */
 export async function readRestrictedAppWebView(
   instance: RestrictedAppViewerInstanceProjection,
@@ -407,8 +289,4 @@ function normalizeViewerAssetPath(value: string): string | null {
   const segments = value.split("/");
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
   return segments.join("/");
-}
-
-function sameStringList(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

@@ -49,8 +49,8 @@ document carries `assistant.infer`, the bounded model call with no tools and
 no transcript. Neither needs a grant beyond installation and both leave
 receipts naming the effective model and its usage; active views, workers
 holding a tool action, and named automation runs reach `assistant.request`,
-views and workers reach `assistant.infer`, and viewers and remote app views
-reach neither.
+views and workers reach `assistant.infer`, and remote app views reach
+neither.
 
 `agent-app.json` is strict and versioned. It declares:
 
@@ -69,16 +69,10 @@ reach neither.
   controlled named interval jobs. Each job declares its handler, schedule,
   catch-up policy, overlap policy, and an exact subset of the app's reviewed
   network, file, and notification permissions; and
-- an optional `viewer` declaration — the complete viewer-readable surface for
-  serving an installed App Instance to link holders at the person's address
-  ("an app at your address"): a packaged `entry` document plus the exact
-  instance-owned storage key prefixes viewers may read. The desktop viewer
-  adapter refuses every read outside that declaration and every write, action,
-  network, connection, notification, file, automation, OAuth, or host-UI call
-  regardless of it; exposure itself is a separate receipted share recorded
-  in [the work-fold agent decision register](work-fold-agent-decisions.md), and a reviewed update that widens the viewer surface
-  or changes the entry records a fresh exposure receipt. Declaring `viewer`
-  grants nothing by itself.
+- an optional `viewer` declaration — the complete readable surface of a
+  paired browser's private app view: a packaged `entry` document plus the
+  exact instance-owned storage key prefixes the view may read. Declaring
+  `viewer` grants nothing by itself and creates no link or public audience.
 
 Public destinations use `{ "kind": "public-https", "origin": "https://api.example.com" }`.
 Local development services use an explicit numeric target such as
@@ -460,8 +454,7 @@ the Check-result lane's own view-only rule. Task and granted-file hints also
 reach a worker while it holds a tool action or an automation run, matching the
 owned-power rule those two read lanes use. Nothing reaches an inactive or
 occluded view, a minimized window, a worker between operations, a view owned by
-another Feature Installation even in the same work-folder, a viewer page, or a remote
-app view.
+another Feature Installation even in the same work-folder, or a remote app view.
 
 Hints are briefly coalesced in memory and never durably queued or replayed. A
 hint whose eligible mounts all closed while it waited is dropped and its
@@ -514,12 +507,6 @@ unchanged, automation states carry by id, run receipts carry (labelled with
 the revision they ran under), and connections carry only for destinations
 whose declaration is byte-identical. Removing or updating an app stops its UI
 views and worker before changing installed bytes.
-
-An installed Release whose manifest declares a `viewer` can be put at the
-person's address from the Lifecycle section of its details in Settings → Apps
-(**Share at your address**) or with `work-fold pages share-app`; both run the
-same receipted exposure and refuse when no address is set up. The link is
-revealed in Settings → Shared Pages ([Shared pages](shared-pages.md), rung 3).
 
 App Studio is a separate work-folder-bound work tab for moving reviewed previews into
 the local release-backed lane. Settings → Apps opens it from each work-folder's
@@ -696,7 +683,7 @@ Optional reviewed Check-result slots map to machine-local exact Check id/digest
 selections on a Feature Installation. Their changes advance grant authority and
 stop stale views; the broker rechecks the native sender and its current effect
 lease after re-verification. A runtime request contains only a permission id.
-Workers and shared viewers have no Check-result lane. Installation binds a
+Workers have no Check-result lane. Installation binds a
 declared slot automatically when the owning work-folder has exactly one Check, and
 otherwise grants the slot and reports it as still needing the person's pick
 ([Receipts, not gates](receipts-not-gates.md), F21); changed revisions reset
@@ -741,8 +728,8 @@ happened while the machine was asleep.
 `assistant.request` channel: the sender must be an owned main frame that is either an
 active app view or a worker holding a tool action or an automation run, and the
 host captures an effect lease it rechecks before the result is delivered. An
-inactive view, a worker between operations, a viewer page, and a remote app
-view are refused with `INFER_UNAVAILABLE`.
+inactive view, a worker between operations, and a remote app view are refused
+with `INFER_UNAVAILABLE`.
 
 The host parses the request against the published bounds, pins the
 installation, revision, and authority before and after the model call, and runs

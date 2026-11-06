@@ -56,7 +56,7 @@ export function ImageModelSection({ settings, onChange }: {
 
   return (
     <section className="ai-models-settings-section" aria-labelledby="image-model-heading">
-      <div className="ai-models-section-heading"><h3 id="image-model-heading">Image model</h3></div>
+      <div className="ai-models-section-heading"><h3 id="image-model-heading">Image Model</h3></div>
       <div className="professional-field">
         <span className="professional-field-label" id="image-model-label">Used by every Worker and the work-fold agent to make pictures</span>
         <ModelCatalogList id="image-model" labelledBy="image-model-label" models={entries} value={value} groupByProvider disabled={saving} onChange={(key) => { void choose(key); }} />

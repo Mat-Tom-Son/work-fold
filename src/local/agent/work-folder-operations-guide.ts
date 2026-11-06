@@ -23,6 +23,46 @@ export const workFoldWorkerWorkingFilesGuide = [
   "Keep your working files in `.worker/` inside this work-folder: drafts, scripts, intermediate data, OCR text, page renders and other scratch. Create it only when needed; use a new task subfolder named with this turn's task id so concurrent Chats do not overwrite each other. Deliver requested files outside `.worker/`, in the person's chosen location or a clearly named ordinary location. Edit existing project files in place when that is the task. `.worker/` is ordinary visible content, available to Files, Search, History, attachments and Checks under their normal limits and ignore settings; it is not private, automatically cleaned, or executable configuration. Respect existing contents and the person's instructions. If `.worker` is a file, link, or another registered work-folder, ask for a suitable location. Never move, delete, or ignore their files just to organize your scratch.",
 ].join("\n");
 
+/**
+ * How a Worker builds a page (docs/pages.md): something other people open on
+ * the web, kept in a page folder and tried in its page tab, and published
+ * with `pages publish` when the person asks (stage 2).
+ */
+export function workFolderPagesGuide(executable = "work-fold"): string[] {
+  return [
+    "### Pages",
+    "",
+    "A page is something other people will open on the web: a form, sign-up sheet, RSVP, poll, or announcement. Sharing a document means making a page from it. An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections. When it is unclear which they want, ask.",
+    "",
+    "A page is a folder holding `page.json`, the entry `index.html`, and its own styles, scripts, and images. A work-folder can hold any number of page folders, never one inside another. Everything in a page folder except `data.sqlite` goes online when the page is published, so never put private files, notes, or source documents there; draft in `.worker/`.",
+    "",
+    "`page.json`, for example: `{\"format\":\"work-fold.page/1\",\"title\":\"Book Club Sign-up\",\"tables\":{\"signups\":{\"columns\":{\"name\":{\"type\":\"text\",\"required\":true},\"email\":{\"type\":\"email\",\"required\":true,\"unique\":true},\"book\":{\"type\":\"choice\",\"options\":[\"Dune\",\"Emma\"]}},\"visitors\":[\"add\",\"see-own\"],\"limit\":20}}}`. `format` is exactly `work-fold.page/1`; `title` (up to 120 characters) is required; `description` and `entry` (default `index.html`) are optional; unknown fields are errors. Table and column names are lowercase letters, digits, and `_`, starting with a letter. Column types: `text` and `long-text` (`max`), `number` (`min`, `max`, `integer`), `boolean`, `date`, `email`, `url`, and `choice` (`options`); any column takes `required` and `unique`. `visitors` lists what a visitor may do: `add`, `see-own`, `see-all`, `edit-own`, `delete-own` (default none; the owner may do everything). `limit` caps live rows (default 10,000). A page without tables saves nothing.",
+    "",
+    "Page scripts use `window.workFoldPage`; every call returns a promise: `add(table, values)`, `mine(table)` (this visitor's rows, newest first), `list(table, {limit, newestFirst})` (needs `see-all`), `count(table, where?)` (always allowed; `where` is `{column: value}`), `update(table, id, values)`, `remove(table, id)`, `isOwner()`, and `onChange(callback)`, which returns an unsubscribe function. A row is `{id, createdAt, updatedAt, ...columns}`. A refused call rejects with `{code, message, field?}`; codes are `NOT_ALLOWED`, `INVALID`, `DUPLICATE`, `LIMIT_REACHED`, `NOT_FOUND`, `TOO_LARGE`, and `UNAVAILABLE`, and `message` is plain English to show.",
+    "",
+    "Form helper: `<form data-page-table=\"signups\">` saves itself on submit. Fields are read by `name` (checkboxes become booleans, number inputs numbers, empty fields are left out); the form's `data-page-state` becomes `sending`, then `sent` or `error`; an element inside it with `data-page-message` shows the error; it resets after saving and fires `page:sent` (detail: the new row) or `page:error`. Style the states in CSS, for example `form[data-page-state=\"sent\"] .thanks { display: block }`.",
+    "",
+    "Rules:",
+    "",
+    "- No network: never load a script, style, font, or image from an `http:`, `https:`, or `//` address. Save any library, font, or image into the page folder and use a relative path. `fetch` reaches nothing, the page's own files included, so put data in a script. Plain `<a href=\"https://…\">` links are fine.",
+    "- Only the entry HTML is a page; switch screens in script instead of linking to other `.html` files. Put `<script src>` tags at the end of `<body>`.",
+    "- Save data only through declared tables; `localStorage`, cookies, and dialogs such as `confirm()` are unavailable.",
+    "",
+    "Recipes:",
+    "",
+    "- RSVP with a guest cap: set the table's `limit`, show `count(table)` as \"12 of 50 spots taken\", turn `LIMIT_REACHED` into a friendly \"full\" message, and show the visitor their own RSVP with `mine(table)`.",
+    "- Sign-up sheet, one slot per person: a `choice` column of slots with `unique: true` so each slot is taken once, a unique `email` so each person takes one, and `count(table, {slot: \"Sat 9am\"})` to mark taken slots.",
+    "- Poll with live counts: a `choice` column, `count(table, {answer: option})` for each option refreshed from `onChange`, and `mine(table)` to show the visitor's own vote.",
+    "- Announcement: a `page.json` with just `format` and `title`, no tables, and the HTML.",
+    "",
+    `Finish by running \`${executable} pages validate --work-folder <id> --page <path> --json\` with the page folder's work-folder-relative path and fixing every problem it reports. Then tell the person to open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the test entries, which stay on this computer.`,
+    "",
+    `Publishing: publish only when the person asks, with \`${executable} pages publish --work-folder <id> --page <path> --json\`. Anyone with the link can open the page. Tell the person the \`url\` from the result, and list the files it uploaded (\`uploaded.files\`) so nothing went out unnoticed. If it refuses because Web Access isn't set up, say so and point them to Settings → Web Access; if the page has problems, fix them and publish again. Publishing again uploads your changes under the same link and keeps the entries. \`${executable} pages unpublish\` takes a page offline and keeps its entries; \`${executable} pages list --json\` shows every published page.`,
+    "",
+    "Entries real visitors make come back into the page folder as `data.sqlite` while work-fold runs. To answer questions about them, read it with `sqlite3 -readonly`: each table has the declared columns plus `_id`, `_created`, and `_deleted` (null for live entries). Never write to it: work-fold replaces it at every check-in, and changes to entries go through the page's Data view.",
+  ];
+}
+
 export function workFoldWorkFolderOperationsGuide(executable = "work-fold"): string {
   const cmd = executable;
   return [
@@ -78,11 +118,9 @@ export function workFoldWorkFolderOperationsGuide(executable = "work-fold"): str
     `- Remember what lasts: when the person states a lasting preference or fact about working here ("from now on…", "always…", "remember…", or a correction they will want every time), save one short line with \`${cmd} work-folders worker instructions --work-folder <id> --append "<line>" --json\` and say what you saved. Every later Chat here reads these Worker instructions. Keep one-off details, secrets, and anything about other work-folders out of them; \`${cmd} work-folders worker show --work-folder <id> --json\` shows what is saved.`,
     "- Apps: `apps list --work-folder <id> --json` shows this work-folder's installed apps with their tools, and `apps invoke --work-folder <id> --app <id> --tool <name> --input '<json>' --json` runs one and returns its result with a receipt. Use an app's own tool for that app's job; never reach into its stored data with raw tools.",
     "",
-    "Registering or deleting work-folders, setting up automations, sharing pages, and installing Skills & Extensions sit above this work-folder: raise them with a question instead of deciding for the person.",
+    "Registering or deleting work-folders, setting up automations, and installing Skills & Extensions sit above this work-folder: raise them with a question instead of deciding for the person.",
     "",
-    "### Pages the person may share",
-    "",
-    "The person can share one Markdown, text, HTML, PNG, JPEG, or PDF file as a live page anyone with the link can read. A page is one file and loads nothing from the network, so write shareable HTML self-contained: `<style>` or inline styles, `data:` images, system fonts. Script, forms, frames, and external loads are stripped before serving. Say when a file is ready; the person shares it from the file's tab or the Files menu.",
+    ...workFolderPagesGuide(cmd),
     "",
     "### Finish",
     "",

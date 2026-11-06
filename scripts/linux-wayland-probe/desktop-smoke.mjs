@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { existsSync, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, writeFile, lstat } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile, lstat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
@@ -182,6 +182,48 @@ try {
   console.log('Private installed CLI act lane is ready');
   await command('work-folders', 'register', '--path', folder);
   const workFolderId = JSON.parse(await readFile(join(folder, '.work-fold/work-folder.json'), 'utf8')).id;
+  // Exercise node:sqlite and page resources inside the packaged Electron host,
+  // through its authenticated API; nothing is published outside this fixture.
+  const pageFolder = 'Linux page acceptance';
+  await cp(join(repoRoot, 'tests/fixtures/pages/sign-up-sheet'), join(folder, pageFolder), { recursive: true });
+  const validation = await command('pages', 'validate', '--work-folder', workFolderId, '--page', pageFolder);
+  assert.equal(validation.valid, true);
+  assert.equal(validation.summary.title, 'Volunteer Sign-up');
+  const pageResult = await page.evaluate(async ({ workFolderId, pageFolder }) => {
+    const headers = await window.workFoldDesktop.api.getSessionHeaders();
+    const request = async (path, body) => {
+      const response = await fetch(new URL(`/api/work-folders/${encodeURIComponent(workFolderId)}/pages${path}`, window.workFoldDesktop.api.baseUrl), {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (!response.ok) throw new Error(`Page acceptance request failed: ${response.status} ${await response.text()}`);
+      return response.headers.get('content-type')?.includes('json') ? response.json() : response.text();
+    };
+    const query = new URLSearchParams({ page: pageFolder, table: 'signups' });
+    const document = await request(`/document?${query}`);
+    const { visitor } = await request('/preview/visitor', { page: pageFolder });
+    const body = { page: pageFolder, viewer: { role: 'visitor', visitor }, call: {
+      op: 'add', table: 'signups', values: { name: 'Linux café 漢字', email: 'LINUX@example.com', notes: '=1+1' }, requestId: 'linux-packaged-page-entry',
+    } };
+    const first = await request('/preview/call', body);
+    const retry = await request('/preview/call', body);
+    const data = await request(`/preview/data?${query}`);
+    const removed = await request('/preview/data/delete', { page: pageFolder, table: 'signups', ids: [first.result.id] });
+    const restored = await request('/preview/data/restore', { page: pageFolder, table: 'signups', ids: [first.result.id] });
+    const csv = await request(`/preview/data/export?${query}`);
+    return { html: document.html, first: first.result, retry: retry.result, data, removed, restored, csv };
+  }, { workFolderId, pageFolder });
+  assert.match(pageResult.html, /data:image\/svg\+xml;base64,/);
+  assert.equal(pageResult.first.name, 'Linux café 漢字');
+  assert.equal(pageResult.first.email, 'linux@example.com');
+  assert.equal(pageResult.retry.id, pageResult.first.id, 'retrying a form entry never duplicates it');
+  assert.equal(pageResult.data.total, 1);
+  assert.deepEqual(pageResult.removed, { deleted: 1 });
+  assert.deepEqual(pageResult.restored, { restored: 1 });
+  assert.match(pageResult.csv, /'=1\+1/);
+  assert.equal(existsSync(join(folder, pageFolder, 'data.sqlite')), false, 'test entries stay outside the page folder');
+  console.log('PASS packaged pages: CLI validation, assembled preview, SQLite test entries, Unicode, idempotent add, Data delete/restore and safe CSV export');
   await command('work-folders', 'worker', 'model', '--work-folder', workFolderId, '--provider', 'desktop-fixture', '--model', 'desktop-fixture');
   const conversationId = (await command('chat', 'create', '--work-folder', workFolderId)).conversation.id;
   await command('chat', 'rename', '--work-folder', workFolderId, '--conversation', conversationId, '--title', 'Wayland desktop acceptance');
@@ -276,7 +318,7 @@ try {
     await clickText('Stop sharing'); await waitShareReady();
     console.log('PASS real guest suspend/resume: accepted turn persisted, sharing stayed revoked, fresh chooser grant captured successfully');
   }
-  await page.$eval('[aria-label="Close details"]', button => button.click());
+  await page.$eval('[aria-label="Close Details"]', button => button.click());
   const folderDialog = page.evaluate(() => window.workFoldDesktop.workFolder.chooseFolder());
   folderDialog.catch(() => {});
   await ui('cancel-folder');

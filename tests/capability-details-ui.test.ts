@@ -84,10 +84,10 @@ test("ready included tools need no repeated setup copy and MCP keeps connection 
     assert.doesNotMatch(dom.container.textContent!, /redundant success explanation|Set up Chrome|Set up permissions/);
   }
   await dom.render(createElement(CapabilityDetailsDialog, { key: "mcp", item: included("mcp"), workFolderId: "workshop", busy: false, onClose() {} }));
-  await dom.waitFor(() => dom.container.textContent!.includes("No sign-in required"));
+  await dom.waitFor(() => dom.container.textContent!.includes("No Sign-In Required"));
   const server = dom.container.querySelector(".included-mcp-list li")!;
   assert.equal(server.querySelector("details")!.open, false);
-  assert.equal([...server.querySelectorAll("button")].some((button) => button.textContent === "Sign in"), false);
+  assert.equal([...server.querySelectorAll("button")].some((button) => button.textContent === "Sign In"), false);
   const check = [...server.querySelectorAll("button")].find((button) => button.textContent === "Check")!;
   assert.equal(check.closest("details"), null);
   await dom.act(() => check.click());
@@ -124,7 +124,7 @@ test("Documents setup guides the LibreOffice and Tesseract installs and ticks ea
   assert.match(text(), /open it once so macOS can approve it/);
   const button = (row: HTMLElement, name: string) => [...row.querySelectorAll("button")].find((item) => item.textContent === name)!;
   await dom.act(() => button(rows()[0]!, "Download").click());
-  await dom.act(() => button(rows()[1]!, "Install guide").click());
+  await dom.act(() => button(rows()[1]!, "Install Guide").click());
   assert.deepEqual(opened, ["https://www.libreoffice.org/download/download-libreoffice/", "https://tesseract-ocr.github.io/tessdoc/Installation.html"]);
   await dom.act(() => button(rows()[0]!, "Copy").click());
   assert.deepEqual(copied, [{ text: "brew install --cask libreoffice" }]);
@@ -347,8 +347,8 @@ test("Chrome Store setup observes the authenticated handshake and a refused disc
   await dom.waitFor(() => dom.container.textContent!.includes("Not Connected"));
   assert.deepEqual(posts, [], "opening setup reads status without registration or launch");
   // Two steps: add the extension, then choose Connect in it.
-  assert.match(dom.container.textContent!, /Add the work-fold extension/);
-  assert.match(dom.container.textContent!, /Choose Connect in the extension/);
+  assert.match(dom.container.textContent!, /Add the work-fold Extension/);
+  assert.match(dom.container.textContent!, /Choose Connect in the Extension/);
   assert.equal(button("Check"), undefined, "nothing to check before a profile is selected");
   await dom.act(() => { button("Open Chrome Web Store").click(); button("Open Chrome Web Store")?.click(); });
   await dom.waitFor(() => posts.length === 1 && !dom.container.querySelector('[aria-busy="true"]'));
@@ -360,7 +360,7 @@ test("Chrome Store setup observes the authenticated handshake and a refused disc
   await dom.act(() => window.dispatchEvent(new Event("focus")));
   await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Connected");
   assert.equal(posts.length, 1, "returning from Chrome observes the handshake without another Check action");
-  assert.ok(button("Disconnect")); assert.ok(button("Change profile"));
+  assert.ok(button("Disconnect")); assert.ok(button("Change Profile"));
   await dom.act(() => button("Disconnect").click());
   await dom.waitFor(() => Boolean(dom.container.querySelector('[role="alert"]')));
   await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Connected");
@@ -368,8 +368,8 @@ test("Chrome Store setup observes the authenticated handshake and a refused disc
   assert.deepEqual(posts.map(({ action }) => action), ["connect-chrome", "disconnect-chrome"]);
   refuseWithSummary = true;
   await dom.act(() => button("Disconnect").click());
-  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Chrome is in use");
-  assert.ok(button("Disconnect")); assert.ok(button("Change profile"), "a busy refusal does not clear the selected profile");
+  await dom.waitFor(() => dom.container.querySelector('[role="status"]')!.textContent === "Chrome Is in Use");
+  assert.ok(button("Disconnect")); assert.ok(button("Change Profile"), "a busy refusal does not clear the selected profile");
   assert.match(dom.container.textContent!, /Stop Chrome work/);
   assert.doesNotMatch(dom.container.textContent!, /Developer mode|Load unpacked|Copy folder path|token/i);
 });

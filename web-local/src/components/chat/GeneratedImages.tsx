@@ -108,13 +108,13 @@ function GeneratedImage({ image, workFolderId, onOpenWorkFolderFile }: {
     <figure className="generated-image" style={ratio ? { "--generated-image-ratio": ratio } as CSSProperties : undefined}>
       {picture ? <img src={picture.url} alt={image.name} /> : <span className="generated-image-loading" role="status" aria-label={`Loading ${image.name}`} />}
       <div className="generated-image-actions">
-        <button type="button" disabled={!picture || busy} onClick={() => void copy()}>
+        <button className={copied ? "is-copied" : undefined} type="button" disabled={!picture || busy} onClick={() => void copy()}>
           {copied ? <Checkmark16Regular aria-hidden="true" /> : <Copy16Regular aria-hidden="true" />}{copied ? "Copied" : "Copy"}
         </button>
         {folderPath ? (
           onOpenWorkFolderFile ? <button type="button" onClick={() => onOpenWorkFolderFile(folderPath)}><FolderOpen16Regular aria-hidden="true" />Show in Files</button> : null
         ) : (
-          <button type="button" disabled={busy} onClick={() => void addToFolder()}><FolderAdd16Regular aria-hidden="true" />Add to folder</button>
+          <button type="button" disabled={busy} onClick={() => void addToFolder()}><FolderAdd16Regular aria-hidden="true" />Add to Folder</button>
         )}
       </div>
     </figure>

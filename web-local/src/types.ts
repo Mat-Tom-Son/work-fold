@@ -42,6 +42,9 @@ export interface WorkFolderCustomization {
   bannerImagePosition?: WorkFolderBannerImagePosition;
   bannerPreset?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerPresetId;
   bannerFraming?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerFraming;
+  bannerLayout?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerLayout;
+  bannerIconStyle?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerIconStyle;
+  bannerTitleFill?: import("../../src/shared/work-folder-appearance").WorkFolderAppearanceBannerTitleFill;
 }
 
 export type WorkFolderCustomizationMap = Record<string, WorkFolderCustomization>;
@@ -71,6 +74,8 @@ export type ChangeKindCounts = Record<ChangeKind, number>;
 
 export interface FileContextMenuState {
   entry: TreeEntry;
+  /** Set when the row is one of several selected together: the menu acts on all of them. */
+  selection?: TreeEntry[];
   x: number;
   y: number;
   returnFocusTarget?: HTMLElement | null;
@@ -101,7 +106,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: string;
-  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation";
+  kind?: "conversation_title" | "conversation_lifecycle" | "assistant_continuation" | "context_compaction";
   titleSource?: "placeholder" | "generated" | "attempted" | "manual";
   lifecycle?: { archived?: boolean; snoozedUntil?: string | null };
   landing?: ChatMessageLanding;
@@ -175,7 +180,8 @@ export interface ContextAttachment {
 }
 export interface ChatContextPathRequest {
   id: number;
-  path: string;
+  /** One file, or several attached together from Files. */
+  paths: readonly string[];
   workFolderId: string;
   surfaceTabId: string;
 }
@@ -217,6 +223,8 @@ interface WorkFolderSurfaceTabBase {
 export type WorkFolderSurfaceTab =
   | (WorkFolderSurfaceTabBase & { kind: "chat"; conversationId: string | null })
   | (WorkFolderSurfaceTabBase & { kind: "file"; path: string })
+  /** A page folder (docs/pages.md): `path` is the folder, `view` the last shown. */
+  | (WorkFolderSurfaceTabBase & { kind: "page"; path: string; view?: "preview" | "data" })
   | (WorkFolderSurfaceTabBase & { kind: "history"; checkpointId?: string })
   | (WorkFolderSurfaceTabBase & { kind: "app-studio" })
   | (WorkFolderSurfaceTabBase & { kind: "checks" })
@@ -554,18 +562,6 @@ export interface RestrictedAppAutomation {
   overlap: "skip";
 }
 
-/**
- * The declared viewer surface for "an app at your address"
- * (docs/shared-pages.md, rung 3): `entry` is the packaged document served
- * to link holders, `readable` the exact instance-owned collections viewers
- * may read. Declared in the manifest, so the app's details in Settings → Apps
- * say exactly what sharing it puts at the address.
- */
-export interface RestrictedAppViewerDeclaration {
-  entry: string;
-  readable: string[];
-}
-
 export interface RestrictedAppManifest {
   version: 2;
   id: string;
@@ -582,7 +578,6 @@ export interface RestrictedAppManifest {
     checks?: RestrictedAppCheckPermission[];
     notifications: RestrictedAppNotificationPermission[];
   };
-  viewer?: RestrictedAppViewerDeclaration;
 }
 
 export interface RestrictedAppReview {
@@ -949,8 +944,10 @@ export interface ExtensionUiRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message";
+  type: "status" | "turn_state" | "turn_snapshot" | "assistant_delta" | "assistant_message" | "assistant_thinking" | "tool" | "resources_changed" | "error" | "done" | "extension_ui_request" | "extension_ui_snapshot" | "restricted_app_proposal" | "restricted_app_proposal_settled" | "editor" | "queued_message" | "runtime" | "context_compacted";
   conversationId: string;
+  runtime?: ConversationRuntime;
+  chatMessage?: ChatMessage;
   running?: boolean;
   turnId?: string | null;
   message?: string;

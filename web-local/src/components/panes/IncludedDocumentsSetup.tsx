@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Circle } from "lucide-react";
+import { Check, Circle } from "../chrome/icons";
 import type { DocumentEngineSetup, IncludedToolStatus } from "../../../../src/shared/included-tools";
 import { copyToClipboard } from "../../lib/clipboard";
 
@@ -38,7 +38,7 @@ function EngineRow({ name, engine, command, action, children }: { name: string; 
       {engine.problem ? <span className="setup-command">It didn't start. {engine.problem}</span> : null}
       {!engine.found && command ? <InstallCommand {...command} /> : null}
     </span>
-    {engine.found ? <span className={engine.problem ? "setup-checklist-state problem" : "setup-checklist-state"} title={[engine.path, engine.version].filter(Boolean).join(" · ")}>{engine.problem ? "Didn't start" : "Installed"}</span>
+    {engine.found ? <span className={engine.problem ? "setup-checklist-state problem" : "setup-checklist-state"} title={[engine.path, engine.version].filter(Boolean).join(" · ")}>{engine.problem ? "Didn't Start" : "Installed"}</span>
       : <button type="button" className="ui-control" onClick={() => openPage(action.url)}>{action.label}</button>}
   </li>;
 }
@@ -57,7 +57,7 @@ export function DocumentsEngineSetup({ status, enabled }: { status: IncludedTool
   return <>
     <ul className="setup-checklist documents-engines" aria-label="Programs for checking documents">
       <EngineRow name="LibreOffice" engine={libreoffice} command={libreOfficeCommand} action={{ label: "Download", url: libreOfficeDownloadUrl }}>lets your Worker see Word and PowerPoint pages and calculate spreadsheet formulas.</EngineRow>
-      <EngineRow name="Tesseract" engine={tesseract} command={tesseractCommand} action={{ label: "Install guide", url: tesseractInstallGuideUrl }}>(optional) lets your Worker read the text in scanned pages.</EngineRow>
+      <EngineRow name="Tesseract" engine={tesseract} command={tesseractCommand} action={{ label: "Install Guide", url: tesseractInstallGuideUrl }}>(optional) lets your Worker read the text in scanned pages.</EngineRow>
     </ul>
     {missing ? <p className="setup-hint">Both are free.{platform === "darwin" && !libreoffice.found ? " After installing LibreOffice, open it once so macOS can approve it." : ""} This page updates by itself.</p> : null}
   </>;

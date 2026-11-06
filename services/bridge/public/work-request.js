@@ -1,5 +1,5 @@
 // This adapter renders the host's work projection. It never derives lifecycle
-// state from a transcript or exposes a request graph to a public viewer.
+// state from a transcript.
 import { readQuestionDraft, writeQuestionDraft, clearQuestionDraft } from "./question-drafts.js";
 const controllers = new WeakMap();
 

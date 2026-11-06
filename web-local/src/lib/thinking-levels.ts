@@ -4,7 +4,7 @@ const thinkingLevelLabels: Record<string, string> = {
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "Extra high",
+  xhigh: "Extra High",
 };
 
 /** Plain-word label for a Pi reasoning level id; unknown ids keep their text with a capital first letter. */

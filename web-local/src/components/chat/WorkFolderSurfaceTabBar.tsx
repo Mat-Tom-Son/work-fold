@@ -13,8 +13,7 @@ import { workFolderIdentityStyle } from "../../lib/work-folder-identity";
 import { surfacePanelDomId, surfaceTabDomId } from "../../lib/work-folder-ui";
 import type { BrowserSurfaceTab, ChatActivityStatus, ConversationSummary, WorkFolderCustomizationMap, WorkFolderSummary, WorkFolderSurfaceTab } from "../../types";
 import { BrowserTabIcon, FluentGlyph, NewBrowserTabIcon, NewChatIcon, WorkFolderIconGlyph } from "../chrome/common";
-import { fileSharing } from "../../ui-contract";
-import { SharedPageGlyph } from "../tree/FileTree";
+import { useFinishCelebration } from "../../hooks/useFinishCelebration";
 
 const groupSurfaceTabsStorageKey = "work-fold.work-folder.surface-tabs.group-by-work-folder.v1";
 
@@ -64,7 +63,6 @@ export function WorkFolderSurfaceTabBar({
   onReorder,
   onNewChatInWorkFolder,
   onTabMenu,
-  isSharedFile,
   browserTabLooks = {},
   onNewBrowserTab,
   onBrowserTabMenu,
@@ -82,8 +80,6 @@ export function WorkFolderSurfaceTabBar({
   onNewChatInWorkFolder: (workFolder: WorkFolderSummary) => void;
   /** A work-folder tab's right-click menu, with its Chat when it holds a saved one. */
   onTabMenu: (tab: WorkFolderSurfaceTab, workFolder: WorkFolderSummary, conversation: ConversationSummary | null, event: ReactMouseEvent<HTMLElement>) => void;
-  /** True when this work-folder file is shared as a page; file tabs carry the mark. */
-  isSharedFile?: (workFolderId: string, path: string) => boolean;
   /** Each browser tab's page icon and state, by page id. */
   browserTabLooks?: Record<string, BrowserTabLook>;
   /** Present in the desktop app, where the built-in browser runs. */
@@ -316,6 +312,7 @@ export function WorkFolderSurfaceTabBar({
         className={["surface-tab", "surface-tab-browser", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : ""].filter(Boolean).join(" ")}
         key={tab.id}
         data-tab-id={tab.id}
+        data-exit-motion="collapse-inline"
         title={tab.url ? `${tab.title}\n${tab.url}` : tab.title}
         onContextMenu={(event) => onBrowserTabMenu?.(tab, event)}
         onAuxClick={(event) => {
@@ -351,13 +348,17 @@ export function WorkFolderSurfaceTabBar({
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
       </span>
     );
   }
+
+  // Two open files with one name each show their folder.
+  const fileTitleCounts = new Map<string, number>();
+  for (const tab of tabs) if (tab.kind === "file") fileTitleCounts.set(tab.title, (fileTitleCounts.get(tab.title) ?? 0) + 1);
 
   function renderSurfaceTab(tab: WorkFolderSurfaceTab, grouped: boolean) {
     if (tab.kind === "browser") return renderBrowserTab(tab, grouped);
@@ -374,12 +375,15 @@ export function WorkFolderSurfaceTabBar({
       ? conversations[tab.workFolderId]?.find((item) => item.id === tab.conversationId)
       : undefined;
     const activityLabel = activity === "running" ? "Worker is working" : activity === "attention" ? "Worker finished" : "";
-    const shared = tab.kind === "file" && Boolean(isSharedFile?.(tab.workFolderId, tab.path));
+    const folderDetail = tab.kind === "file" && (fileTitleCounts.get(tab.title) ?? 0) > 1
+      ? tab.path.split("/").slice(0, -1).at(-1) || workFolderName
+      : null;
     return (
       <span
         className={["surface-tab", grouped ? "grouped" : "", tab.id === activeTabId ? "active" : "", activity ? `chat-${activity}` : ""].filter(Boolean).join(" ")}
         key={tab.id}
         data-tab-id={tab.id}
+        data-exit-motion="collapse-inline"
         data-work-folder-id={tab.workFolderId}
         style={style}
         title={`${tab.title} - ${workFolderName}${activityLabel ? ` · ${activityLabel}` : ""}`}
@@ -403,7 +407,7 @@ export function WorkFolderSurfaceTabBar({
           role="tab"
           aria-selected={tab.id === activeTabId}
           aria-controls={surfacePanelDomId(tab.id)}
-          aria-label={`${tab.title} in ${workFolderName}${activityLabel ? `, ${activityLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
+          aria-label={`${tab.title} in ${workFolderName}${activityLabel ? `, ${activityLabel}` : ""}`}
           tabIndex={tab.id === activeTabId ? 0 : -1}
           aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
           onPointerDown={(event) => reorderRef.current?.begin(event.nativeEvent, tab.id, event.currentTarget)}
@@ -411,17 +415,16 @@ export function WorkFolderSurfaceTabBar({
         >
           {grouped ? null : <span className="surface-tab-icon" aria-hidden="true"><WorkFolderIconGlyph icon={Icon} size={15} /></span>}
           <span className="surface-tab-copy">
-            <span className="surface-tab-title">{tab.title}</span>
+            <span className="surface-tab-title">{tab.title}{folderDetail ? <span className="surface-tab-detail">{folderDetail}</span> : null}</span>
           </span>
-          {activity ? <span className={`surface-tab-chat-status ${activity}`} aria-hidden="true" /> : null}
-          {shared ? <SharedPageGlyph className="surface-tab-shared-marker" /> : null}
+          {activity ? <TabActivityDot status={activity} /> : null}
         </button>
         <button
           className="surface-tab-close"
           type="button"
           onClick={() => onClose(tab.id)}
           aria-label={`Close ${tab.title}`}
-          title="Close tab"
+          title="Close Tab"
         >
           <Dismiss12Regular />
         </button>
@@ -482,8 +485,8 @@ export function WorkFolderSurfaceTabBar({
               setWorkFolderMenuOpen(false);
               onNewBrowserTab();
             }}
-            aria-label="Open a browser tab"
-            title="New browser tab"
+            aria-label="Open a Browser Tab"
+            title="New Browser Tab"
           >
             <FluentGlyph icon={NewBrowserTabIcon} size={18} />
           </button>
@@ -504,8 +507,8 @@ export function WorkFolderSurfaceTabBar({
                 const current = workFolders.find((item) => item.id === newChatWorkFolderId);
                 if (current) onNewChatInWorkFolder(current); else setWorkFolderMenuOpen(true);
               }}
-              aria-label="Start a new Chat"
-              title="New Chat in this work-folder"
+              aria-label="Start a New Chat"
+              title="New Chat in This work-folder"
             >
               <FluentGlyph icon={NewChatIcon} size={18} />
             </button>
@@ -529,12 +532,12 @@ export function WorkFolderSurfaceTabBar({
               id="new-chat-work-folder-menu"
               className="surface-tab-work-folder-menu"
               role="menu"
-              aria-label="Tab actions"
+              aria-label="Tab Actions"
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => event.preventDefault()}
               onKeyDown={handleWorkFolderMenuKeyDown}
             >
-              <span className="surface-tab-work-folder-menu-heading">New Chat in</span>
+              <span className="surface-tab-work-folder-menu-heading">Choose a work-folder</span>
               {menuWorkFolders.map((item) => {
                 const identity = workFolderIdentityFor(item, workFolderCustomizations);
                 const Icon = identity.Icon;
@@ -602,7 +605,7 @@ export function WorkFolderSurfaceTabBar({
                 </>
               ) : null}
               <span className="surface-tab-work-folder-menu-separator" role="separator" />
-              <span className="surface-tab-work-folder-menu-heading">Tab layout</span>
+              <span className="surface-tab-work-folder-menu-heading">Tab Layout</span>
               <button
                 className="surface-tab-group-toggle"
                 type="button"
@@ -622,6 +625,13 @@ export function WorkFolderSurfaceTabBar({
       </div>
     </div>
   );
+}
+
+/** A Chat tab's activity dot, with the reply-landed moment when its Worker finishes. */
+function TabActivityDot({ status }: { status: ChatActivityStatus }) {
+  const dotRef = useRef<HTMLSpanElement | null>(null);
+  useFinishCelebration(dotRef, status);
+  return <span ref={dotRef} className={`surface-tab-chat-status ${status}`} aria-hidden="true" />;
 }
 
 function fallbackWorkFolderSummary(id: string, name: string): WorkFolderSummary {

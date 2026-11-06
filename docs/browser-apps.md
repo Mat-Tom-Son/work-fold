@@ -23,11 +23,9 @@ installation's current reviewed revision; a changed digest shows **Updated
 since this task**. Removal/reinstallation makes the old link unavailable.
 
 The existing `viewer` declaration identifies the packaged entry and readable
-instance-owned data prefixes. It remains a maximum content declaration, not
-permission to publish. Both private app views and shared viewers use the same
-read implementation, `readRestrictedAppWebView`; their authority adapters are
-separate. The public adapter still requires a receipted Release-backed
-publication. The private adapter requires a paired browser and pins the
+instance-owned data prefixes. It is a maximum content declaration, not
+permission to publish. Private app views read through
+`readRestrictedAppWebView`; their adapter requires a paired browser and pins the
 work-folder, app, Feature Installation, revision and current authority digest.
 
 `management.summary`, `management.chats`, and `work-folders.list` advertise
@@ -89,7 +87,7 @@ Already displayed information cannot be recalled from someone who copied it.
 The action foundation adds the separate closed operations
 `apps.actions.request|get|list|cancel`. They require a host-only live
 browser-authority callback in addition to the authenticated Principal. They
-are not part of `apps.read` or the shared-viewer vocabulary. The catalog's
+are not part of `apps.read`. The catalog's
 `actions` flag is true only for an installed web view with a worker and
 declared tools. Older hosts and apps without that capability keep the
 read-only view. A request runs as soon as the desktop accepts it, exactly as
@@ -109,7 +107,6 @@ bounded intent/result content from metadata-only receipt projections. Results
 are schema-checked and at most 4 MiB; a paired browser receives a result of up
 to about 3 MiB of JSON and the desktop's too-large message beyond that. Lists
 contain summaries without results.
-Record contents are never sent through a shared viewer.
 
 A request UUID and timestamp identify a retry. Identical retries return the
 same record; changed input is refused. Acceptance is written and synced before
@@ -144,7 +141,7 @@ lack `crypto.randomUUID`. `actions.list()` recovers request ids after reopening;
 `actions.get(requestId)` reads a bounded result, and `actions.cancel(requestId)`
 stops the app's own request. A timeout says the status is uncertain and asks the
 app to check existing requests before starting another. None of these helpers
-widen a permission. Shared viewers never install this SDK.
+widen a permission.
 
 ## Transport limits
 

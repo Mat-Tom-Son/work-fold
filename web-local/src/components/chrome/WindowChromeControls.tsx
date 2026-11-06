@@ -31,7 +31,7 @@ export function WindowChromeControls({
   sidebarControlsTarget?: HTMLDivElement | null;
 }) {
   const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
-  const sidebarLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
+  const sidebarLabel = sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar";
   const agentLabel = agentPanelOpen ? "Close work-fold agent" : "Open work-fold agent";
   const sidebarControl = (
     <div className="window-chrome window-chrome-leading">

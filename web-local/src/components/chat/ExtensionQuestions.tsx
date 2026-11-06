@@ -51,7 +51,7 @@ function ExtensionQuestion({ request, draftKey, respond }: {
   }
   return <section className="extension-question" aria-labelledby={titleId} aria-busy={busy}>
     <p className="extension-question-source">Extension</p>
-    <h3 id={titleId}>{request.title || "Your answer"}</h3>
+    <h3 id={titleId}>{request.title || "Your Answer"}</h3>
     {request.message ? <p className="extension-question-detail">{request.message}</p> : null}
     <fieldset disabled={busy}>
       {request.method === "select" ? <div className="extension-question-actions">{request.options?.map((option, index) => <button key={index} type="button" onClick={() => void send(option)}>{option}</button>)}</div> : null}
@@ -60,7 +60,7 @@ function ExtensionQuestion({ request, draftKey, respond }: {
         {request.method === "editor"
           ? <textarea aria-labelledby={titleId} rows={5} value={value} onChange={(event) => change(event.target.value)} placeholder={request.placeholder} maxLength={4 * 1024 * 1024} />
           : <input aria-labelledby={titleId} type={request.secret ? "password" : "text"} autoComplete="off" value={value} onChange={(event) => change(event.target.value)} placeholder={request.placeholder} maxLength={4 * 1024 * 1024} />}
-        <div className="extension-question-actions"><button className="extension-answer" type="submit">{busy ? "Sending…" : "Send answer"}</button><button className="extension-cancel" type="button" onClick={() => void send(null, true)}>Cancel</button></div>
+        <div className="extension-question-actions"><button className="extension-answer" type="submit">{busy ? "Sending…" : "Send Answer"}</button><button className="extension-cancel" type="button" onClick={() => void send(null, true)}>Cancel</button></div>
       </form> : <button className="extension-cancel" type="button" onClick={() => void send(null, true)}>{busy ? "Sending…" : "Cancel"}</button>}
     </fieldset>
     {error ? <p className="extension-question-error" role="alert">{error}</p> : null}

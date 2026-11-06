@@ -14,11 +14,11 @@ export function NewFolderModal({ target, fixtureMode = false, onCreated, onClose
   onClose: () => void;
 }) {
   return <TextInputModal
-    title="New folder"
+    title="New Folder"
     description={`Create inside ${target.parentPath || target.workFolderName}.`}
-    label="Folder name"
+    label="Folder Name"
     placeholder="Untitled folder"
-    confirmLabel="Create folder"
+    confirmLabel="Create Folder"
     onSubmit={async (name) => {
       if (fixtureMode) throw new Error("Folder creation is disabled in the preview.");
       const result = await api<{ folder: { path: string; name: string } }>(`/api/work-folders/${encodeURIComponent(target.workFolderId)}/folders`, {

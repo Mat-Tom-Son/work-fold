@@ -25,14 +25,13 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 test("General Settings includes Automations without introducing a builder", () => {
   assert.match(settingsSource, /type SettingsSection = "automations" \| "deleted" \| "limits";/);
   assert.match(settingsSource, /id: "web-access", label: "Web Access"/);
-  assert.match(settingsSource, /id: "shared-pages", label: "Shared Pages"/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
   assert.match(settingsSource, /id: "recently-deleted", label: "Recently Deleted"/);
-  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane \/>/);
+  assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane fixtureMode=\{fixtureMode\} \/>/);
   assert.doesNotMatch(paneSource, /builder|cron|RRULE/i);
   // The two residuals `automations show` prints are mirrored here, so both
   // surfaces tell a person the same thing (docs/automations.md).
-  assert.match(paneSource, /While this automation is on/);
+  assert.match(paneSource, /While This Automation Is On/);
   assert.match(paneSource, /Standing channel: whatever step \{handoff\.from\}/);
   assert.match(paneSource, /Worker turn uses the permissions its work-folder has at that moment/);
   assert.match(paneSource, /No automations yet\./);
@@ -66,10 +65,10 @@ test("Automation Settings has no HTTP fallback and stays on the trusted main-win
 
 test("Automation actions are gated by enabled, disabled, suspended, and completed health", async (t) => {
   const expectations: Array<{ health: AutomationHealthState; shown: string[]; hidden: string[] }> = [
-    { health: "enabled", shown: ["Run a copy now", "Turn Off"], hidden: ["Turn On", "Delete", "Stop"] },
-    { health: "disabled", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
-    { health: "suspended", shown: ["Turn On", "Delete"], hidden: ["Run a copy now", "Turn Off", "Stop"] },
-    { health: "completed", shown: ["Delete"], hidden: ["Run a copy now", "Turn On", "Turn Off", "Stop"] },
+    { health: "enabled", shown: ["Run a Copy Now", "Turn Off"], hidden: ["Turn On", "Delete", "Stop"] },
+    { health: "disabled", shown: ["Turn On", "Delete"], hidden: ["Run a Copy Now", "Turn Off", "Stop"] },
+    { health: "suspended", shown: ["Turn On", "Delete"], hidden: ["Run a Copy Now", "Turn Off", "Stop"] },
+    { health: "completed", shown: ["Delete"], hidden: ["Run a Copy Now", "Turn On", "Turn Off", "Stop"] },
   ];
 
   for (const expectation of expectations) {
@@ -102,7 +101,7 @@ test("an active run exposes Stop and prevents conflicting actions", async (t) =>
 
   assert.ok(buttonLabels(dom.container).includes("Stop"));
   const run = [...dom.container.querySelectorAll<HTMLButtonElement>(".automation-actions button")]
-    .find((button) => button.textContent?.trim() === "Run a copy now");
+    .find((button) => button.textContent?.trim() === "Run a Copy Now");
   assert.equal(run?.disabled, true, "same-automation non-overlap disables another copy while active");
   assert.ok(!buttonLabels(dom.container).includes("Delete"), "an active completed occurrence cannot be deleted");
 });
@@ -126,7 +125,7 @@ test("Run a copy now invokes the preload bridge, never a network request", async
   await dom.waitFor(() => Boolean(dom.container.querySelector(".automation-inspector-header")));
 
   const run = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "Run a copy now");
+    .find((button) => button.textContent?.trim() === "Run a Copy Now");
   assert.ok(run);
   await dom.act(async () => {
     run.click();
@@ -162,7 +161,7 @@ test("an admitted queued run stays visible until its exact history entry settles
   await dom.waitFor(() => Boolean(dom.container.querySelector(".automation-inspector-header")));
 
   const run = [...dom.container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((button) => button.textContent?.trim() === "Run a copy now");
+    .find((button) => button.textContent?.trim() === "Run a Copy Now");
   assert.ok(run);
   await dom.act(async () => {
     run.click();
@@ -175,7 +174,7 @@ test("an admitted queued run stays visible until its exact history entry settles
   assert.match(dom.container.textContent ?? "", /Starting/);
 
   calls.completeRun();
-  await dom.waitFor(() => buttonLabels(dom.container).includes("Run a copy now"));
+  await dom.waitFor(() => buttonLabels(dom.container).includes("Run a Copy Now"));
   assert.equal(calls.run, 1, "polling the exact run never re-admits it");
 });
 
@@ -185,7 +184,7 @@ test("damaged run history blocks widening actions but leaves narrowing actions a
   await enabledDom.render(createElement(AutomationsPane));
   await enabledDom.waitFor(() => Boolean(enabledDom.container.querySelector(".automation-inspector-header")));
   const enabledButtons = [...enabledDom.container.querySelectorAll<HTMLButtonElement>(".automation-actions button")];
-  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Run a copy now")?.disabled, true);
+  assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Run a Copy Now")?.disabled, true);
   assert.equal(enabledButtons.find((button) => button.textContent?.trim() === "Turn Off")?.disabled, false);
   await enabledDom.cleanup();
 
@@ -295,8 +294,8 @@ test("a folder automation that catches up says so, shows a waiting catch-up, and
     /^Last catch-up: .+ · Caught up on 3 files that changed while work-fold was closed$/,
   );
   assert.match(dom.container.querySelector(".automation-catch-up-notice")?.textContent ?? "", /took a fresh look instead of catching up/);
-  assert.match(text, /Changes made while an automation is running are not replayed\./);
-  assert.doesNotMatch(text, /Changes during automation work, sleep, or restart are not replayed\./);
+  assert.match(text, /Changes made while an Automation is running are skipped\./);
+  assert.doesNotMatch(text, /Changes made while an Automation runs, the computer sleeps, or work-fold restarts are skipped\./);
 });
 
 test("desktop wake catches asynchronous automation resume failures", () => {
@@ -528,7 +527,7 @@ test("pending proposal files list above the automations and Turn on moves one in
   await dom.waitFor(() => dom.container.querySelector("output")?.textContent === "0");
 
   const section = dom.container.querySelector<HTMLElement>(".automation-proposals")!;
-  assert.equal(section.querySelector("h5")?.textContent, "Ready to turn on");
+  assert.equal(section.querySelector("h5")?.textContent, "Ready to Turn On");
   assert.ok(
     section.compareDocumentPosition(dom.container.querySelector(".automations-workbench")!) & Node.DOCUMENT_POSITION_FOLLOWING,
     "the pending section sits above the automations",
@@ -572,7 +571,7 @@ test("invalid-only proposal files remain visible with their repair reason", asyn
   await dom.waitFor(() => Boolean(dom.container.querySelector(".automation-inspector-header")));
   await dom.settle();
   const section = dom.container.querySelector(".automation-proposals")!;
-  assert.equal(section.querySelector("h5")?.textContent, "Automation files");
+  assert.equal(section.querySelector("h5")?.textContent, "Automation Files");
   const invalid = section.querySelector(".automation-proposal.invalid")!;
   assert.match(invalid.textContent ?? "", /broken\.work-fold-automation\.json/);
   assert.equal(invalid.getAttribute("title"), "Not valid JSON.");

@@ -36,7 +36,7 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
         {showStop && work.canStop ? <button type="button" className="work-text-button" disabled={busy} onClick={() => void act("stop")}>Stop</button> : null}
       </div> : null}
       {work.detail ? <p className="work-detail">{work.detail}</p> : null}
-      {work.canContinue ? <button className="work-primary-button" type="button" disabled={busy} onClick={() => void act("continue")}>Continue with saved results</button> : null}
+      {work.canContinue ? <button className="work-primary-button" type="button" disabled={busy} onClick={() => void act("continue")}>Continue with Saved Results</button> : null}
       {work.checklist?.length ? <ol className="work-checklist" aria-label={`Checklist, ${work.checklist.filter((item) => item.status === "done").length} of ${work.checklist.length} done`}>
         {work.checklist.map((item, index) => <li key={`${index}:${item.text}`} className={`work-checklist-item is-${item.status}`}>
           <span className="work-checklist-mark" aria-hidden="true">{item.status === "done" ? "✓" : item.status === "doing" ? "•" : ""}</span>
@@ -47,14 +47,14 @@ export function WorkRequest({ work, error, busy, act, refresh, onOpenFile = open
       {work.questions.map((question) => <WorkQuestion key={question.id} question={question} busy={busy} answer={(text) => act("answer", { questionId: question.id, answer: text })} />)}
       {work.questionCount > work.questions.length ? <p className="work-detail">{work.questionCount - work.questions.length} more questions follow these answers.</p> : null}
       {work.children.length ? <details className="work-details">
-        <summary>Work across {work.children.length === 1 ? "another Worker" : `${work.children.length} Workers`}</summary>
+        <summary>Work Across {work.children.length === 1 ? "Another Worker" : `${work.children.length} Workers`}</summary>
         <ul>{work.children.map((child) => <li key={child.requestId}><span>{child.title}</span><span>{child.label}</span></li>)}</ul>
       </details> : null}
       {work.result ? <div className="work-result">
         {showResultSummary ? <p className="work-result-summary">{work.result.summary}</p> : null}
         {showResultFiles && work.result.files.length ? <ul className="work-result-files" aria-label="Result Files">{work.result.files.map((file) => <li key={`${file.workFolderId}:${file.path}`}>
           <button type="button" className="work-file-button" onClick={() => { setFileError(null); void Promise.resolve().then(() => onOpenFile(file.workFolderId, file.path)).catch((caught) => setFileError(caught instanceof Error ? caught.message : "Could not open this file.")); }} title={`${file.workFolderName} · ${file.path}`}>
-            <span>{file.path.split("/").at(-1)}</span><small>{file.workFolderName} · Open file</small>
+            <span>{file.path.split("/").at(-1)}</span><small>{file.workFolderName} · Open File</small>
           </button>
         </li>)}</ul> : null}
       </div> : null}
@@ -96,7 +96,7 @@ function WorkQuestion({ question, busy, answer }: { question: WorkQuestionView; 
       </>}
     {question.reason ? <p className="work-detail">{question.reason}</p> : null}
     <button type="submit" className="work-primary-button" disabled={busy || sent || !question.canAnswer || (question.state === "open" && !draft.trim())}>
-      {sent ? "Answer sent" : busy ? "Sending…" : question.state === "recorded" ? "Continue with saved answer" : "Send answer"}
+      {sent ? "Answer Sent" : busy ? "Sending…" : question.state === "recorded" ? "Continue with Saved Answer" : "Send Answer"}
     </button>
   </form>;
 }

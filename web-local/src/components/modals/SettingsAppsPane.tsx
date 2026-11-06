@@ -14,7 +14,7 @@ export type RestrictedAppsState = ReturnType<typeof useRestrictedApps>;
  * an app itself still happens from its rail entry; each work-folder's group
  * heading opens that work-folder's App Studio.
  */
-export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio, onOpenSharedPages, onOpenWebAccess }: {
+export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onChangeApp, onOpenBuildChat, onOpenResultFile, onOpenAppStudio }: {
   workFolders: WorkFolderSummary[];
   apps: RestrictedAppsState | null;
   fixtureMode?: boolean;
@@ -22,9 +22,6 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
   onOpenBuildChat?: (workFolderId: string, conversationId: string) => void;
   onOpenResultFile?: (workFolderId: string, path: string) => void;
   onOpenAppStudio?: (workFolderId: string, runtimeInstanceId?: string) => void;
-  /** Where an app shared at the address shows its link: Settings → Shared Pages. */
-  onOpenSharedPages?: () => void;
-  onOpenWebAccess?: () => void;
 }) {
   const knownWorkFolderIds = apps?.knownWorkFolderIds;
   const loadingWorkFolderIds = apps?.loadingWorkFolderIds;
@@ -51,9 +48,9 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
   const report = (message: string | null) => { if (message) showToast({ text: message, tone: "error" }); };
   return (
     <section className="settings-section settings-apps" aria-labelledby="settings-apps-title">
-      <div className="settings-section-heading"><h3 id="settings-apps-title">Apps</h3></div>
+      <h3 className="sr-only" id="settings-apps-title">Apps</h3>
       {!foldersWithApps.length && !failedWorkFolders.length ? (
-        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. To make one, open a chat in the work-folder it is for and describe what the app should do. The Worker builds it, and it shows up here."}</p>
+        <p className="settings-section-note">{loading ? "Loading apps…" : "No apps yet. Ask a Worker in a Chat to build one, and it shows up here."}</p>
       ) : null}
       {failedWorkFolders.length ? <p className="settings-section-note" role="status">
         Could not load apps in {failedWorkFolders.map((workFolder) => workFolder.name).join(", ")}.{" "}
@@ -78,8 +75,6 @@ export function SettingsAppsPane({ workFolders, apps, fixtureMode = false, onCha
             onOpenBuildChat={onOpenBuildChat ? async (workFolderId, conversationId) => onOpenBuildChat(workFolderId, conversationId) : undefined}
             onOpenResultFile={onOpenResultFile ? async (workFolderId, path) => onOpenResultFile(workFolderId, path) : undefined}
             onOpenAppStudio={(workFolderId, runtimeInstanceId) => onOpenAppStudio?.(workFolderId ?? workFolder.id, runtimeInstanceId)}
-            onOpenSharedPages={onOpenSharedPages}
-            onOpenWebAccess={onOpenWebAccess}
             onUpsertApp={(app) => apps?.upsertApp(app)}
             onRemoveApp={(featureInstallationId) => apps?.removeApp(workFolder.id, featureInstallationId)}
             onError={report}

@@ -9,6 +9,7 @@ the names, versions, and wording they were written with.
 |---|---|
 | [Fold integration](fold-integration.md) | Promotion history (2026-08-11) with the 2026-09-10 supersessions marked |
 | [Fold consecrations](fold-consecrations.md) | The approval-gate design superseded by [Receipts, not gates](../receipts-not-gates.md) on 2026-09-10; kept for its threat-model notes |
+| [Shared pages](shared-pages.md) | Desktop-served sharing (the publishing ladder and viewer plane), retired 2026-11-05; superseded by the [Online pages plan](../online-pages-plan.md) |
 | [Apps and fold workflows](apps-fold-workflows.md) | The completed 0.4.23 apps-and-fold workflow plan and its probe evidence |
 | [Assistant collaboration and app AI primitives](assistant-collaboration-plan.md) | Design rationale behind wave B and the dated 0.4.23 gap assessment; the built specification is the [collaboration contract](../collaboration-contract.md) |
 | [App platform exploration](app-platform-exploration.md) | Completed exploration; the accepted [foundation](../app-platform-foundation.md) wins |

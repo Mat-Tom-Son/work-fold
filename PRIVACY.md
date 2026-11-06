@@ -20,11 +20,32 @@ needed. In the product, a registered work-folder is presented as a **work-folder
 agent as a **Worker**, the management agent as the **work-fold agent**,
 and deterministic automations as **Automations**.
 
-Last updated: October 2, 2026
+Last updated: November 4, 2026
 
 work-fold is a local-first desktop application. Core work-folder use does not require a work-fold account; a person may optionally create a private work-fold Web Access address. The current application does not include first-party analytics, advertising, or usage telemetry.
 
 This document describes the behavior of the open-source work-fold application. Model providers, GitHub, package hosts, cloud-sync software, and third-party Skills or Extensions have their own privacy terms.
+
+Direct OpenAI sign-in retains the validated ID token and selected identity metadata
+inside the Pi-managed protected credential, using the same encrypted desktop
+storage as its access and refresh tokens. Only the email and display metadata
+reach Settings → AI Models; raw tokens, subjects and claims do not. Opening a
+direct OpenAI connection checks the published OIDC user-info endpoint. Its
+subject-only response does not erase the saved identity. Older credentials
+without identity require one explicit reconnect to capture it.
+
+The distinct **OpenAI (Codex subscription)** connection can also read its
+selected workspace and subscription usage directly from OpenAI's Codex account
+endpoints on chatgpt.com. Those bounded, redirect-free reads carry the connection's
+selected workspace id and reject quota data for another or unspecified workspace.
+Only selected workspace/plan fields, quota windows, usage percentages, reset
+times and available reset counts reach Settings. The details refresh every
+minute while open and on focus. The UI never consumes an available reset.
+Reads recheck that the connection has not changed before returning. Account and
+quota details are not persisted separately, sent to a model, or included in
+portable Chats, CLI snapshots or the paired-web surface. **Manage usage in
+ChatGPT** opens the corresponding settings page; work-fold does not infer
+subscription limits from local token totals.
 
 Live Pi Extension questions and answers pass through the local
 UI adapter without being written to a transcript or its event replay log.
@@ -45,13 +66,13 @@ By default, work-fold stores:
 - The work-folder registry, History objects, ignore rules, application settings, per-work-folder model defaults and work-folder instructions, and machine-local Chat attention acknowledgements under the local work-fold application-data directory or browser-backed application storage.
 - Pi settings, sessions, Pi's independent trust decisions, personal Skills, Extensions, and packages under the configured Pi agent directory, normally `~/.pi/agent`.
 - The built-in browser's profile — cookies, sign-ins, site storage, cache, the address and title of each open browser tab, the pages the browser's tabs visited (`browser-history.json`, cleared with **Clear browsing history** on a new tab), and what you allowed or blocked for each site (`browser-site-permissions.json`) — under the local work-fold application-data directory, apart from Chrome and from every work-folder. A site gets the camera, microphone, location, notifications, or similar access only after you allow it. Its cookies are encrypted with the operating system's keychain. Files it downloads go to the Downloads folder. Nothing is imported from Chrome or another browser ([built-in browser](docs/built-in-browser.md)).
-- Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable.
+- Provider credentials in an application-scoped file encrypted through Electron's operating-system-backed `safeStorage`. work-fold refuses credential operations when that encryption is unavailable. Microsoft Foundry connections keep each format's API key, endpoint, deployment names, and optional Pi base-model selections in this same machine-local credential store. Settings reads back only the endpoint, names, and selections. Saving does not send an inference request or discover Azure resources.
 - Restricted-app Development-preview receipts and package snapshots; machine-local App Project identity and presentation; immutable content-addressed Release envelopes; prepared/published state; install/update operation journals; local App Instance records; per-automation enablement/cadence state and bounded run receipts; retained-data records; a bounded record of each app notification outcome (time, work-folder, app, installation, revision, the reviewed category id and title, and whether it was shown, held back, or unavailable — never where a click would open the app), keeping each installation's newest 1,000 and 20,000 overall for at most 90 days; and Tenant-and-Data-Namespace-owned JSON storage under the application-data `restricted-apps` directory. Separately encrypted restricted-app connections bind their exact runtime and installation identities in `restricted-app-connections.bin`.
 - Short-lived CLI request, claim, and response files under the owning app's application-data directory: `%APPDATA%\work-fold\cli` for an installed Windows app, `%APPDATA%\work-fold Development\cli` for an uninstalled Windows package, and the corresponding production or separately identified smoke-app directory on macOS.
 - The work-fold agent's machine-local transcript under the application-data `management/` root. When a request includes attachments, its user message stores their typed absolute local paths or http(s) links; remote uploads land in an app-owned holding folder under `management/Incoming/Remote/`. Request records — the turns and work-folders one ask spans, its questions and answers, and the results handed back — are durable machine-local app state under the application-data `requests/` directory, reconciled after a restart and never replayed, and kept for 30 days after the request settles; act lineage stays metadata in the receipt journal. Like the other records below, nothing in `requests/` is written into a work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
 - Unsent answers to agent questions in the current renderer or browser tab’s session storage. They survive refresh/reconnect, clear when accepted or when the tab session ends, and are not sent to the host or model until submitted. The paired browser also clears these drafts on sign-out or when its grant is removed.
 - Optional Web Access device credentials, P-256 private keys, paired-browser public keys, and revocation state in the same operating-system-encrypted secure settings file as other application credentials. A paired browser keeps its own non-exportable private keys and grant identity in that browser's IndexedDB; it does not store a transcript or work-folder file cache there.
-- Act receipts; Recently deleted items under the application-data `recently-deleted/` directory, each holding the moved bytes or a recovered copy plus a manifest (source work-folder id, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it), kept for the retention window — 30 days by default, changed in Settings → Recently Deleted — and then removed; automation declarations with their exact-declaration enablement receipts, cadence anchors, and run receipts (including the summary each chat step's Worker reports); request records with their questions, answers, and results under the application-data `requests/` directory; background job records and each job's combined command output under the application-data `jobs/` directory, kept for 30 days after the job ends (only the part a Worker reads, or the end of it in one follow-up turn, enters a Chat); publication records; and per-surface overview last-seen markers — all under the work-fold application-data directory. Receipts record the initiating surface and, for remote-originated acts, the initiating browser and grant. Publication encryption keys live in the same operating-system-encrypted secure settings as other credentials. None of these records is written into any work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
+- Act receipts; Recently deleted items under the application-data `recently-deleted/` directory, each holding the moved bytes or a recovered copy plus a manifest (source work-folder id, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it), kept for the retention window — 30 days by default, changed in Settings → Recently Deleted — and then removed; automation declarations with their exact-declaration enablement receipts, cadence anchors, and run receipts (including the summary each chat step's Worker reports); request records with their questions, answers, and results under the application-data `requests/` directory; background job records and each job's combined command output under the application-data `jobs/` directory, kept for 30 days after the job ends (only the part a Worker reads, or the end of it in one follow-up turn, enters a Chat); and per-surface overview last-seen markers — all under the work-fold application-data directory. Receipts record the initiating surface and, for remote-originated acts, the initiating browser and grant. None of these records is written into any work-folder's folder, captured by History, or synchronized by anything that synchronizes a work-folder.
 
 work-fold uses a new application profile and does not inspect, import, migrate, rewrite, wipe, or delete legacy Workspace application data or `.workspace/` folder metadata. Legacy bytes remain where they already are and are not authoritative in work-fold. The app keeps `.workspace/` hidden and excludes it from History, Search, Checks, and restricted-app file grants. Pi's personal resources and authentication may still be read from the configured Pi agent directory, while work-fold keeps its Pi sessions in the separate `sessions/work-fold/` namespace.
 
@@ -253,11 +274,8 @@ browser and desktop compute it independently. It may temporarily buffer signed
 encrypted envelopes and events in process memory. It stores identity, session,
 grant, and bounded operation
 metadata in PostgreSQL, but it does not durably store prompt text, conversation
-text, agent results, work-folder names, file names, file metadata, shared-page
-titles or link keys, or file contents. The Shared pages popup reads existing
-active shares through the encrypted management lane. It retrieves a key only
-on click, keeps it out of browser storage, and opens the isolated viewer with
-that key in the fragment, which is not sent in an HTTP request.
+text, agent results, work-folder names, file names, file metadata, or file
+contents.
 
 Content-bearing browser and desktop payloads use signed application-layer
 envelopes encrypted with keys held by the paired browser and desktop. The
@@ -295,7 +313,7 @@ Only the requesting paired browser and exact app authority can retrieve a
 result. A request runs the installed worker with its existing grants as soon as
 the desktop accepts it; it does not publish data or start a model. Only the
 requesting app view and the trusted browser UI outside the frame can stop a
-request, and shared viewers remain read-only.
+request.
 Opening a result file or app never selects a different agent or transcript.
 Removing Web Access deletes its server-side account records; browser
 IndexedDB may retain an unusable local key until that site's data is cleared.
@@ -317,9 +335,30 @@ counts, and whether enrollment is open. Those records intentionally omit
 account and browser ids, addresses, IP addresses, user agents, tokens, public
 keys, ciphertext, prompts, file names, and agent results.
 
-### Published pages (share links)
+### Published pages
 
-Sharing a page serves the current content of one explicitly designated work-folder file, rendered on this desktop, to anyone holding its link while the desktop is online. The page crosses the bridge as ciphertext encrypted with a key carried in the link fragment; the key is kept in operating-system-encrypted secure settings, the full link is shown transiently and written to no receipt or log, and the bridge durably stores publication identifiers, budgets, and aggregate counters — not titles, file names, paths, or page content. Opting one publication into snapshot caching stores the latest served ciphertext at the bridge so the page stays readable while the desktop sleeps; the opt-in is labeled where it is turned on, defaults off, and its stored row is deleted on revocation. Anyone who obtains the full link can read that page until the publication is revoked; revoking kills every copy of the link, and sharing again creates a new link. Viewer requests are counted in aggregate; work-fold keeps no per-viewer identity, accounts, or analytics.
+Publishing a page (see [Pages](docs/pages.md)) uploads that page folder's
+files, assembled into one document, plus its `page.json`, to work-fold's page
+service on Railway. `data.sqlite`, hidden files, and everything outside the
+page folder stay local. Anyone with the page's link can open it; the link is
+the only thing that grants access, so work-fold keeps it out of receipts,
+logs, and the overview.
+
+Unlike the retired desktop-served pages, a published page and the entries its
+visitors submit are **readable by work-fold's service**: it has to serve the
+page and check each entry against the page's rules. It stores the published
+document, each page's entries in one SQLite database, and a random visitor id
+per browser in a cookie scoped to that page's link. When backups are
+configured, changed page databases are copied to a private storage bucket.
+Unpublishing takes a page offline and keeps its entries so publishing again
+restores the same link.
+
+While work-fold is running it copies each published page's entries back into
+that page folder as `data.sqlite`. Entries made while previewing are test
+entries kept in work-fold's own storage; they are never uploaded. The bridge
+passes publish, unpublish, and data requests between the desktop or the
+owner's signed-in browser and the page service; it does not keep page content
+or entries.
 
 ### Model providers
 
@@ -381,7 +420,7 @@ work-fold does not currently connect to the Google Drive API or run its own clou
 
 ## User choices
 
-Users choose which folders become work-folders, which files are attached to Chats, which model provider receives Worker and work-fold agent requests, and which Everywhere or This work-folder only capabilities are installed. Registering the folder is the local Pi authorization. Creating a Web Access address, pairing each browser, revoking one or every browser, disabling the connection, and removing the address are separate choices. Restricted-app preview installation, Release preparation, local publication, target-work-folder installation, update/rollback activation, App uninstall, and the retain-or-purge choice are also separate choices. Installing an app grants what its manifest declares and turns on its automations; revoking a network destination, file, or notification grant, disconnecting a stored connection, and turning off a named automation are separate choices afterwards. Everything the work-fold agent, a Worker, an app, or the command line does runs at once and leaves a receipt; nothing waits for a further click. Deletions stay recoverable from Recently deleted for the retention window. Enabling each automation, sharing each page, opting one publication into snapshot caching, and revoking any of them remain separately recorded effects. Revoking one authority does not imply revoking the others or invalidating a credential at its remote provider.
+Users choose which folders become work-folders, which files are attached to Chats, which model provider receives Worker and work-fold agent requests, and which Everywhere or This work-folder only capabilities are installed. Registering the folder is the local Pi authorization. Creating a Web Access address, pairing each browser, revoking one or every browser, disabling the connection, and removing the address are separate choices. Restricted-app preview installation, Release preparation, local publication, target-work-folder installation, update/rollback activation, App uninstall, and the retain-or-purge choice are also separate choices. Installing an app grants what its manifest declares and turns on its automations; revoking a network destination, file, or notification grant, disconnecting a stored connection, and turning off a named automation are separate choices afterwards. Everything the work-fold agent, a Worker, an app, or the command line does runs at once and leaves a receipt; nothing waits for a further click. Deletions stay recoverable from Recently deleted for the retention window. Enabling each automation and turning it off remain separately recorded effects. Revoking one authority does not imply revoking the others or invalidating a credential at its remote provider.
 
 Because this project is early stage, not every data-management action has a dedicated UI yet. Application and Pi data remain ordinary local files, but manual changes should be made only while work-fold is closed and after creating a backup.
 
@@ -400,7 +439,7 @@ Restricted app Check-result access is separately selected per exact installation
 and Check revision. It shares only that Check's status, bounded finding details,
 relative paths and quoted evidence. It never runs a sensor or contacts a model,
 and grants no general file access. Changed declarations refuse; an app update
-carries a selection forward by its permission id. Workers and shared viewers cannot read Check results.
+carries a selection forward by its permission id. Workers cannot read Check results.
 
 ### Fold task result links
 

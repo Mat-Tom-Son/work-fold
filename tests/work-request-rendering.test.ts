@@ -10,27 +10,27 @@ import { WorkRequest } from "../web-local/src/components/chat/WorkRequest.js";
 import { renderWorkRequest } from "../services/bridge/public/work-request.js";
 
 function view(): WorkRequestView {
-  return { version: 1, requestId: "request-one", taskId: "task-one", owner: { conversationId: "chat-one" }, state: "waiting", label: "Needs your answer", detail: null, canStop: true, canContinue: false,
+  return { version: 1, requestId: "request-one", taskId: "task-one", owner: { conversationId: "chat-one" }, state: "waiting", label: "Needs Your Answer", detail: null, canStop: true, canContinue: false,
     questions: [{ id: "question-one", requestId: "child-one", text: "Which currency? <script>doNotRun()</script>", from: "Supplier quotes", state: "open", canAnswer: true }], questionCount: 1,
-    children: [{ requestId: "child-one", title: "Supplier quotes", state: "waiting", label: "Needs your answer" }], result: null };
+    children: [{ requestId: "child-one", title: "Supplier quotes", state: "waiting", label: "Needs Your Answer" }], result: null };
 }
 
 test("the desktop work presentation shows the question, origin, whole-work Stop and selected deliverables", () => {
   const html = renderToStaticMarkup(React.createElement(WorkRequest, { work: view(), error: null, busy: false, act: async () => true, refresh: async () => {} }));
   assert.match(html, /Supplier quotes asks/);
-  assert.match(html, /Send answer/);
+  assert.match(html, /Send Answer/);
   assert.match(html, />Stop</);
   assert.doesNotMatch(html, /<script>/);
-  const completed = { ...view(), state: "partial" as const, label: "Partly finished", canStop: false, questions: [], questionCount: 0,
+  const completed = { ...view(), state: "partial" as const, label: "Partly Finished", canStop: false, questions: [], questionCount: 0,
     result: { outcome: "partial" as const, summary: "One quote is still missing.", files: [{ workFolderId: "quotes", workFolderName: "Supplier quotes", path: "comparison.md", sizeBytes: 42 }] } };
   const result = renderToStaticMarkup(React.createElement(WorkRequest, { work: completed, error: null, busy: false, act: async () => true, refresh: async () => {}, showResultSummary: true }));
-  assert.match(result, /Partly finished/); assert.match(result, /One quote is still missing/); assert.match(result, /comparison.md/); assert.match(result, /Open file/);
+  assert.match(result, /Partly Finished/); assert.match(result, /One quote is still missing/); assert.match(result, /comparison.md/); assert.match(result, /Open File/);
   assert.doesNotMatch(result, />Stop</);
   const saved = view();
   saved.questions[0] = { ...saved.questions[0], state: "recorded", answer: "Canadian dollars, including installation." };
   const recovery = renderToStaticMarkup(React.createElement(WorkRequest, { work: saved, error: null, busy: false, act: async () => true, refresh: async () => {} }));
   assert.match(recovery, /Canadian dollars, including installation/);
-  assert.match(recovery, /Continue with saved answer/);
+  assert.match(recovery, /Continue with Saved Answer/);
 });
 
 test("paired questions preserve focus and draft across refresh, failure and retry; double submit delivers once", async () => {

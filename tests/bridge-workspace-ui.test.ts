@@ -122,7 +122,7 @@ test("chat options keep rename and deletion available without permanent header c
 test("explicit question fixtures keep the actual question inside its owning chat", async (t) => {
   const f = await workspace("chat&work=question"); t.after(() => f.dom.window.close());
   assert.match(f.document.querySelector("#request-work")!.textContent!, /Which currency should I use/);
-  assert.doesNotMatch(f.document.querySelector("#chats")!.textContent!, /Needs your answer|Working/);
+  assert.doesNotMatch(f.document.querySelector("#chats")!.textContent!, /Needs Your Answer|Working/);
   f.click('[data-chat-id="chat-3"]');
   assert.equal(f.document.querySelector("#request-work")!.textContent, "");
   f.click('[data-chat-id="chat-1"]');
@@ -177,35 +177,4 @@ test("retired Files and work-folder routes land on chat without a file browser",
     assert.equal(f.document.querySelectorAll(".context").length, 2);
     assert.deepEqual(f.network, []);
   }
-});
-
-test("Shared pages opens the selected isolated viewer and never stores its link key", async (t) => {
-  const f = await workspace(); t.after(() => f.dom.window.close());
-  let target = "";
-  const opened = { opener: {} as unknown, closed: false, document: new JSDOM().window.document,
-    location: { replace(url: string) { target = url; } }, close() { this.closed = true; } };
-  f.win.open = (() => opened) as never;
-  const button = f.document.querySelector<HTMLButtonElement>("#shared-pages-toggle")!;
-  const popup = f.document.querySelector<HTMLElement>("#shared-pages-popup")!;
-  button.focus(); button.click();
-  await new Promise<void>((done) => setImmediate(done));
-  assert.equal(popup.hidden, false);
-  assert.equal(button.getAttribute("aria-expanded"), "true");
-  assert.deepEqual([...popup.querySelectorAll(".shared-page-copy > span")].map((row) => row.textContent), ["Quarterly overview", "Montréal weekend", "Reading notes"]);
-  assert.equal(f.document.activeElement?.getAttribute("data-page-id"), "fixture-quarterly");
-  f.document.dispatchEvent(new f.win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  assert.equal(popup.hidden, true);
-  assert.equal(f.document.activeElement, button);
-  button.click(); await new Promise<void>((done) => setImmediate(done));
-  f.click('[data-page-id="fixture-trip"]');
-  await new Promise<void>((done) => setImmediate(done));
-  assert.equal(opened.opener, null);
-  assert.equal(opened.closed, false);
-  assert.equal(target, `http://pages-casey.localhost/p/fixture-trip?fixture=1#${"A".repeat(43)}`);
-  assert.equal(popup.hidden, true);
-  assert.equal(popup.querySelector("a"), null);
-  assert.equal(f.document.querySelector("#conversation-title")!.textContent, "A weekend in Montréal");
-  assert.ok(!JSON.stringify(f.win.localStorage).includes("A".repeat(43)));
-  assert.ok(!JSON.stringify(f.win.sessionStorage).includes("A".repeat(43)));
-  assert.deepEqual(f.network, []);
 });

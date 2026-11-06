@@ -58,7 +58,7 @@ export function RestrictedAppNotificationHistory({ app, disabled }: {
       </li>)}
     </ul>
     {entries.length > collapsedCount ? <button className="ui-control ui-control--quiet" type="button" onClick={() => setExpanded((value) => !value)}>
-      {expanded ? "Show fewer" : `Show all ${entries.length}`}
+      {expanded ? "Show Fewer" : `Show All ${entries.length}`}
     </button> : null}
   </div>;
 }

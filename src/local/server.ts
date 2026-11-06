@@ -152,10 +152,11 @@ import {
   type PiOAuthHooks,
   type PiSetupStatus,
 } from "./agent/pi-runtime-config.js";
+import { readOpenAiAccount } from "./agent/openai-account.js";
 import { ImageModelPreference, imageModelPreferencePath, normalizeImageModelChoice } from "./agent/image-model-preference.js";
 import { GeneratedImageStore, isGeneratedImageId } from "./agent/generated-image-store.js";
-import { getAzureOpenAIConnection, saveAzureOpenAIConnection } from "./agent/azure-openai-connection.js";
-import { AZURE_OPENAI_PROVIDER, normalizeAzureOpenAIConnection, type AzureOpenAIConnection } from "../shared/azure-openai.js";
+import { getFoundrySettings, saveFoundryConnection } from "./agent/foundry-connection.js";
+import { AZURE_OPENAI_PROVIDER, foundryProvider, normalizeFoundryConnection, type FoundryConnection } from "../shared/foundry.js";
 import { loadConversationContextReferencesForTurn, previewConversationContextReference } from "./conversation-context.js";
 import {
   classifyWorkFoldAgentAttachments,
@@ -269,28 +270,9 @@ import {
   type WorkFoldOverviewAgentRequestRecord,
   type WorkFoldOverviewSettledTurnRecord,
   type WorkFoldOverviewSourceReaders,
-  type WorkFoldOverviewViewerGrantEventRecord,
 } from "./overview.js";
 import { WorkFoldOverviewSeenStore, workFoldOverviewRemoteSurfaceId } from "./overview-seen-store.js";
 import { ensureWorkFoldAgentInstructions } from "./work-fold-agent-instructions.js";
-import {
-  WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
-  WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES,
-  WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
-  WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
-  WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
-  WORKFOLD_PUBLICATION_SOURCE_TYPES,
-  WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH,
-  WorkFoldPublicationError,
-  WorkFoldPublicationService,
-  type WorkFoldPublicationBridgeSync,
-  type WorkFoldPublicationKeyStore,
-  type WorkFoldPublicationView,
-} from "./publications.js";
-import {
-  createRestrictedAppViewerAdapter,
-  type RestrictedAppViewerAdapter,
-} from "./agent/restricted-app-viewer.js";
 import {
   assertWorkFoldAutomationAtAdmissionHorizon,
   contentAddressedWorkFoldAutomationDeclaration,
@@ -393,13 +375,28 @@ import {
 } from "./server-dev-options.js";
 import { isAlwaysHiddenWorkFolderEntry, isWorkFolderIgnored, readWorkFolderIgnoreState, setWorkFolderIgnoreState } from "./work-folder-ignore.js";
 import { canonicalWorkFolderWatchRoot } from "./work-folder-watch.js";
+import { handlePageRoute, servePageFrameAsset, type PageRoutePublishing } from "./pages/page-routes.js";
+import { validatePageForAct } from "./pages/page-validate.js";
+import { PageCallError } from "../shared/pages/index.js";
+import { PagesBridgeError, PagesBridgeUnavailableError, type WorkFoldPagesBridge } from "./pages/page-bridge-client.js";
+import { PagePublicationStore } from "./pages/page-publication-store.js";
+import {
+  PagePublishError,
+  PagePublishingService,
+  type PageCheckInSummary,
+  type PagePublishResult,
+  type PageWorkFolderWriteOutcome,
+  type PreparedPagePublish,
+} from "./pages/page-publishing.js";
 import {
   beginWorkFolderRemoval,
   copyPathIntoWorkFolder,
   createManagedWorkFolder,
+  checkWorkFolderMoves,
   createWorkFolderFolder,
   createWorkFolderTextFile,
   deleteWorkFolderEntry,
+  ensureSafeWorkFolderRoot,
   finalizeWorkFolderRemoval,
   findExistingWorkFolderFilePaths,
   getWorkFolder,
@@ -410,6 +407,7 @@ import {
   managedWorkFolderDeletionPinIssue,
   markWorkFolderRemovalAppStateRemoved,
   moveWorkFolderEntry,
+  outermostWorkFolderPaths,
   readWorkFolderTextFile,
   renameWorkFolderEntry,
   registerLinkedWorkFolder,
@@ -423,8 +421,10 @@ import {
   resolveNestableFolderPath,
   workFolderRemovalPendingResult,
   touchWorkFolderRoot,
+  withWorkFolderHistoryOperation,
   writeWorkFolderTextFile,
   writeUploadedFiles,
+  type WorkFolderMovedEntry,
   type WorkFolderRemovalIo,
   type WorkFolderRemovalResult,
   type WorkFolderSummary,
@@ -467,7 +467,7 @@ export interface LocalApiOptions {
   settleSignal?: WorkFoldSettleSignal;
   /**
    * The act lane's durable receipts journal (the work-fold agent's one ledger). Supply
-   * the desktop CLI host's instance so decisions, publications, and CLI acts
+   * the desktop CLI host's instance so decisions, Settings acts, and CLI acts
    * share one file and one at-most-once gate; when absent, the API constructs
    * one over the same state-root path the host uses.
    */
@@ -478,15 +478,6 @@ export interface LocalApiOptions {
   requestStore?: WorkFoldRequestStore;
   /** Test seam for the background job journal (docs/background-jobs.md). */
   jobStore?: WorkFoldJobStore;
-  /**
-   * Publication page keys. The desktop passes the operating-system-encrypted
-   * secure-settings store (`desktop/src/settings.ts`); without one, keys live
-   * only in memory for this app run — honest for development, never for a
-   * shipped desktop.
-   */
-  publicationKeys?: WorkFoldPublicationKeyStore;
-  /** The bridge slot-sync lane; absent while Remote access is unconfigured. */
-  publicationBridge?: WorkFoldPublicationBridgeSync | null;
   /** Shared with the desktop kernel so registry trust changes apply everywhere. */
   workFolderTrustAuthority?: RegisteredWorkFolderTrustAuthority;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -506,6 +497,14 @@ export interface LocalApiOptions {
    * without Electron has none.
    */
   browser?: BrowserToolHost;
+  /**
+   * The bridge's device page routes (docs/pages.md, "Publishing (stage 2)").
+   * The desktop passes a client that reads the Web Access settings at call
+   * time; without one, publishing says Web Access isn't set up.
+   */
+  pagesBridge?: WorkFoldPagesBridge | null;
+  /** How often published pages check in while running; 0 turns checking in off (tests). Default one minute. */
+  pagesCheckInIntervalMs?: number;
   /** Failure-injection seam that runs immediately before mandatory post-reservation work-folder validation. */
   beforeRestrictedAppWorkFolderRevalidation?: (workFolderId: string) => Promise<void>;
   maxBodyBytes?: number;
@@ -697,10 +696,10 @@ export interface LocalApiHandle {
    * `/api/work-folders/:id/automations` (docs/automations.md, F15 as amended).
    */
   automationSettings: WorkFoldAutomationSettingsFacade;
-  /** The publication authority (docs/shared-pages.md rung 2); the desktop wires it as the remote viewer-page provider. */
-  publications: WorkFoldPublicationService;
   /** Recently deleted: the machine-local trash every destructive verb writes to first. */
   recentlyDeleted: WorkFoldRecentlyDeletedStore;
+  /** Published pages (docs/pages.md): the desktop checks in after waking. */
+  pages: { checkIn(): Promise<PageCheckInSummary> };
   close: () => Promise<void>;
 }
 
@@ -727,21 +726,6 @@ interface LocalApiState {
   settleSignal: WorkFoldSettleSignal;
   actReceipts: WorkFoldCliActReceipts;
   turnStore: WorkFoldTurnStore;
-  publications: WorkFoldPublicationService;
-  /**
-   * The rung-3 viewer adapter: exposure resolution for the exposure verbs'
-   * effect-time recheck, and the viewer-safe serve path the publication
-   * service drives.
-   */
-  restrictedAppViewer: RestrictedAppViewerAdapter;
-  /**
-   * The same key store the publication service encrypts with, held so the
-   * renderer-session Settings routes can compose a share link on demand
-   * (docs/shared-pages.md: the link is composed from secure settings and
-   * shown transiently; it appears in no receipt, journal, log, or overview
-   * item). Only the reveal route reads it; nothing else on this state may.
-   */
-  publicationKeys: WorkFoldPublicationKeyStore;
   overviewSeen: WorkFoldOverviewSeenStore;
   /**
    * Constructed in a second phase after the state object exists, because the
@@ -750,6 +734,8 @@ interface LocalApiState {
    */
   preparedActs: PreparedActExecutor;
   automations: WorkFoldAutomationService;
+  /** Publishing pages and checking in (docs/pages.md, "Publishing (stage 2)"). */
+  pagePublishing: PagePublishingService;
   workFolderTrustAuthority: RegisteredWorkFolderTrustAuthority;
   workFoldAgentInstructionsError: string | null;
   localFolderGrantProvider?: LocalFolderGrantProvider;
@@ -904,13 +890,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // deletion finished by startup recovery below must reach Recently deleted rather
   // than an erase (docs/receipts-not-gates.md, F20).
   const recentlyDeleted = options.recentlyDeletedStore ?? await WorkFoldRecentlyDeletedStore.open({ rootPath: workFoldRecentlyDeletedRoot() });
-  // Retention is background work, exactly as the hourly path treats it: one
-  // expired work-folder entry can hold a large tree, and walking plus
-  // deleting it must not sit between the process starting and the port being
-  // bound. Nothing a task needs is behind this purge.
-  void recentlyDeleted.purgeExpired().catch((error: unknown) => {
-    console.warn(`work-fold could not clean Recently deleted at startup: ${errorMessage(error)}`);
-  });
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? developmentDefaults?.port ?? numberFromEnv("WORKFOLD_LOCAL_API_PORT", 4327);
   const extensionUi = options.extensionUiBridge ?? new RoutedPiExtensionUiBridge();
@@ -1026,7 +1005,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   const checks = options.checkService ?? new WorkFoldCheckService({ kernel, settleSignal, reviewModel: reviewCheck });
   // The work-fold agent's one ledger: the same act-receipts journal the desktop CLI host
   // appends. Both instances write the identical state-root path, so prepared
-  // acts and publications land in the journal the act lane already audits.
+  // acts land in the journal the act lane already audits.
   const actReceipts = options.actReceipts ?? new WorkFoldCliActReceipts({ stateRoot: workFoldStateRoot() });
   const turnStore = options.turnStore ?? await WorkFoldTurnStore.create({ stateRoot: workFoldStateRoot() });
   // The durable request graph beside the turn journal it aggregates. It is
@@ -1039,36 +1018,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   // (docs/receipts-not-gates.md, F19).
   await removeRetiredGateState();
   const automationStore = await WorkFoldAutomationStore.create();
-  const publicationKeys = options.publicationKeys ?? createEphemeralPublicationKeyStore();
-  // The rung-3 viewer adapter (docs/shared-pages.md): the viewer-safe
-  // broker subset enforced desktop-side over the same installed-instance
-  // authority the sandboxed host uses. Storage reads are the service's
-  // bounded read lane; without desktop storage, data reads refuse honestly
-  // while reviewed assets keep serving.
-  const restrictedAppViewer = createRestrictedAppViewerAdapter({
-    resolveInstance: async (appInstanceId) => (await restrictedApps.findByFeatureInstallationAnywhere(appInstanceId)) ?? null,
-    storage: restrictedApps.viewerStorageReads() ?? {
-      keys: async () => {
-        throw new Error("Restricted app storage requires the work-fold desktop host.");
-      },
-      get: async () => {
-        throw new Error("Restricted app storage requires the work-fold desktop host.");
-      },
-    },
-  });
-  const publications = await WorkFoldPublicationService.create({
-    keys: publicationKeys,
-    receipts: actReceipts,
-    resolveWorkFolderRoot: async (workFolderId) => {
-      try {
-        return (await getWorkFolder(workFolderId)).workFolderRoot;
-      } catch {
-        return null;
-      }
-    },
-    bridge: options.publicationBridge ?? null,
-    apps: restrictedAppViewer,
-  });
   const overviewSeen = new WorkFoldOverviewSeenStore();
   const state: LocalApiState = {
     browserAppActions: undefined as unknown as BrowserAppActionService,
@@ -1096,14 +1045,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     settleSignal,
     actReceipts,
     turnStore,
-    publications,
-    restrictedAppViewer,
-    publicationKeys,
     overviewSeen,
     // Assigned in the second construction phase below, before the server
     // listens; their fences and hop ports close over this state object.
     preparedActs: undefined as unknown as PreparedActExecutor,
     automations: undefined as unknown as WorkFoldAutomationService,
+    pagePublishing: undefined as unknown as PagePublishingService,
     workFolderTrustAuthority,
     workFoldAgentInstructionsError,
     localFolderGrantProvider: options.localFolderGrantProvider,
@@ -1170,6 +1117,12 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     adapters: createPreparedActAdapters(state),
     fence: createPreparedActFence(state),
     kernel,
+  });
+  state.pagePublishing = new PagePublishingService({
+    bridge: options.pagesBridge ?? null,
+    store: new PagePublicationStore(),
+    listWorkFolders: () => registeredWorkFolderOutline(),
+    withWorkFolderWrite: (workFolder, operation) => runPageFolderWrite(state, workFolder, operation),
   });
   state.browserAppActions = await BrowserAppActionService.create({
     path: join(workFoldStateRoot(), "restricted-apps", "browser-actions.json"),
@@ -1320,9 +1273,6 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
   for (const workFolderId of new Set([...recoveredRemovals.workFolderIds, ...pendingWorkFolderIds])) {
     await state.automations.handleWorkFolderRemoved(workFolderId).catch(() => undefined);
   }
-  // Complete interrupted publication work (key mints, bridge slot syncs);
-  // with no bridge configured everything stays honestly pending.
-  await publications.redriveBridgeSync().catch(() => undefined);
   kernel.configureOverview({
     sources: createServerOverviewSources(state),
     readSeen: () => overviewSeen.seenCursors(),
@@ -1383,6 +1333,9 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     void task.then(() => retentionTasks.delete(task));
   };
   const drainRetention = () => Promise.allSettled([...retentionTasks]);
+  // Start only once shutdown and listen-failure cleanup can own this work.
+  // A large expired tree must not delay the port becoming available.
+  trackRetention(recentlyDeleted.purgeExpired(), "work-fold could not clean Recently deleted at startup");
   trackRetention(state.requests.purgeExpiredIfDue(), "work-fold could not tidy its request records at startup");
 
   const requestListener = (request: PiExtensionUiRequest) => routeExtensionRequest(state, request);
@@ -1428,6 +1381,8 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     await drainRetention();
     throw error;
   }
+  // Published pages check in now and every minute while running (docs/pages.md).
+  state.pagePublishing.start(options.pagesCheckInIntervalMs ?? 60_000);
   extensionUi.on("request", requestListener);
   extensionUi.on("event", eventListener);
   extensionUi.on("settled", settledListener);
@@ -1448,13 +1403,14 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
     jobs: state.jobs,
     automations: state.automations,
     automationSettings: createWorkFoldAutomationSettingsFacade(state),
-    publications,
     recentlyDeleted,
+    pages: { checkIn: () => state.pagePublishing.checkIn() },
     close: async () => {
       state.acceptingTurns = false;
       // Withdraw the cadence before any await; already-admitted filesystem
       // cleanup remains owned until the close promise settles below.
       clearInterval(remoteUploadPruneTimer);
+      await state.pagePublishing.close();
       state.modelContextInspector.setEnabled(false);
       await closeMcpSetups(state);
       const browserActionsClosed = state.browserAppActions.close();
@@ -1501,7 +1457,7 @@ export async function startLocalApi(options: LocalApiOptions = {}): Promise<Loca
       await browserActionsClosed;
       await state.restrictedApps.close();
       await closeServer(server);
-      // In particular, startup request retention may still be writing its
+      // In particular, startup retention may still be writing its
       // durable lastPurgeAt even when no turn has ever run.
       await drainRetention();
     },
@@ -1515,6 +1471,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     res.end();
     return;
   }
+  // The page sandbox intermediary is static and content-free; a frame can't
+  // carry the session header (docs/pages.md, "How a page runs").
+  if (servePageFrameAsset(req, res)) return;
   authorize(state, req);
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const method = req.method ?? "GET";
@@ -1587,6 +1546,9 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, { appearance: state.appearance.snapshot() });
     return;
   }
+
+  // Page folders, their preview, and test entries (docs/pages.md, "Local API").
+  if (await handlePageRoute(req, res, url, { readJson: () => readJsonBody(state, req), publishing: pageRoutePublishing(state) })) return;
 
   const checksStatusMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/checks\/status$/);
   if (checksStatusMatch && method === "GET") {
@@ -2654,6 +2616,18 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
 
+  // Several Files rows into one folder under one restore point (2026-11-05).
+  const moveManyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/move-local-entries$/);
+  if (method === "POST" && moveManyMatch) {
+    const workFolder = await getWorkFolder(moveManyMatch[1]);
+    const body = await readJsonBody<{ sourcePaths?: unknown; targetFolderPath?: unknown }>(state, req);
+    const sourcePaths = workFolderPathList(body.sourcePaths, "Select files or folders to move.");
+    if (body.targetFolderPath !== undefined && typeof body.targetFolderPath !== "string") throw badRequest("Choose a folder to move them into.");
+    const result = await moveWorkFolderEntriesWithHistory(workFolder, sourcePaths, body.targetFolderPath ?? "");
+    sendJson(res, result);
+    return;
+  }
+
   const renameMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/rename-local-entry$/);
   if (method === "POST" && renameMatch) {
     const workFolder = await getWorkFolder(renameMatch[1]);
@@ -2728,6 +2702,28 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       ...(recovery.kind === "recently-deleted"
         ? { recentlyDeleted: { entryId: recovery.entryId, restoreBy: recovery.restoreBy, uncoveredCount: recovery.uncovered.length } }
         : {}),
+    });
+    return;
+  }
+
+  // Several Files rows under one restore point (2026-11-05): each row still
+  // gets its own receipt and its own History or Recently deleted recovery.
+  const deleteManyMatch = match(url.pathname, /^\/api\/work-folders\/([^/]+)\/local-files$/);
+  if (method === "DELETE" && deleteManyMatch) {
+    const workFolder = await getWorkFolder(deleteManyMatch[1]);
+    const body = await readJsonBody<{ paths?: unknown }>(state, req);
+    const paths = workFolderPathList(body.paths, "Select files or folders to delete.");
+    const result = await deleteWorkFolderEntriesWithRecovery(state, workFolder, paths);
+    sendJson(res, {
+      deleted: result.deleted.map(({ recovery, ...row }) => ({
+        ...row,
+        ...(recovery.kind === "recently-deleted"
+          ? { recentlyDeleted: { entryId: recovery.entryId, restoreBy: recovery.restoreBy, uncoveredCount: recovery.uncovered.length } }
+          : {}),
+      })),
+      safetyCheckpointId: result.safetyCheckpointId,
+      historySkippedPaths: result.deleted.flatMap((row) => row.recovery.kind === "recently-deleted" ? row.recovery.uncovered.map((file) => file.path) : []),
+      ...(result.failed ? { failed: result.failed, notDeleted: result.notDeleted } : {}),
     });
     return;
   }
@@ -2873,6 +2869,16 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     sendJson(res, await imageModelSettings(state));
     return;
   }
+  if (method === "GET" && url.pathname === "/api/agent/provider-account") {
+    const provider = url.searchParams.get("provider");
+    if (provider !== "openai" && provider !== "openai-codex") throw badRequest("Choose an OpenAI account connection.");
+    const scope = await modelScope(url.searchParams.get("scope"), url.searchParams.get("workFolderId"));
+    const runtime = await resolvePiRuntime(scope.workFolderRoot, state.runtimeProvider, { requestProjectTrust: false });
+    const account = await readOpenAiAccount(runtime, provider);
+    res.setHeader("Cache-Control", "no-store");
+    sendJson(res, { account });
+    return;
+  }
   if (method === "GET" && url.pathname === "/api/agent/models") {
     const workFolderId = url.searchParams.get("workFolderId");
     const scope = await modelScope(url.searchParams.get("scope"), workFolderId);
@@ -2886,7 +2892,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       status: normalizeStatus(status),
       providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
       catalogs: await listPiModelCatalogs(state.runtimeProvider),
-      azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider),
+      ...(await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider)),
       instructions: scope.id === workFoldAgentScopeId
         ? null
         : await getPiWorkerInstructions(scope.workFolderRoot, state.runtimeProvider),
@@ -2947,14 +2953,19 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     return;
   }
   if (method === "POST" && url.pathname === "/api/agent/configure") {
-    const body = await readJsonBody<{ workFolderId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown }>(state, req);
+    const body = await readJsonBody<{ workFolderId?: string; scope?: string; provider?: string; model?: string; apiKey?: string; azure?: unknown; foundry?: unknown }>(state, req);
     const scope = await modelScope(body.scope, body.workFolderId);
     if (!body.provider?.trim()) throw badRequest("A provider is required.");
-    if (!body.model?.trim() && !body.apiKey?.trim() && body.azure === undefined) throw badRequest("A model or API key is required.");
-    let azure: AzureOpenAIConnection | undefined;
+    if (!body.model?.trim() && !body.apiKey?.trim() && body.azure === undefined && body.foundry === undefined) throw badRequest("A model or API key is required.");
+    if (body.azure !== undefined && body.foundry !== undefined) throw badRequest("Submit one Foundry connection at a time.");
+    let azure: FoundryConnection | undefined;
     if (body.azure !== undefined) {
       if (body.provider !== AZURE_OPENAI_PROVIDER) throw badRequest("Azure settings require the Azure OpenAI provider.");
-      try { azure = normalizeAzureOpenAIConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+      try { azure = normalizeFoundryConnection(body.azure); } catch (error) { throw badRequest(errorMessage(error)); }
+    }
+    if (body.foundry !== undefined) {
+      if (!foundryProvider(body.provider)) throw badRequest("Foundry settings require a Microsoft Foundry provider.");
+      try { azure = normalizeFoundryConnection(body.foundry, body.provider); } catch (error) { throw badRequest(errorMessage(error)); }
     }
     const available = await listPiModels(scope.workFolderRoot, state.runtimeProvider);
     const selected = available.find((model) => model.provider === body.provider && model.id === body.model);
@@ -2962,14 +2973,14 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       if (body.model && !azure.deployments.includes(body.model)) throw badRequest("Choose one of the Azure deployment names you entered.");
     } else if (body.model && !selected) throw badRequest(`The selected Pi model is not available for ${scope.label}.`);
     const providerAuth = azure
-      ? available.some((model) => model.provider === body.provider && model.authConfigured)
+      ? (await getPiSetupStatus(scope.workFolderRoot, state.runtimeProvider)).providers.some((item) => item.id === body.provider && item.configured)
       : selected?.authConfigured;
     if (!body.apiKey?.trim() && !providerAuth) {
-      throw badRequest(`Enter an API key for ${selected?.providerName ?? "Azure OpenAI"}.`);
+      throw badRequest(`Enter an API key for ${selected?.providerName ?? foundryProvider(body.provider)?.name ?? body.provider}.`);
     }
     await runCapabilityMutation(state, scope, "global", async () => {
       if (azure) {
-        await saveAzureOpenAIConnection(scope.workFolderRoot, azure, body.apiKey, state.runtimeProvider);
+        await saveFoundryConnection(scope.workFolderRoot, azure, body.apiKey, state.runtimeProvider, body.provider!);
       } else if (body.apiKey?.trim()) {
         await savePiApiKey(scope.workFolderRoot, body.provider!, body.apiKey, { runtimeProvider: state.runtimeProvider });
         // A first connection also gives every Worker a model to start on.
@@ -2984,7 +2995,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       models: (await listPiModels(scope.workFolderRoot, state.runtimeProvider)).map((model) => ({
         ...model, oauthSupported: model.oauthSupported && Boolean(state.piOAuthHooks),
       })),
-      ...(azure ? { azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider) } : {}),
+      ...(azure ? await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider) : {}),
     });
     return;
   }
@@ -3000,7 +3011,7 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
       models: await listPiModels(scope.workFolderRoot, state.runtimeProvider),
       status: normalizeStatus(status),
       providers: providerSetupResponse(status, Boolean(state.piOAuthHooks)),
-      ...(body.provider === AZURE_OPENAI_PROVIDER ? { azure: await getAzureOpenAIConnection(scope.workFolderRoot, state.runtimeProvider) } : {}),
+      ...(foundryProvider(body.provider) ? await getFoundrySettings(scope.workFolderRoot, state.runtimeProvider) : {}),
     });
     return;
   }
@@ -3826,166 +3837,6 @@ async function handleRequest(state: LocalApiState, req: IncomingMessage, res: Se
     // or backward advance is a no-op, and a failed write only leaves items
     // rendering as new.
     sendJson(res, await state.overviewSeen.advance(body.surface, body.cursor));
-    return;
-  }
-
-  // Shared pages (docs/shared-pages.md, plan item 5): the
-  // desktop Settings surface over the publication authority. Reads list the
-  // grant records with their budgets, tallies, health notes, and page state;
-  // the narrowing verbs — revoke, cut budgets, snapshot off — are direct
-  // receipted acts minted with a per-request id and the main-window surface.
-  // Sharing a file from its tab and widening a page in place (raised
-  // budgets, sleep copy on) run the same domain paths as `pages share` and
-  // `pages widen`, receipted through the Settings act wrapper — a share
-  // executes on the click and leaves a receipt (docs/receipts-not-gates.md,
-  // F19). These routes sit behind the renderer session; the paired browser's
-  // closed remote operation set has no settings endpoint. The reveal route
-  // composes the share link's secret fragment on demand from the key store
-  // and returns it transiently — it is never listed, journaled, or logged.
-  if (url.pathname === "/api/settings/publications" && method === "GET") {
-    try {
-      const status = state.publications.status();
-      const views = status.damaged ? [] : await state.publications.list();
-      const publications = [];
-      for (const view of views) {
-        const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-        publications.push({ ...view, ...(registered ? { workFolderName: registered.name } : {}) });
-      }
-      sendJson(res, { publications, status });
-    } catch (error) {
-      sendPublicationError(res, error);
-    }
-    return;
-  }
-  if (url.pathname === "/api/settings/publications/share" && method === "POST") {
-    try {
-      const body = await readJsonBody<{ workFolderId?: unknown; path?: unknown; title?: unknown; snapshot?: unknown }>(state, req);
-      if (typeof body.workFolderId !== "string" || !body.workFolderId || typeof body.path !== "string" || typeof body.title !== "string") {
-        sendJson(res, { error: "A work-folder id, a file path, and a title are required to share a page." }, 400);
-        return;
-      }
-      const workFolder = await getWorkFolder(body.workFolderId).catch(() => null);
-      if (!workFolder) {
-        sendJson(res, { error: "That work-folder is not registered on this machine.", code: "WORK_FOLDER_NOT_REGISTERED" }, 404);
-        return;
-      }
-      const path = body.path;
-      const title = body.title;
-      const shared = await runDesktopSettingsAct(state, "pages.share", async (requestId) => {
-        const view = await sharePageFromDesktop(state, { workFolder, path, title, snapshot: body.snapshot === true }, {
-          surface: "main-window",
-          requestId,
-        });
-        return {
-          value: view,
-          detail: `Shared "${view.title}" (${view.workFolderId}:${view.relativePath}) as ${view.viewerPath}; `
-            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
-        };
-      });
-      const view = shared.value;
-      const revealable = view.state === "active" && Boolean(await state.publicationKeys.get(view.publicationId).catch(() => null));
-      sendJson(res, { publication: { ...view, workFolderName: workFolder.name }, revealable });
-    } catch (error) {
-      if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE) {
-        sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
-        return;
-      }
-      sendPublicationError(res, error);
-    }
-    return;
-  }
-  // Putting an installed Release-backed app at the address from Settings →
-  // Apps runs the same domain path as `pages share-app`: the viewer
-  // adapter's eligibility, the prepared `publish.viewer.expose` act with its
-  // journal, and the receipt (docs/shared-pages.md, rung 3).
-  if (url.pathname === "/api/settings/publications/share-app" && method === "POST") {
-    try {
-      const body = await readJsonBody<{ workFolderId?: unknown; instance?: unknown }>(state, req);
-      if (typeof body.workFolderId !== "string" || !body.workFolderId || typeof body.instance !== "string" || !body.instance.trim()) {
-        sendJson(res, { error: "A work-folder id and an installed app are required to share an app." }, 400);
-        return;
-      }
-      const workFolder = await getWorkFolder(body.workFolderId).catch(() => null);
-      if (!workFolder) {
-        sendJson(res, { error: "That work-folder is not registered on this machine.", code: "WORK_FOLDER_NOT_REGISTERED" }, 404);
-        return;
-      }
-      const instance = body.instance;
-      const shared = await runDesktopSettingsAct(state, "pages.share-app", async (requestId) => {
-        const view = await shareAppFromDesktop(state, { workFolder, instance }, { surface: "main-window", requestId });
-        return {
-          value: view,
-          detail: `Shared app "${view.title}" (App Instance ${view.app?.appInstanceId ?? instance}) as ${view.viewerPath}; `
-            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
-        };
-      });
-      const view = shared.value;
-      const revealable = view.state === "active" && Boolean(await state.publicationKeys.get(view.publicationId).catch(() => null));
-      sendJson(res, { publication: { ...view, workFolderName: workFolder.name }, revealable });
-    } catch (error) {
-      if (error instanceof WorkFoldCliError && error.message === WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE) {
-        sendJson(res, { error: error.message, code: "NO_ADDRESS" }, 409);
-        return;
-      }
-      sendPublicationError(res, error);
-    }
-    return;
-  }
-  const publicationSettingsMatch = match(url.pathname, /^\/api\/settings\/publications\/([^/]+)\/(reveal-link|revoke|narrow|widen|snapshot-off)$/);
-  if (publicationSettingsMatch && method === "POST") {
-    const publicationId = publicationSettingsMatch[1];
-    const action = publicationSettingsMatch[2];
-    try {
-      if (action === "reveal-link") {
-        await readJsonBody<Record<string, never>>(state, req);
-        sendJson(res, await state.publications.revealLink(publicationId));
-        return;
-      }
-      // A per-request id keeps each Settings act its own journal entry;
-      // surface main-window records where the human clicked.
-      const context = { requestId: `settings:${randomUUID()}`, surface: "main-window" as const };
-      if (action === "revoke") {
-        await readJsonBody<Record<string, never>>(state, req);
-        sendJson(res, { publication: await state.publications.revoke(publicationId, context) });
-        return;
-      }
-      if (action === "snapshot-off") {
-        await readJsonBody<Record<string, never>>(state, req);
-        sendJson(res, { publication: await state.publications.disableSnapshot(publicationId, context) });
-        return;
-      }
-      if (action === "widen") {
-        const body = await readJsonBody<{ serveRatePerMinute?: unknown; byteBudgetPerDay?: unknown; snapshotEnabled?: unknown }>(state, req);
-        if (body.snapshotEnabled !== undefined && body.snapshotEnabled !== true) {
-          sendJson(res, { error: "Widening can only turn the sleep copy on; turning it off is snapshot-off.", code: "INPUT_INVALID" }, 400);
-          return;
-        }
-        const widenInput: { serveRatePerMinute?: number; byteBudgetPerDay?: number; snapshotEnabled?: true } = {};
-        if (body.serveRatePerMinute !== undefined) widenInput.serveRatePerMinute = Number(body.serveRatePerMinute);
-        if (body.byteBudgetPerDay !== undefined) widenInput.byteBudgetPerDay = Number(body.byteBudgetPerDay);
-        if (body.snapshotEnabled === true) widenInput.snapshotEnabled = true;
-        // The same slot, key, and link: the widening is the service's own
-        // journaled verb, run under the Settings act's minted id.
-        const widened = await runDesktopSettingsAct(state, "pages.widen", async (requestId) => {
-          const publication = await state.publications.widen(publicationId, widenInput, { requestId, surface: "main-window" });
-          return {
-            value: publication,
-            detail: `Widened ${publication.viewerPath}: serveRatePerMinute=${publication.serveRatePerMinute} `
-              + `byteBudgetPerDay=${publication.byteBudgetPerDay} snapshot=${publication.snapshotEnabled ? "on" : "off"}.`,
-          };
-        });
-        sendJson(res, { publication: widened.value });
-        return;
-      }
-      const body = await readJsonBody<{ serveRatePerMinute?: unknown; byteBudgetPerDay?: unknown }>(state, req);
-      const narrowInput: { serveRatePerMinute?: number; byteBudgetPerDay?: number } = {};
-      if (body.serveRatePerMinute !== undefined) narrowInput.serveRatePerMinute = Number(body.serveRatePerMinute);
-      if (body.byteBudgetPerDay !== undefined) narrowInput.byteBudgetPerDay = Number(body.byteBudgetPerDay);
-      sendJson(res, { publication: await state.publications.narrowBudgets(publicationId, narrowInput, context) });
-      return;
-    } catch (error) {
-      sendPublicationError(res, error);
-    }
     return;
   }
 
@@ -5512,23 +5363,6 @@ async function removeWorkFolderRegistrationInternal(
       if (impact.retainedDataCount > 0) {
         throw badRequest("Purge this App Project's retained local data in App Studio before removing its source work-folder.");
       }
-      // Outward exposure blocks removal: a page served from this work-folder must be
-      // revoked first, and a damaged publication store cannot prove the work-folder
-      // is unpublished, so both refuse here before any state changes.
-      let livePublications;
-      try {
-        livePublications = await state.publications.activePublicationsForWorkFolder(workFolder.id);
-      } catch (error) {
-        throw httpError(409, errorMessage(error));
-      }
-      if (livePublications.length) {
-        const named = livePublications.slice(0, 3).map((publication) => `"${publication.title}"`).join(", ");
-        const more = livePublications.length > 3 ? ", …" : "";
-        throw badRequest(
-          `Stop sharing ${livePublications.length === 1 ? "the page" : `${livePublications.length} pages`} `
-            + `served from this work-folder before removing it: ${named}${more}.`,
-        );
-      }
       await stopComputerSharingForScope(state, workFolder.workFolderRoot, workFolder.id);
       const intent = await beginWorkFolderRemoval(workFolder.id, state.workFolderBase, removal.io, {
         ...(options.managedFolderDisposition ? { folderDisposition: options.managedFolderDisposition } : {}),
@@ -5793,7 +5627,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             // Capability advertisement: the browser starts a live watch only
             // after seeing this, so an older desktop is never asked for an
             // operation it cannot answer.
-            capabilities: { watch: true, work: true, extensionUi: true, delete: true, sharedPages: true, filePreview: true, appViews: true, steer: true },
+            capabilities: { watch: true, work: true, extensionUi: true, delete: true, filePreview: true, appViews: true, steer: true },
             extensionRequests: owned && latest ? remoteExtensionRequests(state, latest) : [],
           };
         }
@@ -5813,7 +5647,7 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
               };
             })),
             truncated: selected.length < conversations.length,
-            capabilities: { sharedPages: true, filePreview: true, appViews: true, steer: true },
+            capabilities: { filePreview: true, appViews: true, steer: true },
           };
         }
         case "management.transcript": {
@@ -6055,16 +5889,6 @@ function createWorkFoldRemoteFacade(state: LocalApiState): WorkFoldRemoteFacade 
             throw badRequest("A rendered overview cursor is required to mark seen.");
           }
           return await state.overviewSeen.advance(workFoldOverviewRemoteSurfaceId(principal.grantId), input.cursor);
-        }
-        case "pages.list": {
-          assertRemoteKeys(input, []);
-          const pages = (await state.publications.list()).filter((page) => page.state === "active").slice(0, 32);
-          return { pages: pages.map(({ publicationId, title, kind, health, snapshotEnabled }) => ({ publicationId, title, kind, health, snapshotEnabled })) };
-        }
-        case "pages.link": {
-          assertRemoteKeys(input, ["publicationId"]);
-          const publicationId = remoteStableId(input.publicationId, "Publication id", 128);
-          return state.publications.revealLink(publicationId);
         }
         case "work-folders.list": {
           assertRemoteKeys(input, []);
@@ -7522,6 +7346,52 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
         skippedLargeFileCount: result.skippedLargeFiles.length,
       };
     },
+    async pagesValidate(input) {
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      return runActOperation(() => validatePageForAct(toActWorkFolderRef(workFolder), input.page));
+    },
+    async pagesPublish(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      assertNoAutomationPublishing(state, input.parentTaskId);
+      const requestId = input.requestId?.trim() || randomUUID();
+      const result = await runActOperation(() => runPageActOperation(() => publishPageAct(state, { workFolder, page: input.page, requestId })));
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.publish", workFolder });
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        publication: { path: result.path, title: result.title, idPrefix: result.idPrefix, ...result.publication },
+        uploaded: result.uploaded,
+      };
+    },
+    async pagesUnpublish(input) {
+      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
+      const workFolder = await resolveWorkFolder(input.workFolder);
+      const result = await runActOperation(() => runPageActOperation(() => state.pagePublishing.unpublish(workFolder, input.page)));
+      await recordFacadeAction(state, input.parentTaskId, { command: "pages.unpublish", workFolder });
+      return {
+        workFolder: toActWorkFolderRef(workFolder),
+        publication: { path: result.record.path, title: result.record.title, ...await state.pagePublishing.actView(result.record, workFolder.workFolderRoot) },
+      };
+    },
+    async pagesList(input) {
+      const only = input.workFolder ? await resolveWorkFolder(input.workFolder) : null;
+      const records = (await runActOperation(() => state.pagePublishing.store.list()))
+        .filter((record) => record.publishedAt && (!only || record.workFolderId === only.id));
+      const registered = new Map((await registeredWorkFolderOutline()).map((workFolder) => [workFolder.id, workFolder]));
+      const publications = [];
+      for (const record of records) {
+        const workFolder = registered.get(record.workFolderId) ?? null;
+        publications.push({
+          workFolderId: record.workFolderId,
+          workFolderName: workFolder?.name ?? null,
+          path: record.path,
+          title: record.title,
+          ...await state.pagePublishing.actView(record, workFolder?.workFolderRoot ?? null),
+        });
+      }
+      publications.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "") || a.path.localeCompare(b.path, "en"));
+      return { publications };
+    },
     async historyVersions(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
       const path = input.path.trim();
@@ -7765,8 +7635,8 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       const workFolder = await resolveWorkFolder(input.workFolder);
       const storage = workFolder.location.storage;
       // Both storage kinds run the same removal orchestration — App Studio
-      // impact checks, publication blocks, automation suspension, durable
-      // intent, app-state cleanup. A managed work-folder records a
+      // impact checks, automation suspension, durable intent, app-state
+      // cleanup. A managed work-folder records a
       // preserve-disposition intent that provably holds no deletion
       // authority, so the folder and its portable `.work-fold/` identity
       // remain exactly as they do for a linked registration; deleting the
@@ -8284,28 +8154,13 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       }
       // The same read-only impact checks the removal orchestration runs
       // (docs/act-ledger.md, conflict rule 4): the verb refuses what the
-      // desktop removal would refuse, including the live-publication block.
+      // desktop removal would refuse.
       const impact = await runActOperation(() => state.restrictedApps.workFolderRemovalImpact(workFolder.id));
       if (impact.activeSourceInstanceCount > 0 || impact.activeTargetInstanceCount > 0) {
         throw new WorkFoldCliError("conflict", "Uninstall release-backed Apps from this work-folder before deleting it.");
       }
       if (impact.retainedDataCount > 0) {
         throw new WorkFoldCliError("conflict", "Purge this App Project's retained local data in App Studio before deleting its source work-folder.");
-      }
-      let livePublications;
-      try {
-        livePublications = await state.publications.activePublicationsForWorkFolder(workFolder.id);
-      } catch (error) {
-        throw new WorkFoldCliError("conflict", errorMessage(error), { cause: error });
-      }
-      if (livePublications.length) {
-        const named = livePublications.slice(0, 3).map((publication) => `"${publication.title}"`).join(", ");
-        const more = livePublications.length > 3 ? ", …" : "";
-        throw new WorkFoldCliError(
-          "conflict",
-          `Stop sharing ${livePublications.length === 1 ? "the page" : `${livePublications.length} pages`} `
-            + `served from this work-folder before deleting it: ${named}${more}.`,
-        );
       }
       const context: PreparedActOutcome<WorkFolderRemovalResult & {
         recentlyDeleted: { entryId: string; restoreBy: string } | null;
@@ -8869,33 +8724,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
       await recordFacadeAction(state, input.parentTaskId, { command: "automations.enable" });
       return enabled;
     },
-    async pagesShare(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const workFolder = await resolveWorkFolder(input.workFolder);
-      const view = await sharePageFromDesktop(state, {
-        workFolder,
-        path: input.path,
-        title: input.title,
-        snapshot: input.snapshot === true,
-      }, {
-        surface: "cli",
-        ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
-        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-      });
-      await recordFacadeAction(state, input.parentTaskId, { command: "pages.share", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(view, workFolder.name) };
-    },
-    async pagesShareApp(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const workFolder = await resolveWorkFolder(input.workFolder);
-      const view = await shareAppFromDesktop(state, { workFolder, instance: input.instance }, {
-        surface: "cli",
-        ...(input.parentTaskId !== undefined ? { parentTaskId: input.parentTaskId } : {}),
-        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
-      });
-      await recordFacadeAction(state, input.parentTaskId, { command: "pages.share-app", workFolder });
-      return { workFolder: toActWorkFolderRef(workFolder), publication: toActPublicationRef(view, workFolder.name) };
-    },
     async recentlyDeletedList() {
       const listing = await runActOperation(() => state.recentlyDeleted.list());
       const registered = new Set((await listWorkFolders()).map((workFolder) => workFolder.id));
@@ -9064,94 +8892,6 @@ function createWorkFoldActFacade(state: LocalApiState): WorkFoldActFacade {
     async automationsReceipts(input) {
       const projection = await readAutomationReceiptProjection(input.automation?.trim());
       return { ...projection, receipts: [...projection.receipts].reverse() };
-    },
-    async pagesList() {
-      const views = await runActOperation(() => state.publications.list());
-      const workFolderNames = new Map<string, string>();
-      for (const view of views) {
-        if (workFolderNames.has(view.workFolderId)) continue;
-        const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-        if (registered) workFolderNames.set(view.workFolderId, registered.name);
-      }
-      return { publications: views.map((view) => toActPublicationRef(view, workFolderNames.get(view.workFolderId))) };
-    },
-    async pagesStatus(input) {
-      const publicationId = input.publication.trim();
-      const view = await runActOperation(() => state.publications.get(publicationId));
-      if (!view) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
-      const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-      return { publication: toActPublicationRef(view, registered?.name) };
-    },
-    async pagesRevoke(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const publicationId = input.publication.trim();
-      const prior = await runActOperation(() => state.publications.get(publicationId));
-      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
-      const registered = await getWorkFolder(prior.workFolderId).catch(() => null);
-      if (prior.state !== "active") {
-        return { publication: toActPublicationRef(prior, registered?.name), alreadyRevoked: true };
-      }
-      const view = await runActOperation(() => state.publications.revoke(publicationId, {
-        requestId: input.requestId ?? randomUUID(),
-        surface: "cli",
-        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-      }));
-      return { publication: toActPublicationRef(view, registered?.name), alreadyRevoked: false };
-    },
-    async pagesNarrow(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const publicationId = input.publication.trim();
-      const prior = await runActOperation(() => state.publications.get(publicationId));
-      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
-      const view = await runActOperation(() => state.publications.narrowBudgets(publicationId, {
-        ...(input.serveRatePerMinute !== undefined ? { serveRatePerMinute: input.serveRatePerMinute } : {}),
-        ...(input.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: input.byteBudgetPerDay } : {}),
-      }, {
-        requestId: input.requestId ?? randomUUID(),
-        surface: "cli",
-        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-      }));
-      const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-      return {
-        publication: toActPublicationRef(view, registered?.name),
-        priorServeRatePerMinute: prior.serveRatePerMinute,
-        priorByteBudgetPerDay: prior.byteBudgetPerDay,
-      };
-    },
-    async pagesWiden(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const publicationId = input.publication.trim();
-      const prior = await runActOperation(() => state.publications.get(publicationId));
-      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
-      const view = await runPublicationActOperation(() => state.publications.widen(publicationId, {
-        ...(input.serveRatePerMinute !== undefined ? { serveRatePerMinute: input.serveRatePerMinute } : {}),
-        ...(input.byteBudgetPerDay !== undefined ? { byteBudgetPerDay: input.byteBudgetPerDay } : {}),
-        ...(input.snapshot === true ? { snapshotEnabled: true as const } : {}),
-      }, {
-        requestId: input.requestId ?? randomUUID(),
-        surface: "cli",
-        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-      }));
-      const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-      return {
-        publication: toActPublicationRef(view, registered?.name),
-        priorServeRatePerMinute: prior.serveRatePerMinute,
-        priorByteBudgetPerDay: prior.byteBudgetPerDay,
-        priorSnapshotEnabled: prior.snapshotEnabled,
-      };
-    },
-    async pagesSnapshotOff(input) {
-      assertWorkFoldAgentParentAccepting(state, input.parentTaskId);
-      const publicationId = input.publication.trim();
-      const prior = await runActOperation(() => state.publications.get(publicationId));
-      if (!prior) throw new WorkFoldCliError("notFound", "No publication has this id on this machine.");
-      const view = await runActOperation(() => state.publications.disableSnapshot(publicationId, {
-        requestId: input.requestId ?? randomUUID(),
-        surface: "cli",
-        ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-      }));
-      const registered = await getWorkFolder(view.workFolderId).catch(() => null);
-      return { publication: toActPublicationRef(view, registered?.name), wasEnabled: prior.snapshotEnabled };
     },
     async checksEnable(input) {
       const workFolder = await resolveWorkFolder(input.workFolder);
@@ -10107,44 +9847,246 @@ async function deleteSettledWorkFolderEntryWithRecovery(
     reason: "pre_delete",
     label: `Before deleting ${target}`,
   });
-  return runWithHistorySafety(workFolder.workFolderRoot, safety.checkpointId, async () => {
-    if (!safety.skippedFiles.length) {
-      const deleted = await deleteWorkFolderEntry(workFolder.workFolderRoot, target);
-      return { ...deleted, safetyCheckpointId: safety.checkpointId, recovery: { kind: "history" as const } };
-    }
-    const entry = await resolveWorkFolderDeleteTarget(workFolder.workFolderRoot, target);
-    const uncovered: WorkFoldRecentlyDeletedUncoveredPath[] = safety.skippedFiles.map((file) => ({
-      path: file.path,
-      reason: file.reason,
-    }));
-    let trashed: WorkFoldRecentlyDeletedEntry;
-    try {
-      trashed = await state.recentlyDeleted.moveTreeToRecentlyDeleted({
-        kind: entry.kind,
-        reason: "files.delete",
-        sourcePath: entry.absolutePath,
-        workFolderId: workFolder.id,
-        workFolderName: workFolder.name,
-        originalPath: entry.path,
-        receiptId: context.receiptId,
-        uncovered,
-      });
-    } catch (error) {
-      throw new WorkFoldCliError(
-        "failure",
-        `work-fold could not move ${entry.path} to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
-        { cause: error },
-      );
-    }
-    await touchWorkFolderRoot(workFolder.workFolderRoot).catch(() => undefined);
-    return {
-      deleted: true as const,
-      path: entry.path,
+  return runWithHistorySafety(workFolder.workFolderRoot, safety.checkpointId, () => applyWorkFolderDelete(
+    state,
+    workFolder,
+    target,
+    safety.skippedFiles.map((file) => ({ path: file.path, reason: file.reason })),
+    safety.checkpointId,
+    context,
+  ));
+}
+
+/**
+ * One delete under a restore point already taken: erased when History kept a
+ * copy of all of it, else moved whole into Recently deleted with the files
+ * History could not keep. One row and each row of a several-row delete run it.
+ */
+async function applyWorkFolderDelete(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  target: string,
+  uncovered: WorkFoldRecentlyDeletedUncoveredPath[],
+  safetyCheckpointId: string,
+  context: { receiptId: string | null },
+): Promise<WorkFoldDeleteResult> {
+  if (!uncovered.length) {
+    const deleted = await deleteWorkFolderEntry(workFolder.workFolderRoot, target);
+    return { ...deleted, safetyCheckpointId, recovery: { kind: "history" as const } };
+  }
+  const entry = await resolveWorkFolderDeleteTarget(workFolder.workFolderRoot, target);
+  let trashed: WorkFoldRecentlyDeletedEntry;
+  try {
+    trashed = await state.recentlyDeleted.moveTreeToRecentlyDeleted({
       kind: entry.kind,
-      safetyCheckpointId: safety.checkpointId,
-      recovery: { kind: "recently-deleted" as const, entryId: trashed.id, restoreBy: trashed.restoreBy, uncovered },
-    };
+      reason: "files.delete",
+      sourcePath: entry.absolutePath,
+      workFolderId: workFolder.id,
+      workFolderName: workFolder.name,
+      originalPath: entry.path,
+      receiptId: context.receiptId,
+      uncovered,
+    });
+  } catch (error) {
+    throw new WorkFoldCliError(
+      "failure",
+      `work-fold could not move ${entry.path} to Recently deleted: ${errorMessage(error)}. Nothing was deleted.`,
+      { cause: error },
+    );
+  }
+  await touchWorkFolderRoot(workFolder.workFolderRoot).catch(() => undefined);
+  return {
+    deleted: true as const,
+    path: entry.path,
+    kind: entry.kind,
+    safetyCheckpointId,
+    recovery: { kind: "recently-deleted" as const, entryId: trashed.id, restoreBy: trashed.restoreBy, uncovered },
+  };
+}
+
+/** A JSON list of work-folder paths from a request body. */
+function workFolderPathList(value: unknown, emptyMessage: string): string[] {
+  if (!Array.isArray(value) || !value.length) throw badRequest(emptyMessage);
+  if (value.some((path) => typeof path !== "string" || !path.trim())) throw badRequest("Each item must be a work-folder path.");
+  return value as string[];
+}
+
+export interface WorkFoldBatchDeleteResult {
+  deleted: Array<WorkFoldDeleteResult & { receiptId: string }>;
+  safetyCheckpointId: string;
+  /** Set when a row failed after earlier rows were deleted; the restore point still covers every row. */
+  failed?: { path: string; error: string };
+  notDeleted?: string[];
+}
+
+/**
+ * Several rows deleted under one History restore point (2026-11-05). Each row
+ * keeps what one delete has: the busy refusal and the shared active-work
+ * reservation held through every effect, the same path checks, its own
+ * receipt, and History or Recently deleted for whatever History cannot keep.
+ *
+ * Every row is checked before anything is deleted. If a row still fails
+ * partway, the rows already deleted stay deleted, the rest are left alone, and
+ * the one restore point, which covers every row, brings back what was
+ * deleted. When the first row fails, nothing was deleted and the restore point
+ * is discarded, exactly as for one row. A row inside another row is deleted
+ * with it.
+ */
+async function deleteWorkFolderEntriesWithRecovery(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  targets: readonly string[],
+): Promise<WorkFoldBatchDeleteResult> {
+  reserveCapabilityMutation(state, workFolder.id, "project", workFolder.id);
+  try {
+    return await runSettledWorkFolderDeletion(state, workFolder.id, () => deleteSettledWorkFolderEntries(state, workFolder, targets));
+  } finally {
+    state.capabilityMutations.delete(workFolder.id);
+  }
+}
+
+async function deleteSettledWorkFolderEntries(
+  state: LocalApiState,
+  workFolder: WorkFolderSummary,
+  targets: readonly string[],
+): Promise<WorkFoldBatchDeleteResult> {
+  const root = workFolder.workFolderRoot;
+  const paths = outermostWorkFolderPaths(targets);
+  if (!paths.length) throw badRequest("Select files or folders to delete.");
+  const entries: Array<{ absolutePath: string; path: string; kind: "file" | "folder" }> = [];
+  for (const path of paths) entries.push(await resolveWorkFolderDeleteTarget(root, path));
+  const safety = await createWorkFolderMutationCheckpoint(root, {
+    paths: entries.map((entry) => entry.path),
+    reason: "pre_delete",
+    label: entries.length === 1 ? `Before deleting ${entries[0]!.path}` : `Before deleting ${entries.length} items`,
   });
+  // History names the files it could not keep the way it names its capture
+  // roots; each one belongs to exactly one row.
+  const historyRoot = ensureSafeWorkFolderRoot(root);
+  const capturedAs = entries.map((entry) => relative(historyRoot, entry.absolutePath).split(sep).join("/"));
+  const uncovered = entries.map((): WorkFoldRecentlyDeletedUncoveredPath[] => []);
+  for (const file of safety.skippedFiles) {
+    const row = capturedAs.findIndex((path) => file.path === path || file.path.startsWith(`${path}/`));
+    if (row < 0) {
+      await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+      throw new WorkFoldCliError("failure", `work-fold could not tell which item ${file.path} belongs to. Nothing was deleted.`);
+    }
+    uncovered[row]!.push({ path: file.path, reason: file.reason });
+  }
+  const deleted: WorkFoldBatchDeleteResult["deleted"] = [];
+  for (const [index, entry] of entries.entries()) {
+    try {
+      const row = await runDesktopSettingsAct(state, "files.delete", async (requestId) => {
+        const value = await applyWorkFolderDelete(state, workFolder, entry.path, uncovered[index]!, safety.checkpointId, { receiptId: requestId });
+        return {
+          value,
+          detail: value.recovery.kind === "recently-deleted"
+            ? `work-folder ${workFolder.id}; trash ${value.recovery.entryId}`
+            : `work-folder ${workFolder.id}; checkpoint ${value.safetyCheckpointId}`,
+        };
+      });
+      deleted.push({ ...row.value, receiptId: row.requestId });
+    } catch (error) {
+      if (!deleted.length) {
+        await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+        throw error;
+      }
+      return {
+        deleted,
+        safetyCheckpointId: safety.checkpointId,
+        failed: { path: entry.path, error: errorMessage(error) },
+        notDeleted: entries.slice(index + 1).map((item) => item.path),
+      };
+    }
+  }
+  return { deleted, safetyCheckpointId: safety.checkpointId };
+}
+
+export interface WorkFoldBatchMoveResult {
+  moved: WorkFolderMovedEntry[];
+  safetyCheckpointId: string;
+  historySkippedPaths: string[];
+  /** Set when an item failed after others had moved; the restore point then names exactly the moves that happened. */
+  failed?: { path: string; error: string };
+  notMoved?: string[];
+}
+
+/**
+ * Several items moved into one folder under one History restore point
+ * (2026-11-05). Every item passes every check one move makes before any of
+ * them moves, then each runs through `moveWorkFolderEntry`, the move one item
+ * takes. If one still fails partway, the items already moved stay moved, the
+ * rest stay put, and the restore point is replaced by one that names exactly
+ * the moves that happened, so restoring it undoes them. When the first item
+ * fails, nothing moved and the restore point is discarded, as for one item.
+ * An item inside another item moves with it.
+ */
+async function moveWorkFolderEntriesWithHistory(
+  workFolder: WorkFolderSummary,
+  sourcePaths: readonly string[],
+  targetFolderPath: string,
+): Promise<WorkFoldBatchMoveResult> {
+  const root = workFolder.workFolderRoot;
+  const sources = outermostWorkFolderPaths(sourcePaths);
+  if (!sources.length) throw badRequest("Select files or folders to move.");
+  const plans = await checkWorkFolderMoves(root, sources, targetFolderPath);
+  const label = plans.length === 1 ? `Before moving ${plans[0]!.fromPath}` : `Before moving ${plans.length} items`;
+  const safety = await createWorkFolderMutationCheckpoint(root, {
+    movesOnRestore: plans.map((plan) => ({ fromPath: plan.toPath, toPath: plan.fromPath })),
+    reason: "pre_move",
+    label,
+  });
+  const moved: WorkFolderMovedEntry[] = [];
+  for (const [index, plan] of plans.entries()) {
+    try {
+      moved.push(await moveWorkFolderEntry(root, { sourcePath: plan.fromPath, targetFolderPath }));
+    } catch (error) {
+      if (!moved.length) {
+        await discardWorkFolderCheckpoint(root, safety.checkpointId).catch(() => undefined);
+        throw error;
+      }
+      const kept = await restorePointForMoves(root, moved, label, safety.checkpointId, error);
+      return {
+        moved,
+        safetyCheckpointId: kept.checkpointId,
+        historySkippedPaths: kept.skippedLargeFiles,
+        failed: { path: plan.fromPath, error: errorMessage(error) },
+        notMoved: plans.slice(index + 1).map((item) => item.fromPath),
+      };
+    }
+  }
+  return { moved, safetyCheckpointId: safety.checkpointId, historySkippedPaths: safety.skippedLargeFiles };
+}
+
+/**
+ * The restore point for a several-item move that stopped partway: it names
+ * only the moves that happened, because History will not undo a move whose
+ * item is not where the move put it. If that record cannot be written, the
+ * moves are put back so nothing is left moved without a restore point.
+ */
+async function restorePointForMoves(
+  root: string,
+  moved: readonly WorkFolderMovedEntry[],
+  label: string,
+  plannedCheckpointId: string,
+  cause: unknown,
+): Promise<Awaited<ReturnType<typeof createWorkFolderMutationCheckpoint>>> {
+  try {
+    const kept = await createWorkFolderMutationCheckpoint(root, {
+      movesOnRestore: moved.map((item) => ({ fromPath: item.path, toPath: item.fromPath })),
+      reason: "pre_move",
+      label,
+    });
+    await discardWorkFolderCheckpoint(root, plannedCheckpointId).catch(() => undefined);
+    return kept;
+  } catch (recordError) {
+    for (const item of [...moved].reverse()) {
+      const parent = item.fromPath.includes("/") ? item.fromPath.slice(0, item.fromPath.lastIndexOf("/")) : "";
+      await moveWorkFolderEntry(root, { sourcePath: item.path, targetFolderPath: parent });
+    }
+    await discardWorkFolderCheckpoint(root, plannedCheckpointId).catch(() => undefined);
+    throw new WorkFoldCliError("failure", `${errorMessage(cause)} History could not record the moves (${errorMessage(recordError)}), so they were put back.`, { cause });
+  }
 }
 
 /**
@@ -11438,37 +11380,6 @@ function automationSettingsEvidence(receipt: WorkFoldActAutomationReceipt): Arra
     evidence.push({ label: "Filled in", value: receipt.placeholders.map((placeholder) => placeholder.name).join(", ") });
   }
   return evidence;
-}
-
-function toActPublicationRef(view: WorkFoldPublicationView, workFolderName?: string) {
-  return {
-    publicationId: view.publicationId,
-    kind: view.kind,
-    workFolderId: view.workFolderId,
-    ...(workFolderName ? { workFolderName } : {}),
-    ...(view.relativePath !== undefined ? { relativePath: view.relativePath } : {}),
-    ...(view.app
-      ? {
-        appInstanceId: view.app.appInstanceId,
-        releaseDigest: view.app.releaseDigest,
-        viewerEntry: view.app.viewerEntry,
-        viewerSurface: [...view.app.viewerSurface],
-      }
-      : {}),
-    title: view.title,
-    state: view.state,
-    live: view.live,
-    serveRatePerMinute: view.serveRatePerMinute,
-    byteBudgetPerDay: view.byteBudgetPerDay,
-    snapshotEnabled: view.snapshotEnabled,
-    createdAt: view.createdAt,
-    updatedAt: view.updatedAt,
-    ...(view.revokedAt ? { revokedAt: view.revokedAt } : {}),
-    ...(view.expiresAt ? { expiresAt: view.expiresAt } : {}),
-    bridgeSlot: view.bridgeSlot,
-    ...(view.bridgeCleanup ? { bridgeCleanup: view.bridgeCleanup } : {}),
-    viewerPath: view.viewerPath,
-  };
 }
 
 async function runActOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -13403,6 +13314,15 @@ async function getClient(
   const operationsGuide = workFolderOperationsGuideForScope(workFolderId);
   const client = new PiConversationClient(conversationId, workFolderRoot, state.runtimeProvider, hostCapabilities, {
     role: workFolderId === workFoldAgentScopeId ? "work-fold-agent" : "worker",
+    async onContextCompacted() {
+      const chatMessage: ChatMessage = {
+        id: randomUUID(), role: "system", kind: "context_compaction",
+        content: "Conversation context compacted. Earlier messages were summarized to make room; your chat history is still available.",
+        createdAt: new Date().toISOString(),
+      };
+      await appendMessage(workFolderRoot, conversationId, chatMessage);
+      broadcast(state, streamKey(workFolderId, conversationId), { type: "context_compacted", conversationId, chatMessage });
+    },
     ...(operationsGuide ? { operationsGuide } : {}),
     imageModel: () => state.imageModelPreference.get(),
     // A Worker Chat shows its pictures inline; the work-fold agent's panel does not yet.
@@ -13838,32 +13758,10 @@ function hasActiveCapabilityWorkForWorkFolder(state: LocalApiState, workFolderId
 
 // ---------------------------------------------------------------------------
 // Fold wiring: the prepared-act fence and adapters, the automation executor's
-// hop ports, the publication key fallback, and the overview's live-registry
-// source readers. All of it is constructed by startLocalApi over the same shared
-// state (and the same fences) the HTTP routes and the act facade use.
+// hop ports, and the overview's live-registry source readers. All of it is
+// constructed by startLocalApi over the same shared state (and the same
+// fences) the HTTP routes and the act facade use.
 // ---------------------------------------------------------------------------
-
-/**
- * Development fallback only: keys live for this app run and pages served
- * under them stop decrypting after restart until the redrive lane mints a
- * fresh key. The desktop always injects the operating-system-encrypted
- * secure-settings store (`desktop/src/settings.ts`), where publication keys
- * durably belong as Remote access material.
- */
-function createEphemeralPublicationKeyStore(): WorkFoldPublicationKeyStore {
-  const keys = new Map<string, string>();
-  return {
-    async get(publicationId) {
-      return keys.get(publicationId) ?? null;
-    },
-    async set(publicationId, keyBase64Url) {
-      keys.set(publicationId, keyBase64Url);
-    },
-    async remove(publicationId) {
-      keys.delete(publicationId);
-    },
-  };
-}
 
 /** The neutral app-owned root global capability mutations resolve against. */
 function capabilityGlobalMutationScope(): { id: string; workFolderRoot: string } {
@@ -13879,29 +13777,11 @@ function capabilityGlobalMutationScope(): { id: string; workFolderRoot: string }
 // lineage, and the automation enablement path Settings and the act lane share.
 // ---------------------------------------------------------------------------
 
-/** Publication route refusals, with the store's typed code preserved. */
-function sendPublicationError(res: ServerResponse, error: unknown): void {
-  if (error instanceof WorkFoldPublicationError) {
-    const status = error.code === "INPUT_INVALID" || error.code === "WIDEN_REFUSED" || error.code === "SOURCE_INVALID"
-      ? 400
-      : error.code === "NOT_FOUND"
-        ? 404
-        : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP" || error.code === "KEY_MISSING"
-          ? 409
-          : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
-            ? 503
-            : 500;
-    sendJson(res, { error: error.message, code: error.code }, status);
-    return;
-  }
-  sendError(res, error);
-}
-
 /**
- * Attribution the prepared-act verbs thread into automation grants and
- * publication receipts: the initiating surface plus, when the work-fold agent
- * request behind the act arrived through Web Access, the paired browser
- * identity (docs/receipts-not-gates.md, F19; docs/shared-pages.md).
+ * Attribution the prepared-act verbs thread into automation grants: the
+ * initiating surface plus, when the work-fold agent request behind the act
+ * arrived through Web Access, the paired browser identity
+ * (docs/receipts-not-gates.md, F19).
  */
 function preparedActAttribution(
   state: LocalApiState,
@@ -14156,188 +14036,6 @@ function capabilityResourceSummary(details: {
 }
 
 /**
- * The one share-a-page path (docs/shared-pages.md, rung 2) behind both
- * `pages share` on the act lane and Settings' share route from a file tab:
- * the same title bound, the same refusal when this desktop has no address
- * to serve at, the same source verification and already-shared refusal, and
- * the same `publish.viewer.expose` prepared act — pins rechecked at effect
- * time, activation journaled under `<request>:activate`. The caller owns the
- * outer receipt: the act protocol on the act lane, the Settings act wrapper
- * on the desktop. Returns the activated publication view.
- */
-async function sharePageFromDesktop(
-  state: LocalApiState,
-  input: { workFolder: WorkFolderSummary; path: string; title: string; snapshot: boolean },
-  context: { surface: WorkFoldCliActSurface; parentTaskId?: string; requestId?: string },
-): Promise<WorkFoldPublicationView> {
-  const { workFolder } = input;
-  const title = input.title.trim();
-  if (!title || title.length > WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH || /[\r\n]/.test(title)) {
-    throw new WorkFoldCliError(
-      "usage",
-      `A page title of 1 through ${WORKFOLD_PUBLICATION_TITLE_MAX_LENGTH} characters is required.`,
-    );
-  }
-  const status = state.publications.status();
-  if (status.damaged) {
-    throw new WorkFoldCliError("failure", `work-fold cannot share a page: ${status.damageReason ?? "the publication store is damaged."}`);
-  }
-  // No address, no share: the work-fold agent cannot bootstrap web access to publish
-  // to it, so the page never exists as a slot nobody can reach. A relay that
-  // is merely unreachable is different — the slot stays honestly pending.
-  if (!await state.publications.hasAddress()) {
-    throw new WorkFoldCliError("conflict", WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE);
-  }
-  const source = await designatedPageSource(workFolder.workFolderRoot, input.path);
-  const alreadyShared = (await runActOperation(() => state.publications.activePublicationsForWorkFolder(workFolder.id)))
-    .some((view) => view.kind === "page" && view.relativePath === source.relativePath);
-  if (alreadyShared) {
-    throw new WorkFoldCliError("conflict", "This file is already shared as a page; stop sharing it before sharing it again.");
-  }
-  const requestId = context.requestId?.trim() || randomUUID();
-  const exposeContext: ViewerExposeContext = {
-    requestId,
-    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
-    attribution: preparedActAttribution(state, context.surface, context.parentTaskId),
-  };
-  await runPublicationActOperation(() => runPreparedActOperation(async () => {
-    const act = prepareAct({
-      kind: "publish.viewer.expose",
-      parameters: { exposure: "page", workFolderId: workFolder.id },
-      pins: {
-        exposure: "page",
-        workFolderId: workFolder.id,
-        relativePath: source.relativePath,
-        title,
-        snapshotEnabled: input.snapshot,
-        byteBudget: WORKFOLD_PUBLICATION_BYTE_BUDGET_DEFAULT,
-        serveBudget: WORKFOLD_PUBLICATION_SERVE_RATE_DEFAULT,
-      },
-    });
-    await state.preparedActs.run({ act, requestId, context: exposeContext });
-  }));
-  if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The page was not activated.");
-  return exposeContext.outcome;
-}
-
-/**
- * Puts one installed Release-backed app at the person's address
- * (docs/shared-pages.md, rung 3) — the one domain path behind
- * `work-fold pages share-app` and Settings → Apps' "Share at your address".
- * Like a page share it refuses outright when no address is set up.
- * Exposure eligibility and pins come from the viewer adapter: an installed
- * App Instance of a prepared Release whose reviewed manifest declares a
- * viewer surface. The effect-time recheck re-resolves the same identity
- * before anything activates. `instance` accepts the App Instance id (the pin
- * identity) or, like `apps uninstall`, the Runtime Instance id of an app
- * installed in this work-folder.
- */
-async function shareAppFromDesktop(
-  state: LocalApiState,
-  input: { workFolder: WorkFolderSummary; instance: string },
-  context: { surface: WorkFoldCliActSurface; parentTaskId?: string; requestId?: string },
-): Promise<WorkFoldPublicationView> {
-  const { workFolder } = input;
-  const status = state.publications.status();
-  if (status.damaged) {
-    throw new WorkFoldCliError("failure", `work-fold cannot share an app: ${status.damageReason ?? "the publication store is damaged."}`);
-  }
-  if (!await state.publications.hasAddress()) {
-    throw new WorkFoldCliError("conflict", WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE);
-  }
-  const requested = input.instance.trim();
-  const byRuntimeId = (await runActOperation(() => state.restrictedApps.list(workFolder.id)))
-    .find((app) => app.runtimeInstanceKind === "app" && app.runtimeInstanceId === requested);
-  const exposure = await state.restrictedAppViewer.resolveExposure(byRuntimeId?.featureInstallationId ?? requested);
-  if (!exposure.eligible) throw new WorkFoldCliError("conflict", exposure.issue);
-  if (exposure.workFolderId !== workFolder.id) {
-    throw new WorkFoldCliError("notFound", "This work-folder has no installed App Instance with this id.");
-  }
-  const alreadyExposed = (await runActOperation(() => state.publications.list())).some((view) => (
-    view.state === "active" && view.kind === "app" && view.app?.appInstanceId === exposure.pins.appInstanceId
-  ));
-  if (alreadyExposed) {
-    throw new WorkFoldCliError("conflict", "This App Instance is already at your address; stop sharing it before sharing it again.");
-  }
-  const requestId = context.requestId?.trim() || randomUUID();
-  const exposeContext: ViewerExposeContext = {
-    requestId,
-    ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
-    attribution: preparedActAttribution(state, context.surface, context.parentTaskId),
-  };
-  await runPublicationActOperation(() => runPreparedActOperation(async () => {
-    const act = prepareAct({
-      kind: "publish.viewer.expose",
-      parameters: { exposure: "hosted-app", appInstanceId: exposure.pins.appInstanceId },
-      pins: {
-        exposure: "hosted-app",
-        appInstanceId: exposure.pins.appInstanceId,
-        releaseDigest: exposure.pins.releaseDigest,
-        viewerEntry: exposure.pins.viewerEntry,
-        viewerSurface: exposure.pins.viewerSurface,
-      },
-    });
-    await state.preparedActs.run({ act, requestId, context: exposeContext });
-  }));
-  if (!exposeContext.outcome) throw new WorkFoldCliError("failure", "The app was not put at your address.");
-  return exposeContext.outcome;
-}
-
-/**
- * The act lane's reading of a publication service refusal: an invalid
- * request is a usage error, a missing slot is not found, and a slot that is
- * no longer shared or already at its cap is a conflict.
- */
-async function runPublicationActOperation<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (error) {
-    if (error instanceof WorkFoldPublicationError) {
-      const code = error.code === "INPUT_INVALID" || error.code === "WIDEN_REFUSED" || error.code === "SOURCE_INVALID"
-        ? "usage"
-        : error.code === "NOT_FOUND"
-          ? "notFound"
-          : error.code === "ALREADY_REVOKED" || error.code === "ALREADY_SHARED" || error.code === "PUBLICATION_CAP"
-            ? "conflict"
-            : error.code === "STORE_DAMAGED" || error.code === "JOURNAL_UNAVAILABLE"
-              ? "unavailable"
-              : "failure";
-      throw new WorkFoldCliError(code, error.message, { cause: error });
-    }
-    return await runActOperation(() => Promise.reject(error));
-  }
-}
-
-/**
- * Source verification for one page exposure, mirroring the publication
- * service's own inspection: the exact normalized relative path the pins
- * carry, an allowed media type, a regular file, and the shareable size bound.
- * The service re-verifies for real at effect time and again at every serve.
- */
-async function designatedPageSource(workFolderRoot: string, relativePath: string): Promise<{ relativePath: string; byteSize: number }> {
-  let path: string;
-  try {
-    path = resolveWorkFolderPath(workFolderRoot, relativePath);
-  } catch (error) {
-    throw new WorkFoldCliError("usage", errorMessage(error), { cause: error });
-  }
-  // Canonical work-folder-relative form from the resolved path, so identical
-  // designations ("./weekly.md", "weekly.md") pin one identity.
-  const normalized = relative(resolve(workFolderRoot), path).split(sep).join("/");
-  if (!normalized) throw new WorkFoldCliError("usage", "A work-folder-relative file path is required.");
-  const extension = extname(normalized).toLowerCase();
-  if (!WORKFOLD_PUBLICATION_SOURCE_TYPES[extension]) {
-    throw new WorkFoldCliError("usage", "Only Markdown, plain text, HTML, PNG, JPEG, and PDF files can be shared as a page.");
-  }
-  const info = await lstat(path).catch(() => null);
-  if (!info || !info.isFile()) throw new WorkFoldCliError("notFound", "The designated file does not exist as a regular file.");
-  if (info.size > WORKFOLD_PUBLICATION_MAX_SOURCE_BYTES) {
-    throw new WorkFoldCliError("usage", "The designated file is larger than a shareable page (8 MiB).");
-  }
-  return { relativePath: normalized, byteSize: info.size };
-}
-
-/**
  * The exact work-folder file an app's single-file permission binds to. The work-folder
  * path policy already refuses an escape, a symlinked segment, and reserved
  * `.work-fold/`, `.pi/`, and `.workspace/` metadata; this adds the one thing
@@ -14380,7 +14078,7 @@ function createPreparedActFence(state: LocalApiState): PreparedActFence {
   };
 }
 
-/** Attribution a prepared act threads into automation grants and publication receipts. */
+/** Attribution a prepared act threads into automation grants. */
 interface PreparedActAttribution {
   surface: WorkFoldCliActSurface;
   browserId?: string;
@@ -14389,8 +14087,8 @@ interface PreparedActAttribution {
 
 /**
  * The execution outcome slot a calling verb reads back after a prepared act
- * ran: the installed app, the removal result, the activated publication. It
- * travels in the executor's `context`, never in a receipt.
+ * ran: the installed app, the removal result. It travels in the executor's
+ * `context`, never in a receipt.
  */
 /** The Recently deleted entry a destroying verb reports back. */
 interface RecentlyDeletedRef {
@@ -14410,18 +14108,11 @@ interface AutomationEnableContext extends PreparedActOutcome<WorkFoldAutomationR
   attribution: PreparedActAttribution;
 }
 
-interface ViewerExposeContext extends PreparedActOutcome<WorkFoldPublicationView> {
-  requestId: string;
-  parentTaskId?: string;
-  attribution: PreparedActAttribution;
-}
-
 /**
  * Per-kind execution adapters for the prepared-act path: each binds one kind
  * to the same domain internals the equivalent desktop action uses. Every
  * admitted kind has an adapter. Each re-observes its pinned identities
- * immediately before executing; both `publish.viewer.expose` shapes likewise
- * re-verify their designated source or installed Release.
+ * immediately before executing.
  */
 function createPreparedActAdapters(state: LocalApiState): PreparedActAdapters {
   return {
@@ -14438,9 +14129,183 @@ function createPreparedActAdapters(state: LocalApiState): PreparedActAdapters {
     "app.data.purge": createAppDataPurgeAdapter(state),
     "app.storage.clear": createAppStorageClearAdapter(state),
     "automation.enable": createAutomationEnableAdapter(state),
-    "publish.viewer.expose": createViewerExposeAdapter(state),
     "work-folder.delete-folder": createManagedWorkFolderDeletionAdapter(state),
+    "page.publish": createPagePublishAdapter(state),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Publishing pages (docs/pages.md, "Publishing (stage 2)" → "Desktop"). The
+// service lives in src/local/pages/page-publishing.ts; this is its wiring:
+// the History-aware write a check-in makes into a page folder, the prepared
+// `page.publish` act, and the journaled acts behind the publishing routes.
+// ---------------------------------------------------------------------------
+
+/**
+ * One check-in write into a work-folder (docs/pages.md, "Checking in"). It
+ * holds the work-folder's History operation, so it never lands in the middle
+ * of a History capture or restore, and it stays out of a work-folder whose
+ * mutation fence is held (a History restore or a deletion). Busy is not an
+ * error: the next check-in tries again.
+ */
+async function runPageFolderWrite<T>(
+  state: LocalApiState,
+  workFolder: { id: string; workFolderRoot: string },
+  operation: () => Promise<T>,
+): Promise<PageWorkFolderWriteOutcome<T>> {
+  if (state.capabilityMutations.has(workFolder.id)) return { ran: false, reason: "The work-folder is busy with another change." };
+  try {
+    return { ran: true, value: await withWorkFolderHistoryOperation(workFolder.workFolderRoot, operation) };
+  } catch (error) {
+    if ((error as { statusCode?: unknown })?.statusCode === 409) return { ran: false, reason: errorMessage(error) };
+    throw error;
+  }
+}
+
+/** The execution context a `page.publish` act carries: what the recheck assembled. */
+interface PagePublishActContext extends PreparedActOutcome<PagePublishResult> {
+  workFolder: WorkFolderSummary;
+  prepared: PreparedPagePublish;
+}
+
+/**
+ * The one publish door for the page tab and `pages publish`: refuse without
+ * Web Access, check and assemble the page (refusing with its problems), then
+ * run the prepared `page.publish` act pinned to the work-folder, the path, and
+ * the content digest. The caller journaled the request id first.
+ */
+async function publishPageAct(
+  state: LocalApiState,
+  input: { workFolder: WorkFolderSummary; page: unknown; requestId: string },
+): Promise<PagePublishResult> {
+  await state.pagePublishing.requireAvailable();
+  const prepared = await state.pagePublishing.prepare(input.workFolder, input.page);
+  const context: PagePublishActContext = { workFolder: input.workFolder, prepared };
+  await runPreparedActOperation(async () => {
+    const act = prepareAct({
+      kind: "page.publish",
+      parameters: { workFolderId: input.workFolder.id, pagePath: prepared.path },
+      pins: { workFolderId: input.workFolder.id, pagePath: prepared.path, contentDigest: prepared.contentDigest },
+    });
+    await state.preparedActs.run({ act, requestId: input.requestId, context });
+  });
+  if (!context.outcome) throw new Error("The page was not published.");
+  return context.outcome;
+}
+
+/**
+ * `page.publish`: re-reads and re-assembles the page folder inside the act and
+ * refuses when its content digest moved since it was pinned, then uploads
+ * exactly what the recheck assembled.
+ */
+function createPagePublishAdapter(state: LocalApiState): PreparedActAdapter<PagePublishActContext | undefined> {
+  return {
+    // Publishing changes no capability state, and a Worker publishes from
+    // inside its own turn; the service serializes publishes of one page.
+    fenceScope: () => null,
+    async recheckPins(act, context) {
+      if (!context) return "The page to publish was not supplied.";
+      const workFolder = await getWorkFolder(stringPinValue(act, "workFolderId")).catch(() => null);
+      if (!workFolder) return "The work-folder is no longer registered.";
+      const fresh = await state.pagePublishing.prepare(workFolder, stringPinValue(act, "pagePath"));
+      if (fresh.path !== stringPinValue(act, "pagePath")) return "The page folder is not the one this act pinned.";
+      if (fresh.contentDigest !== stringPinValue(act, "contentDigest")) {
+        return "The page changed after it was checked. Publish again to upload the current version.";
+      }
+      context.workFolder = workFolder;
+      context.prepared = fresh;
+      return null;
+    },
+    async execute(_act, context) {
+      if (!context) throw new Error("The page to publish was not supplied.");
+      const outcome = await state.pagePublishing.upload(context.workFolder, context.prepared);
+      context.outcome = outcome;
+      return { detail: outcome.receiptDetail };
+    },
+  };
+}
+
+/** The page tab's publishing routes, journaled as main-window acts beside the CLI's. */
+function pageRoutePublishing(state: LocalApiState): PageRoutePublishing {
+  return {
+    service: state.pagePublishing,
+    async publish(workFolder, page) {
+      const { value } = await runDesktopSettingsAct(state, "pages.publish", async (requestId) => {
+        const result = await publishPageAct(state, { workFolder, page, requestId });
+        return { value: result, detail: result.receiptDetail };
+      });
+      return { publication: value.publication, uploaded: value.uploaded };
+    },
+    async unpublish(workFolder, page) {
+      const { value } = await runDesktopSettingsAct(state, "pages.unpublish", async () => {
+        const result = await state.pagePublishing.unpublish(workFolder, page);
+        return { value: result, detail: result.receiptDetail };
+      });
+      return { publication: value.publication };
+    },
+    async changeData(workFolder, action, body) {
+      const { value } = await runDesktopSettingsAct(state, `pages.data.${action}`, async () => {
+        const result = await state.pagePublishing.changeOnline(workFolder, action, body);
+        return { value: result.value, detail: result.receiptDetail };
+      });
+      return value;
+    },
+  };
+}
+
+/**
+ * Automations can't publish (docs/pages.md). An Automation's steps have no
+ * publish kind, and the act lane refuses `pages publish` while an
+ * Automation's own turn, or work it handed out, is running, or when the named
+ * parent request began with one. A person can still publish from the page tab.
+ */
+function assertNoAutomationPublishing(state: LocalApiState, parentTaskId: string | undefined): void {
+  const refusal = () => new WorkFoldCliError(
+    "conflict",
+    "Automations can't publish pages, and an Automation's work is running now, so work-fold won't publish from the command line until it finishes. The person can publish from the page's tab.",
+  );
+  if (parentTaskId) {
+    const parent = state.requests.byTaskId(parentTaskId);
+    if (parent && (state.requests.get(parent.rootId) ?? parent).kind === "automation") throw refusal();
+  }
+  for (const root of state.requests.list({ kind: "automation" })) {
+    if (root.requestId !== root.rootId || isWorkFoldRequestTerminalState(root.state)) continue;
+    const graph = [root, ...state.requests.rootDescendants(root.requestId)];
+    if (graph.some((record) => record.turns.some((turn) => turn.state === "accepted" || turn.state === "running"))) throw refusal();
+  }
+}
+
+/** The act lane's codes for publishing refusals; everything else goes through runActOperation. */
+async function runPageActOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof PagePublishError) {
+      if (error.code === "WEB_ACCESS_REQUIRED") throw new WorkFoldCliError("unavailable", error.message, { cause: error });
+      if (error.code === "NOT_PUBLISHED") throw new WorkFoldCliError("notFound", error.message, { cause: error });
+      if (error.code === "PAGE_HAS_PROBLEMS") {
+        const errors = (error.problems ?? []).filter((problem) => problem.severity === "error");
+        const listed = errors.slice(0, 5).map((problem) => `${problem.file ? `${problem.file}: ` : ""}${problem.message}`);
+        const more = errors.length > 5 ? ` …and ${errors.length - 5} more.` : "";
+        throw new WorkFoldCliError(
+          "conflict",
+          `${error.message} ${listed.join(" ")}${more} Run pages validate for the whole list.`,
+          { cause: error },
+        );
+      }
+      throw new WorkFoldCliError("conflict", error.message, { cause: error });
+    }
+    if (error instanceof PagesBridgeUnavailableError) throw new WorkFoldCliError("unavailable", error.message, { cause: error });
+    // The page service's own refusals, relayed by the bridge.
+    if (error instanceof PageCallError) {
+      const code = error.code === "UNAVAILABLE" ? "unavailable" : error.code === "NOT_FOUND" ? "notFound" : error.code === "INVALID" || error.code === "TOO_LARGE" ? "usage" : "conflict";
+      throw new WorkFoldCliError(code, error.message, { cause: error });
+    }
+    if (error instanceof PagesBridgeError) {
+      throw new WorkFoldCliError(error.status === 413 ? "usage" : error.status === 404 ? "notFound" : "unavailable", error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 /** The prepared-act pin as bounded text, tolerating the parameter mirror. */
@@ -14989,109 +14854,6 @@ function createAutomationEnableAdapter(state: LocalApiState): PreparedActAdapter
 }
 
 /**
- * `publish.viewer.expose` — the activation paths of docs/shared-pages.md,
- * executed with the initiating surface and browser identity threaded into
- * the publication service's own journaled act context under a derived
- * request id (`<request>:activate`). Page exposure re-verifies the
- * designated source; hosted-app exposure (rung 3) re-resolves the pinned App
- * Instance and requires the exact pinned Release digest and viewer surface —
- * an app that updated or widened its viewer surface after the request was
- * prepared refuses instead of exposing something the receipt never named.
- */
-function createViewerExposeAdapter(state: LocalApiState): PreparedActAdapter<ViewerExposeContext | undefined> {
-  const recheckPage = async (act: PreparedAct): Promise<string | null> => {
-    const workFolder = await getWorkFolder(String(act.pins.workFolderId)).catch(() => null);
-    if (!workFolder) return "The work-folder is no longer registered.";
-    try {
-      const source = await designatedPageSource(workFolder.workFolderRoot, String(act.pins.relativePath));
-      if (source.relativePath !== act.pins.relativePath) {
-        return "The designated file's normalized path no longer matches the pinned path.";
-      }
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
-    return null;
-  };
-  const resolveHostedApp = async (act: PreparedAct): Promise<
-    | { exposure: Extract<Awaited<ReturnType<RestrictedAppViewerAdapter["resolveExposure"]>>, { eligible: true }> }
-    | { issue: string }
-  > => {
-    const exposure = await state.restrictedAppViewer.resolveExposure(stringPinValue(act, "appInstanceId"));
-    if (!exposure.eligible) return { issue: exposure.issue };
-    if (exposure.pins.releaseDigest !== act.pins.releaseDigest) {
-      return { issue: "The installed Release no longer matches the pinned digest; the app updated after the request was prepared." };
-    }
-    if (exposure.pins.viewerEntry !== act.pins.viewerEntry) {
-      return { issue: "The app's viewer entry no longer matches the pinned entry." };
-    }
-    const pinnedSurface = Array.isArray(act.pins.viewerSurface) ? act.pins.viewerSurface.map(String) : [];
-    if (JSON.stringify(exposure.pins.viewerSurface) !== JSON.stringify(pinnedSurface)) {
-      return { issue: "The app's viewer-readable surface no longer matches the pinned surface." };
-    }
-    return { exposure };
-  };
-  return {
-    // Activation is publication-service work under its own journal and
-    // serialization; it is not a capability mutation.
-    fenceScope: () => null,
-    async recheckPins(act) {
-      if (act.pins.exposure === "page") return await recheckPage(act);
-      const resolved = await resolveHostedApp(act);
-      return "issue" in resolved ? resolved.issue : null;
-    },
-    async execute(act, context) {
-      if (!context) throw new Error("The exposure's act context was not supplied.");
-      const { attribution } = context;
-      const activation = {
-        // A distinct derived request id: the act lane owns `<request>`, and
-        // the activation journals its own accepted/terminal pair under the
-        // same single-use identity family.
-        requestId: `${context.requestId}:activate`,
-        surface: attribution.surface,
-        ...(context.parentTaskId !== undefined ? { parentTaskId: context.parentTaskId } : {}),
-        ...(attribution.browserId !== undefined ? { browserId: attribution.browserId } : {}),
-        ...(attribution.grantId !== undefined ? { grantId: attribution.grantId } : {}),
-      };
-      if (act.pins.exposure === "page") {
-        const view = await state.publications.activate({
-          workFolderId: String(act.pins.workFolderId),
-          relativePath: String(act.pins.relativePath),
-          title: String(act.pins.title),
-          serveRatePerMinute: Number(act.pins.serveBudget),
-          byteBudgetPerDay: Number(act.pins.byteBudget),
-          snapshotEnabled: act.pins.snapshotEnabled === true,
-        }, activation);
-        context.outcome = view;
-        return {
-          detail: `Shared "${view.title}" (${view.workFolderId}:${view.relativePath}) as /p/${view.publicationId}; `
-            + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
-          undoRef: { kind: "publicationId", value: view.publicationId },
-        };
-      }
-      const resolved = await resolveHostedApp(act);
-      if ("issue" in resolved) throw new Error(resolved.issue);
-      const view = await state.publications.activateApp({
-        workFolderId: resolved.exposure.workFolderId,
-        title: resolved.exposure.title,
-        app: {
-          appInstanceId: resolved.exposure.pins.appInstanceId,
-          releaseDigest: resolved.exposure.pins.releaseDigest,
-          viewerEntry: resolved.exposure.pins.viewerEntry,
-          viewerSurface: resolved.exposure.pins.viewerSurface,
-        },
-      }, activation);
-      context.outcome = view;
-      return {
-        detail: `Put "${view.title}" (App Instance ${resolved.exposure.pins.appInstanceId}, `
-          + `Release ${resolved.exposure.pins.releaseDigest}) at your address as /a/${view.publicationId}; `
-          + `bridgeSync=${view.bridgeSlot === "confirmed" ? "confirmed" : "pending"}.`,
-        undoRef: { kind: "publicationId", value: view.publicationId },
-      };
-    },
-  };
-}
-
-/**
  * `work-folder.delete-folder` — the managed removal path. Pin recheck re-verifies
  * the registered identity and canonical root; the `.workspace/` fail-closed
  * rule and managed-root identity claims are re-checked by the removal
@@ -15467,9 +15229,8 @@ const maxOverviewAppAutomationReceipts = 2_048;
  * (docs/collaboration-contract.md, F25), the
  * chat store and History per registered work-folder, the Check service's status and
  * content-free settled runs, the act-receipts ledger, the automation receipts
- * journal, the publication grant records, and the
- * restricted-app registry's machine-wide automation ledgers (active accepted
- * runs and settled receipts). The kernel's own task registry supplies running
+ * journal, and the restricted-app registry's machine-wide automation ledgers
+ * (active accepted runs and settled receipts). The kernel's own task registry supplies running
  * tasks.
  */
 function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSourceReaders {
@@ -15542,29 +15303,6 @@ function createServerOverviewSources(state: LocalApiState): WorkFoldOverviewSour
         finishedAt: receipt.finishedAt,
       })),
     automationRuns: automationRunReader,
-    viewerGrants: async (): Promise<WorkFoldOverviewViewerGrantEventRecord[]> => {
-      const events: WorkFoldOverviewViewerGrantEventRecord[] = [];
-      for (const view of await state.publications.list()) {
-        events.push({ publicationId: view.publicationId, event: "created", at: view.createdAt, workFolderId: view.workFolderId });
-        if (view.revokedAt !== undefined) {
-          events.push({ publicationId: view.publicationId, event: "revoked", at: view.revokedAt, workFolderId: view.workFolderId });
-        }
-        // The record's bounded health note: the publisher-facing reason
-        // behind a vague not-available or resting viewer page
-        // (docs/shared-pages.md, "Honest states").
-        if (view.lastProblem !== undefined) {
-          events.push({
-            publicationId: view.publicationId,
-            event: view.lastProblem.state,
-            at: view.lastProblem.at,
-            workFolderId: view.workFolderId,
-            title: view.title,
-            reason: view.lastProblem.reason,
-          });
-        }
-      }
-      return events;
-    },
   };
 }
 

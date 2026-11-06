@@ -15,6 +15,21 @@
   --work-fold-accent-soft: #e3f0fd;
   --work-fold-brand-gradient: linear-gradient(118deg, #0b6fd6, #22cfc6 44%, #46d586 70%, #f6b516);
   --work-fold-brand-shadow: 0 9px 24px rgba(14, 56, 108, 0.14), 0 1px 2px rgba(14, 56, 108, 0.12);
+  /* The one type scale. Every interface font size is one of these steps, in
+     rem so the whole interface follows Settings → Appearance → Text Size.
+     Pixel values are at Standard (15px). Nothing reads smaller than 2xs. */
+  --work-fold-type-2xs: 0.7334rem; /* 11px: badges, keycaps, eyebrows */
+  --work-fold-type-xs: 0.8rem;     /* 12px: metadata, captions */
+  --work-fold-type-sm: 0.8667rem;  /* 13px: controls, lists, Settings text */
+  --work-fold-type-md: 0.9334rem;  /* 14px: emphasized controls, card titles */
+  --work-fold-type-base: 1rem;     /* 15px: body and reading text */
+  --work-fold-type-lg: 1.1334rem;  /* 17px: section and dialog titles */
+  --work-fold-type-xl: 1.3334rem;  /* 20px: page titles */
+  --work-fold-type-2xl: 1.6rem;    /* 24px: onboarding and hero titles */
+  /* Control heights: small icon actions, buttons and toolbar fields, form fields. */
+  --work-fold-control-sm: 24px;
+  --work-fold-control-md: 30px;
+  --work-fold-control-lg: 36px;
 }
 
 :root[data-theme="dark"] {
@@ -68,7 +83,7 @@
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 18px;
+  gap: 20px;
   padding: 32px;
   color: var(--work-fold-ink);
   text-align: center;

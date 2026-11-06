@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, X } from "../chrome/icons";
 
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";

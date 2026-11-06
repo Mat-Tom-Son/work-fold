@@ -71,7 +71,7 @@ def folder_chooser_nodes():
         if read_node(app, "get_name", "").lower() not in names:
             continue
         for frame in walk(app):
-            if (read_node(frame, "get_name", "") == "Choose a folder"
+            if (read_node(frame, "get_name", "") == "Choose a Folder"
                     and read_node(frame, "get_role_name", "") in ("frame", "dialog", "window")):
                 yield from walk(frame)
 

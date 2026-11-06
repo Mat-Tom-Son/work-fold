@@ -36,7 +36,7 @@ test("typography ships the brand font everywhere and omits the Windows-only Sego
   // Inter is bundled, so the default stack no longer forks per platform.
   assert.match(styles, /--work-fold-font-family-default:\s*"Inter Variable"/);
   assert.doesNotMatch(styles, /:root\[data-platform="darwin"\][\s\S]{0,200}--work-fold-font-family-default/);
-  assert.match(settings, /"Device setting"/);
+  assert.match(settings, /"Device Setting"/);
   assert.doesNotMatch(settings, /Match your device’s appearance/);
   assert.doesNotMatch(settings, /Match Windows/);
 });
@@ -137,7 +137,7 @@ test("Mac tab and Chat right-clicks open the native menu while other platforms k
 
 test("restricted-app notification copy is platform-neutral", () => {
   assert.match(restrictedApps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
-  assert.match(restrictedApps, /Allow notifications/);
+  assert.match(restrictedApps, /Allow Notifications/);
   assert.doesNotMatch(restrictedApps, /Windows notifications|Windows notification settings/);
 });
 

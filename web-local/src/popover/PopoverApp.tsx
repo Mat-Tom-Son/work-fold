@@ -4,7 +4,7 @@ import { useApplicationAppearance } from "../hooks/useApplicationAppearance";
 import { useWorkRequest } from "../hooks/useWorkRequest";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, File, Folder, History, Link2, MoreHorizontal, Search, Square, SquarePen, X } from "../components/chrome/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -210,6 +210,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
   const searchRef = useRef<HTMLInputElement | null>(null);
   const selectionRef = useRef<string | null>(popoverFixtureRequested ? "fixture-agent" : null);
   const refreshGeneration = useRef(0);
+  const runtimeUpdateRevision = useRef(0);
   const [extensionSnapshot, setExtensionSnapshot] = useState<{ conversationId: string; requests: ExtensionUiRequest[] } | null>(extensionFixture ? {
     conversationId: "fixture-agent", requests: [
       { id: "fixture-extension", method: "select", title: "Which account should I use for the report?", options: ["Work account", "Personal account"] },
@@ -252,11 +253,12 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
 
   const refreshConversationRuntime = useCallback(async (id: string) => {
     if (popoverFixtureRequested) return;
+    const revision = runtimeUpdateRevision.current;
     try {
       const result = await api<{ runtime: ConversationRuntime }>(`/api/work-fold-agent/conversations/${encodeURIComponent(id)}/runtime`);
-      if (selectionRef.current === id) setConversationRuntime(result.runtime);
+      if (selectionRef.current === id && revision === runtimeUpdateRevision.current) setConversationRuntime(result.runtime);
     } catch {
-      if (selectionRef.current === id) setConversationRuntime(null);
+      if (selectionRef.current === id && revision === runtimeUpdateRevision.current) setConversationRuntime(null);
     }
   }, []);
 
@@ -323,11 +325,15 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       setChatTitle(summary.conversation?.title || "Untitled chat");
       setRequest(summary.latestRequest);
       const next = transcript.messages.filter((message) =>
-        (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
+        message.kind === "context_compaction" || (message.role === "user" || message.role === "assistant") && (!message.kind || message.kind === "assistant_continuation"));
       // Polling refetches the same transcript most ticks; keeping the old
       // array identity for identical content spares re-renders and the
       // follow-scroll effect.
-      setMessages((current) => (sameTranscript(current, next) ? current : next));
+      setMessages((current) => {
+        const ids = new Set(next.map(message => message.id));
+        const merged = [...next, ...current.filter(message => message.kind === "context_compaction" && !ids.has(message.id))];
+        return sameTranscript(current, merged) ? current : merged;
+      });
       if (!summary.latestRequest || !activePhases.has(summary.latestRequest.phase)) {
         replaceStreamingAssistant("");
         activeThinkingIdRef.current = null;
@@ -429,6 +435,14 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
         return;
       }
       if (event.type === "extension_ui_snapshot") setExtensionSnapshot({ conversationId, requests: event.requests ?? [] });
+      if (event.type === "runtime" && event.runtime) {
+        runtimeUpdateRevision.current++;
+        setConversationRuntime(event.runtime);
+      }
+      if (event.type === "context_compacted" && event.chatMessage?.kind === "context_compaction") {
+        const notice = event.chatMessage;
+        setMessages((current) => current.some((message) => message.id === notice.id) ? current : [...current, notice]);
+      }
       if (event.type === "extension_ui_request" && event.request?.method === "notify") setActivity(event.request.message ?? "");
       if (event.type === "editor" && typeof event.text === "string") setText((current) => event.editorMode === "replace" ? event.text! : current + event.text);
       if (event.type === "status" || event.type === "tool") {
@@ -977,7 +991,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       : "Tell work-fold what to do";
   const composerThinking = conversationRuntime && !startingNewChat ? conversationRuntime : workFoldAgentComposer;
   const thinkingLevels = composerThinking?.thinkingLevels ?? [];
-  const workFoldAgentModelLabel = composerThinking?.model?.name || composerThinking?.model?.id || "Choose model";
+  const workFoldAgentModelLabel = composerThinking?.model?.name || composerThinking?.model?.id || "Choose Model";
   const visibleBanner = banner || (available === false ? unavailableReason : "");
   const backgroundChats = chats.filter((chat) => chat.id !== conversationId && (chat.requestState === "working" || chat.requestState === "handed_off"));
   const filteredChats = chats.filter((chat) => chat.title.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()));
@@ -1018,7 +1032,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       {host === "panel" ? (controlsTarget ? createPortal(
         // The panel's chat controls live in the window's top strip, icon only.
         <>
-          <button className="window-chrome-button" type="button" aria-label={historyOpen ? "Back to chat" : "Chats"} title={historyOpen ? "Back to chat" : `Chats · ${chatTitle}`} aria-pressed={historyOpen} aria-controls="agent-chat-history"
+          <button className="window-chrome-button" type="button" aria-label={historyOpen ? "Back to Chat" : "Chats"} title={historyOpen ? "Back to Chat" : `Chats · ${chatTitle}`} aria-pressed={historyOpen} aria-controls="agent-chat-history"
             onClick={() => { setHistoryOpen((open) => !open); void refreshConversation(); }}>
             <History aria-hidden="true" size={16} />
           </button>
@@ -1057,7 +1071,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       {historyOpen ? (
         <section className="agent-chat-history" id="agent-chat-history" aria-label="Saved work-fold agent chats">
           <div className="agent-history-heading">
-            <button type="button" className="agent-back" aria-label="Back to chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
+            <button type="button" className="agent-back" aria-label="Back to Chat" onClick={() => { setHistoryOpen(false); window.setTimeout(() => composerRef.current?.focus(), 0); }}><ArrowLeft aria-hidden="true" /></button>
             <h1>Chats</h1>
           </div>
           <label className="agent-chat-search"><Search aria-hidden="true" /><input ref={searchRef} type="search" aria-label="Search chats" placeholder="Search chats" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} /></label>
@@ -1070,12 +1084,12 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
                 <div key={chat.id} className="agent-chat-item">
                 <button className="agent-chat-row" type="button" aria-current={chat.id === conversationId ? "page" : undefined} disabled={navigationBusy} onClick={() => selectChat(chat.id)}>
                   <span>{chat.title || "Untitled chat"}</span>
-                  <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs your answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
+                  <small><time dateTime={chat.updatedAt}>{chatDateLabel(chat.updatedAt)}</time>{chat.needsAnswer ? <em>Needs Your Answer</em> : chat.requestState === "working" || chat.requestState === "handed_off" ? <em>Working</em> : chat.archivedAt ? <em>Archived</em> : chat.snoozedUntil && Date.parse(chat.snoozedUntil) > now ? <em>Snoozed</em> : draftsRef.current.get(chat.id)?.text || draftsRef.current.get(chat.id)?.staged.length ? <em>Draft</em> : null}</small>
                 </button>
                 <button className="agent-chat-options" data-chat-actions={chat.id} type="button" aria-label={`Actions for ${chat.title}`} aria-expanded={chatAction?.id === chat.id} disabled={navigationBusy || chat.requestState === "working" || chat.requestState === "handed_off"} onClick={() => setChatAction(chatAction?.id === chat.id ? null : { id: chat.id, mode: "menu", title: chat.title })}><MoreHorizontal aria-hidden="true" /></button>
                 {chatAction?.id === chat.id ? <div className="agent-chat-actions">
                   {chatAction.mode === "rename" ? <form onSubmit={(event) => { event.preventDefault(); void changeChat("rename"); }}>
-                    <input aria-label="Chat title" autoFocus maxLength={80} value={chatAction.title} disabled={savingChat} onChange={(event) => setChatAction({ ...chatAction, title: event.target.value })} />
+                    <input aria-label="Chat Title" autoFocus maxLength={80} value={chatAction.title} disabled={savingChat} onChange={(event) => setChatAction({ ...chatAction, title: event.target.value })} />
                     <button type="submit" disabled={savingChat || !chatAction.title.trim()}>Save</button>
                     <button type="button" disabled={savingChat} onClick={() => setChatAction(null)}>Cancel</button>
                   </form> : <><button type="button" onClick={() => setChatAction({ ...chatAction, mode: "rename" })}>Rename</button><button type="button" onClick={() => void changeChat("delete")}>Delete</button></>}
@@ -1109,7 +1123,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
           {loadingChat ? <p className="muted small" role="status">Loading chat…</p> : !messages.length && !streamingAssistant && !request ? <div className="agent-chat-empty"><p>What would you like to work on?</p><span>Pick up a saved chat, or start here.</span></div> : null}
           {messages.map((message) => (
             <article
-              className={message.kind === "assistant_continuation" ? "work-continuation" : `popover-message ${message.role}`}
+              className={message.kind === "assistant_continuation" || message.kind === "context_compaction" ? "work-continuation" : `popover-message ${message.role}`}
               key={message.id}
               title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
             >
@@ -1256,7 +1270,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
                 type="button"
                 onClick={() => { if (requestRunning) void stop(); else void send(); }}
                 disabled={requestRunning ? stopping : sending || loadingChat || available === false || !text.trim()}
-                aria-label={requestRunning ? (stopping ? "Stopping" : "Stop") : (sending ? "Sending" : "Send message")}
+                aria-label={requestRunning ? (stopping ? "Stopping" : "Stop") : (sending ? "Sending" : "Send Message")}
               >
                 {requestRunning ? <Square aria-hidden="true" /> : <ArrowUp aria-hidden="true" />}
               </button>
@@ -1268,7 +1282,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
       {dropActive ? (
         <div className="drop-overlay" role="status" aria-live="polite">
           <File aria-hidden="true" />
-          <strong>Drop to add</strong>
+          <strong>Drop to Add</strong>
           <span>Files, folders, or links</span>
         </div>
       ) : null}

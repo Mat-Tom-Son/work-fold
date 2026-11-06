@@ -1,0 +1,155 @@
+/* Motion (2026-11-02): how things arrive, answer, and settle. Exits are played
+   by lib/motion.ts. Both reduce-motion switches already zero every animation
+   and transition, so nothing here needs its own reduced variant.
+
+   Entrances sit in :where() so a surface that already has its own entrance
+   (the publish review, the work-folder switcher, toasts) keeps it. Anything
+   you trigger finishes inside 250ms; only confirmations overshoot. */
+
+@keyframes work-fold-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes work-fold-dialog-in {
+  from { opacity: 0; scale: 0.97; translate: 0 8px; }
+}
+
+@keyframes work-fold-menu-in {
+  from { opacity: 0; scale: 0.96; translate: 0 var(--work-fold-menu-rise, -4px); }
+}
+
+@keyframes work-fold-rise-in {
+  from { opacity: 0; translate: 0 4px; }
+}
+
+/* Clipped only while it grows, so row focus rings are never cut off after. */
+@keyframes work-fold-folder-open {
+  from { height: 0; opacity: 0; overflow: clip; }
+  to { overflow: clip; }
+}
+
+/* Opacity only: the connected tab frame measures the tab as it arrives. */
+@keyframes work-fold-tab-in {
+  from { opacity: 0; }
+}
+
+@keyframes work-fold-dot-in {
+  from { opacity: 0; scale: 0; }
+}
+
+@keyframes work-fold-confirm-pop {
+  0% { opacity: 0; scale: 0.4; }
+  60% { opacity: 1; scale: 1.15; }
+  100% { scale: 1; }
+}
+
+/* Dialogs: the backdrop fades while the window rises into place. */
+
+:where(.modal-backdrop, .publish-review-backdrop) {
+  animation: work-fold-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+:where(.modal-backdrop, .publish-review-backdrop) > * {
+  animation: work-fold-dialog-in var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+/* Menus grow from the side of their button they open from. */
+
+:where(.context-menu, .composer-command-menu, .chat-rename-popover, .surface-tab-work-folder-menu,
+  .model-catalog-popover, .work-folder-pane-breadcrumb-menu, .browser-tab-site-menu) {
+  transform-origin: top left;
+  animation: work-fold-menu-in 150ms var(--work-fold-ease-smooth);
+}
+
+:where(.composer-command-menu) {
+  --work-fold-menu-rise: 4px;
+  transform-origin: bottom left;
+}
+
+:where(.composer-model-control .composer-model-menu, .composer-context-control .composer-context-menu) {
+  transform-origin: bottom right;
+}
+
+:where(:is(.composer-model-control, .composer-attach-control, .composer-context-control)[data-menu-placement="below"] .composer-command-menu) {
+  --work-fold-menu-rise: -4px;
+  transform-origin: top left;
+}
+
+:where(.composer-model-control[data-menu-placement="below"] .composer-model-menu, .composer-context-control[data-menu-placement="below"] .composer-context-menu) {
+  transform-origin: top right;
+}
+
+:where(.jump-to-latest) {
+  --work-fold-menu-rise: 6px;
+  animation: work-fold-menu-in var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+/* Settings pages and tabs arrive instead of appearing. */
+
+:where(.settings-tab-panel) {
+  animation: work-fold-rise-in var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+:where(.surface-tab) {
+  animation: work-fold-tab-in var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+/* Only the folder a person just opened grows open (FileTree marks it). */
+
+.file-children.opening {
+  interpolate-size: allow-keywords;
+  animation: work-fold-folder-open 200ms var(--work-fold-ease-smooth);
+}
+
+/* Activity: a running dot pops in; lib/motion.ts plays the reply-landed ring. */
+
+:where(.chat-activity-indicator) {
+  animation: work-fold-dot-in 220ms var(--work-fold-ease-pop);
+}
+
+.chat-activity-dot,
+.surface-tab-chat-status {
+  position: relative;
+}
+
+.chat-activity-dot::after,
+.surface-tab-chat-status::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid #318568;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Copied: the check pops once. */
+
+.is-copied svg,
+.file-details-copy[data-state="copied"] svg {
+  animation: work-fold-confirm-pop 280ms var(--work-fold-ease-smooth);
+}
+
+/* Buttons answer a press. Their color timings are restated so scale can join them. */
+
+:root[data-theme] .app-shell :is(.ui-control, .send-button, .work-folder-rail-button, .work-folder-rail-account-button, .surface-tab-action,
+  .composer-command-trigger, .message-copy-button, .model-catalog-trigger, .checks-manual-button, .work-folder-banner-upload-button,
+  .message-code-toolbar button, .generated-image-actions button) {
+  transition: background-color 110ms ease-out, color 110ms ease-out, border-color 110ms ease-out, box-shadow 110ms ease-out,
+    opacity 110ms ease-out, filter 110ms ease-out, scale 160ms var(--work-fold-ease-smooth);
+}
+
+:root[data-theme] .app-shell :is(.ui-control, .send-button, .work-folder-rail-button, .work-folder-rail-account-button, .surface-tab-action,
+  .composer-command-trigger, .message-copy-button, .model-catalog-trigger, .checks-manual-button, .work-folder-banner-upload-button,
+  .message-code-toolbar button, .generated-image-actions button):active:not(:disabled) {
+  scale: 0.96;
+  transition-duration: 110ms, 110ms, 110ms, 110ms, 110ms, 110ms, 70ms;
+}
+
+/* A leaving copy plays only the exit it was given. */
+
+[data-exit-ghost],
+[data-exit-ghost] * {
+  animation: none !important;
+  transition: none !important;
+}

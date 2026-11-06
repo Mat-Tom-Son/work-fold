@@ -498,10 +498,10 @@ export class DesktopUpdater {
     try {
       const result = await this.host.showMessage({
         type: "info",
-        title: "work-fold update ready",
+        title: "work-fold Update Ready",
         message: `work-fold ${version} is ready to install.`,
         detail: "Restart work-fold to finish updating. If you choose Later, the update will install when you quit the app.",
-        buttons: ["Restart now", "Later"],
+        buttons: ["Restart Now", "Later"],
         defaultId: 0,
         cancelId: 1,
         noLink: true,

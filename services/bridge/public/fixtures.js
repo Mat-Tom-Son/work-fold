@@ -75,19 +75,88 @@ export function buildFixture(name, { running = false } = {}) {
       workFolderApps: new Map([["work-folder-2", []], ["work-folder-1", [{ workFolderId: "work-folder-1", appId: "quote-board", featureInstallationId: "fixture-quote-board", digest: "a".repeat(64), authorityDigest: "fixture", title: "Quote board", version: "1.0.0", preview: false, webView: true, actions: true }]]]),
       conversations,
       conversationsLoaded: true,
-      sharedPagesAvailable: true,
       // Current desktops take a message into running work.
       steerAvailable: true,
-      fixtureSharedPages: [
-        { publicationId: "fixture-quarterly", title: "Quarterly overview", kind: "page", health: { state: "live" } },
-        { publicationId: "fixture-trip", title: "Montréal weekend", kind: "page", health: { state: "live" } },
-        { publicationId: "fixture-reading", title: "Reading notes", kind: "page", health: { state: "live" } },
-      ],
       selectedConversationId,
       fixtureThreads,
       ...structuredClone(fixtureThreads.get(selectedConversationId)),
       transcriptConversationId: selectedConversationId,
       transcriptTruncated: false,
+    },
+  };
+}
+
+/**
+ * Canned online pages for the Published view (?fixture=chat&published=1, or
+ * published=page for the first page's entries). Unpublish changes only this
+ * in-memory copy; Export refuses, since a preview never downloads anything.
+ */
+export function buildPublishedFixture() {
+  const garden = "pg_gardenpartyrsvpabcdefghijk";
+  const club = "pg_bookclubsignupabcdefghijkl";
+  const poll = "pg_bakesalepollabcdefghijklmn";
+  const rsvp = (index, name, email, guests, bringing, minutesAgo) => ({
+    id: `rsvp-${index}`, visitor: `v_${String(index).repeat(32).slice(0, 32)}`, createdAt: minutes(minutesAgo), updatedAt: minutes(minutesAgo),
+    deletedAt: null, name, email, guests, bringing,
+  });
+  const rsvpColumns = [
+    { name: "name", type: "text", retired: false, required: true },
+    { name: "email", type: "email", retired: false, required: true, unique: true },
+    { name: "guests", type: "number", retired: false, min: 0, max: 10 },
+    { name: "bringing", type: "choice", retired: false, options: ["Salad", "Dessert", "Drinks"] },
+  ];
+  const rsvps = [
+    rsvp(1, "Priya Natarajan", "priya@example.com", 2, "Dessert", 3 * 24 * 60),
+    rsvp(2, "Tom Becker", "tom@example.com", 0, "Drinks", 26 * 60),
+    rsvp(3, "Ana Lima", "ana@example.com", 3, "Salad", 95),
+    rsvp(4, "Jordan Ellis", "jordan@example.com", 1, null, 12),
+  ];
+  const votes = [
+    { id: "vote-1", visitor: "v_1", createdAt: daysAgo(9), updatedAt: daysAgo(9), deletedAt: null, choice: "Lemon bars", comment: "" },
+    { id: "vote-2", visitor: "v_2", createdAt: daysAgo(8), updatedAt: daysAgo(8), deletedAt: null, choice: "Brownies", comment: "Happy to bake two trays." },
+    { id: "vote-3", visitor: "v_3", createdAt: daysAgo(8), updatedAt: daysAgo(8), deletedAt: null, choice: "Lemon bars", comment: "" },
+  ];
+  const view = (table, columns, rows, limit) => ({ table, retired: false, limit, deleted: false, columns, rows, total: rows.length, lastSeen: null });
+  const summary = (name, live, limit) => ({ name, retired: false, limit, live, deleted: 0, newCount: 0, lastSeen: null });
+  return {
+    pagesOrigin: "https://pages.work-fold.com",
+    pages: [
+      { pageId: garden, title: "Garden Party RSVP", status: "online", revision: 3, publishedAt: daysAgo(4), updatedAt: daysAgo(1), dataRevision: 9, entries: rsvps.length },
+      { pageId: club, title: "Book club sign-up", status: "online", revision: 1, publishedAt: daysAgo(2), updatedAt: daysAgo(2), dataRevision: 0, entries: 0 },
+      { pageId: poll, title: "Bake sale poll", status: "unpublished", revision: 2, publishedAt: daysAgo(12), updatedAt: daysAgo(6), dataRevision: 3, entries: votes.length },
+    ],
+    data: {
+      [garden]: { tables: [summary("rsvps", rsvps.length, 50)], views: { rsvps: view("rsvps", rsvpColumns, rsvps, 50) } },
+      [club]: {
+        tables: [summary("signups", 0, 12)],
+        views: { signups: view("signups", [{ name: "name", type: "text", retired: false }, { name: "email", type: "email", retired: false }], [], 12) },
+      },
+      [poll]: {
+        tables: [summary("votes", votes.length, 10_000)],
+        views: { votes: view("votes", [{ name: "choice", type: "choice", retired: false }, { name: "comment", type: "long-text", retired: false }], votes, 10_000) },
+      },
+    },
+  };
+}
+
+/** The Published view's client over the canned pages; nothing leaves the page. */
+export function createFixturePublishedClient() {
+  const fixture = buildPublishedFixture();
+  const page = (pageId) => {
+    const found = fixture.pages.find((item) => item.pageId === pageId);
+    if (!found) throw new Error("That page isn't published.");
+    return found;
+  };
+  return {
+    list: async () => ({ pages: structuredClone(fixture.pages), pagesOrigin: fixture.pagesOrigin }),
+    tables: async (pageId) => ({ tables: structuredClone(fixture.data[page(pageId).pageId].tables) }),
+    table: async (pageId, table) => structuredClone(fixture.data[page(pageId).pageId].views[table]),
+    exportTable: async () => { throw new Error("Fixture preview is inert; nothing is downloaded."); },
+    unpublish: async (pageId) => {
+      const found = page(pageId);
+      found.status = "unpublished";
+      found.updatedAt = new Date().toISOString();
+      return { page: structuredClone(found) };
     },
   };
 }

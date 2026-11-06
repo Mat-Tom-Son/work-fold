@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Check, ChevronRight, KeyRound, Loader2, Search } from "lucide-react";
+import { Check, ChevronRight, KeyRound, Loader2, Search } from "../chrome/icons";
 
 import { api, errorText } from "../../lib/api";
 import type { AgentModel, AgentProvider, AgentStatus } from "../../types";
-import { AZURE_OPENAI_PROVIDER } from "../../../../src/shared/azure-openai";
+import { FOUNDRY_PROVIDERS } from "../../../../src/shared/foundry";
 
 /**
  * Connect your AI (2026-10-11): the one place a person connects a model
@@ -29,7 +29,7 @@ export const featuredProviders: FeaturedProvider[] = [
 
 /** Providers that need more than a key, or that another entry already covers. */
 const hiddenProviders = new Set(["openai-codex"]);
-const settingsOnlyProviders = new Set([AZURE_OPENAI_PROVIDER]);
+const settingsOnlyProviders = new Set<string>(FOUNDRY_PROVIDERS.map((item) => item.id));
 
 type ModelsResponse = { models: AgentModel[]; providers?: AgentProvider[]; status: AgentStatus };
 type ConnectResult = { status: AgentStatus; models?: AgentModel[]; providers?: AgentProvider[] };
@@ -128,7 +128,7 @@ export function ConnectAi({ onConnected, onOpenSettings, providers: knownProvide
     return (
       <div className="connect-ai">
         <form className="connect-ai-key" onSubmit={submitKey}>
-          <label htmlFor="connect-ai-key">Paste your {chosenProvider.name} API key</label>
+          <label htmlFor="connect-ai-key">Paste Your {chosenProvider.name} API Key</label>
           <input
             ref={keyField}
             id="connect-ai-key"
@@ -142,12 +142,12 @@ export function ConnectAi({ onConnected, onOpenSettings, providers: knownProvide
           />
           <p className="connect-ai-hint">
             It stays on this computer and is shared by all your Workers.
-            {chosenFeatured ? <> <a href={chosenFeatured.keyUrl} target="_blank" rel="noreferrer">Get a {chosenProvider.name} key</a></> : null}
+            {chosenFeatured ? <> <a href={chosenFeatured.keyUrl} target="_blank" rel="noreferrer">Get a {chosenProvider.name} Key</a></> : null}
           </p>
           {error ? <p className="connect-ai-error" role="alert">{error}</p> : null}
           <div className="connect-ai-key-actions">
             <button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => { setMode("pick"); setError(null); }}>Back</button>
-            {chosenProvider.oauthAvailable ? <button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void connect(chosenProvider, "oauth")}>{chosenProvider.oauthLabel ?? "Sign in instead"}</button> : null}
+            {chosenProvider.oauthAvailable ? <button className="ui-control" type="button" disabled={Boolean(busy)} onClick={() => void connect(chosenProvider, "oauth")}>{chosenProvider.oauthLabel ?? "Sign In Instead"}</button> : null}
             <button className="ui-control ui-control--primary" type="submit" disabled={Boolean(busy) || !apiKey.trim()}>
               {busy ? <Loader2 className="spin" size={16} aria-hidden="true" /> : null}Connect
             </button>
@@ -206,7 +206,7 @@ export function ConnectAi({ onConnected, onOpenSettings, providers: knownProvide
           );
         })}
         <button className="connect-ai-card" type="button" disabled={Boolean(busy)} onClick={() => { setMode("others"); setChosen(null); setError(null); }}>
-          <strong><KeyRound size={15} aria-hidden="true" />Another provider</strong>
+          <strong><KeyRound size={15} aria-hidden="true" />Another Provider</strong>
           <span>Google, xAI, Mistral, GitHub Copilot, and more</span>
         </button>
       </div>

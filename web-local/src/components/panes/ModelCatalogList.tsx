@@ -203,7 +203,7 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
     items[next]?.scrollIntoView?.({ block: "nearest" });
   }
 
-  const label = selected ? modelDisplayName(selected) : models.length ? "Choose a model" : "No models available";
+  const label = selected ? modelDisplayName(selected) : models.length ? "Choose a Model" : "No Models Available";
   return (
     <div
       className="model-catalog"
@@ -259,7 +259,7 @@ export function ModelCatalogList({ id, labelledBy, models, value, disabled = fal
                 })}
               </div>
             ))}
-            {!groups.length ? <div className="model-catalog-empty" role="status">{models.length ? "No matching models" : "No models available."}</div> : null}
+            {!groups.length ? <div className="model-catalog-empty" role="status">{models.length ? "No Matching Models" : "No models available."}</div> : null}
           </div>
         </div>
       ) : null}

@@ -19,6 +19,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  estimateTokens,
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
@@ -103,9 +104,11 @@ export interface PiChatEvent {
     | "assistant_thinking"
     | "tool"
     | "resources_changed"
+    | "runtime"
     | "error"
     | "done";
   conversationId: string;
+  runtime?: PiConversationState;
   message?: string;
   text?: string;
   thinkingPhase?: "start" | "delta" | "end";
@@ -198,6 +201,8 @@ export interface PiTurnContext {
 }
 
 export interface PiConversationClientOptions {
+  /** Saves a presentation-only notice after Pi has actually compacted the session. */
+  onContextCompacted?: () => Promise<void>;
   /** Which role opens each request in place of Pi's coding preamble; a Worker unless set. */
   role?: WorkFoldSessionRole;
   /** Appended after this work-folder's instructions; absent for the work-fold agent scope. */
@@ -275,6 +280,9 @@ export class PiConversationClient extends EventEmitter {
   private resolvedRuntime: ResolvedPiRuntime | null = null;
   private uninstallRuntimeInspection: (() => void) | null = null;
   private unsubscribeSession: (() => void) | null = null;
+  private runtimeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  private streamingContextMessage: Parameters<typeof estimateTokens>[0] | null = null;
+  private compactionNotices: Promise<void> = Promise.resolve();
   /**
    * Every assistant text segment of the running turn, in order: one entry per
    * assistant message (text before a tool call, text after it, the final
@@ -443,6 +451,7 @@ export class PiConversationClient extends EventEmitter {
     } finally {
       if (this.activeThinkingTrailId) this.emitThinkingEvent("end", undefined, undefined);
       await this.drainHelpers();
+      await this.compactionNotices;
       this.lastTurnUsage = measuredSession && baseline ? settledTurnUsage(measuredSession, baseline) : null;
       for (const usage of this.turnHelperUnreported) {
         if (this.lastTurnUsage) {
@@ -512,6 +521,7 @@ export class PiConversationClient extends EventEmitter {
     const session = await this.ensureSession();
     if (!options.quiet) this.emitEvent({ type: "status", message: "Compacting conversation context." });
     await this.modelCall.run({ purpose: "compaction" }, () => session.compact(customInstructions));
+    await this.compactionNotices;
   }
 
   /**
@@ -560,8 +570,16 @@ export class PiConversationClient extends EventEmitter {
 
   async getState(): Promise<PiConversationState> {
     const session = await this.ensureSession();
+    return this.conversationState(session);
+  }
+
+  private conversationState(session: AgentSession): PiConversationState {
     const stats = session.getSessionStats();
     const contextUsage = stats.contextUsage;
+    // Pi's saved projection excludes the assistant message still streaming.
+    // Use Pi's own estimator until its finalized provider usage replaces it.
+    const contextTokens = contextUsage?.tokens == null ? null
+      : contextUsage.tokens + (this.streamingContextMessage ? estimateTokens(this.streamingContextMessage) : 0);
     const modelContextWindow = session.model?.contextWindow;
     return {
       sessionId: session.sessionId,
@@ -571,10 +589,11 @@ export class PiConversationClient extends EventEmitter {
         model: { provider: session.model.provider, id: session.model.id, name: session.model.name },
       } : {}),
       usage: {
-        contextTokens: contextUsage?.tokens ?? null,
+        contextTokens,
         contextWindow: contextUsage?.contextWindow
           ?? (modelContextWindow && modelContextWindow > 0 ? modelContextWindow : null),
-        contextPercent: contextUsage?.percent ?? null,
+        contextPercent: contextTokens !== null && contextUsage?.contextWindow
+          ? contextTokens / contextUsage.contextWindow * 100 : null,
         totalTokens: stats.tokens.total,
         cost: stats.cost,
       },
@@ -757,6 +776,9 @@ export class PiConversationClient extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    if (this.runtimeUpdateTimer) clearTimeout(this.runtimeUpdateTimer);
+    this.runtimeUpdateTimer = null;
+    this.streamingContextMessage = null;
     for (const run of this.helperRuns) run.controller.abort();
     // A background Chat summary must not keep writing to a session being torn down.
     this.runtimeHost?.session.abortCompaction();
@@ -1103,6 +1125,14 @@ export class PiConversationClient extends EventEmitter {
     this.assertNativePromptSettled();
     const native = { session, owner: this.activeExtensionTurn! };
     this.nativePrompt = native;
+    const finishNative = () => {
+      if (this.nativePrompt !== native) return;
+      this.nativePrompt = null;
+      this.streamingContextMessage = null;
+      // Stop suppresses presentation events while tools drain, but the final
+      // saved context still needs to replace the last streaming estimate.
+      this.scheduleRuntimeUpdate(true, true);
+    };
     const startedAt = Date.now();
     const heartbeatMs = piHeartbeatMs();
     const timeoutMs = piTurnTimeoutMs();
@@ -1132,11 +1162,11 @@ export class PiConversationClient extends EventEmitter {
         }
         session.prompt(message, { source: "rpc", ...(images.length ? { images } : {}) }).then(
           () => {
-            if (this.nativePrompt === native) this.nativePrompt = null;
+            finishNative();
             finish(resolvePromise);
           },
           (error) => {
-            if (this.nativePrompt === native) this.nativePrompt = null;
+            finishNative();
             finish(() => rejectPromise(asError(error)));
           },
         );
@@ -1154,6 +1184,17 @@ export class PiConversationClient extends EventEmitter {
 
   private handleSessionEvent(event: AgentSessionEvent): void {
     const raw = event as any;
+    if ((raw.type === "message_start" || raw.type === "message_update") && raw.message?.role === "assistant") {
+      this.streamingContextMessage = raw.message;
+    } else if (raw.type === "agent_end" || raw.type === "compaction_start"
+      || raw.type === "message_end" && raw.message?.role === "assistant") {
+      this.streamingContextMessage = null;
+    }
+    this.scheduleRuntimeUpdate(raw.type === "message_end" || raw.type === "agent_end" || raw.type.startsWith("compaction_"));
+    if (raw.type === "compaction_end" && raw.result && !raw.aborted && !raw.errorMessage) {
+      this.compactionNotices = this.compactionNotices.then(() => this.options.onContextCompacted?.())
+        .catch(() => { console.warn("Could not save the Chat's context compaction notice."); });
+    }
     if (raw.type === "message_start" && raw.message?.role === "assistant") {
       this.finalAssistantSegment = null;
       this.assistantAttemptStartSegment = this.assistantSegments.length;
@@ -1673,7 +1714,21 @@ export class PiConversationClient extends EventEmitter {
 
   private emitEvent(event: Omit<PiChatEvent, "conversationId">): void {
     if (event.type === "assistant_message") event.assistantPresentation = this.liveAssistantPresentation();
-    this.emit("event", { ...event, turnId: this.extensionTurn.getStore()?.taskId ?? this.presentationTaskId ?? null, conversationId: this.conversationId } satisfies PiChatEvent);
+    this.emit("event", { ...event, turnId: event.type === "runtime" ? null : this.extensionTurn.getStore()?.taskId ?? this.presentationTaskId ?? null, conversationId: this.conversationId } satisfies PiChatEvent);
+  }
+
+  private scheduleRuntimeUpdate(immediate: boolean, afterDrain = false): void {
+    if (this.runtimeUpdateTimer && !immediate) return;
+    if (this.runtimeUpdateTimer) clearTimeout(this.runtimeUpdateTimer);
+    const session = this.runtimeHost?.session;
+    const owner = this.extensionTurn.getStore();
+    // Defer until Pi has persisted message_end, which it emits before saving.
+    this.runtimeUpdateTimer = setTimeout(() => {
+      this.runtimeUpdateTimer = null;
+      if (!session || this.runtimeHost?.session !== session || owner?.cancelled && !afterDrain) return;
+      this.emitEvent({ type: "runtime", runtime: this.conversationState(session) });
+    }, immediate ? 0 : 150);
+    this.runtimeUpdateTimer.unref?.();
   }
 }
 
@@ -1690,6 +1745,7 @@ export function createRestrictedAppProposalTool(input: {
     promptSnippet: "Add a work-folder app from a package folder in this work-folder",
     promptGuidelines: [
       "When the user asks you to create or update a work-fold side-rail app, write the complete restricted app package inside the current work-folder, then call propose_work-folder_app with its work-folder-relative folder. For a new app, start with start_work-folder_app, which writes a working package that already follows these rules, and build from it.",
+      "An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections. Something other people will open on the web (a form, sign-up sheet, RSVP, poll, announcement, or a page made from a document) is a page instead: build a page folder with page.json as the Pages section of your guide describes, never an app.",
       "Make the app look like work-fold: link /__work-fold/kit.css and put class wf-app on <body> for the shell's font, colors, and controls: wf-button (with wf-button-primary, wf-button-quiet, wf-button-danger), wf-input, wf-select, wf-textarea, wf-field, wf-toolbar, wf-list with wf-row, wf-row-title, and wf-row-meta, wf-card, wf-badge, wf-empty, wf-divider, wf-spinner, wf-title, wf-heading, and wf-muted. For anything custom, use the --wf-* variables work-fold puts into every view: --wf-font, --wf-font-size, --wf-canvas, --wf-surface, --wf-surface-subtle, --wf-surface-hover, --wf-text, --wf-text-muted, --wf-text-subtle, --wf-border, --wf-border-strong, --wf-accent, --wf-on-accent, --wf-accent-soft, --wf-accent-text, --wf-focus, --wf-success, --wf-danger, --wf-attention, --wf-radius-sm, --wf-radius-md, --wf-radius-lg, and --wf-shadow. They follow light and dark and the work-folder's accent live, so never hard-code the shell's colors.",
       "globalThis.workFoldRestrictedApp.attention.set({count}) puts a dot on the app's rail button to say something new is waiting, and attention.clear() removes it. Call it from the view or from the worker during an automation run, and clear it once the person has seen what was new.",
       `The package must contain package.json with an agentApp path and already-built local assets; work-fold never runs npm or installs dependencies. agent-app.json version 2 has id, title, optional description, runtime {kind:'sandboxed-web',entry,worker?}, ui {icon?,cornerRadius?}, tools, automations, and permissions {network,files,notifications?}. cornerRadius is an optional whole number from 0 through 24; omission uses work-fold's rounded 12px canvas and 0 deliberately requests square corners. Each automation has id, title, optional description, handler, trigger {kind:'interval',intervalMinutes:${restrictedAppAutomationIntervalMinutes.minimum}..${restrictedAppAutomationIntervalMinutes.maximum}}, explicit network/file/notification permission-id subsets, catchUp:'none'|'latest', and overlap:'skip'. A notification is {id,title,description} with static single-line copy and must be referenced by an automation. A file permission is {id,target:'file'|'directory',access:'read'|'read-write'}. A network permission has id, target ({kind:'public-https',origin} or {kind:'loopback-http',host:'127.0.0.1'|'::1',port}), explicit GET/POST/PUT/PATCH/DELETE methods, auth, and an optional requestHeaders array naming up to 16 extra lowercase request headers beyond the always-allowed accept/content-type/if-modified-since/if-none-match; routing, hop-by-hop, and credential header names are rejected. Public auth supports none, api-key {header}, bearer, basic, or oauth2-pkce {issuer,clientId,scopes,discovery?,authorizationEndpoint?,tokenEndpoint?,authorizationParameters?}; loopback is anonymous only. Never put a secret in the package.`,
@@ -1705,7 +1761,7 @@ export function createRestrictedAppProposalTool(input: {
       `The optional top-level assistantActions array declares named requests the app can hand to this work-folder's Worker: each has id, a single-line title (80 characters), static instructions, an inputSchema in the same closed JSON-Schema subset, and an optional outputSchema in that same subset. From an app view, the app's worker module, or an automation, call globalThis.workFoldRestrictedApp.assistant.request({ requestId, requestedAt, actionId, input }) with a fresh UUID and canonical UTC timestamp; it starts an ordinary Worker Chat in the owning work-folder immediately and returns the task. Input is at most ${restrictedAppLimitSize(restrictedAppAssistantLimits.inputBytes)} and up to ${restrictedAppAssistantLimits.runningPerInstallation} requests may run at once per installation; a refusal names the bound it hit. Save the envelope in app storage and replay the same envelope after an uncertain response; assistant.list, assistant.get(requestId), and assistant.cancel(requestId) cover the rest. A settled task carries one result shape: result.summary (at most ${restrictedAppLimitSize(restrictedAppAssistantLimits.summaryBytes)}), result.outcome (succeeded, partial, or failed), result.truncated, result.data only when the action declared outputSchema and the reported value matches it, and result.files naming work-folder-relative deliverables with sha256 and sizeBytes. Declare outputSchema whenever the app needs structured details back rather than prose. Subscribe with tasks.onChanged to learn a task moved instead of polling.`,
       `assistant.infer({ instructions, input, outputSchema?, maxOutputBytes? }), from an app view or from the app's worker module while it holds an action or automation run, performs one bounded model call on the work-folder's configured model with no tools, files, or conversation history. It returns { text, truncated, receiptId } or, when outputSchema (the same closed JSON-Schema subset as tool schemas) is given, { json, receiptId } already validated against it; both carry the model and its usage, receiptId matches the id a tasks.onChanged hint carries, and every call leaves a receipt under the app in Settings → Apps. Put the task in instructions and treat input as data. Input is at most ${restrictedAppLimitSize(restrictedAppInferenceLimits.inputBytes)}; output is at most ${restrictedAppLimitSize(restrictedAppInferenceLimits.defaultOutputBytes)} unless maxOutputBytes sets another cap (at most ${restrictedAppInferenceLimits.maxOutputBytes} bytes); and up to ${restrictedAppInferenceLimits.runningPerInstallation} calls run at once per installation while more wait their turn. Each refusal names the bound it hit — INFER_INPUT_TOO_LARGE, INFER_OUTPUT_TOO_LARGE, INFER_BUSY, INFER_OUTPUT_INVALID, INFER_MODEL_UNAVAILABLE. Use assistant.request when the work needs tools or files and assistant.infer when a single answer over supplied text is enough.`,
       "permissions.checks declares Check-result slots as {id,title}; the app reads the bound Check with globalThis.workFoldRestrictedApp.checks.read({ permissionId }) from an active view only. A slot binds automatically only when the work-folder has exactly one Check; otherwise the person chooses one in Settings → Apps. checks.onChanged tells an active view that a selected result moved, naming the app's own permission ids.",
-      "To let the person open the app in their paired browser on work-fold.com, or share it at their address, declare viewer {entry:'viewer.html', readable:[storage key prefixes]}. The viewer entry is a separate, self-contained read-only page: inline <script> is allowed there, and packaged images and files load through globalThis.workFoldViewerApp.asset(path) or assetUrl(path), not relative URLs. It reads app storage under the readable prefixes with workFoldViewerApp.data.keys(prefix) and data.get(key). It has no context, theme, network, files, or AI, so style it for light and dark with prefers-color-scheme and keep what it should show in storage under those prefixes. When the app declares tools, a paired browser also gets globalThis.workFoldBrowserApp.actions (feature-detect it) to request them; shared links stay read-only.",
+      "To let the person open the app in their paired browser on work-fold.com, declare viewer {entry:'viewer.html', readable:[storage key prefixes]}. The viewer entry is a separate, self-contained read-only page: inline <script> is allowed there, and packaged images and files load through globalThis.workFoldViewerApp.asset(path) or assetUrl(path), not relative URLs. It reads app storage under the readable prefixes with workFoldViewerApp.data.keys(prefix) and data.get(key). It has no context, theme, network, files, or AI, so style it for light and dark with prefers-color-scheme and keep what it should show in storage under those prefixes. When the app declares tools, a paired browser also gets globalThis.workFoldBrowserApp.actions (feature-detect it) to request them.",
       "When propose_work-folder_app returns installed, the app is added and working; tell the person what still needs them (a secret to connect, a file or Check to choose) and where (Settings → Apps, under the app). If it returns failed, fix the package and propose again.",
     ],
     parameters: {

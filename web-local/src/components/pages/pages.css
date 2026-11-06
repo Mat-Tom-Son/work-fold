@@ -1,0 +1,1308 @@
+/* Page tabs (docs/pages.md): the page in its sandbox, and its test entries.
+   Built from the shell's tokens, type scale, and control heights so the tab
+   reads like the file tab beside it. */
+
+.app-shell .page-tab {
+  --page-gutter: 28px;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  container-name: page-tab;
+  container-type: inline-size;
+}
+
+/* Files: a page folder carries the page glyph instead of a folder. */
+
+.app-shell .file-row .page-folder-icon {
+  color: var(--ui-accent);
+}
+
+/* What the page is on the left; Preview and Data on the right. */
+
+.app-shell .page-tab-header {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 16px 10px var(--page-gutter);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.app-shell .page-tab-identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-shell .page-tab-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ui-accent);
+}
+
+.app-shell .page-tab-title {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.app-shell .page-tab-title :is(h2, p) {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-tab-title h2 {
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.app-shell .page-tab-title p {
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  line-height: 1.4;
+}
+
+.app-shell :is(.page-tab-views, .page-segmented) {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  height: var(--work-fold-control-md);
+  padding: 2px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm, 5px);
+  background: var(--ui-surface-subtle);
+}
+
+.app-shell :is(.page-tab-views, .page-segmented) button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ui-text-muted);
+  font: 500 var(--work-fold-type-xs) / 1.3 var(--work-fold-ui-font);
+  white-space: nowrap;
+  cursor: default;
+  transition: background-color 110ms ease-out, color 110ms ease-out;
+}
+
+.app-shell .page-segmented button {
+  min-width: 64px;
+  padding: 0 10px;
+}
+
+.app-shell :is(.page-tab-views, .page-segmented) button:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.app-shell :is(.page-tab-views button[aria-selected="true"], .page-segmented button[aria-checked="true"]) {
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  box-shadow: inset 0 0 0 1px var(--ui-border-strong);
+}
+
+.app-shell :is(.page-tab-views, .page-segmented) button:focus-visible {
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: 1px;
+}
+
+.app-shell :is(.page-tab-new-count, .page-data-new-pill, .page-data-count-badge) {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: var(--work-fold-type-2xs);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.app-shell :is(.page-tab-new-count, .page-data-new-pill) {
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent-text-ui, var(--ui-accent));
+}
+
+.app-shell .page-data-count-badge {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.app-shell .page-tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .page-tab-panel[hidden] {
+  display: none;
+}
+
+.app-shell :is(.page-tab-state, .page-data-empty) {
+  max-width: 440px;
+  margin: 56px auto;
+  padding: 0 24px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.app-shell :is(.page-tab-state, .page-data-empty, .page-preview-state, .page-problems) h3 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+}
+
+.app-shell :is(.page-tab-state, .page-data-empty, .page-preview-state, .page-problems) p {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-sm);
+  line-height: 1.5;
+}
+
+/* Preview: who is looking, then the page itself. */
+
+.app-shell .page-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .page-preview-bar {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 8px var(--page-gutter);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.app-shell .page-preview-label {
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.app-shell .page-preview-spacer {
+  flex: 1 1 auto;
+}
+
+.app-shell .page-preview-bar .ui-control {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  white-space: nowrap;
+}
+
+.app-shell .page-preview-notes {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 16px 10px var(--page-gutter);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface-subtle);
+}
+
+.app-shell .page-preview-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--ui-surface);
+}
+
+/* The page's own canvas: white, as a visitor's browser shows it. */
+.app-shell .page-preview-canvas {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+}
+
+.app-shell .page-preview-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+.app-shell .page-preview-opening {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 10px;
+  transform: translateX(-50%);
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-preview-state {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px;
+  background: var(--ui-surface);
+  text-align: center;
+}
+
+.app-shell .page-preview-state > :is(p, h3) {
+  max-width: 440px;
+}
+
+.app-shell .page-preview-state svg {
+  color: var(--ui-attention);
+}
+
+.app-shell .page-problems {
+  max-width: 680px;
+  margin: 24px var(--page-gutter);
+  padding: 16px 18px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--ui-danger) 35%, var(--ui-border));
+  border-radius: var(--ui-radius-md, 7px);
+  background: color-mix(in srgb, var(--ui-danger) 5%, var(--ui-surface));
+}
+
+.app-shell .page-problem-list {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell .page-problem-list li {
+  min-width: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.app-shell .page-problem-list code {
+  margin-right: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+  font-family: var(--work-fold-monospace-font, monospace);
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-preview-notes li {
+  color: var(--ui-text-muted);
+}
+
+.app-shell .page-problem-more {
+  color: var(--ui-text-muted);
+}
+
+/* Data: the test entries, one table at a time. */
+
+.app-shell .page-data {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 12px;
+}
+
+.app-shell .page-data-note {
+  flex: 0 0 auto;
+  margin: 0 var(--page-gutter) 10px;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  line-height: 1.4;
+}
+
+.app-shell .page-data-tables {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  padding: 0 var(--page-gutter) 10px;
+  overflow-x: auto;
+}
+
+.app-shell .page-data-tables button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--work-fold-control-md);
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm, 5px);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ui-text-muted);
+  font: 500 var(--work-fold-type-sm) / 1.3 var(--work-fold-ui-font);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.app-shell .page-data-tables button:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.app-shell .page-data-tables button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--ui-accent) 45%, var(--ui-border-strong));
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+}
+
+.app-shell .page-data-tables button.retired > span:first-child {
+  font-style: italic;
+}
+
+.app-shell .page-data-table-count {
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .page-data-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .page-data-heading {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 0 var(--page-gutter);
+}
+
+.app-shell .page-data-heading h3 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-lg);
+  font-weight: 600;
+}
+
+.app-shell .page-data-summary {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-data-toolbar {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 10px var(--page-gutter);
+}
+
+.app-shell .page-data-toolbar .ui-control {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  white-space: nowrap;
+}
+
+.app-shell .page-data-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.app-shell .page-data-search {
+  flex: 0 1 260px;
+  min-width: 160px;
+  height: var(--work-fold-control-md);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm, 5px);
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text-muted);
+}
+
+.app-shell .page-data-search:focus-within {
+  outline: 2px solid var(--ui-focus, var(--ui-accent));
+  outline-offset: 0;
+}
+
+.app-shell .page-data-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--work-fold-type-sm);
+}
+
+.app-shell .page-data-search input:focus-visible {
+  outline: 0;
+}
+
+.app-shell .page-data-columns-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.app-shell .page-data-columns-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md, 7px);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+}
+
+.app-shell .page-data-columns-menu label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: var(--ui-radius-sm, 5px);
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-sm);
+}
+
+.app-shell .page-data-columns-menu label:hover {
+  background: var(--ui-surface-hover);
+}
+
+.app-shell .page-data-columns-menu small {
+  margin-left: auto;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-2xs);
+}
+
+.app-shell .page-data-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  border-top: 1px solid var(--ui-border);
+}
+
+.app-shell .page-data-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 20px var(--page-gutter);
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-sm);
+}
+
+/* The grid: a sticky header over windowed rows. */
+
+.app-shell .page-data-grid {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  outline: 0;
+}
+
+.app-shell .page-data-grid:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ui-focus, var(--ui-accent));
+}
+
+.app-shell .page-data-grid-inner {
+  position: relative;
+  min-height: 100%;
+}
+
+.app-shell .page-data-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ui-surface);
+}
+
+.app-shell .page-data-grid-body {
+  position: relative;
+}
+
+.app-shell .page-data-row {
+  display: grid;
+  height: 32px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-sm);
+}
+
+.app-shell .page-data-grid-body .page-data-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.app-shell .page-data-header-row {
+  border-bottom-color: var(--ui-border);
+}
+
+.app-shell .page-data-filter-row {
+  height: 34px;
+  border-bottom-color: var(--ui-border);
+  background: var(--ui-surface-subtle);
+}
+
+.app-shell .page-data-grid-body .page-data-row:hover {
+  background: color-mix(in srgb, var(--ui-surface-hover) 45%, transparent);
+}
+
+.app-shell .page-data-grid-body .page-data-row.checked {
+  background: color-mix(in srgb, var(--ui-accent-soft) 70%, transparent);
+}
+
+.app-shell .page-data-grid-body .page-data-row.selected {
+  background: var(--ui-accent-soft);
+  box-shadow: inset 2px 0 0 var(--ui-accent);
+}
+
+.app-shell .page-data-cell {
+  min-width: 0;
+  padding: 0 10px;
+  overflow: hidden;
+  line-height: 31px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-data-cell.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .page-data-cell.system,
+.app-shell .page-data-cell.retired {
+  color: var(--ui-text-muted);
+}
+
+.app-shell .page-data-cell.page-data-lead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.app-shell .page-data-lead input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.app-shell .page-data-new-dot {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+}
+
+.app-shell .page-data-row.new .page-data-cell:not(.system):not(.page-data-lead) {
+  font-weight: 600;
+}
+
+.app-shell .page-data-header-cell {
+  padding: 0;
+}
+
+.app-shell .page-data-header-cell button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ui-text-muted);
+  font: 600 var(--work-fold-type-xs) / 1 var(--work-fold-ui-font);
+  text-align: left;
+  cursor: default;
+}
+
+.app-shell .page-data-header-cell button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-data-header-cell button:hover {
+  background: var(--ui-surface-hover);
+  color: var(--ui-text);
+}
+
+.app-shell .page-data-header-cell[aria-sort="ascending"] button,
+.app-shell .page-data-header-cell[aria-sort="descending"] button {
+  color: var(--ui-text);
+}
+
+.app-shell .page-data-header-cell.numeric button {
+  justify-content: flex-end;
+}
+
+.app-shell .page-data-header-cell.retired button > span {
+  font-style: italic;
+}
+
+.app-shell .page-data-filter-row .page-data-cell {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  line-height: normal;
+}
+
+.app-shell .page-data-filter-row :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: var(--work-fold-control-sm);
+  padding: 0 6px;
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-data-no-match {
+  margin: 0;
+  padding: 20px var(--page-gutter);
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-sm);
+}
+
+/* One entry, beside the grid. */
+
+.app-shell .page-data-detail {
+  flex: 0 0 320px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  border-left: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+}
+
+.app-shell .page-data-detail > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 6px 16px;
+}
+
+.app-shell .page-data-detail h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-data-fields {
+  margin: 0;
+  padding: 0 16px;
+}
+
+.app-shell .page-data-field {
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
+}
+
+.app-shell .page-data-field dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--work-fold-control-sm);
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+}
+
+.app-shell .page-data-field dt small {
+  font-weight: 400;
+}
+
+.app-shell .page-data-field .page-data-edit {
+  width: var(--work-fold-control-sm);
+  height: var(--work-fold-control-sm);
+  min-height: var(--work-fold-control-sm);
+  margin-left: auto;
+}
+
+.app-shell .page-data-field dd {
+  margin: 2px 0 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-sm);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-shell .page-data-value.empty {
+  color: var(--ui-text-muted);
+}
+
+.app-shell .page-data-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.app-shell .page-data-editor :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--work-fold-control-md);
+  padding: 4px 8px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-sm, 5px);
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--work-fold-type-sm);
+}
+
+.app-shell .page-data-editor textarea {
+  resize: vertical;
+}
+
+.app-shell .page-data-editor [aria-invalid="true"] {
+  border-color: var(--ui-danger);
+}
+
+.app-shell .page-data-field-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: var(--work-fold-type-xs);
+  white-space: normal;
+}
+
+.app-shell .page-data-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.app-shell .page-data-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.app-shell .page-data-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-data-facts :is(dt, dd) {
+  margin: 0;
+}
+
+.app-shell .page-data-detail > footer {
+  margin-top: auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ui-border);
+}
+
+/* A narrow tab: the header and toolbars wrap, and an entry opens over the grid. */
+
+@container page-tab (max-width: 720px) {
+  .app-shell .page-data-wide-label {
+    display: none;
+  }
+
+  .app-shell .page-data-detail {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    width: min(320px, 100%);
+    box-shadow: var(--ui-shadow-lg);
+  }
+}
+
+@container page-tab (max-width: 520px) {
+  .app-shell .page-tab-header {
+    flex-wrap: wrap;
+  }
+
+  .app-shell .page-tab-identity {
+    flex-basis: 100%;
+  }
+
+  .app-shell .page-data-search {
+    flex-basis: 100%;
+  }
+}
+
+/* Filters and Deleted stay visibly on while they are on. */
+:root[data-theme] .app-shell .page-data-toolbar .ui-control.ui-control[aria-pressed="true"] {
+  background: var(--ui-accent-soft);
+  color: var(--ui-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-accent) 40%, var(--ui-border-strong));
+}
+
+/* Publishing (docs/pages.md, "Publishing (stage 2)"): the controls beside
+   Preview and Data, the panel a publish opens, and Unpublish's menu. */
+
+.app-shell .page-tab-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+.app-shell .page-publish {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-shell .page-publish .ui-control {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.app-shell .page-publish-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-shell .page-publish-status.online {
+  background: color-mix(in srgb, var(--ui-success) 13%, transparent);
+  color: color-mix(in srgb, var(--ui-success) 80%, var(--ui-text));
+}
+
+.app-shell .page-publish-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ui-success);
+}
+
+.app-shell .page-publish-reason {
+  min-width: 0;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-publish-more {
+  position: relative;
+  display: inline-flex;
+}
+
+:root[data-theme] .app-shell .page-publish-more .context-menu.page-publish-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 30;
+  min-width: 240px;
+}
+
+.app-shell .page-publish-menu-hint {
+  margin: 2px 0 2px;
+  padding: 0 10px 6px 33px;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.app-shell .page-publish-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(380px, calc(100cqi - 32px));
+  max-height: min(480px, 70vh);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md, 7px);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-menu);
+  color: var(--ui-text);
+  outline: 0;
+}
+
+.app-shell .page-publish-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.app-shell .page-publish-panel h3 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+}
+
+.app-shell .page-publish-panel > header .ui-control--icon {
+  width: var(--work-fold-control-sm);
+  height: var(--work-fold-control-sm);
+  min-height: var(--work-fold-control-sm);
+}
+
+.app-shell :is(.page-publish-progress, .page-publish-hint) {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-sm);
+  line-height: 1.45;
+}
+
+.app-shell .page-publish-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-shell .page-publish-link {
+  display: block;
+  min-width: 0;
+  padding: 7px 9px;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm, 5px);
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text);
+  font-family: var(--work-fold-monospace-font, monospace);
+  font-size: var(--work-fold-type-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  user-select: all;
+}
+
+.app-shell :is(.page-publish-panel-actions, .page-publish-panel-footer) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-shell .page-publish-panel-footer {
+  justify-content: flex-end;
+}
+
+.app-shell :is(.page-publish-panel-actions, .page-publish-panel-footer) .ui-control {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.app-shell .page-publish-uploaded {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.app-shell .page-publish-uploaded > p {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-sm);
+  font-weight: 500;
+}
+
+.app-shell .page-publish-uploaded ul {
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.app-shell .page-publish-uploaded li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+}
+
+.app-shell .page-publish-uploaded li > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .page-publish-uploaded li small {
+  flex: 0 0 auto;
+  font-size: var(--work-fold-type-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .page-publish-problems {
+  margin: 0;
+}
+
+/* Data: which entries, what they are, and when work-fold last checked in. */
+
+.app-shell .page-data-source {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0 16px 10px var(--page-gutter);
+}
+
+.app-shell .page-data-source .page-segmented button {
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.app-shell .page-data-source .page-data-note {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+}
+
+.app-shell .page-data-source .ui-control {
+  height: var(--work-fold-control-md);
+  min-height: var(--work-fold-control-md);
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Files: a page folder's data.sqlite reads as Data, its entries. */
+
+.app-shell .file-row .page-data-file-icon {
+  color: var(--ui-accent);
+}
+
+/* Narrow tabs keep every publishing action but drop the words from Copy
+   Link and Open, and the reason beside a Publish that can't run moves into
+   its tooltip. */
+
+@container page-tab (max-width: 720px) {
+  .app-shell :is(.page-publish-label, .page-publish-reason) {
+    display: none;
+  }
+}
+
+@container page-tab (max-width: 520px) {
+  .app-shell .page-tab-actions {
+    flex-basis: 100%;
+    justify-content: space-between;
+  }
+
+  .app-shell .page-publish-panel {
+    left: 0;
+    right: auto;
+    width: min(380px, calc(100cqi - 32px));
+  }
+}
+
+/* Settings → Published: every published page, by work-folder. */
+
+.app-shell .published-pages-pane {
+  display: grid;
+  gap: 18px;
+}
+
+.app-shell .published-pages-group {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.app-shell .published-pages-work-folder {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .published-page-row > div:first-child {
+  flex: 1 1 auto;
+}
+
+.app-shell .published-page-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.app-shell .published-page-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ui-text-muted);
+  font-weight: 600;
+}
+
+.app-shell .published-page-status.online {
+  color: color-mix(in srgb, var(--ui-success) 80%, var(--ui-text));
+}
+
+.app-shell .published-page-status.online::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ui-success);
+}
+
+.app-shell .published-page-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.app-shell .settings-window .remote-browser-row .published-page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: auto;
+}
+
+.app-shell .settings-window .remote-browser-row .published-page-actions .ui-control {
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.app-shell .published-pages-empty {
+  display: grid;
+  gap: 6px;
+  padding: 18px 0;
+}
+
+.app-shell .published-pages-empty h3 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: var(--work-fold-type-md);
+  font-weight: 600;
+}
+
+.app-shell :is(.published-pages-empty p, .published-pages-note) {
+  max-width: 520px;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-sm);
+  line-height: 1.5;
+}
+
+.app-shell .published-pages-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

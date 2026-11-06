@@ -219,6 +219,23 @@ button { color: inherit; }
 .danger { color: var(--danger); }
 .form-error { margin: 14px 0 0; color: var(--danger) !important; font-size: 13px; }
 
+.auth-secondary {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.auth-secondary:hover { background: var(--paper-deep); }
+.auth-secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pairing-status + .auth-secondary { margin-top: 26px; }
+
 .pairing-code { margin: 24px 0; font-variant-numeric: tabular-nums; font-size: 42px; font-weight: 740; letter-spacing: .18em; }
 .pairing-status { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .spinner { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -239,7 +256,7 @@ button { color: inherit; }
 
 /* The connected workspace keeps one neutral palette. Color is reserved for
    previews and errors; conversation and navigation use surface contrast. */
-:is(.app-shell, .file-preview-dialog, .browser-app-dialog) {
+:is(.app-shell, .file-preview-dialog, .browser-app-dialog, .published-dialog) {
   --paper: #f7f7f7;
   --paper-deep: #eeeeee;
   --surface: #ffffff;
@@ -268,7 +285,7 @@ body:has(.app-shell) { background: #ffffff; }
 
 @media (prefers-color-scheme: dark) {
   body:has(.app-shell) { background: #212121; }
-  :is(.app-shell, .file-preview-dialog, .browser-app-dialog) {
+  :is(.app-shell, .file-preview-dialog, .browser-app-dialog, .published-dialog) {
     --hover: #333333;
     --paper: #171717;
     --paper-deep: #292929;
@@ -407,7 +424,7 @@ body.drawer-locked { overflow: hidden; }
 .sidebar-chats-item { display: none; }
 .sidebar-chats { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; margin: 0 -4px; padding: 0 4px; }
 .sidebar-foot { flex: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.sidebar-footer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar-footer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 /* Component display rules must never override the semantic hidden state. */
 #desktop-presence[hidden] { display: none; }
 .presence { display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 4px 10px 0; color: var(--muted); font-size: 12px; font-weight: 600; }
@@ -825,7 +842,7 @@ body.drawer-locked { overflow: hidden; }
   .composer-wrap { padding: 12px 24px calc(18px + env(safe-area-inset-bottom, 0px)); }
 
   /* The collapsed sidebar: a 60px icon rail. Expand, New chat, Chats,
-     Shared pages and Settings at the foot. */
+     and Settings at the foot. */
   .app-shell[data-sidebar="collapsed"] .sidebar { width: 60px; padding: 14px 8px 12px; align-items: center; overflow: visible; }
   .app-shell[data-sidebar="collapsed"] .sidebar-brand,
   .app-shell[data-sidebar="collapsed"] .sidebar-label,
@@ -869,6 +886,7 @@ body.drawer-locked { overflow: hidden; }
     background: var(--accent);
   }
   .rail-account .account-settings { width: 36px; height: 36px; }
+  .app-shell[data-sidebar="collapsed"] .rail-account { margin-top: auto; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-settings { width: 44px; height: 44px; }
   .app-shell[data-sidebar="collapsed"] .presence { margin: 4px 0 0; }
   .app-shell[data-sidebar="collapsed"] .rail-account .account-menu { left: 46px; right: auto; bottom: 0; }
@@ -1008,43 +1026,82 @@ body { overscroll-behavior-y: none; }
   .chat-search input { font-size: 16px; }
 }
 
-/* Shared pages belong beside the account controls, above the footer. */
-.shared-pages-shell { position: relative; flex: 1; min-width: 0; }
-.shared-pages-popup {
-  position: absolute; z-index: 70; left: 0; bottom: calc(100% + 8px);
-  width: min(304px, calc(100vw - 32px)); padding: 8px;
-  border: 1px solid var(--line); border-radius: 14px;
-  background: var(--paper); color: var(--ink);
-  box-shadow: 0 8px 32px rgb(0 0 0 / 16%);
-}
-.shared-pages-popup[hidden] { display: none; }
-.shared-pages-popup header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 6px 8px; }
-.shared-pages-popup h2 { margin: 0; font-size: 13px; font-weight: 550; }
-.shared-pages-refresh { display: grid; place-items: center; width: 32px; height: 32px; padding: 7px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); }
-.shared-pages-refresh svg, .shared-page-row svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
-.shared-pages-list { max-height: min(350px, 55dvh); overflow-y: auto; overscroll-behavior: contain; }
-.shared-page-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 46px; padding: 10px 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; font-size: 14px; font-weight: 400; }
-.shared-page-glyph, .shared-page-arrow { color: var(--muted); }
-.shared-page-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
-.shared-page-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shared-page-copy small { color: var(--muted); font-size: 11px; }
-.shared-page-arrow { width: 14px !important; height: 14px !important; }
-.shared-page-row[aria-busy="true"] .shared-page-arrow { animation: work-pulse 1s ease-in-out infinite; }
-.shared-pages-note { margin: 10px 8px 4px; color: var(--muted); font-size: 11px; }
-.shared-pages-empty { margin: 10px 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
-.shared-page-fallback { display: block; margin: 8px; padding: 9px; border-radius: 8px; color: var(--ink); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
-:is(.shared-page-row, .shared-pages-refresh, .shared-page-fallback):hover:not(:disabled) { background: var(--hover); color: var(--ink); }
-:is(.shared-page-row, .shared-pages-refresh, .shared-page-fallback):focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
-:is(.app-shell, .file-preview-dialog, .browser-app-dialog) :is(button, summary, a) { transition: background-color .14s ease, color .14s ease; }
-:is(.file-preview-dialog, .browser-app-dialog) :is(button, summary):hover:not(:disabled) { background: var(--hover); color: var(--ink); transform: none; }
+:is(.app-shell, .file-preview-dialog, .browser-app-dialog, .published-dialog) :is(button, summary, a) { transition: background-color .14s ease, color .14s ease; }
+:is(.file-preview-dialog, .browser-app-dialog, .published-dialog) :is(button, summary):hover:not(:disabled) { background: var(--hover); color: var(--ink); transform: none; }
 .app-shell .quiet:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
 .app-shell :is(.work-text-button, .work-file-button, .work-details summary, .request-deliverables summary, .request-result-links button):hover:not(:disabled) { background: var(--hover); color: var(--ink); border-radius: 6px; }
 .app-shell .work-primary-button:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-contrast); }
 .chat-menu button.danger:hover:not(:disabled), .account-menu button:hover { color: var(--danger); }
-@media (min-width: 860px) {
-  .app-shell[data-sidebar="collapsed"] .shared-pages-shell { flex: none; width: 44px; margin-top: auto; }
-  .app-shell[data-sidebar="collapsed"] .shared-pages-popup { left: 52px; bottom: 0; }
-}
 @media (prefers-reduced-motion: reduce) {
-  :is(.app-shell, .file-preview-dialog, .browser-app-dialog) :is(button, summary, a) { transition: none; }
+  :is(.app-shell, .file-preview-dialog, .browser-app-dialog, .published-dialog) :is(button, summary, a) { transition: none; }
+}
+
+/* --- Published: online pages, their entries, Export, Unpublish ------------
+   A dialog over whichever screen opened it (the chat, the offline gate, or
+   pairing), so it never disturbs what is underneath. */
+.sidebar-published { flex: 1 1 auto; width: auto; min-width: 0; }
+@media (min-width: 860px) {
+  .app-shell[data-sidebar="collapsed"] .sidebar-published { flex: none; margin-top: auto; }
+  .app-shell[data-sidebar="collapsed"] .sidebar-published + .rail-account { margin-top: 2px; }
+}
+.published-dialog { box-sizing: border-box; width: min(960px, calc(100vw - 32px)); height: min(820px, calc(100dvh - 32px)); max-width: none; max-height: none; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); }
+.published-dialog[open] { display: flex; flex-direction: column; }
+.published-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.published-dialog header { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--line); }
+.published-dialog header:has(.published-back:not([hidden])) { padding-left: 10px; }
+.published-dialog h2 { flex: 1; min-width: 0; margin: 0; font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+.published-dialog h2:focus { outline: none; }
+.published-back, .published-close { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); font-size: 15px; cursor: pointer; }
+.published-back[hidden] { display: none; }
+.published-back svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.published-back:focus-visible, .published-close:focus-visible, .published-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.published-content { flex: 1; min-height: 0; overflow: auto; padding: 18px; }
+.published-dialog footer { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px 10px 18px; border-top: 1px solid var(--line); }
+.published-status { min-width: 0; margin: 0; color: var(--muted); font-size: 13px; }
+.published-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.published-item { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+.published-item-head, .published-item-foot, .published-summary-line, .published-table-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.published-summary-line { justify-content: flex-start; }
+.published-item-head h3, .published-table-head h3 { min-width: 0; margin: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.published-table-head p { margin: 2px 0 0; }
+.published-pill { flex: none; padding: 3px 9px; border-radius: 999px; background: var(--paper-deep); color: var(--muted); font-size: 12px; font-weight: 650; }
+.published-pill[data-status="online"] { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+.published-meta { color: var(--muted); font-size: 13px; }
+.published-link-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.published-link { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-overflow: ellipsis; }
+.published-link:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.published-button { flex: none; display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.2; text-decoration: none; cursor: pointer; }
+.published-button:hover:not(:disabled) { background: var(--hover); }
+.published-button:disabled { opacity: .5; cursor: default; }
+.published-dialog .published-danger, .published-dialog .published-danger:hover:not(:disabled) { color: var(--danger); }
+.published-summary { display: grid; gap: 12px; margin-bottom: 24px; }
+.published-actions { display: flex; gap: 8px; }
+.published-result, .published-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--paper); font-size: 13px; line-height: 1.5; }
+.published-note { color: var(--muted); }
+.published-tables { display: grid; gap: 28px; }
+.published-table { display: grid; gap: 10px; min-width: 0; }
+.published-grid { max-height: 60vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.published-grid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.published-grid table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* Words never break mid-way; a table wider than the dialog scrolls sideways. */
+.published-grid th, .published-grid td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: pre-wrap; overflow-wrap: break-word; }
+.published-grid td { min-width: 6ch; }
+.published-grid th { position: sticky; top: 0; background: var(--paper); color: var(--muted); font-weight: 650; white-space: nowrap; }
+.published-grid tbody tr:last-child td { border-bottom: 0; }
+.published-grid .published-added { color: var(--muted); white-space: nowrap; }
+.published-retired { font-weight: 500; }
+.published-empty, .published-loading { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.published-failure { display: grid; justify-items: start; gap: 10px; }
+.published-failure p { margin: 0; color: var(--danger); font-size: 14px; }
+@media (max-width: 600px) {
+  .published-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+  .published-content { padding: 14px; }
+  /* The link gets the whole line; Copy and Open sit under it. */
+  .published-link-row { flex-wrap: wrap; }
+  .published-link { flex-basis: 100%; }
+}
+@media (pointer: coarse) {
+  .published-button, .published-link { min-height: 44px; }
+  .published-link { font-size: 16px; }
+  .published-back, .published-close { width: 44px; height: 44px; }
 }

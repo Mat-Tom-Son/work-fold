@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { createPackage } from "@electron/asar";
-import { verifyPackagedImageSize, verifyPackagedNativeTools, verifyPackagedPiRecovery } from "../scripts/verify-packaged-native-tools.mjs";
+import { verifyPackagedImageSize, verifyPackagedNativeTools, verifyPackagedPiRecovery, verifyPackagedPiIdentity } from "../scripts/verify-packaged-native-tools.mjs";
 
 async function copyReviewedParser(source: string, packageName = "image-size") {
   const manifest = JSON.parse(await readFile(new URL("../patches/included-tools/manifest.json", import.meta.url), "utf8"));
@@ -39,8 +39,24 @@ test("full built-ASAR smoke rejects missing packaged dependencies without borrow
   await writeFile(join(source, "package.json"), JSON.stringify({ name: "work-fold-desktop", type: "module" }));
   await copyReviewedParser(source);
   await copyReviewedParser(source, "@earendil-works/pi-coding-agent");
+  await copyReviewedParser(source, "@earendil-works/pi-ai");
   await createPackage(source, archive);
   await assert.rejects(() => verifyPackagedNativeTools(archive), error => error instanceof Error && /Packaged native tool smoke failed/.test(error.message) && /Cannot find module 'jiti'|Jiti must come from the built archive/.test(error.message));
+});
+
+test("packaged Pi identity rejects missing or replaced OAuth implementation bytes", async t => {
+  const root = await mkdtemp(join(tmpdir(), "workfold-packaged-pi-identity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const state of ["reviewed", "missing", "replaced"]) {
+    const source = join(root, state), archive = join(root, `${state}.asar`);
+    await mkdir(source); await copyReviewedParser(source, "@earendil-works/pi-ai");
+    const path = join(source, "node_modules/@earendil-works/pi-ai/dist/auth/oauth/openai-chatgpt.js");
+    if (state === "missing") await rm(path);
+    if (state === "replaced") await writeFile(path, "export {};\n");
+    await createPackage(source, archive);
+    if (state === "reviewed") assert.match(await verifyPackagedPiIdentity(archive), /PASS packaged Pi identity/);
+    else await assert.rejects(() => verifyPackagedPiIdentity(archive), /Packaged Pi identity verification failed/);
+  }
 });
 
 test("packaged Pi recovery accepts pruned declarations and refuses unpatched or missing runtime bytes", async t => {

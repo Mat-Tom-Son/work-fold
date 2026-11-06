@@ -11,6 +11,7 @@ import {
   workFoldWorkFolderOperationsGuide,
   workFoldWorkFolderOperationsGuideHeading,
   workFoldWorkerWorkingFilesGuide,
+  workFolderPagesGuide,
 } from "../src/local/agent/work-folder-operations-guide.js";
 
 /**
@@ -72,15 +73,96 @@ test("the guide teaches the two rules the host actually enforces", () => {
   assert.match(guide, /child result\/wait and answer reads name the owning work-folder/);
   assert.match(guide, /chat answer --work-folder <the work-folder that asked>/);
   assert.match(guide, /Name the asking work-folder, never your own/);
-  assert.match(guide, /### Pages the person may share/);
-  assert.match(guide, /write shareable HTML self-contained/);
-  assert.match(guide, /Script, forms, frames, and external loads are stripped/);
   assert.doesNotMatch(guide, /chat answer --work-folder <id>/, "the answer verb never shows the caller's own id");
 
   // `chat wait` does not promise a filter the built path does not apply.
   assert.doesNotMatch(guide, /never its Chat/);
   assert.match(guide, /completion returns the latest reply and selected result/);
 
+});
+
+/**
+ * Pages (docs/pages.md) are taught in the Worker's guide: what makes a page
+ * rather than an app, the page folder and page.json, the calls and the form
+ * helper, the no-network rule, the recipes, the validate verb a Worker
+ * finishes with, and publishing (stage 2): only when the person asks, with
+ * `pages publish`, telling them the link. The retired single-file sharing is
+ * gone.
+ */
+test("the guide teaches pages: page.json, workFoldPage, the form helper, no network, pages validate, and publishing", () => {
+  const guide = workFoldWorkFolderOperationsGuide();
+  const section = workFolderPagesGuide().join("\n");
+  assert.ok(guide.includes(section), "the operations guide carries the pages section");
+  assert.ok(section.startsWith("### Pages\n"));
+
+  // When to make a page, and when an app.
+  assert.match(section, /A page is something other people will open on the web: a form, sign-up sheet, RSVP, poll, or announcement\./);
+  assert.match(section, /Sharing a document means making a page from it\./);
+  assert.match(section, /An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections\./);
+
+  // The folder, page.json, and its compact example.
+  assert.match(section, /`format` is exactly `work-fold\.page\/1`/);
+  const example = section.match(/`page\.json`, for example: `(\{.*?\})`\./)?.[1];
+  assert.ok(example, "the guide carries one compact page.json example");
+  const parsed = JSON.parse(example) as { format: string; title: string; tables: Record<string, { columns: object; visitors: string[]; limit: number }> };
+  assert.equal(parsed.format, "work-fold.page/1");
+  assert.deepEqual(Object.keys(parsed.tables), ["signups"]);
+  assert.deepEqual(parsed.tables.signups!.visitors, ["add", "see-own"]);
+  for (const type of ["text", "long-text", "number", "boolean", "date", "email", "url", "choice"]) {
+    assert.ok(section.includes(`\`${type}\``), `the guide names the ${type} column type`);
+  }
+  for (const permission of ["add", "see-own", "see-all", "edit-own", "delete-own"]) {
+    assert.ok(section.includes(`\`${permission}\``), `the guide names the ${permission} visitor permission`);
+  }
+  assert.match(section, /never put private files, notes, or source documents there/);
+  assert.match(section, /never one inside another/);
+
+  // The calls, the refusal codes, and the form helper.
+  assert.match(section, /Page scripts use `window\.workFoldPage`; every call returns a promise/);
+  for (const call of ["add(table, values)", "mine(table)", "list(table, {limit, newestFirst})", "count(table, where?)", "update(table, id, values)", "remove(table, id)", "isOwner()", "onChange(callback)"]) {
+    assert.ok(section.includes(`\`${call}\``), `the guide names ${call}`);
+  }
+  for (const code of ["NOT_ALLOWED", "INVALID", "DUPLICATE", "LIMIT_REACHED", "NOT_FOUND", "TOO_LARGE", "UNAVAILABLE"]) {
+    assert.ok(section.includes(`\`${code}\``), `the guide names the ${code} refusal`);
+  }
+  assert.match(section, /`<form data-page-table="signups">` saves itself on submit/);
+  assert.match(section, /`data-page-state` becomes `sending`, then `sent` or `error`/);
+  assert.match(section, /`data-page-message` shows the error/);
+  assert.match(section, /`page:sent` \(detail: the new row\) or `page:error`/);
+
+  // What a page cannot do.
+  assert.match(section, /No network: never load a script, style, font, or image from an `http:`, `https:`, or `\/\/` address\./);
+  assert.match(section, /Save any library, font, or image into the page folder/);
+  assert.match(section, /`fetch` reaches nothing, the page's own files included/);
+  assert.match(section, /Only the entry HTML is a page/);
+  assert.match(section, /Save data only through declared tables/);
+
+  // The recipes.
+  assert.match(section, /RSVP with a guest cap: set the table's `limit`, show `count\(table\)`/);
+  assert.match(section, /Sign-up sheet, one slot per person/);
+  assert.match(section, /Poll with live counts: a `choice` column, `count\(table, \{answer: option\}\)`/);
+  assert.match(section, /Announcement: a `page\.json` with just `format` and `title`, no tables/);
+
+  // Finish with validate, then point the person at the page tab.
+  assert.match(section, /Finish by running `work-fold pages validate --work-folder <id> --page <path> --json`/);
+  assert.match(section, /fixing every problem it reports/);
+  assert.match(section, /open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the test entries/);
+  assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages validate --work-folder <id>"), "the executable name substitutes");
+
+  // Publishing: only when asked, with pages publish, telling the person the
+  // link and what was uploaded; private files never go in a page folder.
+  assert.doesNotMatch(section, /Pages can't be published yet/);
+  assert.match(section, /Everything in a page folder except `data\.sqlite` goes online when the page is published, so never put private files/);
+  assert.match(section, /publish only when the person asks, with `work-fold pages publish --work-folder <id> --page <path> --json`/);
+  assert.match(section, /Anyone with the link can open the page\. Tell the person the `url` from the result, and list the files it uploaded \(`uploaded\.files`\)/);
+  assert.match(section, /Settings → Web Access/);
+  assert.match(section, /`work-fold pages unpublish` takes a page offline and keeps its entries/);
+  assert.match(section, /come back into the page folder as `data\.sqlite`/);
+  assert.match(section, /read it with `sqlite3 -readonly`/);
+  assert.match(section, /Never write to it/);
+  assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages publish --work-folder <id>"), "the executable name substitutes in publishing too");
+  // The retired single-file sharing is gone.
+  assert.doesNotMatch(guide, /Pages the person may share|shareable HTML|sharing pages|shares it from the file's tab/);
 });
 
 function sessionAppendix(client: PiConversationClient): string[] {

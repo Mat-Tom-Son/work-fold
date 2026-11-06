@@ -18,8 +18,16 @@ test("Darwin tab menus require the trusted main renderer and build their items i
     main,
     /ipcMain\.handle\("work-fold:work-folder:popup-tab-menu"[\s\S]*?assertTrustedMainRenderer\(event\)[\s\S]*?process\.platform !== "darwin"[\s\S]*?popupNativeTabMenu\(parseNativeTabMenuRequest\(value\)\)/,
   );
-  assert.match(main, /function popupNativeTabMenu[\s\S]*?nativeTabMenuItems\(request\)/);
+  assert.match(main, /function popupNativeTabMenu[\s\S]*?popupNativeCommandMenu\(nativeTabMenuItems\(request\), request\.point\)/);
   assert.match(preload, /popupTabMenu: \(request[\s\S]*?ipcRenderer\.invoke\("work-fold:work-folder:popup-tab-menu", request\)/);
+});
+
+test("the Darwin work-folder header menu requires the trusted main renderer and builds its items in the host", () => {
+  assert.match(
+    main,
+    /ipcMain\.handle\("work-fold:work-folder:popup-header-menu"[\s\S]*?assertTrustedMainRenderer\(event\)[\s\S]*?process\.platform !== "darwin"[\s\S]*?parseNativeWorkFolderMenuRequest\(value\)[\s\S]*?popupNativeCommandMenu\(nativeWorkFolderMenuItems\(request\), request\.point\)/,
+  );
+  assert.match(preload, /popupHeaderMenu: \(request[\s\S]*?ipcRenderer\.invoke\("work-fold:work-folder:popup-header-menu", request\)/);
 });
 
 test("Finder and Open Recent recreate the Mac window before automation a queued work-folder", () => {

@@ -72,8 +72,8 @@ The request envelope has exactly those four fields. JSON input is at most
 4 MiB; a larger input is refused with a message naming the bound. New
 requests carry a canonical UTC timestamp as part of their idempotency record.
 A replayed envelope returns the same record; changing its input conflicts. The
-app cannot choose another work-folder or read arbitrary task or Chat ids. Shared
-viewers and remote app views have no `assistant` bridge. Private browser worker
+app cannot choose another work-folder or read arbitrary task or Chat ids. Remote
+app views have no `assistant` bridge. Private browser worker
 actions use their separate action lane, which runs a request on acceptance
 (see [work-folder apps in paired browsers](browser-apps.md#actions)).
 
@@ -256,8 +256,8 @@ refused with `INFER_INPUT_TOO_LARGE` only when that estimate leaves no room for
 at least a 1,024-token answer.
 
 An active app view or the app's worker holding a tool action or an automation
-run may call it. An inactive view, a worker between operations, a viewer page,
-and a remote app view all get `INFER_UNAVAILABLE`. The installation, revision, and
+run may call it. An inactive view, a worker between operations, and a remote
+app view all get `INFER_UNAVAILABLE`. The installation, revision, and
 authority are pinned before the call and rechecked before the result is
 delivered.
 

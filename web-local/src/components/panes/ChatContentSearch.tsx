@@ -91,7 +91,7 @@ export function ChatContentSearch({
   return (
     <section className="chat-content-search" aria-label="Matches in Chat transcripts">
       <h3>
-        In Chat transcripts
+        In Chat Transcripts
         <span aria-live="polite">
           {state.status === "searching"
             ? "Searching"

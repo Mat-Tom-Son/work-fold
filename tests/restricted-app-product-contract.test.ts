@@ -47,9 +47,9 @@ test("app details show each destination's OAuth request in full", () => {
   assert.match(apps, /<dt>Issuer<\/dt>/);
   assert.match(apps, /<dt>Scopes<\/dt>/);
   assert.match(apps, /<dt>Discovery<\/dt>/);
-  assert.match(apps, /<dt>Authorize at<\/dt>/);
-  assert.match(apps, /<dt>Exchange at<\/dt>/);
-  assert.match(apps, /<dt>Extra parameters<\/dt>/);
+  assert.match(apps, /<dt>Authorization URL<\/dt>/);
+  assert.match(apps, /<dt>Token URL<\/dt>/);
+  assert.match(apps, /<dt>Extra Parameters<\/dt>/);
 });
 
 test("Skills & Extensions owns access, connection, and lifecycle management without credential-erasure jargon", () => {
@@ -57,9 +57,9 @@ test("Skills & Extensions owns access, connection, and lifecycle management with
   const runtime = apps.indexOf("Package & Runtime");
   const lifecycle = apps.indexOf("Lifecycle");
   assert.ok(access >= 0 && runtime > access && lifecycle > runtime);
-  assert.match(apps, /Allow access/);
-  assert.match(apps, /Revoke access/);
-  assert.match(apps, /Replace connection/);
+  assert.match(apps, /Allow Access/);
+  assert.match(apps, /Revoke Access/);
+  assert.match(apps, /Replace Connection/);
   assert.match(apps, /Disconnect/);
   assert.match(apps, /work-folder files/);
   assert.match(apps, /Automations/);
@@ -67,24 +67,24 @@ test("Skills & Extensions owns access, connection, and lifecycle management with
   assert.match(apps, /App access overview/);
   assert.match(apps, /onEnabledChange=\{\(enabled\) => void changeAppAutomation\(automation, enabled\)\}/);
   assert.match(apps, /"Whole work-folder"/);
-  assert.match(apps, /Limit to folder/);
+  assert.match(apps, /Limit to Folder/);
   // Removing a preview takes its data with it, and F20 makes that recoverable:
   // the confirm and the toast both say so rather than implying finality.
   assert.match(apps, /moves app data to Recently Deleted\./);
   assert.match(apps, /preview removed\. Its data is in Recently Deleted\./);
   // An editable path needs a control that applies it, for a file as for a folder.
   assert.match(apps, /grant && rootChanged \?/);
-  assert.match(apps, /"Change file"/);
+  assert.match(apps, /"Change File"/);
   assert.match(apps, /Earlier revision/);
   assert.match(apps, /<h3 id="restricted-app-notifications-title">Notifications<\/h3>/);
   assert.doesNotMatch(apps, /Windows notifications|Windows notification settings/);
   assert.match(apps, /work-fold · \{app\.manifest\.title\} — \{permission\.title\}/);
-  assert.match(apps, /Allow notifications/);
-  assert.match(apps, /Revoke notifications/);
+  assert.match(apps, /Allow Notifications/);
+  assert.match(apps, /Revoke Notifications/);
   // The app's recent notifications sit under its categories.
   assert.match(apps, /<RestrictedAppNotificationHistory key=\{`notifications:\$\{app\.featureInstallationId\}`\} app=\{app\} disabled=\{fixtureMode\} \/>\s*<\/section> : null\}/);
   assert.doesNotMatch(apps, /Delete credential|Credential saved|Credential needed/);
-  assert.match(apps, /Provider compatibility \{status\.diagnostics\.length === 1 \? "note" : "notes"\}/);
+  assert.match(apps, /Provider Compatibility \{status\.diagnostics\.length === 1 \? "Note" : "Notes"\}/);
 });
 
 test("automation confirmations render above the capability dialog that requested them", () => {

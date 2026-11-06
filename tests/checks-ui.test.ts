@@ -33,7 +33,7 @@ test("Checks toolbar distinguishes never-run, stale, attention, and Check health
     configured: 1,
     enabled: 1,
     neverRun: 1,
-  })?.label, "Checks not run");
+  })?.label, "Checks Not Run");
 
   assert.equal(checksToolbarPresentation({
     ...base,
@@ -41,7 +41,7 @@ test("Checks toolbar distinguishes never-run, stale, attention, and Check health
     configured: 1,
     enabled: 1,
     stale: 1,
-  })?.label, "Results not current");
+  })?.label, "Results Not Current");
 
   assert.deepEqual(checksToolbarPresentation({
     ...base,
@@ -64,7 +64,7 @@ test("Checks toolbar distinguishes never-run, stale, attention, and Check health
     configured: 1,
     blocked: 1,
   });
-  assert.equal(blocked?.label, "Check issue");
+  assert.equal(blocked?.label, "Check Issue");
   assert.match(blocked?.title ?? "", /not a problem label on your files/);
 });
 
@@ -74,7 +74,7 @@ test("proposals-only and temporarily unavailable Checks never look current or ru
     configured: 1,
     proposed: 1,
   });
-  assert.equal(proposals?.label, "Check proposals");
+  assert.equal(proposals?.label, "Check Proposals");
   assert.match(proposals?.title ?? "", /No Checks are enabled/);
 
   const unavailable = checksToolbarPresentation({
@@ -84,7 +84,7 @@ test("proposals-only and temporarily unavailable Checks never look current or ru
     enabled: 1,
     current: 1,
   }, true);
-  assert.equal(unavailable?.label, "Check status unavailable");
+  assert.equal(unavailable?.label, "Check Status Unavailable");
   assert.match(unavailable?.title ?? "", /does not label your files as clear or failed/);
 });
 
@@ -111,6 +111,6 @@ test("mixed never-run and stale Checks report both kinds of uncertainty", () => 
     neverRun: 1,
     stale: 1,
   });
-  assert.equal(presentation?.label, "Results not current");
+  assert.equal(presentation?.label, "Results Not Current");
   assert.match(presentation?.title ?? "", /1 Check not run; 1 result changed/);
 });

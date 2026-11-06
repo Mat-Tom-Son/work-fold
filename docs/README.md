@@ -30,7 +30,8 @@ instruction to implement its contents.
 | Checks and Automations | [Checks](checks.md), [Automations (technical automation contract)](automations.md), [The overview](work-fold-agent-overview.md) |
 | Native agent capabilities | [Skills, Extensions, packages, and scopes](skills-and-extensions.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted work-folder apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
-| Web access and sharing | [Bridge operations](../services/bridge/README.md), [Publishing and viewers](shared-pages.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
+| Pages | [Pages (page folders, preview, test entries)](pages.md), [Online pages plan](online-pages-plan.md) |
+| Web access | [Bridge operations](../services/bridge/README.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [work-folder customization](work-folder-customization.md), [Image generation](image-generation.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
 | Linux candidates | [Build, packaging and desktop acceptance](linux-build.md) |
@@ -40,8 +41,8 @@ The App platform's [ontology](app-platform-ontology.md),
 [portable runtime contract](app-platform-runtime-contract.md) are accepted
 supporting design contracts. The foundation's **Current local boundary** and
 **Implemented local product boundary** identify what is implemented. Accepted
-hosted-runtime semantics do not imply a deployed cloud runtime. Desktop-served
-viewer pages and app views are a separate shipped capability.
+hosted-runtime semantics do not imply a deployed cloud runtime. Paired-browser
+private app views are a separate shipped capability.
 
 ## Harness and example boundaries
 
@@ -76,6 +77,7 @@ viewer pages and app views are a separate shipped capability.
 | [Feedback during agent work](tool-feedback.md) | General native-tool feedback contract, adversarial review decisions, local model-context inspection and implementation evidence |
 | [Collaboration contract](collaboration-contract.md) | The built wave B specification (accepted 2026-09-11): durable requests, work-folder turn context, report/ask/answer/handoff, one result shape, app change hints — also listed under current contracts |
 | [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction and the specification the canonical documents now follow: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17, narrows F8, F9, F18 |
+| [Online pages plan](online-pages-plan.md) | Proposed: interactive page folders published online with saved data; replaces desktop-served sharing, retired 2026-11-05 |
 | [Windows build](windows-build.md), [Windows releases](windows-release.md) | Inactive platform references; no Windows gate on Mac releases |
 
 Finished plans, superseded designs, and dated evidence live in the

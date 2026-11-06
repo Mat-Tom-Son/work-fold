@@ -8,6 +8,8 @@ import { FileCredentialStore, ModelRuntime } from "@earendil-works/pi-coding-age
 import { PackagedPiRuntimeProvider } from "../desktop/src/pi-runtime.js";
 import { getPiSetupStatus, loginPiProvider, savePiApiKey, type PiOAuthHooks } from "../src/local/agent/pi-runtime-config.js";
 import { startLocalApi } from "../src/local/server.js";
+import { openAiIdentityFixture } from "./helpers/openai-identity.js";
+import { readOpenAiAccount } from "../src/local/agent/openai-account.js";
 
 const hooks: PiOAuthHooks = {
   openUrl() {}, showDeviceCode() {}, prompt: async () => "synthetic", select: async () => undefined,
@@ -27,11 +29,15 @@ test("native ChatGPT login receives a stable installation UUID, persists the ful
   const previousFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = previousFetch; });
   const exchanges: URLSearchParams[] = [];
+  const identity = openAiIdentityFixture();
+  const access = `header.${Buffer.from(JSON.stringify({ sub: "synthetic-person" })).toString("base64url")}.synthetic-signature`;
+  let nonce = "";
   globalThis.fetch = (async (input, init) => {
+    if (String(input) === "https://auth.openai.com/.well-known/jwks.json") return Response.json(identity.jwks);
     assert.equal(String(input), "https://auth.openai.com/api/accounts/oauth/token");
     exchanges.push(new URLSearchParams(String(init?.body)));
-    return Response.json({ access_token: "synthetic-access", refresh_token: "synthetic-refresh", expires_in: 3600,
-      id_token: "synthetic-id", scope: "openid chatgpt.tokens.use.direct" });
+    return Response.json({ access_token: access, refresh_token: "synthetic-refresh", expires_in: 3600,
+      id_token: identity.idToken({ nonce }, access), scope: "openid chatgpt.tokens.use.direct" });
   }) as typeof fetch;
   const ids: string[] = [];
   for (const folder of [first, second]) {
@@ -40,6 +46,7 @@ test("native ChatGPT login receives a stable installation UUID, persists the ful
       ...hooks,
       openUrl({ url }) {
         authorize = new URL(url);
+        nonce = authorize.searchParams.get("nonce")!;
         assert.equal(authorize.searchParams.get("agent_name_hint"), "work-fold");
         ids.push(authorize.searchParams.get("ext_agent_host_id")!);
       },
@@ -57,9 +64,16 @@ test("native ChatGPT login receives a stable installation UUID, persists the ful
   assert.equal(credential?.type, "oauth");
   assert.equal(credential?.type === "oauth" && credential.clientId, "issued-client");
   assert.deepEqual(credential?.type === "oauth" && credential.scopes, ["openid", "chatgpt.tokens.use.direct"]);
+  assert.equal(credential?.type === "oauth" && (credential.identity as { email: string }).email, "person@example.test");
+  assert.equal(credential?.type === "oauth" && typeof credential.idToken, "string");
   assert.equal(exchanges.length, 2);
   assert.ok(exchanges.every(body => body.get("client_id") === "issued-client"));
   assert.ok(!(await getPiSetupStatus(second, reopened)).providers.some(item => JSON.stringify(item).includes("synthetic-access")));
+  globalThis.fetch = async () => Response.json({ sub: "synthetic-person" });
+  const resolved = await reopened.resolveRuntime(second);
+  const account = await readOpenAiAccount({ credentials: resolved.credentials!, modelRuntime: resolved.modelRuntime! }, "openai");
+  assert.equal(account.email, "person@example.test", "the actual native login, encrypted store reopen and subject-only UserInfo retain identity");
+  assert.doesNotMatch(JSON.stringify(account), /synthetic-refresh|synthetic-signature/);
 });
 
 test("native API-key setup keeps Cloudflare configuration and key replacement preserves that configuration", async t => {
@@ -81,6 +95,56 @@ test("native API-key setup keeps Cloudflare configuration and key replacement pr
   assert.equal(auth?.auth.headers?.["cf-aig-authorization"], "Bearer replacement");
   assert.equal(auth?.env?.CLOUDFLARE_GATEWAY_ID, "gateway-id");
   await assert.rejects(savePiApiKey(root, "unknown-provider", "key", { runtimeProvider: provider }), /does not offer/);
+});
+
+test("native OpenAI login rejects unverifiable identity before persisting any credential", async t => {
+  const identity = openAiIdentityFixture(), other = openAiIdentityFixture();
+  const root = await mkdtemp(join(tmpdir(), "work-fold-openai-id-validation-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  for (const failure of ["nonce", "audience", "issuer", "expired", "signature", "at-hash", "oversized-jwks"] as const) await t.test(failure, async () => {
+    const credentials = FileCredentialStore.inMemory();
+    const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+    let authorize!: URL;
+    globalThis.fetch = async input => {
+      if (String(input).endsWith("/jwks.json")) return failure === "oversized-jwks" ? new Response("x".repeat(262145)) : Response.json(identity.jwks);
+      const claims: Record<string, unknown> = { nonce: authorize.searchParams.get("nonce") };
+      if (failure === "nonce") claims.nonce = "wrong-nonce";
+      if (failure === "audience") claims.aud = ["wrong-client"];
+      if (failure === "issuer") claims.iss = "https://unrelated.test";
+      if (failure === "expired") claims.exp = 1;
+      if (failure === "at-hash") claims.at_hash = "wrong-hash";
+      return Response.json({ access_token: "synthetic-access", refresh_token: "must-not-be-persisted", expires_in: 3600, scope: "openid chatgpt.tokens.use.direct",
+        id_token: (failure === "signature" ? other : identity).idToken(claims) });
+    };
+    await assert.rejects(loginPiProvider(root, "openai", "oauth", {
+      ...hooks, openUrl({ url }) { authorize = new URL(url); }, manualCodeInput: async () => `http://127.0.0.1:1455/auth/callback?code=synthetic&state=${authorize.searchParams.get("state")}&client_id=issued-client`,
+    }, { resolveRuntime: async () => ({ agentDir: root, credentials, modelRuntime }) }), /ID token could not be verified/);
+    assert.equal(await credentials.read("openai"), undefined);
+  });
+});
+
+test("rotated refresh credentials survive an unavailable JWKS or invalid optional ID token", async t => {
+  const identity = openAiIdentityFixture();
+  const previousFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = previousFetch; });
+  for (const failure of ["jwks", "identity"] as const) await t.test(failure, async () => {
+    const credentials = FileCredentialStore.inMemory({ openai: { type: "oauth", access: "old", refresh: "old-refresh", expires: 0, clientId: "issued-client",
+      idToken: "old-private-id-token", identity: { issuer: "https://auth.openai.com", subject: "person", clientId: "issued-client", email: "old@example.test" } } });
+    const modelRuntime = await ModelRuntime.create({ credentials, modelsPath: null });
+    globalThis.fetch = async input => {
+      if (String(input).endsWith("/jwks.json")) throw new Error("JWKS is temporarily unavailable");
+      return Response.json({ access_token: "new-access", refresh_token: "rotated-refresh", expires_in: 3600, scope: "openid chatgpt.tokens.use.direct",
+        id_token: failure === "identity" ? "invalid-token" : identity.idToken({ sub: "person" }, "new-access") });
+    };
+    const auth = await modelRuntime.getAuth("openai");
+    assert.equal(auth?.auth.apiKey, "new-access");
+    const saved = await credentials.read("openai");
+    assert.equal(saved?.refresh, "rotated-refresh");
+    assert.equal(saved?.identity, undefined);
+    assert.equal(saved?.idToken, undefined);
+  });
 });
 
 test("provider setup API connects a provider with no chat models without changing the Worker default", async t => {

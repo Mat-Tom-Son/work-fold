@@ -1,5 +1,3 @@
-import { WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE, WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE } from "../../src/shared/publications";
-
 export const primaryNavigation = [
   { id: "files", label: "Files" },
   { id: "chats", label: "Chats" },
@@ -7,91 +5,8 @@ export const primaryNavigation = [
 ] as const;
 
 export const welcomeActions = {
-  create: "Create new work-folder",
-  linkFolder: "Use existing folder",
-} as const;
-
-/**
- * Settings → Shared Pages (docs/shared-pages.md, rung 2): the
- * publications list with its budgets, tallies, and page state, the
- * transient share-link reveal, stop sharing, and the in-place Budgets and
- * Sleep copy controls (amended 2026-09-24) that narrow or widen under a
- * receipt while the link stays the same. A new page starts from a file's
- * tab. Copy never says host, hosting, or website, and "publish" stays
- * reserved for App Studio's local Release transition.
- */
-export const publicationsSettings = {
-  heading: "Shared Pages",
-  linkMeaning: "Anyone with the link can read this page.",
-  /** App rows: the viewer reads; it never writes, acts, or reaches connections. */
-  appLinkMeaning: "Anyone with the link can view this app.",
-  revealLink: "Show Link",
-  hideLink: "Hide Link",
-  copyLink: "Copy Link",
-  noAddress: "Set up web access to show links.",
-  snapshotLabel: "An encrypted copy at the relay stays readable while your desktop sleeps.",
-  sleepCopy: "Sleep Copy",
-  budgets: "Budgets",
-  servesPerMinute: "Serves per minute",
-  mibPerDay: "MiB per day",
-  saveBudgets: "Save",
-  saved: "Saved",
-  budgetRange: (serveRateMaximum: number, byteBudgetMaximumMiB: number) => `Choose 1 to ${serveRateMaximum} serves per minute and 1 to ${byteBudgetMaximumMiB} MiB per day.`,
-  stopSharing: "Stop Sharing",
-  stopSharingConfirm: "Stop sharing this page? Every copy of its link stops working, and sharing again mints a new link.",
-  stopSharingAppConfirm: "Stop sharing this app? Every copy of its link stops working, and sharing again mints a new link.",
-  emptyNoAddress: "Set up web access to share pages.",
-  webAccess: "Web Access",
-  empty: "No pages are shared. Share a file from its tab.",
-  previewDisabled: "Changing shared pages is disabled in the preview",
-  states: {
-    live: "Live",
-    asleep: "Asleep",
-    resting: "Resting",
-    "not-available": "Not Available",
-    stopped: "Stopped",
-  },
-} as const;
-
-/**
- * Sharing a file from its tab or the Files menu (docs/shared-pages.md,
- * amended 2026-09-24): the click shares and says so; the popover holds the
- * link. No confirmation — sharing is receipted and Stop sharing undoes it.
- */
-export const fileSharing = {
-  share: "Share",
-  shared: "Shared",
-  sharedToast: (title: string) => `Shared "${title}"`,
-  stoppedToast: (title: string) => `Stopped sharing "${title}"`,
-  linkCopied: "Link Copied",
-  linkInSettings: "Show the link in Settings → Shared Pages.",
-  openSharedPages: "Open Shared Pages",
-  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_MESSAGE,
-  webAccess: "Web Access",
-  previewDisabled: "Sharing is disabled in the preview",
-  /** The at-a-glance mark on a shared file's Files row and tab. */
-  sharedMarkLabel: "Shared as a Page",
-  sharedMarkTooltip: "Shared as a page. Anyone with the link can read it.",
-} as const;
-
-/**
- * Putting an installed app at the person's address from its details in
- * Settings → Apps (docs/shared-pages.md, rung 3). Like sharing a file, the
- * click shares and says so; the link itself is revealed in Settings → Shared
- * Pages, and Stop Sharing there undoes it.
- */
-export const appSharing = {
-  share: "Share at your address",
-  shared: "At your address",
-  sharedToast: (title: string) => `${title} is at your address. Show its link in Settings → Shared Pages.`,
-  openSharedPages: "Open Shared Pages",
-  noAddress: WORKFOLD_PUBLICATION_NO_ADDRESS_APP_MESSAGE,
-  webAccess: "Web Access",
-  previewDisabled: "Sharing is disabled in the preview",
-  /** What the share exposes, from the app's reviewed viewer declaration. */
-  viewerNote: (entry: string, readable: readonly string[]) => readable.length
-    ? `Sharing shows ${entry} to anyone with the link. Viewers can read ${readable.join(", ")} in this app's data, and never write, act, or reach connections.`
-    : `Sharing shows ${entry} to anyone with the link. Viewers read none of this app's data, and never write, act, or reach connections.`,
+  create: "Create New work-folder",
+  linkFolder: "Use Existing Folder",
 } as const;
 
 /**
@@ -113,6 +28,7 @@ export const recentlyDeletedSettings = {
   empty: "Nothing here.",
   heldNote: "Held: contains legacy Workspace records. Cannot be deleted here.",
   damagedNote: "Some items could not be read.",
+  previewDisabled: "Changing Recently Deleted is disabled in the preview",
 } as const;
 
 /**
@@ -125,7 +41,14 @@ export const recentlyDeletedSettings = {
 export const deleteFolderConfirm = {
   title: (name: string) => `Delete ${name}?`,
   body: "Everything in it goes to History, or to Recently Deleted if History cannot keep a copy. You can bring it back for 30 days.",
-  confirmLabel: "Delete work-folder",
+  confirmLabel: "Delete Folder",
+} as const;
+
+/** Several Files rows deleted together when a folder is among them; `label` reads "3 Items" or "2 Folders". */
+export const deleteSelectionConfirm = {
+  title: (label: string) => `Delete ${label}?`,
+  body: "Everything in them goes to History, or to Recently Deleted if History cannot keep a copy. You can bring them back for 30 days.",
+  confirmLabel: (label: string) => `Delete ${label}`,
 } as const;
 
 /**
@@ -144,11 +67,81 @@ export const workFoldLimitsSettings = {
   jobsHeading: "Background Jobs",
   continuationsSaved: "Saved",
   continuationsUnavailable: "This setting needs the work-fold app running.",
+  previewDisabled: "Changing limits is disabled in the preview",
   automationsHeading: "Automations",
   appAutomationsHeading: "App Automations",
   deletedHeading: "Recently Deleted",
   deletedLink: "Open Recently Deleted",
   frozenNote: "",
+} as const;
+
+/**
+ * Publishing a page (docs/pages.md, "Publishing (stage 2)"). Publish puts the
+ * page online at a link anyone can open; later edits wait for Publish
+ * Changes. Unpublish takes it offline and keeps its entries, and publishing
+ * again brings back the same link. Publishing needs Web Access.
+ */
+export const pagePublishing = {
+  publish: "Publish",
+  publishChanges: "Publish Changes",
+  publishing: "Publishing",
+  online: "Online",
+  offline: "Offline",
+  copyLink: "Copy Link",
+  copied: "Copied",
+  linkCopied: "Link copied",
+  open: "Open",
+  openTitle: "Open the online page in your browser",
+  moreActions: "More Actions",
+  unpublish: "Unpublish",
+  unpublishHint: "Takes the page offline and keeps its entries.",
+  unpublished: (title: string) => `${title} is offline. Its entries are kept, and publishing again brings back the same link.`,
+  republishHint: "Publishing again brings back the same link.",
+  hasErrors: "Fix the page's problems to publish it.",
+  webAccessRequired: "Set up web access in Settings to publish.",
+  openSettings: "Open Settings",
+  sending: "Putting the page online.",
+  sendingFiles: (files: string) => `Uploading ${files}.`,
+  publishedHeading: "Your Page Is Online",
+  changesPublishedHeading: "Changes Published",
+  shareHint: "Anyone with the link can open the page.",
+  linkPending: "The link shows here once work-fold hears back from the online service.",
+  uploaded: (files: string, size: string | null) => size ? `Uploaded ${files} · ${size}` : `Uploaded ${files}`,
+  webAccessHeading: "Set Up Web Access First",
+  problemsHeading: "Fix These Problems First",
+  problemsHint: "Preview shows them too. Fix them in the page's files, then publish.",
+  failedHeading: "The Page Couldn't Be Published",
+  tryAgain: "Try Again",
+  done: "Done",
+  close: "Close",
+  onlineEntries: "Online Entries",
+  testEntries: "Test Entries",
+  entriesLabel: "Entries",
+  onlineNote: "Entries visitors made on the online page.",
+  offlineNote: "The page is offline. The entries visitors made are kept.",
+  lastCheckedIn: (when: string) => `Last checked in ${when}.`,
+  notCheckedIn: "Not checked in yet.",
+  checkNow: "Check Now",
+  checking: "Checking",
+  noOnlineEntriesHeading: "No Entries Yet",
+  noOnlineEntries: "When visitors use the online page, what they send shows up here.",
+} as const;
+
+/** Settings → Published: every published page, by work-folder. */
+export const publishedPagesSettings = {
+  heading: "Published",
+  emptyHeading: "Nothing Is Published Yet",
+  empty: "Ask a Worker to make a page, such as an RSVP form, a sign-up sheet, or a poll. Then publish it from its tab.",
+  online: "Online",
+  offline: "Offline",
+  changesWaiting: "Changes Not Published",
+  copyLink: "Copy Link",
+  openLink: "Open Link",
+  openPage: "Open Page",
+  unpublish: "Unpublish",
+  unpublishedNote: "Offline pages keep their entries. Publishing again from the page's tab brings back the same link.",
+  removedWorkFolder: "Removed work-folder",
+  published: (when: string) => `Published ${when}`,
 } as const;
 
 /**
@@ -158,6 +151,7 @@ export const workFoldLimitsSettings = {
  */
 export const remoteAccessSettings = {
   pairedBrowserTrust: "Paired browsers can read or change accessible files and run local commands.",
+  previewDisabled: "Changing web access is disabled in the preview",
 } as const;
 
 /**
@@ -191,7 +185,7 @@ export const folderAutomations = {
   lastRun: (when: string) => `Last run ${when}`,
   notRunYet: "Not Run Yet",
   failed: "Failed",
-  partlyDone: "Partly done",
+  partlyDone: "Partly Done",
   allAutomations: "All Automations",
   noneLeft: "No automations touch this work-folder.",
   goneHere: "This automation no longer touches this work-folder.",

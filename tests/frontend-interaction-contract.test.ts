@@ -7,7 +7,6 @@ import { nextDialogTabIndex } from "../web-local/src/hooks/useModalDialog.js";
 import { resolveMessageImageSource } from "../web-local/src/lib/message-images.js";
 import { nextMenuItemIndex } from "../web-local/src/lib/menu-navigation.js";
 import { createWorkFolderOperationGate } from "../web-local/src/lib/work-folder-operation-gate.js";
-import { fileSharing } from "../web-local/src/ui-contract.js";
 
 const root = process.cwd();
 const [capabilities, textInputModal, messages, tabBar, workFolderChrome, indexHtml, app, _retiredNeedsYou, workFolderPanes, ...desktopDialogs] = await Promise.all([
@@ -84,12 +83,12 @@ test("Settings keeps older page ids landing on the tab that now holds their cont
   assert.equal(settingsTabForPage("desktop", "deleted"), "recently-deleted");
   assert.equal(settingsTabForPage("general", "deleted"), "recently-deleted");
   assert.equal(settingsTabForPage("remote"), "web-access");
-  for (const page of ["appearance", "ai-models", "web-access", "shared-pages", "automations", "recently-deleted", "shortcuts", "about"] as const) {
+  for (const page of ["appearance", "ai-models", "web-access", "automations", "published", "recently-deleted", "shortcuts", "about"] as const) {
     assert.equal(settingsTabForPage(page), page);
   }
   const settings = desktopDialogs[0] ?? "";
   assert.doesNotMatch(settings, /label: "Desktop"/);
-  assert.match(settings, /<AutomationsPane \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} \/>/);
+  assert.match(settings, /<AutomationsPane fixtureMode=\{fixtureMode\} \/>\s*<WorkFoldLimitsPane onOpenRecentlyDeleted=\{\(\) => setPage\("recently-deleted"\)\} fixtureMode=\{fixtureMode\} \/>/);
   assert.match(settings, /interfaceExtra=\{closeWindowControl\}/);
 });
 
@@ -104,97 +103,6 @@ test("no surface offers an authority mode, a policy, or a decision card", () => 
   assert.match(app, /accountControl=\{<button className="work-folder-rail-account-button"/);
 });
 
-test("the publications Settings section reveals links transiently and changes budgets in place", () => {
-  // Settings → Shared pages (docs/shared-pages.md, plan item 5; amended
-  // 2026-09-24): the share link is composed on demand from the reveal route
-  // plus the viewer origin, held only in pane state, and never persisted.
-  // Stop sharing keeps its confirm; one Budgets control narrows or widens in
-  // place and a Sleep copy toggle turns the relay copy on or off, each a
-  // receipted act over the renderer session.
-  const settings = desktopDialogs[0] ?? "";
-  // The reveal composes origin + path + fragment key transiently in state.
-  assert.match(settings, /setRevealed\(\{ publicationId: publication\.publicationId, link: `\$\{viewerOrigin\}\$\{response\.viewerPath\}#\$\{response\.key\}` \}\)/);
-  // No address, no reveal: the control is disabled until Remote access exists.
-  assert.match(settings, /disabled=\{Boolean\(busy\) \|\| !viewerOrigin\}/);
-  // Stop sharing takes the contract confirm, in app words on an app row, and
-  // drops any revealed link.
-  assert.match(settings, /window\.confirm\(publication\.kind === "app" \? publicationsSettings\.stopSharingAppConfirm : publicationsSettings\.stopSharingConfirm\)/);
-  assert.match(settings, /publication\.kind === "app" \? publicationsSettings\.appLinkMeaning : publicationsSettings\.linkMeaning/);
-  assert.match(settings, /setRevealed\(\(current\) => \(current\?\.publicationId === publication\.publicationId \? null : current\)\)/);
-  // Budgets: inputs clamp at the publication ceilings, and one Save sends a
-  // lower value to narrow and a higher one to widen.
-  assert.match(settings, /max=\{pageServeRateMaximum\}/);
-  assert.match(settings, /max=\{pageByteBudgetMaximumMiB\}/);
-  assert.match(settings, /\/narrow`, \{ method: "POST", body: lower \}/);
-  assert.match(settings, /\/widen`, \{ method: "POST", body: higher \}/);
-  assert.doesNotMatch(settings, /narrowHint|Tighten budgets/);
-  // Sleep copy: on widens with snapshotEnabled, off is the narrowing verb.
-  assert.match(settings, /role="switch"/);
-  assert.match(settings, /enabled \? \{ snapshotEnabled: true \} : \{\}/);
-  assert.match(settings, /\/snapshot-off`/);
-  // The retention disclosure rides on the Sleep copy label's tooltip, not a
-  // visible sentence.
-  assert.match(settings, /<label className="publication-sleep-copy" title=\{publicationsSettings\.snapshotLabel\}>/);
-  assert.doesNotMatch(settings, /fold-publication-snapshot-label/);
-  // Budgets are one compact row of their own, not the address form's grid.
-  assert.match(settings, /<div className="publication-budgets">/);
-  // One quiet state word per row, the precise reason in the tooltip only —
-  // the old visible problem line is gone.
-  assert.match(settings, /const health = sharedPageHealth\(publication, connection\);/);
-  assert.match(settings, /title=\{health\.reason\}/);
-  assert.match(settings, /publicationsSettings\.states\[health\.state\]/);
-  assert.doesNotMatch(settings, /Not reaching viewers|lastProblem\.reason/);
-  // Empty states: web access first (switching the tab), then a file's tab.
-  assert.match(settings, /publicationsSettings\.emptyNoAddress[\s\S]{0,200}onClick=\{onOpenWebAccess\}/);
-  assert.match(settings, /onOpenWebAccess=\{\(\) => setPage\("web-access"\)\}/);
-  // The preview renders sample pages for every state.
-  assert.match(settings, /buildFixturePublications\(\)/);
-  // Hosted-app rows (kind "app") render the exposure's pinned identities —
-  // App Instance id, short Release digest, viewer entry, the complete
-  // viewer-readable surface — never the page-only relativePath line.
-  assert.match(settings, /publication\.kind === "app" && publication\.app/);
-  assert.match(settings, /App Instance \{publication\.app\.appInstanceId\} · Release <code>\{shortReleaseDigest\(publication\.app\.releaseDigest\)\}<\/code>/);
-  assert.match(settings, /Viewer entry \{publication\.app\.viewerEntry\} · Viewer-readable surface: \{publication\.app\.viewerSurface\.join\(", "\)\}/);
-  assert.match(settings, /: \{publication\.relativePath\}<\/>\}/);
-});
-
-test("a file tab shares on the click and holds the link in a popover", async () => {
-  const [pane, popover, menu] = await Promise.all([
-    read("web-local/src/components/panes/FileDetailsPane.tsx"),
-    read("web-local/src/components/panes/FileSharePopover.tsx"),
-    read("web-local/src/components/tree/FileContextMenu.tsx"),
-  ]);
-  // Share sits after Attach to Chat and before Open, only for the file types a page can be.
-  assert.match(pane, /Attach to Chat<\/span><\/button>\n\s*\{isShareablePath\(path\) \? <FileShareControl [^\n]*\n\s*<button className="ui-control ui-control--primary/);
-  // One click shares through the Settings route with the file name as title;
-  // no confirmation, a plain toast, then the link.
-  assert.match(popover, /"\/api\/settings\/publications\/share"/);
-  assert.match(popover, /title: pageTitleFromFileName\(fileName\)/);
-  assert.match(popover, /showToast\(\{ text: fileSharing\.sharedToast\(result\.publication\.title\), tone: "success" \}\)/);
-  assert.doesNotMatch(popover.slice(0, popover.indexOf("async function stopSharing")), /confirm\(/, "sharing never asks first");
-  // Stop sharing keeps its confirm.
-  assert.match(popover, /window\.confirm\(publicationsSettings\.stopSharingConfirm\)/);
-  // No address: refused up front with a way to Web access.
-  assert.match(popover, /caught\.code === "NO_ADDRESS"/);
-  assert.match(popover, /onOpenSettings\("web-access"\)/);
-  // No revealable link: point at Shared pages.
-  assert.match(popover, /fileSharing\.linkInSettings/);
-  assert.match(popover, /onOpenSettings\("shared-pages"\)/);
-  // The preview shows a sample link and a toast instead of sharing.
-  assert.match(popover, /sharedPageLink\(fixtureViewerOrigin, publication\.viewerPath, fixtureShareLinkKey\)/);
-  // The link sits on one line in a read-only field, and the popover is
-  // placed inside the file pane so it never scrolls the pane sideways.
-  assert.match(popover, /<input className="file-share-link" type="text" readOnly value=\{link\}/);
-  assert.match(popover, /const popoverWidth = 440;/);
-  assert.match(popover, /anchor\.closest\("\.file-details-pane"\)/);
-  assert.match(popover, /fileSharing\.previewDisabled/);
-  // The Files menu offers Share / Shared for the same file types.
-  assert.match(menu, /alreadyShared \? fileSharing\.shared : fileSharing\.share/);
-  assert.match(menu, /isShareablePath\(entry\.path\)/);
-  assert.match(app, /onShare=\{shareFile\} shareWorkFolderId=\{workFolder\.id\}/);
-  assert.match(app, /onOpenSettings=\{openSharingSettings\}/);
-});
-
 test("a file tab's header is a labeled toolbar with Copy for text and a More menu", async () => {
   const [pane, styles] = await Promise.all([
     read("web-local/src/components/panes/FileDetailsPane.tsx"),
@@ -206,39 +114,11 @@ test("a file tab's header is a labeled toolbar with Copy for text and a More men
   // never a row of unlabeled icons.
   assert.match(pane, /<span className="file-details-action-label">Attach to Chat<\/span>/);
   assert.doesNotMatch(pane, /className="ui-control ui-control--icon" type="button" title=\{revealLabel\}/);
-  for (const item of ["Open with", "Copy File Path", "Version History", "Rename"]) assert.match(pane, new RegExp(`label: "${item}"`));
+  for (const item of ["Open With", "Copy File Path", "Version History", "Rename"]) assert.match(pane, new RegExp(`label: "${item}"`));
   assert.match(pane, /aria-haspopup="menu" aria-expanded=\{open\}/);
   assert.match(pane, /className="context-menu file-details-menu" role="menu"/);
   // Narrow tabs drop the words before they wrap the row.
   assert.match(styles, /@container file-details \(max-width: 560px\) \{\n\n\.file-details-action-label \{\n  display: none;/);
-});
-
-test("a shared file carries a quiet mark in Files and on its tab", async () => {
-  const [fileTree, styles] = await Promise.all([
-    read("web-local/src/components/tree/FileTree.tsx"),
-    read("web-local/src/styles.css"),
-  ]);
-  // Files: one 12px Share2 glyph after the name, files only, with the
-  // check-attention dot still in place beside it.
-  assert.match(fileTree, /sharedPaths\?: ReadonlySet<string>;/);
-  assert.match(fileTree, /const shared = entry\.kind === "file" && sharedPaths\.has\(entry\.path\);/);
-  assert.match(fileTree, /<HighlightedFileName name=\{entry\.name\} query=\{searchQuery\} file \/>\{shared \? <SharedPageGlyph className="file-shared-marker" \/> : null\}<\/>/);
-  assert.match(fileTree, /\{checkAttention \? <span className="file-check-attention-marker" aria-hidden="true" \/> : null\}/);
-  assert.match(fileTree, /sharedPaths=\{sharedPaths\}/, "nested folders keep the mark");
-  assert.match(fileTree, /aria-label=\{rowLabel\}/);
-  assert.match(fileTree, /\$\{shared \? ` · \$\{fileSharing\.sharedMarkLabel\}` : ""\}/);
-  assert.match(fileTree, /<span className=\{className\} title=\{fileSharing\.sharedMarkTooltip\} aria-hidden="true"><Share2 size=\{12\} \/><\/span>/);
-  assert.match(app, /const sharedPaths = useMemo\(\(\) => sharedPathsForWorkFolder\(sharedPages, workFolder\.id\), \[sharedPages, workFolder\.id\]\);/);
-  assert.match(app, /checkAttentionPaths=\{checks\.attentionPaths\} sharedPaths=\{sharedPaths\}/);
-  // File tabs: the same glyph before the close button, inside the tab's
-  // own trailing column so the width tiers are untouched.
-  assert.match(tabBar, /const shared = tab\.kind === "file" && Boolean\(isSharedFile\?\.\(tab\.workFolderId, tab\.path\)\);/);
-  assert.match(tabBar, /\{shared \? <SharedPageGlyph className="surface-tab-shared-marker" \/> : null\}\n\s*<\/button>\n\s*<button\n\s*className="surface-tab-close"/);
-  assert.match(app, /isSharedFile=\{\(workFolderId, path\) => Boolean\(activeSharedPageFor\(sharedPages, workFolderId, path\)\)\}/);
-  assert.match(styles, /\.file-row-entry\.is-shared \{\n\s*grid-template-columns: auto minmax\(0, max-content\) auto minmax\(0, 1fr\);/);
-  assert.match(styles, /\.app-shell\[data-theme="dark"\] \.file-shared-marker,\n\.app-shell\[data-theme="dark"\] \.surface-tab-shared-marker \{/);
-  assert.equal(fileSharing.sharedMarkLabel, "Shared as a Page");
-  assert.equal(fileSharing.sharedMarkTooltip, "Shared as a page. Anyone with the link can read it.");
 });
 
 test("the main window has no overview panel; the work-folder-identity header carries no action and Files keeps its actions in the right-click menu", () => {
@@ -272,7 +152,7 @@ test("Manage folders has a Done exit and an Escape exit back to the previous mod
   // trigger, marks Manage folders as current.
   assert.match(workFolderChrome, /aria-current=\{managingWorkFolders \? "true" : undefined\}/);
   assert.doesNotMatch(workFolderChrome, /managingWorkFolders \? "page"/);
-  assert.match(workFolderChrome, /aria-label=\{saving \? "Saving name" : undefined\}/);
+  assert.match(workFolderChrome, /aria-label=\{saving \? "Saving Name" : undefined\}/);
 });
 
 test("file attachment requests stay bound to one work-folder-owned Chat tab", () => {

@@ -23,7 +23,7 @@ const imageTypes: Record<string, string> = {
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp", ".avif": "image/avif",
 };
 
-/** Explicit approved-browser read. This is not a publication or an app file grant. */
+/** Explicit approved-browser read. This is not an app file grant. */
 export async function readRemoteFilePreview(workFolderId: string, relativePath: string): Promise<RemoteFilePreview> {
   const workFolder = await getWorkFolder(workFolderId);
   const currentPath = () => remoteVisiblePath(workFolderId, relativePath, workFolder.workFolderRoot);

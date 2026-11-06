@@ -154,6 +154,16 @@ The local API and the desktop CLI share one kernel instance. Agent turns and Cha
 
 Capability snapshots are projections of Pi's native catalog. They do not create a second full-trust registry, activate inactive tools, bypass the work-folder registry, or install anything.
 
+Trusted Chat streams also carry throttled `runtime` snapshots during native Pi
+activity. Streaming text uses Pi's own token estimator until finalized usage is
+available; reconnect refreshes the current runtime. A successful compaction
+appends a presentation-only `system` message with kind `context_compaction`, then
+publishes `context_compacted` with that saved message. Manual, automatic and
+background compactions share this path. The notice contains no summary text,
+does not become a model message or result, and remains visible in desktop,
+menu-bar and paired-web transcripts. Failure and cancellation leave no success
+notice. The content-free CLI snapshots and task lifecycle are unchanged.
+
 This contract belongs only to work-fold's new profile and `.work-fold/` data. The kernel and its adapters never parse or project a legacy Workspace registry or `.workspace/` manifest. Registering a folder that contains preserved `.workspace/` data creates a new work-fold work-folder identity instead of adopting the old one.
 
 ## work-fold CLI
@@ -221,6 +231,10 @@ work-fold tools disable --path <resource-path> --kind extensions --scope everywh
 work-fold tools enable --path <resource-path> --kind extensions --scope work-folder --work-folder "Home" --json
 work-fold recently-deleted list --json
 work-fold recently-deleted restore --entry <recently-deleted-id> --json
+work-fold pages validate --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages publish --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages unpublish --work-folder "Home" --page "Garden Party RSVP" --json
+work-fold pages list --json
 ```
 
 `tools enable|disable` uses Pi's resource filters for `extensions`, `skills`,
@@ -272,14 +286,100 @@ Output lives under the state root's `jobs/` directory and follows the request
 retention window. Deletion, registration removal, and whole-work-folder
 History restore wait for running jobs; Skills & Extensions changes do not.
 
+`work-fold pages validate --work-folder <id> --page <path> [--json]` checks one
+page folder ([Pages](pages.md)) exactly as its page tab does: `page.json`,
+the entry file, every file the page refers to (nothing may load from the
+internet or from outside the folder), the file limits (500 files, 10 MiB each,
+25 MiB in all), and page folders nested inside it. `--page` is the page
+folder's work-folder-relative path. It changes nothing, records an ordinary
+act receipt (`page <path>; valid` or `page <path>; <n> errors`), and exits 0
+whenever it could check the page; a folder without `page.json` is `notFound`
+and a path that leaves the work-folder is `usage`. The `--json` result is a
+stable shape:
+
+```json
+{
+  "workFolder": { "id": "space-…", "name": "Home", "workFolderRoot": "/…" },
+  "page": "Garden Party RSVP",
+  "valid": false,
+  "summary": {
+    "title": "Garden Party RSVP",
+    "entry": "index.html",
+    "tables": [{ "name": "rsvps", "columns": ["name", "email"], "visitors": ["add", "see-own"], "limit": 50 }],
+    "files": 4,
+    "bytes": 18211
+  },
+  "problems": [{ "file": "index.html", "message": "Loads \"https://…\" from the internet. …", "severity": "error" }]
+}
+```
+
+`valid` is true when no problem is an error; warnings (such as an unused
+`.html` file) never make a page invalid. Problem files are relative to the
+page folder, and `""` means the page folder itself. `summary.tables` is empty
+while `page.json` has errors. Test entries and the Data view live behind the
+local API's `/api/work-folders/:id/pages` routes, not the act lane.
+
+`work-fold pages publish --work-folder <id> --page <path> [--json]` puts a page
+online ([Pages](pages.md#desktop)). It makes the folder's bytes reachable by
+anyone with the link, so it runs as the prepared `page.publish` act: the
+journaled request id, then the page checked and assembled exactly as Preview
+does, pinned to the work-folder, the path, and the content digest (SHA-256
+over the canonical `page.json` and the assembled document), rechecked inside
+the act, and uploaded at most once. It refuses with the page's problems
+(`conflict`, naming the first few) when any is an error, with `unavailable`
+until Web Access is set up and turned on, and with `conflict` while an
+Automation's work is running or when `--parent-task` names a request an
+Automation started: Automations can't publish. The first publish chooses the
+page id (`pg_` plus 26 lowercase base32 characters) and keeps it, in the state
+root, for that folder; publishing again uploads changes under the same link
+and keeps the entries. `pages unpublish` is a direct verb that takes the page
+offline and keeps its entries (`notFound` for a page never published), and
+`pages list [--work-folder <id>]` reads every page published from this
+computer. Publish and unpublish accept `--parent-task`.
+
+Only the command's own output carries the link. Receipts name the page by its
+path and the first 8 characters of its id (`page.publish; page Garden Party
+RSVP; id pg_k3x9q; revision 2; 4 files, 18211 bytes`, `page Garden Party
+RSVP; id pg_k3x9q; unpublished`, `pages 3`), and so does the overview. The
+`--json` shapes:
+
+```json
+{
+  "workFolder": { "id": "space-…", "name": "Home", "workFolderRoot": "/…" },
+  "publication": {
+    "path": "Garden Party RSVP",
+    "title": "Garden Party RSVP",
+    "url": "https://pages.work-fold.com/p/pg_…",
+    "idPrefix": "pg_k3x9q",
+    "status": "online",
+    "revision": 2,
+    "publishedAt": "2026-11-05T18:00:00.000Z",
+    "changesAvailable": false,
+    "lastCheckIn": "2026-11-05T18:00:01.000Z",
+    "dataRevision": 14,
+    "entries": 12
+  },
+  "uploaded": { "files": [{ "path": "index.html", "bytes": 9120 }], "bytes": 18211 }
+}
+```
+
+`pages unpublish` returns `workFolder` and `publication` (status
+`unpublished`); `pages list` returns `{ "publications": [...] }`, each a
+`publication` plus `workFolderId` and `workFolderName` (null when that
+work-folder is no longer registered). `url` is null until work-fold.com has
+said where pages are served, which the first check-in learns.
+`changesAvailable` says the folder's assembled document or `page.json`
+differs from what was last published. Entries visitors make online come back
+into the page folder as `data.sqlite` whenever work-fold is running.
+
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
 files and folders the safety restore point could not keep a copy of, deleted
 managed work-folders, removed imported Skills, app data that was cleared or
 purged, deleted App Studio Releases, and the App Studio history a removed
 work-folder takes with it
-([Receipts, not gates](receipts-not-gates.md), F20). Like `automations` and
-`pages` it sits above work-folders, so neither verb takes `--work-folder`; each item names
+([Receipts, not gates](receipts-not-gates.md), F20). Like `automations` it
+sits above work-folders, so neither verb takes `--work-folder`; each item names
 the work-folder it came from. `recently-deleted list` is content-free — ids, kinds, paths,
 sizes, and dates. `recently-deleted restore` puts one item back where it came from,
 renaming it when something else took the name; a Skill (kind `skill`, with its
@@ -350,7 +450,7 @@ as work-folder-relative paths with a fingerprint and size, and an `outcome` of
 receipt id.
 
 `requests list` and `requests show --request <id>` are management-scope act
-reads of that graph. Like `recently-deleted`, `automations`, and `pages` they sit above
+reads of that graph. Like `recently-deleted` and `automations` they sit above
 work-folders and refuse `--work-folder`; each record names the work-folder it belongs to.
 
 The four collaboration verbs are refusals, not gates. A `--task` must name the
@@ -450,7 +550,7 @@ The overview advertises whether an item can open these controls for that grant.
 
 See [Collaboration experience](collaboration-experience.md) for rendering,
 recovery, keyboard, and privacy behavior. These endpoints are for trusted
-surfaces; restricted app bridges and published viewers receive no new access.
+surfaces; restricted app bridges receive no new access.
 
 ### Remote browser surface
 
@@ -494,7 +594,7 @@ content, ciphertext, tokens, addresses, or network identifiers.
 The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
 `WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
 listing, summary/transcript/rename/send/stop/watch operations for the work-fold agent,
-work-fold agent request projection, an active-publication list and single-link reveal,
+work-fold agent request projection,
 compatibility work-folder-name/tree projections, explicit file previews, and exact-installation read-only
 [app views](browser-apps.md). The browser-action foundation separately adds
 `apps.actions.request|get|list|cancel` over declared installed worker actions.
@@ -537,15 +637,7 @@ full-trust management agent within the personal single-user trust boundary.
 work-folder work is initiated only when that
 agent uses the attributed act path; delegated children then use the target
 work-folder's registered runtime authorization, native Pi project resources and tools,
-and pre/post-turn History path. The current web client removes its Files/work-folder browser. Its footer popup
-uses capability-advertised `pages.list` (at most 32 active records: identity,
-title, kind, health and snapshot state; no key or source path) and `pages.link`
-(one active identity, its viewer path and transient key). The desktop transport
-adds the enrolled isolated viewer origin inside the encrypted response. Key
-reads serialize with revocation and recheck expiry after secure-settings reads;
-grant fences protect completion and replay-cache insertion. The browser never
-stores the link, validates its exact origin/path/key and severs the new tab's
-opener. These read operations create no new share or authority. Earlier tree
+and pre/post-turn History path. The current web client removes its Files/work-folder browser. Earlier tree
 operations remain compatible. Paired browsers can explicitly read bounded
 text/image previews through capability-advertised `work-folders.filePreview`, with
 an exact work-folder id and relative path. Copied-file receipts and act receipts
@@ -576,7 +668,7 @@ local user's authority while the desktop is online, including delegating to a
 Worker. Password possession alone is not that grant, and an offline
 desktop cannot pair a browser or execute anything.
 
-The closed remote operation vocabulary carries the work-fold agent's overview and watch surfaces: `management.glance`/`management.glanceSeen` return the deterministic digest and advance that grant's own last-seen marker — same signed envelopes, same effect-time grant recheck, no new persisted content classes at the bridge. `management.watch` streams one running work-fold agent turn's bounded response text and current activity line as throttled `operation.event` ticks under the operation's own envelope identity; the durable transcript remains authoritative and replaces that transient projection when the turn settles. `decisions.list` and `decisions.decide` were removed on 2026-09-10 ([Receipts, not gates](receipts-not-gates.md), F19); the web client tolerates a desktop that no longer advertises them and renders Needs you as questions and due snoozes only. Paired browsers use the same verbs and receipts as the desktop; every receipt for a remote-originated act records the initiating browser and grant. Revoking a browser refuses in-flight remote operations and deletes its overview marker. Published viewer pages remain a separate plane.
+The closed remote operation vocabulary carries the work-fold agent's overview and watch surfaces: `management.glance`/`management.glanceSeen` return the deterministic digest and advance that grant's own last-seen marker — same signed envelopes, same effect-time grant recheck, no new persisted content classes at the bridge. `management.watch` streams one running work-fold agent turn's bounded response text and current activity line as throttled `operation.event` ticks under the operation's own envelope identity; the durable transcript remains authoritative and replaces that transient projection when the turn settles. `decisions.list` and `decisions.decide` were removed on 2026-09-10 ([Receipts, not gates](receipts-not-gates.md), F19); the web client tolerates a desktop that no longer advertises them and renders Needs you as questions and due snoozes only. Paired browsers use the same verbs and receipts as the desktop; every receipt for a remote-originated act records the initiating browser and grant. Revoking a browser refuses in-flight remote operations and deletes its overview marker.
 
 work-folder-targeted act commands never resolve a work-folder from the working directory — every write names its work-folder explicitly. `recently-deleted list --json` and `recently-deleted restore --entry <id>` are work-folder-free act verbs over the machine-local trash; `apps list --work-folder <id> --json` and `apps invoke --work-folder <id> --app <id> --tool <name> --input <json>` let the work-fold agent see and call an installed app's declared tools with lineage and receipts. `work-folders worker show` is a content-bearing act read that returns the current default, only already-connected model choices, and instruction text; `work-folders worker model` saves the default for new Chats, while `work-folders worker instructions` changes subsequent turns. Both setters reserve the existing work-folder-scoped agent mutation fence across validation, write, and client invalidation, and their receipts contain model identifiers or an instruction character count, never instruction text. Provider credentials and connection setup have no act verb. `chat send` accepts a CLI-initiated agent turn through the exact same acceptance path as the renderer (conflict checks, stable request identity, durable acceptance before transcript append, kernel task record with a `cli` actor, portable transcript persistence, pre/post-turn History checkpoints) and returns a task id. The act-envelope request id is the turn's idempotency key, so an uncertain delivery cannot create a second agent run. Terminal failures and explicit stops append a typed, sanitized agent result before the task settles, including setup failures that occur before a provider can answer; that same durable rule covers the machine-local work-fold agent transcript and menu-bar popover, while raw provider diagnostics stay host-side. That task id is how a caller follows exactly its own turn: work-fold keeps recent terminal outcomes (`succeeded`, `failed`, or `aborted`, with the persisted response message id or failure message) in a bounded machine-local journal across app restarts. `chat status --task`/`chat result --task` read it, and `chat wait --task` is a shim-side poll that finishes with that turn's own result — a failed or aborted turn exits non-zero instead of presenting an older transcript message as success (wait timeout exit code 7). On startup, an accepted turn that reached its transcript but never settled is recorded as interrupted and is not automatically rerun, because completed tools may already have changed something. Quitting work-fold mid-turn records the turn the same way (interrupted, reported as failed), never as a Stop the person asked for. The Chat's last interrupted reply offers **Continue**, which sends the ordinary visible message "Continue where you left off." as a new turn, without the files staged for the person's draft; nothing is replayed. A tool call that never recorded a result reaches the model as an honest error saying it may have partly happened and its effects should be checked, instead of Pi's bare "No result provided" (2026-10-27). `chat status|result --conversation` remain the transcript-scoped views. `files add` copies outside material in with a targeted restore point that succeeds or fails together with the placement, and `work-folders create`/`work-folders register` grant the same registered-work-folder runtime authorization as the desktop actions. Content-bearing chat and agent-preference reads (`chat status|result`, `chats list`, `work-folders worker show`) belong to the act lane too, so the read lane keeps its content-free property. When the interactive app is not running, act commands fail fast with "Open work-fold…" and exit code 6.
 
@@ -678,6 +770,9 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | Restricted app review, grants, lifecycle, and storage | `src/local/agent/restricted-app-*.ts` | `tests/restricted-app-*.test.ts` |
 | Machine-wide restricted-app automation scheduling | `src/local/agent/work-fold-scheduler-service.ts` | `tests/work-fold-scheduler-service.test.ts` plus restricted-app service/API tests |
 | Prepared acts (prepare, pin, journal, execute) | `src/local/prepared-acts.ts` | `tests/prepared-acts.test.ts`, `tests/work-fold-cli-act-receipts.test.ts` |
+| Pages: page.json, rules engine, schema, and Data view | `src/shared/pages/` | `tests/page-declaration.test.ts`, `tests/page-rules-engine.test.ts` |
+| Page folders, assembly, preview databases, routes, and `pages validate` | `src/local/pages/` | `tests/page-folders.test.ts`, `tests/page-routes.test.ts`, `tests/work-fold-cli-pages-verbs.test.ts` |
+| Publishing pages: bridge client, publication records, `page.publish`, checking in, Online entries, and `pages publish`, `unpublish`, and `list` | `src/local/pages/page-bridge-client.ts`, `src/local/pages/page-publication-store.ts`, `src/local/pages/page-publishing.ts`, `desktop/src/pages-bridge.ts` | `tests/page-publishing.test.ts` |
 | Recently deleted (trash store, retention, restore) | `src/local/recently-deleted-store.ts` | `tests/work-fold-recently-deleted-store.test.ts`, `tests/work-fold-cli-recently-deleted-verbs.test.ts`, `tests/recently-deleted-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/agent-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | work-folder turn context and operations guide | `src/local/agent/work-folder-turn-context.ts`, `src/local/agent/work-folder-operations-guide.ts` | `tests/work-folder-turn-context.test.ts`, `tests/work-folder-operations-guide-prompt.test.ts`, `tests/work-fold-agent-turn-context.test.ts` |
@@ -686,7 +781,7 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | App Worker requests and bounded inference | `src/local/agent/restricted-app-tasks.ts`, `src/local/agent/restricted-app-inference.ts`, `src/local/agent/bounded-inference.ts` | `tests/restricted-app-tasks.test.ts`, `tests/restricted-app-inference.test.ts`, `tests/bounded-inference.test.ts` |
 | Automation declarations, store, settle signals, and executor | `src/local/automations/` | `tests/work-fold-automation-declarations.test.ts`, `tests/work-fold-automation-store.test.ts`, `tests/work-fold-automation-settle-signal.test.ts`, `tests/work-fold-automation-service.test.ts` |
 | Glance composition and seen markers | `src/local/overview.ts`, `src/local/overview-seen-store.ts` | `tests/work-fold-overview.test.ts`, `tests/work-fold-overview-seen-store.test.ts` |
-| Publications and viewer serving | `src/local/publications.ts`, `desktop/src/remote-access.ts` | `tests/work-fold-publications.test.ts`, `tests/desktop-remote-access.test.ts` |
+| Web Access desktop transport | `desktop/src/remote-access.ts` | `tests/desktop-remote-access.test.ts` |
 | Visible and worker sandbox hosts | `desktop/src/restricted-app-host.ts`, `desktop/src/restricted-app-preload.cts` | `npm run desktop:restricted-app:smoke` plus focused host/broker tests. |
 
 See [Architecture](architecture.md) for the surrounding process boundaries, [Product model](product-model.md) for the user-facing mental model, and [Windows build](windows-build.md) for packaging and release verification.

@@ -275,12 +275,26 @@ export const workFoldRequestActionCommands = [
   "worktrees.create",
   "worktrees.archive",
   "worktrees.restore",
-  "pages.share",
-  "pages.share-app",
   "recently-deleted.restore",
+  // Publishing pages (docs/pages.md, "Publishing (stage 2)").
+  "pages.publish",
+  "pages.unpublish",
 ] as const;
 
 export type WorkFoldRequestActionCommand = (typeof workFoldRequestActionCommands)[number];
+
+/**
+ * Commands older builds recorded for verbs work-fold no longer has: the
+ * desktop-served page and app sharing verbs (retired 2026-11-05). A record
+ * that names one still loads; that action is skipped, so the rest of the
+ * request's story survives instead of the whole record reading as damaged.
+ */
+const retiredWorkFoldRequestActionCommands: ReadonlySet<string> = new Set(["pages.share", "pages.share-app"]);
+
+function isRetiredWorkFoldRequestAction(value: unknown): boolean {
+  return typeof value === "object" && value !== null
+    && retiredWorkFoldRequestActionCommands.has((value as { command?: unknown }).command as string);
+}
 
 export interface WorkFoldRequestAction {
   command: WorkFoldRequestActionCommand;
@@ -915,7 +929,9 @@ export function parseWorkFoldRequestRecord(value: unknown): WorkFoldRequestRecor
       ? record.attachments.map((item, index) => parseWorkFoldAttachmentRef(item, `${label} attachment ${index + 1}`))
       : (() => { throw new Error(`${label} attachments are invalid.`); })(),
     actions: Array.isArray(record.actions)
-      ? record.actions.map((item, index) => parseWorkFoldRequestAction(item, `${label} action ${index + 1}`))
+      ? record.actions
+        .filter((item) => !isRetiredWorkFoldRequestAction(item))
+        .map((item, index) => parseWorkFoldRequestAction(item, `${label} action ${index + 1}`))
       : (() => { throw new Error(`${label} actions are invalid.`); })(),
     continuedFromTaskId: record.continuedFromTaskId === null || record.continuedFromTaskId === undefined
       ? null

@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Checkmark16Regular } from "@fluentui/react-icons";
 
 import { api, errorText } from "../../lib/api";
-import { formatBytes } from "../../lib/format";
+import { formatBytes, formatDateTime } from "../../lib/format";
+import { buildFixtureRecentlyDeleted } from "../../fixtures/settings-fixture";
+import { showToast } from "../../ui/feedback";
 import { recentlyDeletedSettings } from "../../ui-contract";
 
 /**
@@ -12,6 +14,8 @@ import { recentlyDeletedSettings } from "../../ui-contract";
  * its time runs out. This pane lists what is waiting, puts an item back, saves
  * app data whose app is gone as a plain file, removes one item early, and sets
  * how long items are kept. Nothing here empties the whole store.
+ * The browser preview (`?fixture=work-folder`) lists sample items and changes
+ * nothing.
  */
 
 export type RecentlyDeletedKind = "file" | "folder" | "work-folder" | "skill" | "app-storage" | "app-retained" | "app-release" | "app-studio";
@@ -93,8 +97,8 @@ export function describeUncovered(entry: RecentlyDeletedEntry): string | null {
   return `History could not keep a copy of ${uncovered.length} file${uncovered.length === 1 ? "" : "s"}: ${named}${more}.`;
 }
 
-export function RecentlyDeletedPane() {
-  const [data, setData] = useState<RecentlyDeletedResponse | null>(null);
+export function RecentlyDeletedPane({ fixtureMode = false }: { fixtureMode?: boolean } = {}) {
+  const [data, setData] = useState<RecentlyDeletedResponse | null>(() => fixtureMode ? buildFixtureRecentlyDeleted() : null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -109,15 +113,20 @@ export function RecentlyDeletedPane() {
   }
 
   useEffect(() => {
+    if (fixtureMode) return;
     let cancelled = false;
     api<RecentlyDeletedResponse>("/api/settings/recently-deleted")
       .then((next) => { if (!cancelled) { setData(next); setLoadError(null); } })
       .catch((caught) => { if (!cancelled) setLoadError(errorText(caught)); });
     return () => { cancelled = true; };
-  }, []);
+  }, [fixtureMode]);
 
   async function run(key: string, operation: () => Promise<string | null>): Promise<void> {
     if (busy) return;
+    if (fixtureMode) {
+      showToast({ text: recentlyDeletedSettings.previewDisabled, tone: "info" });
+      return;
+    }
     setBusy(key);
     setActionError(null);
     setNotice(null);
@@ -156,7 +165,7 @@ export function RecentlyDeletedPane() {
   }
 
   async function deleteNow(entry: RecentlyDeletedEntry): Promise<void> {
-    if (!window.confirm(recentlyDeletedSettings.deleteNowConfirm)) return;
+    if (!fixtureMode && !window.confirm(recentlyDeletedSettings.deleteNowConfirm)) return;
     await run(`delete-${entry.id}`, async () => {
       await api(`/api/settings/recently-deleted/${entry.id}`, { method: "DELETE" });
       return `${entry.name} is gone`;
@@ -181,7 +190,7 @@ export function RecentlyDeletedPane() {
   return (
     <section className="settings-section recently-deleted-pane" aria-label={recentlyDeletedSettings.heading}>
       <div className="recently-deleted-retention">
-        <label htmlFor="recently-deleted-retention-input">Keep for</label>
+        <label htmlFor="recently-deleted-retention-input">Keep Deleted Items</label>
         <input
           id="recently-deleted-retention-input"
           type="number"
@@ -222,7 +231,7 @@ export function RecentlyDeletedPane() {
                     {describeOrigin(entry)} · {formatDeletedSize(entry.sizeBytes, entry.sizeApproximate)}
                   </small>
                   <small>
-                    Deleted {new Date(entry.deletedAt).toLocaleString()} · Kept until {new Date(entry.restoreBy).toLocaleDateString()}
+                    Deleted {formatDateTime(entry.deletedAt)} · Kept until {new Date(entry.restoreBy).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </small>
                   {uncovered ? <small>{uncovered}</small> : null}
                   {entry.note ? <small>{entry.note}</small> : null}
@@ -249,7 +258,7 @@ export function RecentlyDeletedPane() {
                     </button>
                   ) : null}
                   <button
-                    className="ui-control"
+                    className="ui-control danger"
                     type="button"
                     disabled={Boolean(busy) || Boolean(entry.held)}
                     title={entry.held ? recentlyDeletedSettings.heldNote : undefined}

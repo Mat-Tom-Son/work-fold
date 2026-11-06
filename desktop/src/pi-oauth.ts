@@ -38,7 +38,7 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
       host.writeClipboard(info.userCode);
       void host.showMessageBox({
         type: "info",
-        title: "Complete provider sign-in",
+        title: "Complete Provider Sign-In",
         message: `Enter this code in your browser:\n\n${info.userCode}`,
         detail: "work-fold copied the code to your clipboard and opened the provider's verification page.",
         buttons: ["OK"],
@@ -62,7 +62,7 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
       const cancelId = input.options.length;
       const result = await host.showMessageBox({
         type: "question",
-        title: "Choose sign-in method",
+        title: "Choose Sign-In Method",
         message: input.message,
         detail: input.options.filter((option) => option.description).map((option) => `${option.label}: ${option.description}`).join("\n") || undefined,
         buttons: [...input.options.map((option) => option.label), "Cancel"],
@@ -79,7 +79,7 @@ export function createDesktopPiOAuthHooks(host: DesktopPiOAuthHost): PiOAuthHook
     },
     async info(input) {
       await host.showMessageBox({
-        type: "info", title: "Provider setup", message: input.message,
+        type: "info", title: "Provider Setup", message: input.message,
         detail: input.links?.map((link) => `${link.label ?? "Learn more"}: ${link.url}`).join("\n"),
         buttons: ["Continue"], defaultId: 0, cancelId: 0, noLink: true,
       });
@@ -97,14 +97,14 @@ async function promptFromClipboard(
     const cancelId = input.allowEmpty ? 2 : 1;
     const result = await host.showMessageBox({
       type: "question",
-      title: "Complete provider sign-in",
+      title: "Complete Provider Sign-In",
       message: input.message,
       detail: input.placeholder
-        ? `Copy the requested value from your browser, then choose Paste from clipboard.\n\nExpected: ${input.placeholder}`
-        : "Copy the requested value, then choose Paste from clipboard.",
+        ? `Copy the requested value from your browser, then choose Paste from Clipboard.\n\nExpected: ${input.placeholder}`
+        : "Copy the requested value, then choose Paste from Clipboard.",
       buttons: [
-        "Paste from clipboard",
-        ...(input.allowEmpty ? ["Use default"] : []),
+        "Paste from Clipboard",
+        ...(input.allowEmpty ? ["Use Default"] : []),
         "Cancel",
       ],
       defaultId: 0,
@@ -122,9 +122,9 @@ async function promptFromClipboard(
 
     await host.showMessageBox({
       type: "warning",
-      title: "Nothing to paste",
+      title: "Nothing to Paste",
       message: "Copy the authorization code or requested value from your browser, then try again.",
-      buttons: ["Try again"],
+      buttons: ["Try Again"],
       defaultId: 0,
       cancelId: 0,
       noLink: true,

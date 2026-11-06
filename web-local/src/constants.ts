@@ -13,6 +13,8 @@ export const desktopTitleBarMenus = [
 export const workFolderFileRefreshDelayMs = 160;
 export const loadedTreeRefreshConcurrency = 4;
 export const workFolderPathDragType = "application/x-work-fold-work-folder-path";
+/** Several Files rows dragged together, as a JSON list of work-folder paths. */
+export const workFolderPathsDragType = "application/x-work-fold-work-folder-paths";
 export const workFolderSidebarWidthPreferenceKey = "work-fold.work-folder.sidebar-width";
 /** Whether the navigation pane (Files, Chats, History) is hidden; the rail stays. */
 export const sidebarCollapsedStorageKey = "work-fold.layout.sidebar-collapsed";

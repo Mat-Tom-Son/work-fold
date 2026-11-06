@@ -28,6 +28,8 @@ const provider = (id: string, name: string, extra: Record<string, unknown> = {})
 const providers = [
   provider("anthropic", "Anthropic", { oauth: true, oauthLabel: "Anthropic (Claude Pro/Max)" }),
   provider("azure", "Azure OpenAI"),
+  provider("azure-anthropic", "Microsoft Foundry (Anthropic)", { modelCount: 0 }),
+  provider("azure-chat-completions", "Microsoft Foundry (Chat Completions)", { modelCount: 0 }),
   provider("google", "Google"),
   provider("openai", "OpenAI", { oauth: true, oauthLabel: "Sign in with ChatGPT", oauthAvailable: true }),
   provider("openai-codex", "OpenAI Codex (legacy)", { apiKey: false, oauth: true }),
@@ -68,11 +70,11 @@ test("first run says what work-fold is, connects AI, then picks the first folder
     onOpenFolder: () => { chosen.push("open"); },
   }));
   assert.equal(document.querySelector("h1")?.textContent, "Put your folders to work");
-  await dom.act(() => button("Get started")!.click());
+  await dom.act(() => button("Get Started")!.click());
   await dom.waitFor(() => Boolean(button(/^OpenRouter/)));
-  assert.equal(document.querySelector("h1")?.textContent, "Connect your AI");
+  assert.equal(document.querySelector("h1")?.textContent, "Connect Your AI");
   assert.match(document.body.textContent!, /Step 2 of 3/);
-  assert.deepEqual(buttons().filter((item) => item.classList.contains("connect-ai-card")).map((item) => item.querySelector("strong")?.textContent), ["ChatGPT", "Claude", "OpenRouter", "Another provider"]);
+  assert.deepEqual(buttons().filter((item) => item.classList.contains("connect-ai-card")).map((item) => item.querySelector("strong")?.textContent), ["ChatGPT", "Claude", "OpenRouter", "Another Provider"]);
   assert.match(button(/^ChatGPT/)!.textContent!, /Sign in with your ChatGPT account/, "sign-in where the desktop app can run it");
   assert.match(button(/^OpenRouter/)!.textContent!, /Paste your OpenRouter API key/, "a key where it cannot");
 
@@ -89,10 +91,10 @@ test("first run says what work-fold is, connects AI, then picks the first folder
   assert.deepEqual(connected, [connectedStatus]);
 
   await dom.act(() => button("Continue")!.click());
-  assert.equal(document.querySelector("h1")?.textContent, "Pick a folder to start with");
+  assert.equal(document.querySelector("h1")?.textContent, "Pick a Folder to Start With");
   assert.match(document.body.textContent!, /Step 3 of 3/);
-  await dom.act(() => button(/^Use existing folder/)!.click());
-  await dom.act(() => button(/^Create new work-folder/)!.click());
+  await dom.act(() => button(/^Use Existing Folder/)!.click());
+  await dom.act(() => button(/^Create New work-folder/)!.click());
   assert.deepEqual(chosen, ["open", "create"]);
 });
 
@@ -101,19 +103,19 @@ test("first run skips the AI step when a provider is already connected, and lets
   t.after(() => dom.cleanup());
   stubApi(t, () => ({}));
   await dom.render(createElement(OnboardingFlow, { agentConfigured: true, onAiConnected: () => {}, onCreateWorkFolder: () => {}, onOpenFolder: () => {} }));
-  await dom.act(() => button("Get started")!.click());
-  assert.equal(document.querySelector("h1")?.textContent, "Pick a folder to start with");
+  await dom.act(() => button("Get Started")!.click());
+  assert.equal(document.querySelector("h1")?.textContent, "Pick a Folder to Start With");
   assert.match(document.body.textContent!, /Step 2 of 2/);
   assert.doesNotMatch(document.body.textContent!, /No AI connected yet/);
 
   await dom.render(createElement(OnboardingFlow, { key: "fresh", agentConfigured: false, onAiConnected: () => {}, onCreateWorkFolder: () => {}, onOpenFolder: () => {} }));
-  await dom.act(() => button("Get started")!.click());
-  await dom.waitFor(() => Boolean(button("Skip for now")));
-  await dom.act(() => button("Skip for now")!.click());
-  assert.equal(document.querySelector("h1")?.textContent, "Pick a folder to start with");
+  await dom.act(() => button("Get Started")!.click());
+  await dom.waitFor(() => Boolean(button("Skip for Now")));
+  await dom.act(() => button("Skip for Now")!.click());
+  assert.equal(document.querySelector("h1")?.textContent, "Pick a Folder to Start With");
   assert.match(document.body.textContent!, /No AI connected yet\. Your Worker will offer to connect one when you need it\./);
   await dom.act(() => button("Back")!.click());
-  assert.equal(document.querySelector("h1")?.textContent, "Connect your AI");
+  assert.equal(document.querySelector("h1")?.textContent, "Connect Your AI");
 });
 
 test("Connect your AI signs in where it can, searches the rest, and sends Azure to Settings", async (t) => {
@@ -132,9 +134,9 @@ test("Connect your AI signs in where it can, searches the rest, and sends Azure 
   assert.deepEqual(posts.at(-1), { path: "/api/agent/oauth", body: { scope: "agent", provider: "openai" } });
   assert.deepEqual(results, ["OpenAI: GPT-6.1 Sol"]);
 
-  await dom.act(() => button(/^Another provider/)!.click());
+  await dom.act(() => button(/^Another Provider/)!.click());
   const listed = () => [...document.querySelectorAll(".connect-ai-others button")].map((item) => item.textContent);
-  assert.deepEqual(listed(), ["Azure OpenAI", "Google", "xAI"], "featured providers and the legacy ChatGPT entry stay out of the list");
+  assert.deepEqual(listed(), ["Azure OpenAI", "Microsoft Foundry (Anthropic)", "Microsoft Foundry (Chat Completions)", "Google", "xAI"], "featured providers and the legacy ChatGPT entry stay out of the list");
   const search = document.querySelector<HTMLInputElement>('input[type="search"]')!;
   await dom.act(() => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(search, "goo");
@@ -149,8 +151,15 @@ test("Connect your AI signs in where it can, searches the rest, and sends Azure 
   assert.match(document.body.textContent!, /Azure OpenAI needs a few more details/);
   await dom.act(() => button(/Set it up in Settings/)!.click());
   assert.equal(settingsOpened, 1);
+  for (const name of ["Microsoft Foundry (Anthropic)", "Microsoft Foundry (Chat Completions)"]) {
+    await dom.act(() => button(name)!.click());
+    assert.ok(document.body.textContent!.includes(name + " needs a few more details"));
+    assert.equal(document.querySelector("label[for=connect-ai-key]"), null);
+    await dom.act(() => button(/Set it up in Settings/)!.click());
+  }
+  assert.equal(settingsOpened, 3, "all Foundry formats lead to the complete connection form");
   await dom.act(() => button("xAI")!.click());
-  assert.equal(document.querySelector("label[for=connect-ai-key]")?.textContent, "Paste your xAI API key");
+  assert.equal(document.querySelector("label[for=connect-ai-key]")?.textContent, "Paste Your xAI API Key");
 });
 
 test("first run keeps the App's folder registration contract and the dark default", async () => {

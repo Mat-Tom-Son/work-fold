@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Search } from "lucide-react";
+import { Search } from "../chrome/icons";
 import { commandPaletteGroupCap, commandPaletteGroupOrder, commandPaletteOverallCap } from "../../constants";
 import { desktopShortcutKeyLabel, desktopShortcutModifierKey } from "../../lib/keyboard";
 import { normalizeSearchQuery } from "../../lib/format";

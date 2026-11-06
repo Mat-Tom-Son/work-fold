@@ -1,15 +1,20 @@
-import type React from "react";
-import { ArrowRight, ChevronRight, Loader2, Share2 } from "lucide-react";
+import React, { useEffect, useRef } from "react";
+import { ArrowRight, ChevronRight, Loader2, PageDataIcon, PageIcon } from "../chrome/icons";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
-import { desktopFileDragHint } from "../../lib/platform";
+import { desktopFileDragHint, isMacOS } from "../../lib/platform";
 import { isInsideFolder, parentFolderPath, treeEntryNeedsLazyChildren } from "../../lib/tree";
+import { isSelectionToggleKey } from "../../lib/tree-selection";
 import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import type { ChatActivityStatus, WorkFolderSummary, TreeEntry } from "../../types";
-import { fileSharing } from "../../ui-contract";
 import { ActivityDot } from "../chrome/ActivityDot";
 import { EmptyInline, WorkFolderIconGlyph } from "../chrome/common";
+
+/** A page folder (docs/pages.md): it shows a page icon and opens its page tab. */
+export interface PageFolderView {
+  title: string;
+}
 
 /** A work-folder registered inside this one, as Files shows it (2026-10-01). */
 export interface NestedFolderView {
@@ -23,10 +28,10 @@ export function FileTree({
   collapsedPaths,
   loadingFolderPaths,
   selectedPath,
-  movingTreePath,
+  selectedPaths,
+  movingTreePaths,
   dropTargetFolderPath,
   checkAttentionPaths = new Set<string>(),
-  sharedPaths = new Set<string>(),
   searchQuery = "",
   emptyText = "This folder is empty.",
   emptyContent,
@@ -34,6 +39,9 @@ export function FileTree({
   onToggleFolder,
   onSelectFile,
   onFocusEntry,
+  onToggleSelected,
+  onSelectRange,
+  onSelectAll,
   onPreviewFile,
   onOpenFile,
   onOpenContextMenu,
@@ -46,19 +54,27 @@ export function FileTree({
   onDragEndEntry,
   nestedFolders,
   onOpenNestedFolder,
+  pageFolders,
+  onOpenPage,
+  onOpenPageData,
 }: {
   entries: TreeEntry[];
+  /** Page folders keyed by their path; a plain click or Enter opens the page, the arrow opens the folder. */
+  pageFolders?: ReadonlyMap<string, PageFolderView>;
+  onOpenPage?: (path: string) => void;
+  /** A page folder's data.sqlite shows as Data and opens that page's Data view, never the raw file. */
+  onOpenPageData?: (pagePath: string, path: string) => void;
   /** Child work-folders keyed by their path here; each row opens that work-folder instead of expanding. */
   nestedFolders?: ReadonlyMap<string, NestedFolderView>;
   onOpenNestedFolder?: (workFolder: WorkFolderSummary) => void;
   collapsedPaths: Set<string>;
   loadingFolderPaths: Set<string>;
   selectedPath?: string | null;
-  movingTreePath: string | null;
+  /** Every selected row when several are; a plain click still selects only `selectedPath`. */
+  selectedPaths?: ReadonlySet<string>;
+  movingTreePaths?: ReadonlySet<string>;
   dropTargetFolderPath: string | null;
   checkAttentionPaths?: ReadonlySet<string>;
-  /** Files in this work-folder shared as a page; folders never carry the mark. */
-  sharedPaths?: ReadonlySet<string>;
   searchQuery?: string;
   emptyText?: string;
   emptyContent?: React.ReactNode;
@@ -67,6 +83,11 @@ export function FileTree({
   onSelectFile: (path: string) => void;
   /** Keyboard focus lands on a row: move the visual selection with it without opening anything. */
   onFocusEntry?: (path: string) => void;
+  /** ⌘-click (Ctrl-click off the Mac): adds the row to the selection, or takes it out. */
+  onToggleSelected?: (path: string) => void;
+  /** Shift-click or Shift+Arrow: the shown rows from the last clicked one to this one; `additive` keeps what was selected. */
+  onSelectRange?: (path: string, additive: boolean) => void;
+  onSelectAll?: () => void;
   onPreviewFile?: (path: string) => void;
   onOpenFile: (path: string) => void;
   onOpenContextMenu: (entry: TreeEntry, event: React.MouseEvent<HTMLElement>) => void;
@@ -78,8 +99,48 @@ export function FileTree({
   onDragStartEntry: (path: string, event: React.DragEvent<HTMLElement>) => void;
   onDragEndEntry: () => void;
 }) {
+  // Opening one tree must not animate the same relative path in another.
+  const openedFolder = useRef<{ path: string; at: number } | null>(null);
+  useEffect(() => { openedFolder.current = null; }, [searchQuery]);
+  function justOpened(path: string): boolean {
+    const opened = openedFolder.current;
+    return !searchQuery.trim() && opened?.path === path && performance.now() - opened.at < 1200;
+  }
   if (!entries.length) return emptyContent ? <div className="empty-inline">{emptyContent}</div> : <EmptyInline text={emptyText} />;
   const searching = Boolean(searchQuery.trim());
+  const severalSelected = (selectedPaths?.size ?? 0) > 1;
+  const isSelected = (path: string) => selectedPaths ? selectedPaths.has(path) : selectedPath === path;
+  // ⌘ on any Mac, the browser host included: there Ctrl-click is a right-click.
+  const mac = isMacOS() || (typeof navigator !== "undefined" && /^Mac/i.test(navigator.platform));
+
+  // A plain click selects one row (a file opens in its tab; a folder opens or
+  // closes). ⌘ and Shift change the selection only, and never open anything.
+  function handleRowClick(event: React.MouseEvent<HTMLButtonElement>, entry: TreeEntry, folderCollapsed: boolean) {
+    const toggle = isSelectionToggleKey(event, mac);
+    if (event.shiftKey && onSelectRange) { onSelectRange(entry.path, toggle); return; }
+    if (toggle && onToggleSelected) { onToggleSelected(entry.path); return; }
+    const dataPage = pageDataOf(entry);
+    if (dataPage !== null) onOpenPageData!(dataPage, entry.path);
+    else if (entry.kind === "file") onSelectFile(entry.path);
+    else if (isPage(entry) && !(event.target as Element).closest?.(".folder-chevron")) onOpenPage!(entry.path);
+    else if (!searching) toggleFolder(entry.path, folderCollapsed);
+  }
+
+  function isPage(entry: TreeEntry): boolean {
+    return entry.kind === "folder" && Boolean(onOpenPage && pageFolders?.has(entry.path));
+  }
+
+  /** The page whose online entries this file holds, when it is a page folder's data.sqlite. */
+  function pageDataOf(entry: TreeEntry): string | null {
+    if (entry.kind !== "file" || !onOpenPageData || !pageFolders) return null;
+    const folder = parentFolderPath(entry.path);
+    return folder && pageFolders.has(folder) && /^data\.sqlite$/i.test(entry.name) ? folder : null;
+  }
+
+  function toggleFolder(path: string, collapsed: boolean) {
+    openedFolder.current = collapsed ? { path, at: performance.now() } : null;
+    onToggleFolder(path);
+  }
 
   // After a keyboard move lands focus on a row, the visual selection follows
   // it — the way Finder's arrow keys select — without opening any tab.
@@ -91,7 +152,32 @@ export function FileTree({
     }
   }
 
+  // Shift+Arrow grows or shrinks the selection with the focus.
+  function extendSelectionToFocusedTreeRow() {
+    const focused = document.activeElement;
+    if (onSelectRange && focused instanceof HTMLElement && focused.dataset.treeRow === "true" && focused.dataset.treePath) onSelectRange(focused.dataset.treePath, false);
+  }
+
   function handleTreeRowKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, entry: TreeEntry) {
+    if (event.key === "Escape" && severalSelected && onFocusEntry) {
+      // Back to just the focused row; the next Escape clears it.
+      event.preventDefault();
+      event.stopPropagation();
+      onFocusEntry(entry.path);
+      return;
+    }
+    if (onSelectAll && event.key.toLocaleLowerCase() === "a" && isSelectionToggleKey(event, mac) && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      onSelectAll();
+      return;
+    }
+    if (event.shiftKey && onSelectRange && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End")) {
+      event.preventDefault();
+      if (event.key === "Home" || event.key === "End") focusEdgeTreeRow(event.currentTarget, event.key === "Home" ? "first" : "last");
+      else focusAdjacentTreeRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1);
+      extendSelectionToFocusedTreeRow();
+      return;
+    }
     if (entry.nestedFolder && (event.key === "Enter" || event.key === " " || event.key === "ArrowRight")) {
       event.preventDefault();
       const nested = nestedFolders?.get(entry.path);
@@ -116,7 +202,7 @@ export function FileTree({
       reportFocusedTreeRow();
       return;
     }
-    if (event.key === "F2" && onRenameEntry && !searching) {
+    if (event.key === "F2" && onRenameEntry && !searching && !severalSelected) {
       event.preventDefault();
       onRenameEntry(entry.path);
       return;
@@ -129,12 +215,15 @@ export function FileTree({
     }
     if (entry.kind === "folder") {
       const collapsed = collapsedPaths.has(entry.path) || treeEntryNeedsLazyChildren(entry);
-      if (event.key === "Enter" || event.key === " ") {
+      if (isPage(entry) && (event.key === "Enter" || event.key === " ")) {
         event.preventDefault();
-        if (!searching) onToggleFolder(entry.path);
+        onOpenPage!(entry.path);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        if (!searching) toggleFolder(entry.path, collapsed);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        if (collapsed && !searching) onToggleFolder(entry.path);
+        if (collapsed && !searching) toggleFolder(entry.path, true);
         else {
           focusFirstChildTreeRow(event.currentTarget, entry.path);
           reportFocusedTreeRow();
@@ -149,7 +238,11 @@ export function FileTree({
       }
       return;
     }
-    if (event.key === "ArrowLeft") {
+    const dataPage = pageDataOf(entry);
+    if (dataPage !== null && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      onOpenPageData!(dataPage, entry.path);
+    } else if (event.key === "ArrowLeft") {
       event.preventDefault();
       focusParentTreeRow(event.currentTarget, entry.path);
       reportFocusedTreeRow();
@@ -164,7 +257,7 @@ export function FileTree({
   }
 
   return (
-    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined}>
+    <div className="file-tree" role={level === 1 ? "tree" : "group"} aria-label={level === 1 ? "Files in this folder" : undefined} aria-multiselectable={level === 1 && onToggleSelected ? true : undefined}>
       {entries.map((entry) => {
         if (entry.nestedFolder) {
           const nested = nestedFolders?.get(entry.path);
@@ -173,7 +266,7 @@ export function FileTree({
           return (
             <div className="file-tree-item" key={entry.path}>
               <button
-                className={["file-row", "folder-row", "nested-folder-row", selectedPath === entry.path ? "selected" : ""].filter(Boolean).join(" ")}
+                className={["file-row", "folder-row", "nested-folder-row", isSelected(entry.path) ? "selected" : ""].filter(Boolean).join(" ")}
                 type="button"
                 role="treeitem"
                 aria-level={level}
@@ -213,35 +306,41 @@ export function FileTree({
         const descendantCheckAttention = entry.kind === "folder" && hasAttentionDescendant(checkAttentionPaths, entry.path);
         const checkAttention = exactCheckAttention || descendantCheckAttention;
         const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
-        const shared = entry.kind === "file" && sharedPaths.has(entry.path);
-        const rowLabel = `${checkAttention ? `${entry.name}, ${checkAttentionLabel}` : entry.name}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`;
+        const page = isPage(entry) ? pageFolders!.get(entry.path)! : null;
+        const dataPage = pageDataOf(entry);
+        const dataPageTitle = dataPage !== null ? pageFolders!.get(dataPage)!.title : null;
+        const rowName = page ? `${entry.name}, page` : dataPageTitle !== null ? `Data, entries for ${dataPageTitle}` : entry.name;
+        const rowLabel = checkAttention ? `${rowName}, ${checkAttentionLabel}` : rowName;
+        const selected = isSelected(entry.path);
         return (
           <div className="file-tree-item" key={entry.path}>
             <button
               className={[
                 "file-row",
                 entry.kind === "folder" ? "folder-row" : "file-row-entry",
+                page ? "page-folder-row" : "",
                 entry.kind === "folder" && entry.path === ".worker" ? "worker-scratch" : "",
                 entry.kind === "folder" && dropTargetFolderPath === entry.path ? "drop-target" : "",
                 isInsideFolder(entry.path, dropTargetFolderPath) ? "drop-descendant" : "",
-                selectedPath === entry.path ? "selected" : "",
-                movingTreePath === entry.path ? "moving" : "",
+                selected ? "selected" : "",
+                movingTreePaths?.has(entry.path) ? "moving" : "",
                 exactCheckAttention ? "has-check-attention" : "",
                 descendantCheckAttention ? "contains-check-attention" : "",
-                shared ? "is-shared" : "",
               ].filter(Boolean).join(" ")}
               type="button"
               role="treeitem"
               aria-level={level}
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
-              aria-selected={entry.kind === "file" ? selectedPath === entry.path : undefined}
+              aria-selected={entry.kind === "file" || selected ? selected : undefined}
               aria-label={rowLabel}
-              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}${shared ? ` · ${fileSharing.sharedMarkLabel}` : ""}`}
+              title={`${dataPageTitle !== null ? `Entries visitors made online for ${dataPageTitle}. Opens the page's Data view.` : entry.kind === "file" ? desktopFileDragHint(entry.path) : page ? `Page: ${page.title}` : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
+              data-page-folder={page ? "true" : undefined}
+              data-page-data={dataPage !== null ? "true" : undefined}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
-              onClick={() => entry.kind === "file" ? onSelectFile(entry.path) : !searching && onToggleFolder(entry.path)}
-              onDoubleClick={() => entry.kind === "file" && onOpenFile(entry.path)}
+              onClick={(event) => handleRowClick(event, entry, folderCollapsed)}
+              onDoubleClick={(event) => entry.kind === "file" && dataPage === null && !event.shiftKey && !isSelectionToggleKey(event, mac) && onOpenFile(entry.path)}
               onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
               onContextMenu={(event) => onOpenContextMenu(entry, event)}
               onDragStart={(event) => {
@@ -267,31 +366,36 @@ export function FileTree({
               {entry.kind === "folder" ? (
                 <>
                   <ChevronRight className={folderCollapsed ? "folder-chevron" : "folder-chevron open"} size={15} />
-                  <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />
+                  {page ? <span className="file-icon glyph-file-icon page-folder-icon" aria-hidden="true"><PageIcon size={16} /></span> : <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />}
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
+              ) : dataPage !== null ? (
+                <><span className="file-icon glyph-file-icon page-data-file-icon" aria-hidden="true"><PageDataIcon size={16} /></span><HighlightedFileName name="Data" query={searchQuery} /></>
               ) : (
-                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file />{shared ? <SharedPageGlyph className="file-shared-marker" /> : null}</>
+                <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file /></>
               )}
               {checkAttention ? <span className="file-check-attention-marker" aria-hidden="true" /> : null}
             </button>
             {entry.kind === "folder" && entry.children?.length && !folderCollapsed ? (
-              <div className="file-children">
+              <div className={justOpened(entry.path) ? "file-children opening" : "file-children"} data-exit-motion={searching ? undefined : "collapse"}>
                 <FileTree
                   entries={entry.children}
                   collapsedPaths={collapsedPaths}
                   loadingFolderPaths={loadingFolderPaths}
                   selectedPath={selectedPath}
-                  movingTreePath={movingTreePath}
+                  selectedPaths={selectedPaths}
+                  movingTreePaths={movingTreePaths}
                   dropTargetFolderPath={dropTargetFolderPath}
                   checkAttentionPaths={checkAttentionPaths}
-                  sharedPaths={sharedPaths}
                   searchQuery={searchQuery}
                   emptyText={emptyText}
                   level={level + 1}
                   onToggleFolder={onToggleFolder}
                   onSelectFile={onSelectFile}
                   onFocusEntry={onFocusEntry}
+                  onToggleSelected={onToggleSelected}
+                  onSelectRange={onSelectRange}
+                  onSelectAll={onSelectAll}
                   onPreviewFile={onPreviewFile}
                   onOpenFile={onOpenFile}
                   onOpenContextMenu={onOpenContextMenu}
@@ -304,6 +408,9 @@ export function FileTree({
                   onDragEndEntry={onDragEndEntry}
                   nestedFolders={nestedFolders}
                   onOpenNestedFolder={onOpenNestedFolder}
+                  pageFolders={pageFolders}
+                  onOpenPage={onOpenPage}
+                  onOpenPageData={onOpenPageData}
                 />
               </div>
             ) : entry.kind === "folder" && folderLoading ? <FolderLoadingRow /> : null}
@@ -312,11 +419,6 @@ export function FileTree({
       })}
     </div>
   );
-}
-
-/** The at-a-glance mark for a file shared as a page (Files rows and file tabs). */
-export function SharedPageGlyph({ className }: { className: string }) {
-  return <span className={className} title={fileSharing.sharedMarkTooltip} aria-hidden="true"><Share2 size={12} /></span>;
 }
 
 /** Files' first load: nothing that looks like files, and a quiet line only if the wait is noticeable. */

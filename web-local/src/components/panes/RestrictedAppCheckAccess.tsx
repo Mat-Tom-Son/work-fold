@@ -29,7 +29,7 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
     const check = choices?.find((item) => item.id === selection);
     if (!remove) {
       if (!check?.digest) return;
-      if (!await requestConfirm({ title: `Share “${check.title}” results?`, body: `${app.manifest.title} can read this Check’s status, finding details, paths and quoted evidence.`, confirmLabel: "Allow results" })) return;
+      if (!await requestConfirm({ title: `Share “${check.title}” results?`, body: `${app.manifest.title} can read this Check’s status, finding details, paths and quoted evidence.`, confirmLabel: "Allow Results" })) return;
     }
     setLoading(true);
     try {
@@ -51,7 +51,7 @@ export function RestrictedAppCheckAccess({ app, busy, onAppChanged, onError }: {
           </select></label>
           {!choices?.length ? <p>No Checks in this work-folder yet.</p> : null}
           <div className="restricted-app-destination-actions">
-            <button className="ui-control ui-control--primary" disabled={busy || loading || !selection} onClick={() => void change(permission.id)}>Allow results</button>
+            <button className="ui-control ui-control--primary" disabled={busy || loading || !selection} onClick={() => void change(permission.id)}>Allow Results</button>
             <button className="ui-control" disabled={loading} onClick={() => setEditing(null)}>Cancel</button>
           </div>
         </> : <div className="restricted-app-destination-actions">

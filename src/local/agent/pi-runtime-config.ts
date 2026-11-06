@@ -24,7 +24,7 @@ import { createPersistentPiAuthStorage } from "./auth-storage.js";
 
 type AuthStatus = ReturnType<ModelRuntime["getProviderAuthStatus"]>;
 
-import { applyAzureOpenAIDeployments } from "./azure-openai-models.js";
+import { applyFoundryDeployments } from "./foundry-models.js";
 import { defaultAgentSdkDir, workFolderSessionDir } from "./agent-data-dir.js";
 import type { PiExtensionUiBridge } from "./extension-ui.js";
 import type { ModelContextInspector } from "./model-context-inspector.js";
@@ -296,7 +296,7 @@ export async function resolvePiRuntime(
   const modelRuntime = config.modelRuntime
     ?? await ModelRuntime.create({ credentials, authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json") });
   applyModelCatalogs(modelRuntime, config.modelCatalogs ?? []);
-  await applyAzureOpenAIDeployments(credentials, modelRuntime);
+  await applyFoundryDeployments(credentials, modelRuntime);
   const settingsPreferred = preferredModelFromSettings(initialSettings);
   const metadataPreferred = config.metadata?.provider && config.metadata.model
     ? { provider: config.metadata.provider, id: config.metadata.model }

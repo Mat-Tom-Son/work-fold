@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check } from "../chrome/icons";
 
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { ConnectAi, type ConnectedAi } from "../onboarding/ConnectAi";
@@ -17,7 +17,7 @@ export function ConnectAiDialog({ onClose, onConnected, onOpenSettings, fixtureM
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section ref={dialogRef} tabIndex={-1} className="connect-ai-dialog" role="dialog" aria-modal="true" aria-labelledby="connect-ai-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title">
-          <div><h2 id="connect-ai-title">Connect your AI</h2></div>
+          <div><h2 id="connect-ai-title">Connect Your AI</h2></div>
           <button className="ui-control ui-control--quiet" type="button" onClick={onClose}>Close</button>
         </div>
         {connected ? (

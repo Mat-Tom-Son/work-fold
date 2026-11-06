@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Archive, Check, ChevronLeft, Clock3, Copy, Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Check, ChevronLeft, Clock3, Copy, Loader2, Pencil, RotateCcw, Trash2 } from "../chrome/icons";
 
 import { chatDisplayTitle } from "../../lib/format";
 import {

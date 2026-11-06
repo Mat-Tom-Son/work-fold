@@ -14,12 +14,16 @@ import "../../../services/bridge/public/work-request.css";
 import "../../../services/bridge/public/extension-questions.css";
 import "../components/chat/model-context-inspector.css";
 import "../application-appearance.css";
+import { desktopPlatform, previewPlatform } from "../lib/platform";
 import { PopoverApp } from "./PopoverApp";
 
-const platform = window.workFoldDesktop?.app.platform;
+const platform = desktopPlatform();
 if (platform) document.documentElement.dataset.platform = platform;
 if (window.workFoldDesktop) document.documentElement.dataset.desktop = "true";
-const windowMaterial = window.workFoldDesktop?.window.material;
+// The inert preview imitates the Mac popover; popover-document.css draws its material.
+const previewWindow = previewPlatform() === "darwin";
+if (previewWindow) document.documentElement.dataset.previewWindow = "mac";
+const windowMaterial = window.workFoldDesktop?.window.material ?? (previewWindow ? "vibrancy" : undefined);
 if (windowMaterial === "vibrancy") document.documentElement.dataset.windowMaterial = windowMaterial;
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

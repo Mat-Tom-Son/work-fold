@@ -111,7 +111,7 @@ test("CLI argv parser produces stable usage errors", () => {
 
 test("CLI help covers every landed act family and is honest about what it runs", () => {
   // The spelled verb inventory of docs/act-ledger.md plus the sibling
-  // automations/pages plans, as the act argv parser accepts them. Growing the
+  // automations plan, as the act argv parser accepts them. Growing the
   // act table without growing help fails here on purpose.
   const families: Record<string, string[]> = {
     chat: [
@@ -138,7 +138,7 @@ test("CLI help covers every landed act family and is honest about what it runs",
       "operation activate", "operation cancel", "uninstall",
     ],
     automations: ["enable", "list", "show", "run", "stop", "disable", "delete", "receipts"],
-    pages: ["share", "share-app", "list", "status", "revoke", "narrow", "widen", "snapshot-off"],
+    pages: ["validate", "publish", "unpublish", "list"],
     "recently-deleted": ["list", "restore"],
     requests: ["list", "show"],
     jobs: ["start", "list", "show", "output", "stop"],

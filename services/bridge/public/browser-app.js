@@ -8,7 +8,7 @@ import { createBrowserAppActions } from "./browser-app-actions.js";
 export const maximumActionCallBytes = 2 * 1024 * 1024;
 /** The desktop's typed refusal for a response the relay could not carry. */
 export const responseTooLargeCode = "RESPONSE_TOO_LARGE";
-/** Private app views use paired-browser authority, never a public share link. */
+/** Private app views use paired-browser authority. */
 export function createBrowserAppView({ read, online, resolve = async (app) => app, actions }) {
   const dialog = document.createElement("dialog");
   dialog.className = "browser-app-dialog";

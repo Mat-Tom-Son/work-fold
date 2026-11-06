@@ -260,9 +260,10 @@ test("a misspelled word gets macOS's own guesses when Electron has none", { skip
 
 test("browser tabs reopen, take a right-click menu, and show which Worker is using them", async () => {
   const hook = await readFile("web-local/src/hooks/useBrowserTabs.ts", "utf8");
-  assert.match(hook, /closedRef\.current = \[\.\.\.closedRef\.current, known\]\.slice\(-25\)/, "closed tabs are remembered for Reopen Closed Tab");
+  assert.match(hook, /closedRef\.current = \[\.\.\.closedRef\.current, \{ \.\.\.known, at: Date\.now\(\) \}\]\.slice\(-25\)/, "closed tabs are remembered for Reopen Closed Tab");
   const app = await readFile("web-local/src/App.tsx", "utf8");
-  assert.match(app, /event\.shiftKey && event\.key\.toLocaleLowerCase\(\) === "t"[\s\S]*browser\.reopenClosed\(\)/, "Cmd/Ctrl+Shift+T reopens the last closed browser tab");
+  assert.match(app, /event\.shiftKey && event\.key\.toLocaleLowerCase\(\) === "t"[\s\S]*reopenClosedTab\(\)/, "Cmd/Ctrl+Shift+T reopens the tab closed last");
+  assert.match(app, /function reopenClosedTab\(\)[\s\S]*browser\.lastClosedAt\(\) > tabs\.lastClosedSurfaceTabAt\(\)[\s\S]*browser\.reopenClosed\(\)/, "a browser tab closed last comes back first");
   assert.match(app, /onBrowserTabMenu=\{browser\.openTabMenu\}/);
   assert.match(app, /conversations\/\$\{conversationId\}\/abort/, "the Worker chip's Stop ends that Chat's turn");
   const host = await readFile("desktop/src/built-in-browser.ts", "utf8");
@@ -298,7 +299,7 @@ test("browser tabs survive a restart and belong to no work-folder", () => {
 
 test("the tab strip offers a browser tab beside New Chat, and Workers get the tools in every session", async () => {
   const tabBar = await readFile("web-local/src/components/chat/WorkFolderSurfaceTabBar.tsx", "utf8");
-  assert.match(tabBar, /aria-label="Open a browser tab"/);
+  assert.match(tabBar, /aria-label="Open a Browser Tab"/);
   assert.match(tabBar, /surface-tab-new-browser[\s\S]*surface-tab-new-chat/, "the browser button sits beside New Chat");
   const piClient = await readFile("src/local/agent/pi-client.ts", "utf8");
   assert.match(piClient, /this\.options\.browser \? createBrowserTools\(\{ host: this\.options\.browser, \.\.\.\(this\.options\.browserOwner \? \{ owner: this\.options\.browserOwner \} : \{\}\) \}\)/);

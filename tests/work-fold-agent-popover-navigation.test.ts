@@ -68,7 +68,10 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
     if (url.pathname.startsWith("/api/work-fold-agent/conversations/")) {
       const id = url.pathname.split("/").at(-1);
       if (id === "older" && delayOld) await new Promise<void>((resolve) => { finishOld = resolve; });
-      return json({ messages: [{ id: `message-${id}`, role: "user", content: `Transcript ${id}`, createdAt: new Date().toISOString() }] });
+      return json({ messages: [
+        { id: `message-${id}`, role: "user", content: `Transcript ${id}`, createdAt: new Date().toISOString() },
+        ...(id === "newer" ? [{ id: "compacted", role: "system", kind: "context_compaction", content: "Conversation context compacted.", createdAt: new Date().toISOString() }] : []),
+      ] });
     }
     throw new Error(`Unexpected request: ${url.pathname}`);
   };
@@ -89,6 +92,7 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   };
   await dom.render(createElement(PopoverApp));
   await dom.waitFor(() => dom.container.textContent?.includes("Transcript newer") === true);
+  assert.match(dom.container.querySelector(".work-continuation")!.textContent!, /Conversation context compacted/);
   await dom.waitFor(() => outlineReads > 0 && announceRegistryChange !== null);
   await input("textarea", "Workshop draft");
   await openHistory();
@@ -97,6 +101,7 @@ test("fold history pins replies, preserves per-chat drafts, and ignores late rea
   assert.equal(dom.container.querySelectorAll(".agent-chat-row").length, 1);
   await choose("Field notes");
   await dom.waitFor(() => dom.container.textContent?.includes("Transcript older") === true);
+  assert.equal(dom.container.querySelector(".work-continuation"), null, "compaction notices stay with their own Chat");
   assert.equal(dom.container.querySelector("textarea")?.value, "");
   await input("textarea", "@Writing, reply to old notes");
   failSend = true;

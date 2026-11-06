@@ -134,7 +134,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   // The compact circular action lives in the centered model/reasoning row.
   assert.match(popover, /className="composer-field"[\s\S]*rows=\{1\}[\s\S]*className=\{`composer-action\$\{requestRunning \? " composer-stop" : " primary"\}`\}/);
   assert.match(css, /\.composer-controls \{[\s\S]*align-items: center;/);
-  assert.match(css, /\.composer-action \{[\s\S]*width: 28px;[\s\S]*height: 28px;/);
+  assert.match(css, /\.composer-action \{[\s\S]*width: var\(--work-fold-control-md\);[\s\S]*height: var\(--work-fold-control-md\);/);
   assert.doesNotMatch(css, /\.composer-action \{[\s\S]*position: absolute;/);
   assert.doesNotMatch(popover, /composer-footer/);
   // The same action becomes Stop while work is active; the composer remains
@@ -156,7 +156,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /target\.scrollHeight - target\.scrollTop - target\.clientHeight < 120/);
   assert.match(popover, /clearLiveSteps\(\);\s*followLatest\(\);/);
   assert.match(popover, /className="agent-jump-latest" type="button" onClick=\{\(\) => followLatest\("smooth"\)\}/);
-  assert.match(popover, /sameTranscript\(current, next\) \? current : next/);
+  assert.match(popover, /sameTranscript\(current, merged\) \? current : merged/);
   // Staged chips render outside the composer conditional so a mid-turn drop
   // is confirmed on screen instead of surfacing after the turn settles.
   const chips = popover.indexOf('className="chips"');
@@ -167,7 +167,7 @@ test("the popover composer behaves like every other work-fold composer", async (
   assert.match(popover, /onDragEnter=\{onDragEnter\}/);
   assert.match(popover, /dragDepthRef\.current \+= 1/);
   assert.match(popover, /\{dropActive \? \(\s*<div className="drop-overlay" role="status" aria-live="polite">/);
-  assert.match(popover, />Drop to add<\/strong>/);
+  assert.match(popover, />Drop to Add<\/strong>/);
   assert.match(css, /\.drop-overlay \{[\s\S]*position: fixed;[\s\S]*inset: 6px;[\s\S]*pointer-events: none;/);
   assert.doesNotMatch(popover, /className="drop-hint"/);
   // Background work remains reachable when navigating to another Chat.

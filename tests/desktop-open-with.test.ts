@@ -11,20 +11,20 @@ import { openFileWithPickedApp, openWithAppName, openWithDialogOptions, openWith
 
 test("the app picker starts where each platform keeps its apps", () => {
   assert.deepEqual(openWithDialogOptions("darwin"), {
-    title: "Choose an app",
+    title: "Choose an App",
     properties: ["openFile"],
     defaultPath: "/Applications",
     filters: [{ name: "Applications", extensions: ["app"] }],
   });
   assert.deepEqual(openWithDialogOptions("win32", { ProgramFiles: "D:\\Apps" }), {
-    title: "Choose an app",
+    title: "Choose an App",
     properties: ["openFile"],
     defaultPath: "D:\\Apps",
     filters: [{ name: "Applications", extensions: ["exe"] }],
   });
   assert.equal(openWithDialogOptions("win32", {}).defaultPath, "C:\\Program Files");
   assert.deepEqual(openWithDialogOptions("linux"), {
-    title: "Choose an app", properties: ["openFile"], defaultPath: "/usr/share/applications",
+    title: "Choose an App", properties: ["openFile"], defaultPath: "/usr/share/applications",
     filters: [{ name: "Applications", extensions: ["desktop"] }, { name: "All files", extensions: ["*"] }],
   });
 });

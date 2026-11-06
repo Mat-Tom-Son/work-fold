@@ -8,7 +8,6 @@ import { test } from "node:test";
 import { appendMessage } from "../src/local/agent/chat-store.js";
 import { RoutedRestrictedAppProposalHost } from "../src/local/agent/restricted-app-proposals.js";
 import { RestrictedAppService } from "../src/local/agent/restricted-app-service.js";
-import { FileRestrictedAppStorage } from "../src/local/agent/restricted-app-storage.js";
 import { WorkFoldCliError } from "../src/local/cli/index.js";
 import {
   normalizeWorkFoldAutomationDeclaration,
@@ -1166,7 +1165,7 @@ test("the direct act path executes formerly gated verbs behind fences, receipts,
   }
 });
 
-test("work-folder unregister blocks on live publications and suspends automation authority", async () => {
+test("work-folder unregister suspends automation authority", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-unregister-test-"));
   const api = await startLocalApi({
     port: 0,
@@ -1181,12 +1180,6 @@ test("work-folder unregister blocks on live publications and suspends automation
     await mkdir(root, { recursive: true });
     await writeFile(join(root, "report.md"), "# Weekly\n\nAll clear.\n", "utf8");
     const registered = await facade.registerWorkFolder({ workFolderRoot: root });
-
-    const publication = await api.publications.activate(
-      { workFolderId: registered.workFolder.id, relativePath: "report.md", title: "Weekly report" },
-      { requestId: "req-pub-activate" },
-    );
-    assert.equal(publication.state, "active");
 
     const automationId = "automation-weekly-glue";
     const declaration = {
@@ -1205,16 +1198,6 @@ test("work-folder unregister blocks on live publications and suspends automation
       grant: { requestId: "request-automation-1", surface: "main-window" },
     });
     assert.equal(enabled.health, "enabled");
-
-    // A live page served from the work-folder refuses removal by name.
-    await assert.rejects(
-      () => facade.workFoldersUnregister({ workFolder: registered.workFolder.id }),
-      /Stop sharing the page served from this work-folder before removing it: "Weekly report"/,
-    );
-    assert.equal(enabled.health, "enabled");
-
-    const revoked = await api.publications.revoke(publication.publicationId, { requestId: "req-pub-revoke" });
-    assert.equal(revoked.state, "revoked");
 
     const removal = await facade.workFoldersUnregister({ workFolder: registered.workFolder.id });
     assert.equal(removal.removed, true);
@@ -1366,16 +1349,7 @@ test("automation runs drive live chat hops with receipts, stop honestly, and ref
   }
 });
 
-/** An enrolled address whose relay is unreachable: shares proceed and stay honestly pending. */
-const addressedUnreachableRelay = {
-  async upsertSlot() { throw new Error("relay unreachable"); },
-  async deleteSlot() {},
-  async putSnapshot() { throw new Error("relay unreachable"); },
-  async deleteSnapshot() {},
-  async addressConfigured() { return true; },
-};
-
-test("automation enablement and page exposure execute on one call with one request identity", async () => {
+test("automation enablement executes on one call with one request identity", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-enable-test-"));
   const api = await startLocalApi({
     port: 0,
@@ -1383,12 +1357,10 @@ test("automation enablement and page exposure execute on one call with one reque
     workFolderBase: join(sandbox, "content"),
     loadEnv: false,
     piRuntimeProvider: { async resolveRuntime() { return {}; } },
-    publicationBridge: addressedUnreachableRelay,
   });
   try {
     const facade = api.actFacade;
     const workFolder = await facade.createWorkFolder({ name: "Glue work-folder" });
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "weekly.md"), "# Weekly\n", "utf8");
 
     const tooSoonPath = join(sandbox, "too-soon.work-fold-automation.json");
     await writeFile(tooSoonPath, JSON.stringify({
@@ -1488,46 +1460,6 @@ test("automation enablement and page exposure execute on one call with one reque
       /unknown placeholder \{\{nope\}\}/,
     );
     assert.equal((await api.automations.listAutomations()).length, 1, "a refused declaration arms nothing");
-
-    // Page exposure: `pages share` pins the publication shape per the
-    // publishing mutation ledger and activates through the publication
-    // service on the same call, under a derived request id.
-    const shared = await facade.pagesShare({
-      workFolder: workFolder.workFolder.id,
-      path: "weekly.md",
-      title: "Weekly report",
-      requestId: "req-page-share",
-    });
-    assert.equal(shared.publication.state, "active");
-    assert.equal(shared.publication.relativePath, "weekly.md");
-    assert.equal(shared.publication.title, "Weekly report");
-    assert.equal(shared.publication.serveRatePerMinute, 60);
-    assert.equal(shared.publication.snapshotEnabled, false);
-    assert.equal("staged" in shared, false);
-    const publications = await api.publications.list();
-    assert.equal(publications.length, 1);
-    assert.equal(publications[0]?.state, "active");
-
-    const receiptsText = await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8");
-    const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    const activation = receipts.filter((entry) => entry.command === "pages activate");
-    assert.deepEqual(activation.map((entry) => entry.outcome), ["accepted", "ok"]);
-    assert.equal(activation[0]?.requestId, "req-page-share:activate", "activation journals under the act's derived request id");
-    assert.equal(activation[0]?.surface, "cli");
-    assert.equal(activation[0]?.decisionId, undefined);
-    assert.equal(receipts.some((entry) => String(entry.requestId).startsWith("fold-decision:")), false);
-
-    // A second identical call refuses: the page is already shared.
-    await assert.rejects(
-      () => facade.pagesShare({ workFolder: workFolder.workFolder.id, path: "weekly.md", title: "Weekly report", requestId: "req-page-share-2" }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && /already shared/.test(error.message),
-    );
-    // A missing source refuses honestly and exposes nothing.
-    await assert.rejects(
-      () => facade.pagesShare({ workFolder: workFolder.workFolder.id, path: "missing.md", title: "Missing", requestId: "req-page-missing" }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "notFound",
-    );
-    assert.equal((await api.publications.list()).length, 1);
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });
@@ -1623,211 +1555,6 @@ async function waitForAsync(predicate: () => Promise<boolean>, timeoutMs = 10_00
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
   }
 }
-
-test("hosted-app exposure activates from an installed Instance and puts the app at your address", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-act-rung3-test-"));
-  const storage = new FileRestrictedAppStorage(join(sandbox, "restricted-apps", "data"));
-  const restrictedApps = await RestrictedAppService.create({
-    rootPath: join(sandbox, "restricted-apps"),
-    deferAppAutomationStart: true,
-    storage,
-  });
-  // An address is set up; the test takes it away once to see the refusal.
-  let addressed = true;
-  const api = await startLocalApi({
-    port: 0,
-    stateBase: join(sandbox, "state"),
-    workFolderBase: join(sandbox, "content"),
-    loadEnv: false,
-    restrictedAppService: restrictedApps,
-    piRuntimeProvider: { async resolveRuntime() { return {}; } },
-    publicationBridge: { ...addressedUnreachableRelay, async addressConfigured() { return addressed; } },
-  });
-  // Settings → Apps' "Share at your address" posts here; same domain path as the CLI verb.
-  const shareFromSettings = async (workFolderId: string, instance: string) => {
-    const response = await fetch(`${api.origin}/api/settings/publications/share-app`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ workFolderId, instance }),
-    });
-    return { status: response.status, body: await response.json() as { error?: string; code?: string; publication?: { kind: string; state: string; publicationId: string; title: string; app?: { appInstanceId: string } }; revealable?: boolean } };
-  };
-  try {
-    const facade = api.actFacade;
-    const studio = (await facade.createWorkFolder({ name: "Viewer Studio" })).workFolder;
-    const targetRoot = join(sandbox, "viewer-target-fold");
-    await mkdir(targetRoot, { recursive: true });
-    const target = (await facade.registerWorkFolder({ workFolderRoot: targetRoot })).workFolder;
-
-    const packageRoot = join(studio.workFolderRoot, "apps", "viewer-inbox");
-    await mkdir(packageRoot, { recursive: true });
-    await writeFile(join(packageRoot, "package.json"), JSON.stringify({
-      name: "viewer-inbox",
-      version: "0.1.0",
-      private: true,
-      type: "module",
-      agentApp: "agent-app.json",
-    }), "utf8");
-    await writeFile(join(packageRoot, "agent-app.json"), JSON.stringify({
-      version: 2,
-      id: "viewer-inbox",
-      title: "Viewer inbox",
-      runtime: { kind: "sandboxed-web", entry: "index.html" },
-      ui: {},
-      tools: [],
-      permissions: { network: [], files: [], notifications: [] },
-      automations: [],
-      viewer: { entry: "viewer.html", readable: ["public/"] },
-    }), "utf8");
-    await writeFile(join(packageRoot, "index.html"), "<!doctype html><main>desktop</main>", "utf8");
-    await writeFile(join(packageRoot, "viewer.html"), "<!doctype html><main>audience</main>", "utf8");
-    const review = await restrictedApps.inspect({ workFolderId: studio.id, workFolderRoot: studio.workFolderRoot, sourcePath: "apps/viewer-inbox" });
-    await restrictedApps.install({
-      workFolderId: studio.id,
-      workFolderRoot: studio.workFolderRoot,
-      sourcePath: "apps/viewer-inbox",
-      expectedDigest: review.digest,
-    });
-
-    // A development preview is never exposable: exposure requires an
-    // installed App Instance of a prepared Release.
-    const development = (await restrictedApps.list(studio.id)).find((app) => app.runtimeInstanceKind === "development");
-    await assert.rejects(
-      () => facade.pagesShareApp({ workFolder: studio.id, instance: development!.featureInstallationId, requestId: "req-rung3-dev" }),
-      (error: unknown) => error instanceof WorkFoldCliError
-        && error.code === "conflict"
-        && /prepared Release/.test(error.message),
-    );
-
-    const prepared = await facade.appsReleasePrepare({ workFolder: studio.id, version: "1.0.0" });
-    await facade.appsReleasePublish({ workFolder: studio.id, release: prepared.release.releaseDigest });
-    const installPlan = await facade.appsInstallPrepare({
-      workFolder: studio.id,
-      release: prepared.release.releaseDigest,
-      targetWorkFolder: target.id,
-    });
-    const activated = await facade.appsOperationActivate({ workFolder: studio.id, operation: installPlan.operation.operationId });
-    const installed = (await restrictedApps.list(target.id)).find((app) => app.runtimeInstanceKind === "app");
-    assert.ok(installed);
-
-    // With no address set up, both surfaces refuse before anything activates,
-    // in app words rather than page words, exactly as sharing a page refuses.
-    addressed = false;
-    await assert.rejects(
-      () => facade.pagesShareApp({ workFolder: target.id, instance: activated.instance.runtimeInstanceId, requestId: "req-rung3-no-address" }),
-      (error: unknown) => error instanceof WorkFoldCliError && error.code === "conflict" && error.message === "Set up web access before sharing an app.",
-    );
-    const noAddress = await shareFromSettings(target.id, installed.featureInstallationId);
-    assert.equal(noAddress.status, 409);
-    assert.equal(noAddress.body.code, "NO_ADDRESS");
-    assert.equal(noAddress.body.error, "Set up web access before sharing an app.");
-    assert.deepEqual(await api.publications.list(), [], "a refused share leaves no slot behind");
-    addressed = true;
-    const previewFromSettings = await shareFromSettings(studio.id, development!.featureInstallationId);
-    assert.equal(previewFromSettings.status, 409, "a local preview is not shareable from Settings either");
-    assert.match(previewFromSettings.body.error ?? "", /prepared Release/);
-
-    // The verb accepts the Runtime Instance id like the other apps verbs,
-    // pins the App Instance identity plus the complete viewer surface, and
-    // activates the exposure on the first call.
-    const shared = await facade.pagesShareApp({
-      workFolder: target.id,
-      instance: activated.instance.runtimeInstanceId,
-      requestId: "req-rung3-share",
-    });
-    assert.equal(shared.publication.kind, "app");
-    assert.equal(shared.publication.state, "active");
-    assert.equal(shared.publication.appInstanceId, installed.featureInstallationId);
-    assert.equal(shared.publication.releaseDigest, prepared.release.releaseDigest);
-    assert.equal(shared.publication.viewerEntry, "viewer.html");
-    assert.deepEqual(shared.publication.viewerSurface, ["entry:viewer.html", "data:public/"]);
-    assert.equal("staged" in shared, false);
-    const publications = await api.publications.list();
-    assert.equal(publications.length, 1);
-    const exposure = publications[0]!;
-    assert.equal(exposure.kind, "app");
-    assert.equal(exposure.title, "Viewer inbox");
-    assert.equal(exposure.workFolderId, target.id);
-    assert.equal(exposure.viewerPath, `/a/${exposure.publicationId}`);
-    assert.equal(exposure.snapshotEnabled, false, "apps have no snapshot lane");
-    assert.deepEqual(exposure.app, {
-      appInstanceId: installed.featureInstallationId,
-      releaseDigest: prepared.release.releaseDigest,
-      viewerEntry: "viewer.html",
-      viewerSurface: ["entry:viewer.html", "data:public/"],
-    });
-
-    // The activation receipts carry the act's derived request identity,
-    // exactly as page activation does.
-    const receiptsText = await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8");
-    const receipts = receiptsText.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
-    const activation = receipts.filter((entry) => entry.command === "pages activate-app");
-    assert.deepEqual(activation.map((entry) => entry.outcome), ["accepted", "ok"]);
-    assert.equal(activation[0]?.requestId, "req-rung3-share:activate");
-    assert.equal(activation[0]?.surface, "cli");
-    assert.equal(activation[0]?.decisionId, undefined);
-
-    // The live serve path enforces the viewer-safe subset over the real
-    // installed instance: reviewed entry bytes serve; instance-owned
-    // viewer-readable data serves; everything else refuses typed.
-    await storage.set({
-      ownerClass: "instance",
-      tenantId: installed.tenantId,
-      runtimeInstanceId: installed.runtimeInstanceId,
-      featureInstallationId: installed.featureInstallationId,
-      dataNamespaceId: installed.dataNamespaceId,
-    }, "public/greeting", "hello audience");
-    const servedEntry = await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "entry" });
-    assert.equal(servedEntry.state, "served");
-    const servedData = await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "data.get", key: "public/greeting" });
-    assert.equal(servedData.state, "served");
-    const deniedWrite = await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "data.set", key: "public/greeting", value: "x" });
-    assert.equal(deniedWrite.state, "served", "a write attempt is a typed viewer-visible denial, not a page state");
-
-    // One App Instance holds one active exposure; sharing again while live is
-    // refused before anything activates.
-    // Revocation is the direct undo; the Instance keeps running locally and
-    // sharing again mints a fresh publication.
-    const revoked = await facade.pagesRevoke({ publication: exposure.publicationId, requestId: "req-rung3-revoke" });
-    assert.equal(revoked.publication.state, "revoked");
-    assert.deepEqual(await api.publications.serveViewerAppCall(exposure.publicationId, { kind: "entry" }), {
-      state: "nothing-here",
-      publicationId: exposure.publicationId,
-    });
-    assert.ok((await restrictedApps.list(target.id)).some((app) => app.runtimeInstanceKind === "app"),
-      "revoking exposure never uninstalls the Instance");
-    // Settings → Apps shares through the same prepared act: one active app
-    // slot, a Settings receipt, and the activation journaled under its id.
-    const reshared = await shareFromSettings(target.id, installed.featureInstallationId);
-    assert.equal(reshared.status, 200, reshared.body.error);
-    assert.equal(reshared.body.publication?.kind, "app");
-    assert.equal(reshared.body.publication?.state, "active");
-    assert.equal(reshared.body.publication?.title, "Viewer inbox");
-    assert.equal(reshared.body.publication?.app?.appInstanceId, installed.featureInstallationId);
-    assert.notEqual(reshared.body.publication?.publicationId, exposure.publicationId, "sharing again mints a fresh publication");
-    const settingsReceipts = (await readFile(join(sandbox, "state", "cli", "receipts", "act.jsonl"), "utf8")).trim().split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    // Every Settings attempt is receipted, the two refusals included.
-    const settingsShare = settingsReceipts.filter((entry) => entry.command === "pages.share-app");
-    assert.deepEqual(settingsShare.map((entry) => entry.outcome), ["accepted", "error", "accepted", "error", "accepted", "ok"]);
-    const settingsRequestId = String(settingsShare.at(-1)?.requestId);
-    assert.match(settingsRequestId, /^settings:/);
-    assert.deepEqual(settingsShare.filter((entry) => entry.requestId === settingsRequestId).map((entry) => [entry.outcome, entry.surface]),
-      [["accepted", "main-window"], ["ok", "main-window"]]);
-    assert.deepEqual(
-      settingsReceipts.filter((entry) => entry.command === "pages activate-app" && entry.requestId === `${settingsRequestId}:activate`).map((entry) => entry.outcome),
-      ["accepted", "ok"],
-      "the prepared act journals its activation under the Settings request",
-    );
-    const again = await shareFromSettings(target.id, installed.featureInstallationId);
-    assert.equal(again.status, 409, "one App Instance holds one active exposure");
-    assert.match(again.body.error ?? "", /already at your address/);
-    assert.equal((await api.publications.list()).filter((view) => view.state === "active").length, 1);
-  } finally {
-    await api.close();
-    await rm(sandbox, { recursive: true, force: true });
-  }
-});
 
 async function writeStudioPackage(root: string, marker: string): Promise<void> {
   await mkdir(root, { recursive: true });

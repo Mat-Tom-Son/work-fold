@@ -19,6 +19,18 @@ If compaction removes a Worker answer continuation's hidden context, the host
 restates that request's original assignment separately from its latest answer,
 so the requested deliverable contract remains available alongside corrections.
 
+The Chat composer's context circle updates during a turn as text and tool results
+arrive, using Pi's context estimate and its estimator for a response still
+streaming. Finalized provider usage replaces that streaming estimate. The circle
+is its own button beside the model chip (2026-11-05): it opens a **Context**
+popover with the share used, tokens of the window, tokens processed in the
+Chat, and **Compact Chat**, which takes the same route as `/compact` and waits
+for the turn to end. After successful manual,
+automatic, or background compaction, a quiet saved Chat notice says that earlier
+messages were summarized and the chat history remains available. Cancelled or
+failed compactions never claim success. Context pressure clears until Pi has
+usage from the next model reply; an unknown count is never shown as zero.
+
 Workers are taught to keep temporary working files in an ordinary `.worker/<task-id>/`
 folder, created only when needed, and deliver requested files outside it.
 The Files tab gives that top-level folder a muted name and icon while keeping
@@ -52,7 +64,6 @@ use the same request, receipt and Stop paths: [Worker tools](worker-tools.md).
 | **App Instance** | One published Release installed into a chosen work-folder with its own runtime, data, grants, connections, jobs, and receipts. | It is distinct from the source-bound Development preview and does not live in or own the work-folder's folder. |
 | **work-fold agent** | The agent above all work-folders: one conversation scope, shown in the menu-bar/tray popover, the main window's agent panel, and the Web Access client under one name. | It is not a work-folder, a second Worker, or a renamed contract; "work-fold agent" stays the technical term. |
 | **Automation** | A declared, inert-until-enabled set of deterministic steps that move work between work-folders on a reviewed trigger. | It is executed by app code, never by a Worker conversation, and nothing automation-shaped is written into any work-folder. The technical contract remains `automation`. |
-| **Viewer** | Someone reading one published page or app through a share link while the desktop is online. | A viewer is not a paired browser, never touches the management lane, and is never a Principal. |
 | **Recently deleted** | The machine-local holding place for anything work-fold removed that History could not restore — files, folders, a managed work-folder's folder, a removed imported Skill, app storage and retained-data exports — kept for a retention window and restorable from Settings or the CLI. | It is not a work-folder, not portable, not a backup, and never empties on a verb; only retention purges it. |
 
 The work-folder header chooses the active working folder and provides compact
@@ -97,15 +108,30 @@ refresh backed by its tool-capable text-model API; the last good result is
 cached outside every work-folder and Pi's built-in catalog remains a fallback. A
 restricted work-folder app's connection is managed with that app in **Settings → Apps**.
 
-Azure OpenAI setup in AI Models takes an endpoint, an API key, and the names
-of the person's deployed models (separated by commas or new lines). These
-names become the available Azure choices; choosing a built-in Pi model or
-writing a mapping is not required. One deployment is selected separately for
-each work-folder and the work-fold agent. Connection settings are machine-wide,
-use Pi's existing provider credential storage, and can be edited without
-re-entering the key. Pasted Responses URLs normalize to the v1 endpoint.
-Saving configures existing deployments at one endpoint; it does not test
-inference, sign in to Azure, or discover deployments.
+Microsoft Foundry setup in AI Models offers **Microsoft Foundry / Azure
+(OpenAI)**, **Microsoft Foundry (Chat Completions)**, and **Microsoft Foundry
+(Anthropic)**. They can be connected together; each keeps its own endpoint,
+API key, and deployment names (separated by commas or new lines). The original
+Azure/OpenAI provider retains Pi's per-model Responses or Chat Completions choice,
+including existing saved deployments; the separate Chat Completions connection
+selects that format explicitly. Names become the available model
+choices without a prerequisite catalog-model selection or mapping. An optional
+**Deployment model details** disclosure lets the person choose a base model
+from Pi's catalog when a custom deployment name hides its context, image, or
+reasoning capabilities. New Chat Completions and Anthropic connections give
+unknown aliases Pi's generic limits until a base model is chosen, with the
+default-limits choice labeled explicitly. Native Pi `models.json` definitions
+and overrides remain available for models outside the base-model picker.
+A base-model id later removed from the catalog makes only that deployment
+unavailable; Settings remains usable to repair or remove it.
+Pi owns provider auth, streaming, and tool-call parsing.
+One deployment is selected separately for each work-folder and the work-fold
+agent. Connection settings are machine-wide, use Pi's existing provider
+credential storage, and can be edited without re-entering the key. Resource or
+full inference URLs normalize to `/openai/v1` or `/anthropic` for the selected
+connection. Saving configures existing chat deployments; it does not test
+inference, sign in to Azure, or discover deployments. This setup uses API keys;
+Microsoft Entra ID authentication and non-chat model operations are separate work.
 
 **First run and Connect your AI (2026-10-11).** With no work-folder yet, the
 app opens on a short first run: a welcome that says what work-fold is, **Connect
@@ -126,8 +152,10 @@ GPT-6.1 Sol; Claude: Claude Opus 4.8; OpenRouter: GPT-6 Luna; Google: Gemini
 3.1 Pro; otherwise the provider's first model), so every Worker without its own
 choice, the composer, and the status agree on the model in use. A failed turn
 whose reply already explains the failure shows no second status line. ChatGPT
-sign-in is offered once, under OpenAI; Pi's legacy ChatGPT entry appears only
-while it is connected. When the desktop app includes Chrome and Computer Control
+sign-in defaults to the direct OpenAI connection. Settings also offers
+**OpenAI (Codex subscription)** as a distinct connection for Codex models and
+account/usage details; choosing it never silently replaces a working model.
+When the desktop app includes Chrome and Computer Control
 and either is not yet set up, first run adds an optional **Let your Worker use
 your Mac** step before the folder, with each tool's setup inline; the included
 tools' setup works with or without a work-folder.
@@ -139,6 +167,30 @@ provider-specific configuration and cloud credential choices. ChatGPT sign-in
 uses the installation UUID Pi saves in global settings, never a project identity.
 Connections retain the complete credential in encrypted machine-local storage;
 only non-secret connection status and model metadata reach Settings.
+
+For a direct OpenAI account connection, native Pi validates and retains the sign-in
+ID token and its narrow identity metadata in the protected credential. AI Models
+shows the retained email even when OIDC UserInfo returns only a subject. Older
+direct connections saved without identity show a one-time reconnect action,
+rather than claiming that OpenAI did not provide the email. A refresh that
+returns no ID token preserves the verified identity; optional identity-check
+failure after token rotation clears that identity while retaining the replacement
+auth credential so model access does not break.
+
+The direct ChatGPT-plan grant does not authorize Codex workspace/usage reads.
+**View Codex connection** selects the distinct **OpenAI (Codex subscription)**
+entry; a person signs in explicitly to that connection. Its Settings details
+read the selected workspace name/plan and actual provider usage windows, used
+percentages, reset timestamps and available reset count. Reads pin the workspace
+header and reject usage whose returned account id differs or is missing. They
+never infer a workspace from email, a user id, an API organization or a client id,
+and never substitute a default workspace. No reset is consumed by this display.
+Usage refreshes every minute while the details are open and on window focus.
+**Refresh account details** also updates it without changing the model. A
+missing field stays **Not returned by this sign-in**; a failed read says
+**Unavailable** and explains the failure. **Manage usage in ChatGPT** opens the
+corresponding provider usage page. Account details stay in Settings, outside
+Chat, CLI snapshots, portable work-folder records and model prompts.
 
 Each open tab belongs to one work-folder. Selecting a tab takes the user back to
 that work-folder; selecting a work-folder restores its most recent tab. Browser
@@ -246,7 +298,7 @@ collision handling require a later explicit design.
 The user should always be able to reveal a work-folder in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
 Settings uses one preferences window with **Appearance**, **AI Models**,
-**Web Access**, **Shared pages**, **Automations**, **Recently deleted**, and **About** navigation,
+**Web Access**, **Automations**, **Recently deleted**, and **About** navigation,
 plus an **Apps** page (2026-09-25) that lists installed work-folder apps by work-folder and
 owns their management. Automations also carries **Limits**, collapsed by default
 under a Limits disclosure and unchanged in meaning; **Closing the window**, where supported,
@@ -308,11 +360,9 @@ Registering a folder is also the host authorization for its existing local Pi co
 | Run an app automation now | work-fold runs that named job once and records a durable receipt, even if its schedule is off. | It does not enable or shift the schedule; a disabled job has no notification authority. |
 | Delete a file or folder | work-fold records a safety restore point; anything the restore point cannot cover moves into Recently deleted with a manifest naming its work-folder, path, size, deleted-at, restore-by, and receipt. | Nothing is permanent at the moment it happens; `.work-fold/`, `.pi/`, and `.workspace/` are never valid endpoints. |
 | Restore from Recently deleted | work-fold puts the entry back at its recorded work-folder path, or re-registers a deleted managed work-folder, and receipts the restore. | The retention clock is the only thing that empties Recently deleted; no agent or CLI verb does. |
-| Ask an app for agent work or a model call | `assistant.request` starts a fresh full-tools Chat in the owning work-folder immediately, titled with the app's name and the action's and showing its message as **From** the app; `assistant.infer` returns bounded text or schema-validated JSON from the work-folder's model with no tools or transcript. Both leave receipts naming the effective model and usage. | No grant beyond installation is needed; viewers and remote app views get neither; model selection stays with the person. |
+| Ask an app for agent work or a model call | `assistant.request` starts a fresh full-tools Chat in the owning work-folder immediately, titled with the app's name and the action's and showing its message as **From** the app; `assistant.infer` returns bounded text or schema-validated JSON from the work-folder's model with no tools or transcript. Both leave receipts naming the effective model and usage. | No grant beyond installation is needed; remote app views get neither; model selection stays with the person. |
 | Enable an automation | work-fold records an exact-digest machine grant over one reviewed declaration on a single receipted call. | Proposal authoring, registration, and run-now never enable standing behavior; an edited declaration returns to proposed. |
 | Run an automation | App code executes the reviewed steps in order with per-hop receipts inside the shared scheduler bounds. A declared `fold` step may message the work-fold agent, and a closed set of host-resolved placeholders may fill a step's message. | No model composes glue, an automation never moves or deletes source files, and no work-folder's folder learns another work-folder exists. |
-| Share a page | One explicitly designated file is served as a rendered page at the person's address while the desktop is online, on a single receipted call; the share is revocable at any time. | Nothing else in the work-folder is exposed, the bridge stores no page content by default, and App Studio's local "publish a Release" grants no audience. |
-| Revoke a publication | work-fold refuses new viewer fetches desktop-first, then deletes the bridge slot and any snapshot. | Old links die; sharing again mints a new slot, key, and link rather than reviving the old one. |
 
 This separation is a core product rail. “Available,” “in this work-folder,” “in this chat,” and “allowed to execute” must never collapse into one invisible state.
 
@@ -403,7 +453,7 @@ The **work-fold agent** is the first in-product consumer of that layer: one conv
 
 A person's ask is a **request**: one durable, machine-local record that owns the outcome across however many turns and work-folders it takes ([the collaboration contract](collaboration-contract.md)). The work-fold agent hands a piece of it to a work-folder's own agent, that agent hands one result shape back — a plain-language summary, optional structured details, the files it chose, and whether it finished, finished partly, or failed — and either side can ask a question instead of guessing. A question stops that task rather than the person's day: the turn ends, the request says it is waiting, and one accepted answer starts exactly one continuation turn carrying it. A parent turn never sits on a waiting child; it finishes and says what is outstanding, and when the work it handed out settles, work-fold starts at most one follow-up turn in the work-fold agent carrying the collected reports, within that request's bounds and switchable off in Settings → Automations → Limits. A work-folder that needs another work-folder asks for a handoff, and work-fold starts that Chat with the message and copies of the named files through the ordinary restore-pointed path; no model turn is needed to move a result. What crosses into a work-folder Chat is only its assignment, payloads someone deliberately released to it, and answers to its own questions — the request graph, other work-folders' results, and the work-fold agent's transcript stay above work-folders. The same verbs are available to the work-fold agent, to a Worker, to an app's requested task, and to any shell-capable agent on the CLI, with the same receipts and the same named limits.
 
-**Web Access** (technically the remote-access bridge) is a private-alpha connected surface over the canonical work-fold agent, not a second agent, a work-folder-chat selector, or a cloud-synchronized work-folder. A person chooses one private `<name>.work-fold.com` address and password in Settings; new-address enrollment is controlled by the hosted bridge rather than an invitation code or a credential embedded in the public app. Password sign-in establishes only a short-lived browser session; the desktop must separately confirm that browser by matching a six-digit code, after which a non-exportable browser key and revocable desktop-signed grant authorize the surface. This is a full-trust grant to the management agent, which keeps its ordinary local tools and can delegate work to registered Workers through the explicitly attributed management act path. The browser lists bounded saved management-chat summaries, opens bounded recent transcripts, sends to a selected saved work-fold agent Chat or starts a new one, and stops only a work-fold agent request accepted by that exact browser grant; request-level stop also covers its recorded child turns. While a work-fold agent turn runs, a current desktop additionally streams bounded live response text and its current activity line to the paired browser as throttled signed encrypted progress events over the same operation lane. The durable transcript replaces that transient projection when the turn settles; the desktop advertises the watch capability in its summary projection, so an older desktop is simply never asked, and every streamed tick rechecks the grant before it leaves the desktop. The current browser focuses on New chat and saved Chats; it has no Files/work-folder browser. A **Shared pages** popup in the sidebar footer lists existing active page/app publications from the desktop. Titles and health cross the encrypted management lane without keys; a click transiently reveals one current key and opens its exact isolated viewer origin in a new tab, with the key only in the fragment and no opener. This does not share new content or change publication authority. Chat result links retain bounded file previews and exact-installation app views. Older file-tree operations remain compatible, but are unused by the current client. Absolute roots and ignored paths never cross the adapter.
+**Web Access** (technically the remote-access bridge) is a private-alpha connected surface over the canonical work-fold agent, not a second agent, a work-folder-chat selector, or a cloud-synchronized work-folder. A person chooses one private `<name>.work-fold.com` address and password in Settings; new-address enrollment is controlled by the hosted bridge rather than an invitation code or a credential embedded in the public app. Password sign-in establishes only a short-lived browser session; the desktop must separately confirm that browser by matching a six-digit code, after which a non-exportable browser key and revocable desktop-signed grant authorize the surface. This is a full-trust grant to the management agent, which keeps its ordinary local tools and can delegate work to registered Workers through the explicitly attributed management act path. The browser lists bounded saved management-chat summaries, opens bounded recent transcripts, sends to a selected saved work-fold agent Chat or starts a new one, and stops only a work-fold agent request accepted by that exact browser grant; request-level stop also covers its recorded child turns. While a work-fold agent turn runs, a current desktop additionally streams bounded live response text and its current activity line to the paired browser as throttled signed encrypted progress events over the same operation lane. The durable transcript replaces that transient projection when the turn settles; the desktop advertises the watch capability in its summary projection, so an older desktop is simply never asked, and every streamed tick rechecks the grant before it leaves the desktop. The current browser focuses on New chat and saved Chats; it has no Files/work-folder browser. Chat result links retain bounded file previews and exact-installation app views. Older file-tree operations remain compatible, but are unused by the current client. Absolute roots and ignored paths never cross the adapter.
 
 Remote uploads are a separate explicit act. Each message accepts up to 64 plain-named files, 6 MB each and 8 MB total (the relay envelope's size), carried inside the signed encrypted envelope. The work-fold agent Chat holds them under app-owned `management/Incoming/Remote/` so the management agent can explicitly use them or place them into a work-folder through the restore-pointed `files add` path; that holding area is limited to 64 MB, expires after 24 hours, is purged for a revoked browser and on Web Access disablement, and never exposes the holding path back to the browser. The remote adapter still cannot attach arbitrary desktop paths, tunnel the local HTTP API, receive absolute roots, directly manage capabilities/settings, invoke a work-folder Chat directly, or call an open-ended method. The bridge persists account/session/grant/operation metadata but never durable message or file content; content projections and uploads cross it as signed application-encrypted envelopes. That protects persisted relay state and passive payload handling, not an actively compromised hosted client or bridge: the hosted origin serves the code that may use a paired browser key and is therefore inside this alpha's authority boundary. Revocation withdraws the desktop-local grant before the server mutation, is serialized with dispatch, and stops locally tracked work-fold agent requests and their recorded child work. Revoking one browser, revoking every generation, disabling Web Access, or deleting the address are separate desktop actions. Core work-folder use stays local and account-free.
 
@@ -445,7 +495,7 @@ When a design is ambiguous, prefer the option that best preserves these properti
 - Inspect work-folder context, registered work-folders, active agent/compaction tasks, and Pi capabilities through one versioned `WorkFoldKernel` and the installed `work-fold` CLI's content-free read lane.
 - Operate the product from any shell-capable agent through the CLI's per-launch-authenticated act lane while the app is running: create or register work-folders, copy outside material into a work-folder with a History restore point, and start, continue, await, or abort work-folder Chats — every action journaled before it runs and every CLI-initiated turn tracked as a kernel task with a task-scoped outcome.
 - Talk to the work-fold agent above all work-folders through `work-fold agent send|status|result|wait|abort|stop|list`: the same agent runtime with personal capabilities plus work-fold's two app-owned management resources, reference attachments, an explicit request/child action trail, machine-local saved transcripts, default single-conversation behavior with an explicit New chat clean slate, and task-scoped outcomes; the menu-bar/tray popover is its visible desktop surface.
-- In the private alpha, optionally reach the saved work-fold agent at a chosen private `<name>.work-fold.com` address while the desktop is online, after password sign-in and an explicit one-time full-trust desktop confirmation of that browser; open existing shared pages from the sidebar popup, delegate through the one management agent, and attach bounded uploads, with content-bearing operations carried in signed application-encrypted envelopes through a trusted hosted client and bridge. While a work-fold agent turn runs, stream bounded live response text and its current activity line to the paired browser, then reconcile the durable reply when it settles; the capability is advertised by the desktop's summary projection, never probed, so an older desktop keeps the polling cadence.
+- In the private alpha, optionally reach the saved work-fold agent at a chosen private `<name>.work-fold.com` address while the desktop is online, after password sign-in and an explicit one-time full-trust desktop confirmation of that browser; delegate through the one management agent, and attach bounded uploads, with content-bearing operations carried in signed application-encrypted envelopes through a trusted hosted client and bridge. While a work-fold agent turn runs, stream bounded live response text and its current activity line to the paired browser, then reconcile the durable reply when it settles; the capability is advertised by the desktop's summary projection, never probed, so an older desktop keeps the polling cadence.
 - Define optional file-presence or model-backed text Checks over designated files through the desktop setup form or inert proposals and explicit machine-local enablement; run, await, inspect evidence-backed problems, and record fingerprint-scoped decisions through the installed CLI, work-fold agent, and one work-folder-owned desktop work tab. A conditional Files-toolbar summary and quiet exact-file markers appear only for configured state; unconfigured means unknown, portable declarations remain inert, and opening Checks never starts a model or enables automation. A separately reviewed automation may run Checks on a schedule or after an explicitly designated folder changes.
 - Drop native OS files onto any Chat composer to upload them into that work-folder's dated `Dropped/` folder and attach them as context in one explicit act; uploads record additive History restore points.
 - Steer a running agent turn: Enter mid-turn delivers the message through Pi's steering queue, the agent reads it after its current step, and the transcript records it as sent mid-turn; if the turn settles first the message becomes the queued draft instead. ⌘/Ctrl+Enter queues one follow-up message behind the running turn as a visible, cancellable draft that sends when the turn settles; Stop returns it to the composer instead of firing it into the stopped turn's aftermath. The app, not the window, holds that queued draft (`PUT`/`DELETE …/conversations/:id/queue`, a `queued_message` Chat event): every window on the Chat shows it, it outlives the window that queued it, and the app sends it as an ordinary turn when the running turn ends, with the files staged when it was queued and the Workers it addresses with @. A Stop from any surface holds it instead (shown as not sent); no later turn sends a held message, and Cancel hands it back to the composer, ordered after any queue write still in flight. The app numbers every queue change, and a window applies only a change newer than any it has applied or made. While its own writes or Cancel are in flight it keeps the newest app change aside and applies it once they are answered, if it is still newer than the window's own last change, so an echo can neither erase newer text nor restore a cancelled message, and a message the app sent or a Stop held meanwhile is never lost. Meanwhile the window never sends the message itself. Quitting work-fold drops it. The work-fold agent's running turn takes steering the same way from the menu-bar panel and the desktop agent panel (Enter while it is working), and from the paired browser that started that work (`management.send` with `delivery: "steer"`, advertised by the `steer` capability; the same ownership rule as Stop); attachments wait for the next message (2026-10-27).
@@ -495,12 +545,11 @@ When a design is ambiguous, prefer the option that best preserves these properti
   registered again and brings its previews' data with it (2026-10-11).
 - Build, Developer ID-sign, notarize, and publish the macOS arm64 app, DMG, ZIP, blockmap, and update metadata, with a verified installed two-version updater lane. This is the only active desktop distribution lane.
 
-- Meet the whole product through the **work-fold agent** — the work-fold agent above all work-folders, its menu-bar/tray popover, and paired web chat — with capture in and publishing out. See [the work-fold agent](work-fold-agent-decisions.md).
+- Meet the whole product through the **work-fold agent** — the work-fold agent above all work-folders, its menu-bar/tray popover, and paired web chat — with capture in. See [the work-fold agent](work-fold-agent-decisions.md).
 - Perform every product verb through the work-fold agent's receipted act lane at human parity: chat lifecycle and compaction, History restore with automation-aware fencing, file operations, content search, work-folder rename/unregister and appearance, capability removal, and App Studio's authority-neutral lifecycle — each act journaled before it runs, receipted after, with typed undo references.
 - Run every verb — including those that make bytes runnable, widen a standing power, or delete — on first call with identity pins, journal-first receipts, and at-most-once execution; keep every deletion reversible through History or Recently deleted, restorable from Settings → Recently deleted and `work-fold recently-deleted`.
 - Declare deterministic cross-work-folder automations — a schedule, explicitly designated folder change, or settled Check or automation run driving fixed Chat, files, Check, and agent steps on a separate eight-slot automation scheduler with per-hop receipts and host-resolved placeholders; enablement is one receipted call, and nothing above work-folders runs an unattended conversation.
 - Read the overview — the app-composed digest of running work, needs-you questions and due snoozes, and changes since each surface last looked — through `work-fold agent overview --json` and narration on demand, neither of which advances seen markers. The compact popover stays focused on the live conversation and capture.
-- Share pages (**Settings → Shared Pages**): one designated file or one reviewed hosted App Instance served live from the desktop at the person's `<name>.work-fold.com` address to link-scoped, read-only viewers — end-to-end encrypted with URL-fragment keys, rate- and byte-budgeted, snapshot caching an explicit labeled opt-in, and revocable desktop-first.
 
 - Follow an explicit request across agent turns and delegated work. The
   [collaboration contract](collaboration-contract.md) provides durable questions,
@@ -528,6 +577,9 @@ When a design is ambiguous, prefer the option that best preserves these properti
 
 ### Later adapters and distribution maturity
 
+- Publish interactive page folders online with saved data, as proposed in the
+  [Online pages plan](online-pages-plan.md); desktop-served sharing was retired
+  on 2026-11-05.
 - Prove one private hosted-web App Instance end to end—publish, deploy, explicit
   destination and connection grant, named automation and receipt, update, and
   revocation—before public discovery, an App Store, or generalized sync.

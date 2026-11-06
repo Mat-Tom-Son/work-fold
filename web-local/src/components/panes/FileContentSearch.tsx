@@ -60,7 +60,7 @@ export function FileContentSearch({ workFolderId, query, onOpenFile }: {
   return (
     <section className="file-content-search" aria-label="Matches in file contents">
       <h3>
-        In file contents
+        In File Contents
         <span aria-live="polite">
           {state.status === "searching" ? "Searching"
             : state.status === "error" ? "Unavailable"

@@ -7,6 +7,11 @@
 > ships, the canonical documents still describe the gated product; every
 > contradiction between them and this record is resolved in favor of this
 > record, and the build rewrites those documents.
+>
+> **Retired 2026-11-05 (owner decision):** desktop-served sharing — the
+> `pages` share verbs this record made direct, Settings → Shared pages, and
+> the viewers they served — was removed, so no outward exposure exists today.
+> The [Online pages plan](online-pages-plan.md) proposes its replacement.
 
 ## The principle
 
@@ -75,7 +80,8 @@ Narrowed earlier decisions:
 
 ### The work-fold agent's authority surfaces
 
-- Settings exposes Web access and Shared pages directly. Settings → Automations
+- Settings exposes Web access and Shared pages directly (Shared pages retired
+  2026-11-05). Settings → Automations
   holds Automations and the remaining transport and concurrency limits, and
   Settings → Recently deleted holds the trash.
 - The Needs-you surfaces (main window, popover, web client) render questions

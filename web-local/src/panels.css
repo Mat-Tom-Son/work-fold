@@ -11,7 +11,7 @@
   border-radius: var(--ui-radius-sm);
   color: var(--ui-text-muted);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
 :root[data-theme] .app-shell .file-sort-button:is(:hover, :focus-visible, .active) {
@@ -219,4 +219,25 @@
 /* The Automations list reuses the History list's rows, without its time column. */
 .app-shell .automations-navigator .history-entry {
   grid-template-columns: minmax(0, 1fr) 14px;
+}
+
+/* The inert previews imitate the Mac window (lib/platform.ts). A browser has
+   no window material or traffic lights, so draw stand-ins: a neutral tone for
+   the sidebar material behind the transparent shell, and the three window
+   buttons where macOS puts them, clear of the leading controls. */
+:root[data-preview-window="mac"] { background: #e3e3e5; }
+:root[data-preview-window="mac"][data-theme="dark"] { background: #29292c; }
+
+:root[data-preview-window="mac"] .app-shell::after {
+  content: "";
+  position: fixed;
+  z-index: 46;
+  top: calc(var(--work-fold-window-inset-top) / 2 - 6px);
+  left: 14px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 20px 0 0 #febc2e, 40px 0 0 #28c840;
+  pointer-events: none;
 }

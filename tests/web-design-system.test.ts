@@ -52,8 +52,8 @@ test("Files is the first primary surface and work-folder actions live in the per
 
   assert.doesNotMatch(workFolderChromeSource, /work-folder-rail-work-folder-selector|work-folder-rail-work-folder-copy/);
   assert.match(workFolderChromeSource, /primaryItems\.map/);
-  assert.match(workFolderChromeSource, /<span>Use existing folder<\/span>/);
-  assert.match(workFolderChromeSource, /<span>Create new work-folder<\/span>/);
+  assert.match(workFolderChromeSource, /<span>Use Existing Folder<\/span>/);
+  assert.match(workFolderChromeSource, /<span>Create New work-folder<\/span>/);
   assert.match(workFolderChromeSource, /<span>Manage work-folders<\/span>/);
   assert.match(workFolderChromeSource, /aria-current=\{shownMode === item\.mode \? "page" : undefined\}/, "the active icon-only destination must be announced");
   assert.match(workFolderChromeSource, /aria-label=\{item\.ariaLabel\}/, "icon-only destinations need accessible names");
@@ -144,9 +144,9 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   assert.doesNotMatch(capabilitiesSource, /<section className="professional-card capabilities-add-panel"/);
   assert.match(capabilitiesSource, /<CoreToolsSection tools=\{catalog\.tools\} management=\{catalog\.toolManagement\}/);
   assert.match(capabilitiesSource, /tool\.core === true \|\| tool\.kind === "core"/);
-  assert.match(capabilitiesSource, /On in new Chats/);
+  assert.match(capabilitiesSource, /On in New Chats/);
   assert.match(capabilitiesSource, /Available to Chats/);
-  assert.match(capabilitiesSource, /On in new Chats[\s\S]*Available to Chats/);
+  assert.match(capabilitiesSource, /On in New Chats[\s\S]*Available to Chats/);
   assert.doesNotMatch(capabilitiesSource, /active\s*·[\s\S]*available tools/i);
   assert.match(capabilitiesSource, /setTypeFilter\("all"\);[\s\S]*selectView\("installed"\)/);
   // Installed tools are grouped by where they live instead of filtered by a
@@ -161,7 +161,7 @@ test("Skills & Extensions opens as a popup from the Add button, and apps are man
   assert.match(appSource, /id: "go:work-folder-apps"/);
   // Catalog listings keep provenance readable in text, including its limit.
   assert.doesNotMatch(capabilitiesSource, /capabilities-external-host|"GitHub"|capabilities-official-badge/);
-  assert.match(capabilitiesSource, /safety-reviewed\."\>First-party \/ reference</);
+  assert.match(capabilitiesSource, /safety-reviewed\."\>First-Party \/ Reference</);
   assert.match(capabilitiesSource, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
   assert.doesNotMatch(capabilitiesSource, /from\s+["']lucide-react["']/);
 
@@ -338,13 +338,13 @@ test("work-folder customization is visible, compact, and separate from structura
   assert.match(workFolderChromeSource, /aria-label="work-folder color presets"/);
   assert.doesNotMatch(workFolderChromeSource, /workFolderLookOptions|work-folder color pairs/);
   assert.match(workFolderChromeSource, /function WorkFolderNameEditor/);
-  assert.match(workFolderChromeSource, /<span>work-folder name<\/span>/);
+  assert.match(workFolderChromeSource, /<span>Name<\/span>/);
   assert.match(workFolderChromeSource, /finally\s*\{\s*setSaving\(false\);\s*\}/);
   assert.doesNotMatch(workFolderChromeSource, /Fine tune|Saved on this computer|Start with a balanced color pair|Shown in the work-folder menu and tabs/);
   assert.match(workFolderChromeSource, /const workFolderIconPageSize = 96/);
   assert.match(workFolderChromeSource, /className="work-folder-icon-browser"/);
-  assert.match(workFolderChromeSource, /aria-label="Previous icon page"/);
-  assert.match(workFolderChromeSource, /aria-label="Next icon page"/);
+  assert.match(workFolderChromeSource, /aria-label="Previous Icon Page"/);
+  assert.match(workFolderChromeSource, /aria-label="Next Icon Page"/);
   assert.match(workFolderChromeSource, /\}, \[workFolderId, identity\.iconName\]\);/);
   assert.doesNotMatch(workFolderChromeSource, /Browse all|Show recommended|\$\{workFolderIconOptions\.length\}/);
   assert.match(workFolderChromeSource, /onResetWorkFolder/);
@@ -372,7 +372,7 @@ test("work-folder customization is visible, compact, and separate from structura
   assert.match(colorPickerRule, /height:\s*auto/, "the custom color wheel must remain inside its control");
   assert.match(colorWheelRule, /width:\s*28px/);
   assert.match(colorPairClearRule, /padding:\s*0/, "the paired-color clear icon must not overflow its control group");
-  assert.match(workFolderChromeSource, /onInput=[\s\S]*?aria-label="Choose second banner color"/);
+  assert.match(workFolderChromeSource, /onInput=[\s\S]*?aria-label="Choose Second Banner Color"/);
   assert.match(customizationCss, /\.work-folder-banner-surface\.banner-classic[\s\S]*?--work-folder-banner-secondary-rgb/, "the second color must affect the default banner through its dedicated role");
   const activeRailMarkerRule = cssRuleBody(customizationCss, ".app-shell .professional-work-folder-rail .work-folder-rail-button.active::before");
   assert.match(activeRailMarkerRule, /background:\s*var\(--work-folder-accent-indicator(?:,|\))/, "the contrast-solved indicator role must drive the compact active pill");
@@ -422,7 +422,7 @@ test("Manage work-folders is a compact launcher into customization", () => {
   assert.match(workFolderPanesSource, /work-folder-card-delete/);
   assert.match(workFolderPanesSource, /const deletesFolder = item\.location\.storage === "managed"/);
   assert.match(workFolderPanesSource, /aria-label=\{`\$\{deletesFolder \? "Delete" : "Remove"\} \$\{item\.name\}`\}/);
-  assert.doesNotMatch(workFolderPanesSource, /"Managed folder"|"Linked folder"/);
+  assert.doesNotMatch(workFolderPanesSource, /"Managed [Ff]older"|"Linked [Ff]older"/);
   assert.match(workFolderPanesSource, /const location = item\.location\.storage === "managed" \? "" : shortFolderLocation\(item\.workFolderRoot\);/);
   assert.match(workFolderPanesSource, /<span title=\{item\.workFolderRoot \|\| undefined\}>/);
   assert.match(surfacesCss, /\.app-shell \.professional-work-folders \.work-folder-card-actions \.work-folder-card-delete\s*\{[^}]*color:\s*var\(--ui-text-muted\)/);
@@ -440,7 +440,7 @@ test("the left header is inherited work-folder identity on every mode, not a sur
   assert.doesNotMatch(headerIdentityProps, /switchable=/, "the work-folder menu must remain available on management and custom surfaces");
   assert.doesNotMatch(headerIdentityProps, /title=|paneTitle|onCustomize/);
 
-  assert.match(workFolderChromeSource, /<strong>\{workFolder\.name\}<\/strong>/);
+  assert.match(workFolderChromeSource, /<WorkFolderBannerTitle identity=\{identity\} name=\{workFolder\.name\} caret=\{switcherEnabled\} \/>/);
   assert.match(workFolderChromeSource, /<span className="sr-only">\{detail\}<\/span>/);
   assert.match(workFolderChromeSource, /className="work-folder-pane-switch-trigger"/);
   assert.match(workFolderChromeSource, /aria-haspopup="menu"/);
@@ -468,7 +468,9 @@ test("every left-pane mode keeps content padding below the shared work-folder ba
 });
 
 test("the appearance preview mirrors the work-folder header rather than the active surface", () => {
-  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy"><strong>\{name\}<\/strong>/);
+  // Compact, Band and Cover lead with the icon tile; every layout shows the work-folder's own name.
+  // The preview renders the header's own title component (2026-11-05).
+  assert.match(workFolderBannerPreviewSource, /work-folder-appearance-preview-copy"><WorkFolderBannerTitle identity=\{identity\} name=\{name\} \/><\/span>/);
   assert.doesNotMatch(workFolderChromeSource, /work-folder-appearance-preview-copy"><strong>Files<\/strong>/);
   assert.match(customizationCss, /\.work-folder-appearance-preview\s*\{[\s\S]*?min-height:\s*112px;/);
 });
@@ -536,3 +538,22 @@ function stripCssComments(css: string): string {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+test("controls keep the arrow pointer like a desktop app; only links in Chat show the hand", async () => {
+  const sheets = ["web-local/src/styles.css", "web-local/src/panels.css", "web-local/src/popover/popover.css", "web-local/src/components/chat/model-context-inspector.css", "web-local/src/components/chat/work-steps.css", "web-local/src/components/panes/included-tool-setup.css"];
+  for (const sheet of sheets) {
+    const root = postcss.parse(await readFile(join(process.cwd(), sheet), "utf8"));
+    root.walkDecls("cursor", (declaration: { value: string; parent: { selector?: string } }) => {
+      assert.notEqual(declaration.value, "not-allowed", `${sheet}: ${declaration.parent.selector} shows a web-style disabled cursor`);
+      if (declaration.value !== "pointer") return;
+      assert.match(declaration.parent.selector ?? "", /\.message-body [^,]*link/, `${sheet}: ${declaration.parent.selector} uses the hand pointer`);
+    });
+  }
+});
+
+test("text buttons have a visible shape at rest in light and dark", async () => {
+  const css = await readFile(join(process.cwd(), "web-local/src/styles.css"), "utf8");
+  assert.match(css, /:root \{\s*--ui-button-fill: #ffffff;\s*--ui-button-edge:/);
+  assert.match(css, /:root\[data-theme="dark"\] \{\s*--ui-button-fill: color-mix\(in srgb, #ffffff 9%, var\(--ui-surface\)\);\s*--ui-button-edge: rgb\(255 255 255 \/ \.1\);/);
+  assert.match(css, /\.ui-control:not\(\.ui-control--primary\):not\(\.ui-control--icon\),[\s\S]*?\.checks-manual-button\s*\) \{\s*color: var\(--ui-text\);\s*background: var\(--ui-button-fill\);\s*border: 0;\s*box-shadow: inset 0 0 0 1px var\(--ui-button-edge\);/);
+});

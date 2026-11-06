@@ -1,0 +1,13 @@
+# The page service (docs/pages.md, "Page service"). Deploy the prebuilt
+# bundle: see services/pages/README.md. There is no build script on purpose;
+# the bundle needs the repository's shared source, which isn't uploaded.
+[build]
+builder = "RAILPACK"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+drainingSeconds = 10
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

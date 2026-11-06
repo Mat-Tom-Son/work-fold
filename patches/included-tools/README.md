@@ -53,6 +53,31 @@ cannot collide with another Chat's new observations. The Rust regression suite
 checks this across independent helper states. Concurrent calls wait for a
 stopping helper to drain before starting its replacement.
 
+## Pi AI 1.1.0 identity retention
+
+The native direct ChatGPT OAuth flow now verifies the returned ID token against
+OpenAI's fixed public JWKS and checks signature, issuer, issued-client audience,
+nonce, lifetime and optional access-token hash. It retains the token and narrow
+email/subject/client binding in the existing protected OAuth credential. This
+is a correction to Pi's own flow, not another OAuth implementation or credential
+store. A subject-only UserInfo response must not erase that verified identity.
+
+Refresh without an ID token preserves identity. When a refresh returns an
+optional ID token that cannot be verified, the already-rotated access/refresh
+credential is retained with identity cleared; it must never discard the new
+refresh token because a later JWKS read failed. Initial sign-in remains strict.
+Token/JWKS bodies have size and time limits, redirects are rejected and upstream
+token error bodies never enter diagnostics. Install and built-ASAR guards pin
+the exact reviewed runtime bytes. Native tests cover forged/mismatched identities,
+encrypted-store reopen and refresh rotation with failed optional verification.
+
+Live direct-grant verification established that email arrives in the ID token
+while UserInfo returns only `sub`; its token rejects Codex account/usage reads.
+The distinct native Codex grant remains separate. Public documentation:
+[sign-in and identity](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+and [Codex account API](https://learn.chatgpt.com/docs/app-server#auth-endpoints).
+Private diagnostic captures stay outside the repository.
+
 ## Chrome 0.15.51
 
 The optional embedded factory registers ordinary Pi tools per session and stays

@@ -27,8 +27,6 @@ interface WorkFoldRemoteAccessStatus {
   connection: "stopped" | "connecting" | "connected" | "error";
   slug: string | null;
   url: string | null;
-  /** The pages-<slug> origin share links compose against; null until an address exists. */
-  viewerOrigin: string | null;
   lastError: string | null;
   approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
 }
@@ -52,13 +50,20 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "share" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
 
-type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | `snooze:${string}`;
+type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | "close-right" | "reopen" | `snooze:${string}`;
+
+type WorkFoldDesktopHeaderMenuCommand = "new-chat" | "customize" | "set-up" | "look" | "reveal" | "manage";
+
+interface WorkFoldDesktopHeaderMenuRequest {
+  actions: { newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean };
+  point: { x: number; y: number };
+}
 
 interface WorkFoldDesktopTabMenuRequest {
   chat?: { lifecycle: "active" | "snoozed" | "archived"; snooze: Array<{ id: string; label: string; detail: string }> };
-  tab?: { hasOthers: boolean };
+  tab?: { hasOthers: boolean; hasRight: boolean; canReopen: boolean };
   point: { x: number; y: number };
 }
 
@@ -73,10 +78,10 @@ interface WorkFoldDesktopFileMenuRequest {
     upload: boolean;
     rename: boolean;
     delete: boolean;
-    share: boolean;
-    shared: boolean;
     worker?: boolean;
   };
+  /** Several rows selected together: the menu offers only what applies to all of them. */
+  selection?: { files: number; folders: number };
   point: { x: number; y: number };
 }
 
@@ -180,6 +185,8 @@ declare global {
         popupFileMenu?: (request: WorkFoldDesktopFileMenuRequest) => Promise<WorkFoldDesktopFileMenuCommand | null>;
         /** A work-folder tab's or a Chat's right-click menu (macOS). */
         popupTabMenu?: (request: WorkFoldDesktopTabMenuRequest) => Promise<WorkFoldDesktopTabMenuCommand | null>;
+        /** The work-folder header's right-click menu (macOS). */
+        popupHeaderMenu?: (request: WorkFoldDesktopHeaderMenuRequest) => Promise<WorkFoldDesktopHeaderMenuCommand | null>;
         setActiveWorkFolder: (workFolderId: string | null) => Promise<void>;
         onOpenWorkFolder: (listener: (workFolderId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
