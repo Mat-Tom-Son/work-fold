@@ -3,15 +3,14 @@
 The Linux x64 lane produces **local candidates** for Ubuntu 24.04 or newer and
 Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The stable release and automatic-update lane remains
-macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.15.1)
+macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.15.2)
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
-The local 0.15.2 candidate adds the reviewed Linux accessibility identity,
+The 0.15.2 preview adds the reviewed Linux accessibility identity,
 uncertain-effect, observed-value, caret-insertion and incomplete-tree fixes,
 plus Tcl 8/9-compatible interactive terminal byte relaying. It retains the
-0.15.1 feature baseline below. The preview link above continues to identify
-0.15.1 until this candidate is published.
+0.15.1 feature baseline below; that preview keeps its original tag and downloads.
 
 The 0.15.1 preview integrates main through `d7743a6` (Mac 0.15.0).
 It adds page folders with Preview and Data views, online-page publishing support,
