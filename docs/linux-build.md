@@ -3,17 +3,22 @@
 The Linux x64 lane produces **local candidates** for Ubuntu 24.04 or newer and
 Fedora on Intel/AMD PCs. It packages the existing Electron app and Pi runtime,
 not a separate Linux agent. The stable release and automatic-update lane remains
-macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.13.5)
+macOS. [Linux test previews](https://github.com/Mat-Tom-Son/work-fold/releases/tag/linux-test-0.15.1)
 are published separately; these commands only build local candidates. Linux has
 no automatic update feed.
 
-The local 0.15.1 candidate integrates main through `d7743a6` (Mac 0.15.0).
+The 0.15.1 preview integrates main through `d7743a6` (Mac 0.15.0).
 It adds page folders with Preview and Data views, online-page publishing support,
 Files multi-select and grouped restore points, banner customization layouts,
 live context/model account improvements, and the latest UI refinements. It
 retains Linux's native CLI, window controls, browser input/capture fixes, keyrings
-and app-wide Wayland sharing. The preview link above continues to identify
-0.13.5 until this candidate is published.
+and app-wide Wayland sharing. Publishing pages requires Web Access and the
+configured hosted bridge/page service; installing a desktop build does not deploy
+those services. The previous 0.13.5 preview keeps its original tag and downloads.
+
+Page Preview and Data use Electron's SQLite directly. For Worker shell queries
+against synced page data, install the distribution's SQLite CLI: `sudo dnf install
+sqlite` on Fedora or `sudo apt install sqlite3` on Ubuntu.
 
 The 0.13.5 preview integrates main through `48e08f4` (Mac 0.13.3).
 It adds interruption recovery, idle Chat compaction, shared queue and steering,
