@@ -290,4 +290,3 @@ function normalizeViewerAssetPath(value: string): string | null {
   if (segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
   return segments.join("/");
 }
-

@@ -33,4 +33,3 @@ export async function seedAutonomousCase(scenario: string, folder: string) {
   }
   return { prompt: "Review the interview notes and identify every participant who actually lost previously saved edits after reopening a document. Distinguish confirmed loss from an outdated preview, unsaved typing and export problems. Deliver findings.json as an array of {id,path,quote}, with an exact supporting quote for each included participant, and findings.md explaining the distinction and coverage. Keep all interview files unchanged.", answer: "Include confirmed loss of previously saved edits only, with exact supporting quotes. Use the requested deliverable formats.", expected };
 }
-

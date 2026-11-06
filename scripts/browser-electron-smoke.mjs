@@ -8,13 +8,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeImage } from "electron";
 
 import { BrowserStatusBubble } from "../dist/desktop/desktop/src/browser-status-bubble.js";
 import { BuiltInBrowser } from "../dist/desktop/desktop/src/built-in-browser.js";
 
 const pages = {
-  "/": `<!doctype html><title>Smoke</title>
+  "/": `<!doctype html><title>Smoke</title><body style="background:rgb(30,180,75)">
 <h1>Hello smoke</h1>
 <label>Name <input id="name"></label>
 <label>City <input id="city"></label>
@@ -24,7 +24,7 @@ const pages = {
 <a id="other" href="/two" target="_blank">Other page</a>
 <a id="file" href="/file.txt">The file</a>
 <a id="slow-a" href="/slow.txt?a" download>Slow A</a> <a id="slow-b" href="/slow.txt?b" download>Slow B</a>
-<div style="height: 2400px"></div><p>Bottom of the page</p>
+<div style="height: 2400px"></div><p id="capture-footer" style="height:80px;background:rgb(180,30,75)">Bottom of the page</p>
 <script>console.log("smoke console"); setTimeout(() => { const late = document.createElement("p"); late.textContent = "Arrived late"; document.body.append(late); }, 600);</script>`,
   "/two": "<!doctype html><title>Two</title><h1>Second page</h1>",
   "/interactions": `<!doctype html><title>Interactions</title>
@@ -144,6 +144,7 @@ async function run() {
 
     // Agent interactions work in a background page, using real trusted input.
     const interaction = await host.open({ url: `${base}/interactions`, owner: "chat-a" });
+    console.log("[browser smoke] background interactions");
     const interactionTree = (await host.read({ tab: interaction.tab, mode: "structure" })).text;
     const interactionRef = (label) => {
       const line = interactionTree.split("\n").find((line) => line.includes(`"${label}"`) && line.includes("[ref="));
@@ -157,6 +158,12 @@ async function run() {
     const modified = interactionRef("Modified click");
     await host.click({ tab: interaction.tab, ref: modified, modifiers: ["Shift"] });
     assert.equal(await inspect("JSON.stringify(window.modified)"), "[true,true]");
+    if (process.platform === "linux") {
+      const parents = BrowserWindow.getAllWindows();
+      assert.equal(parents.length, 1, "background pages share one native parent");
+      assert.equal(parents[0].isVisible(), false, "background input never shows a window");
+      assert.equal(parents[0].isFocused(), false, "background input never takes desktop focus");
+    }
     await host.click({ tab: interaction.tab, ref: modified, button: "right" });
     assert.equal(await inspect("JSON.stringify(window.context)"), "[2,true]");
     await Promise.all([
@@ -197,6 +204,7 @@ async function run() {
     await host.click({ tab: interaction.tab, ref: modified });
     assert.equal(await inspect("JSON.stringify(window.modified)"), "[false,true]", "the next click has no stuck modifier or button");
     await host.close({ tab: interaction.tab, owner: "chat-a" });
+    console.log("[browser smoke] background interactions complete");
     await host.type({ tab: tab.tab, ref: size, text: "Two" });
     // Stop wins before any input: an aborted click never reaches the page.
     await assert.rejects(host.click({ tab: tab.tab, ref: send, signal: stopped.signal }));
@@ -246,13 +254,27 @@ async function run() {
     const consoleRead = await host.console({ tab: tab.tab });
     assert.ok(consoleRead.entries.some((entry) => entry.includes("smoke console")), consoleRead.entries.join("\n"));
 
+    console.log("[browser smoke] viewport capture");
     const shot = await host.screenshot({ tab: tab.tab });
     assert.equal(shot.mimeType, "image/jpeg");
     assert.ok(shot.width >= 1000 && shot.height >= 600, `a viewport picture in page pixels, got ${shot.width}×${shot.height}`);
+    const pixel = (shot, x, y) => {
+      const image = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
+      const index = (y * image.getSize().width + x) * 4;
+      return [...image.toBitmap().subarray(index, index + 3)];
+    };
+    assert.ok(pixel(shot, 0, 0).every((value, index) => Math.abs(value - [75, 180, 30][index]) < 5), "viewport capture contains this page's pixels");
+    console.log("[browser smoke] element capture");
     const element = await host.screenshot({ tab: tab.tab, ref: send });
     assert.ok(element.width < 200 && element.height < 80, `one element, got ${element.width}×${element.height}`);
+    console.log("[browser smoke] full-page capture");
+    const footerY = Number((await host.evaluate({ tab: tab.tab, script: "(() => { const box = document.getElementById('capture-footer').getBoundingClientRect(); return Math.floor(box.top + scrollY + box.height / 2); })()" })).result);
     const full = await host.screenshot({ tab: tab.tab, fullPage: true });
     assert.ok(full.height > shot.height, "the whole page is taller than the viewport");
+    assert.ok(footerY > shot.height && footerY < full.height, "the footer lies below the viewport in the full-page image");
+    assert.ok(pixel(full, 20, footerY).every((value, index) => Math.abs(value - [75, 30, 180][index]) < 5), "full-page capture includes the footer below the viewport without stretching");
+    await until(async () => (await host.evaluate({ tab: tab.tab, script: "innerHeight" })).result === String(shot.height), "full-page capture restores the viewport");
+    if (process.platform === "linux") assert.equal(BrowserWindow.getAllWindows().some((item) => item.isVisible()), false, "captures never show the background native parent");
 
     const scrolled = await host.scroll({ tab: tab.tab, direction: "down", amount: 1 });
     assert.equal(scrolled.navigated, false);
@@ -527,6 +549,7 @@ async function run() {
 
     const closeEvents = events.filter((event) => event.channel === "work-fold:browser:close-tab").length;
     browser.dispose();
+    assert.equal(BrowserWindow.getAllWindows().filter((item) => item !== window).length, 0, "quit disposes the background native parent");
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(events.filter((event) => event.channel === "work-fold:browser:close-tab").length, closeEvents, "quitting closes pages without closing their tabs");
   } finally {

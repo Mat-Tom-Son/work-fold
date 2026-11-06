@@ -48,4 +48,3 @@ test("the left pane lists this work-folder's automations, and a click opens that
   await dom.render(createElement(WorkFolderAutomationsNavigator, { automations: [], activeAutomationId: null, onOpen: () => {}, onOpenAllAutomations: () => {} }));
   assert.match(dom.container.textContent ?? "", /No automations touch this work-folder\./);
 });
-

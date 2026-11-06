@@ -1,0 +1,11 @@
+FROM registry.fedoraproject.org/fedora:44
+USER root
+RUN dnf install -y gnome-shell gjs xdg-desktop-portal-gnome pipewire wireplumber \
+    mesa-dri-drivers mesa-libEGL python3-gobject gtk3 at-spi2-core \
+    libei libeis libxkbcommon gstreamer1-plugins-base pipewire-gstreamer \
+    dbus-tools adwaita-icon-theme python3-dbusmock nodejs24-bin \
+    alsa-lib nss libXScrnSaver libXtst libsecret gnome-keyring nautilus xdg-utils && dnf clean all \
+    && mkdir -p /run/systemd/seats && useradd --create-home --uid 1000 smoke
+ENV XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_TYPE=wayland \
+    LIBGL_ALWAYS_SOFTWARE=1 GSETTINGS_BACKEND=memory NO_AT_BRIDGE=0
+WORKDIR /work

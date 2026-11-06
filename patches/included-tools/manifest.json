@@ -5,7 +5,7 @@
     "source": "https://github.com/tianrendong/pi-chrome/tree/4811ee616d2bbd5ead669a7e2f33a0bb14bd43ef",
     "license": "MIT",
     "patch": "pi-chrome-0.15.51.patch",
-    "sha256": "ebe9d71f6131de73e264b6030f9f701dea7879c051521e8f75ed6c1134bdb9fe",
+    "sha256": "6698c9ab38e1ff63b2c66d638d65eec53d0f05b78aeb3fb96ab559c6a228cc6f",
     "files": [
       {
         "path": "docs/EMBEDDED-HOST.md",
@@ -61,6 +61,11 @@
         "path": "test-suite/unit/session-cleanup.test.mjs",
         "before": "a19b3d47dfbb7415c973132017bc36d79a859373a561de6cb62080af797ccc87",
         "after": "1ff89c6669a4b47df9f095c7130ca25394cfa671272dc0f55deec0d2b27c9b18"
+      },
+      {
+        "path": "test-suite/unit/automation-target.test.mjs",
+        "before": "6b98cf840307a77f932034d0ae9cd74387aae7a5f767135a586fed66c17b5678",
+        "after": "bb510546d2646982d44a67aff45720dbcebe6b3f415d7b146e8e92f578e08403"
       }
     ]
   },
@@ -70,12 +75,12 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "4c970c6b60972e7a840c3c6ef14447da4a0ceca1c023d9fa70f3fa4918c04503",
+    "sha256": "138e9a94f655e5e293c5b04d0ffed84ceadf43eab7a227264db1d0a79b42358a",
     "files": [
       {
         "path": "extensions/computer-use.ts",
         "before": "1ed753c7b9bd4f11e36225e3358f827c2349d3a0fb71bbb18f8e4de38c5a9420",
-        "after": "0ee64cb01e6c71df7a862bd9b017e3ffd15111b0d6a5d91fd1186c738c499a3f"
+        "after": "a9c612405e9d0b331c022f5d5947353b9196ae2f5e509832df27cceee832bb27"
       },
       {
         "path": "native/macos/bridge.swift",
@@ -120,12 +125,12 @@
       {
         "path": "src/actions.ts",
         "before": "1f6aaf9a1cc51ee9ac640f2cb2c31426c522f90cc8b338f5c9dde1ed462de0bb",
-        "after": "37d883fd1e2ab32a43b08e8c4c790de25761cff2a950e9e896593ff42cae5745"
+        "after": "557261efd46daae4504b74e6efcebedfc24141971944bad6afc50d22bfd742b9"
       },
       {
         "path": "src/bridge.ts",
         "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
-        "after": "8d6b3127ecb650de601c63a0925baa75db0d100103b8712a665fb5e09b6ce826"
+        "after": "ca341a7ce32fee4a280c0a26dabeb8d61b878d465223414eee7c456a862973a4"
       },
       {
         "path": "src/config.ts",
@@ -168,6 +173,76 @@
         "after": "b7c5ffd4d17cc51df34f06ecd3a25118b5ee3b688bc68cea79888e286171b5db"
       },
       {
+        "path": "src/platform/linux/helper.ts",
+        "before": "0d79a939164cf9a5d4d87a6c8be006796892c4e6afe1b000d68f1507135b0ab3",
+        "after": "f1cdf3bfa56b7e4d31597d82ca3d0ceed9550bebdf48e90e23b8f273901eee3f"
+      },
+      {
+        "path": "native/linux/bridge-rs/Cargo.lock",
+        "before": "905f5d1aefd8b8e9cb4d292cdc186e54d999dd821b5343ab251b6f55fbc9b7fb",
+        "after": "905f5d1aefd8b8e9cb4d292cdc186e54d999dd821b5343ab251b6f55fbc9b7fb"
+      },
+      {
+        "path": "native/linux/bridge-rs/Cargo.toml",
+        "before": "d974431a70d621066a84343c3887590b404f16ef79e6e323fcdbaab0b5ff322c",
+        "after": "d974431a70d621066a84343c3887590b404f16ef79e6e323fcdbaab0b5ff322c"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/atspi.rs",
+        "before": "e8aad487e4d4d02e6ff48cbedcd7748fb24de2f23d0d1e6461c22cb5c4cf6a00",
+        "after": "73acd4098a51c5e2a442fb1a5c126e5dd56e4730394dc1ac17332b6435d6f7f5"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/error.rs",
+        "before": "d553ca07226c8193ce777ed6dec2dd478cbc6b8b3f8f6787889e6bdf54fcef39",
+        "after": "aa898913a65af4500d2cf557cc6ed2f65453fe53d2d018728e63dc729c74f3c2"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/lib.rs",
+        "before": "55202aa52347ff226b9d12382795968a4b3a43824276322518fa5cde3091b171",
+        "after": "55202aa52347ff226b9d12382795968a4b3a43824276322518fa5cde3091b171"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/main.rs",
+        "before": "de47f254ec23163dc649a2f7dd225b25720755a1c3037c38c51e0b334bde5c9a",
+        "after": "a8a9dd5f9385b006662331765bd1b79d0046310b660e0fd662660e01807eeb32"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/protocol.rs",
+        "before": "5fc04cf91bd7b57085198b5239d922e9f72e57acfda14bd52c9ca15253b18459",
+        "after": "5fc04cf91bd7b57085198b5239d922e9f72e57acfda14bd52c9ca15253b18459"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/state.rs",
+        "before": "b09771a3f0a81cc2cab6d9806fed42204edcfb19ec8e23b4b67a5787ddf9f5bc",
+        "after": "6e928489d170d1c3c15cd7f3029d9f0b794f79138f4f408f321f9dfe3161f0f3"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/wayland.rs",
+        "before": "601c2daa17e8a940d3e94e5bd5766603a12968c74738e4c9b3015053c8c44189",
+        "after": "601c2daa17e8a940d3e94e5bd5766603a12968c74738e4c9b3015053c8c44189"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/x11.rs",
+        "before": "40848d0cc7b13d0bf9cd1e7c484cd710138ef8a9ae4608ed0a33aced811906f0",
+        "after": "40848d0cc7b13d0bf9cd1e7c484cd710138ef8a9ae4608ed0a33aced811906f0"
+      },
+      {
+        "path": "native/linux/bridge-rs/tests/protocol_tests.rs",
+        "before": "aab02064aeb22a3cbb31823cf4d1136a42b5d3bd27b927225a85c100e9edaa75",
+        "after": "aab02064aeb22a3cbb31823cf4d1136a42b5d3bd27b927225a85c100e9edaa75"
+      },
+      {
+        "path": "src/shared-screen.ts",
+        "before": null,
+        "after": "c4fe5de8213496149c5a1afe2e766a5dcb4bd68a50eda92c2ace815280d83a09"
+      },
+      {
+        "path": "src/contract.ts",
+        "before": "b2873c27f392c7254c49e71be6a2dfd8a2c0b865f29acd57ce0a49698dabbc41",
+        "after": "68bf5679a78636476505465f1669df7543caba7d3dff4b549fafee5a55a0f85a"
+      },
+      {
         "path": "src/platform/macos/helper-identity.mjs",
         "before": null,
         "after": "b8a8f261d4ea0c5fbe580c836594c8ad0ddd9b54a0ebd9c7fe4da825f7fb3b75"
@@ -176,6 +251,26 @@
         "path": "src/platform/macos/helper-identity.d.mts",
         "before": null,
         "after": "16cbedd529e87d714a17bd13659fef510a8bb66d8bf5ceb79929237fa7cb67e2"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/atspi/actions.rs",
+        "before": null,
+        "after": "df1e19212c73640330e34421d2aba54dd428bd7af8722159fdebc0465f1539b2"
+      },
+      {
+        "path": "native/linux/bridge-rs/src/atspi/validation.rs",
+        "before": null,
+        "after": "7536e3178390028879ba1edb9b56eb944b29457c783a6b76cab1dbc2524fcb77"
+      },
+      {
+        "path": "native/linux/bridge-rs/tests/accessibility_contract.rs",
+        "before": null,
+        "after": "8a9808b5ce324102feee7d1c28e577a642c8b68b2097cc60f80e900977c5c4b2"
+      },
+      {
+        "path": "src/outline.ts",
+        "before": "4fbed9a94390b894a959b3bdf97aedca5d4a8d5b0b2fed8b0f77fb86eddf6367",
+        "after": "7e64f59de33b2e338d0d43ad95f752172db2bd3882c312397aa4df96155552cc"
       }
     ]
   },

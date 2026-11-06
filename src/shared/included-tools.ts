@@ -1,4 +1,5 @@
 import type { ChromeConnectionSummary } from "./chrome-connection.js";
+import type { ComputerSessionSummary } from "./computer-session.js";
 
 export const includedToolDefinitions = [
   { id: "computer", title: "Computer Control", package: "@injaneity/pi-computer-use", version: "0.5.1", description: "Observe and operate desktop apps, with screenshots and accessibility information." },
@@ -14,6 +15,7 @@ export type IncludedToolReadiness = "ready" | "setup_required" | "unavailable" |
 export interface IncludedToolStatus {
   id: IncludedToolId; state: IncludedToolReadiness; detail: string; checkedAt: string; stale?: boolean; facts?: Record<string, string | boolean>; chrome?: ChromeConnectionSummary;
   /** Chrome setup only (2026-10-11): whether Chrome is installed and the extension has reached work-fold. Never read from a Chrome profile. */
+  computerSession?: ComputerSessionSummary;
   chromeSetup?: { browserInstalled: boolean; extensionSeen: boolean };
   /** Documents setup only (2026-10-18): the installed programs that let a Worker check its documents. */
   documentsSetup?: DocumentsSetup;

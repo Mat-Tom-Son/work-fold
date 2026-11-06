@@ -20,4 +20,3 @@ test("combined document result and logs fit one valid envelope while full return
   assert.equal(JSON.parse(manifest.value).value, "V".repeat(60000));
   assert.equal(await readFile(content.artifacts.logs, "utf8"), "L".repeat(70000) + "\n");
 });
-

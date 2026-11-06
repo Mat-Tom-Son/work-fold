@@ -66,9 +66,11 @@
 /* Clear of the traffic lights. */
 :root[data-platform="darwin"] .window-chrome-leading { left: 78px; }
 
-/* Windows draws its own title bar; the controls sit before the window buttons. */
+/* Custom title bars host the sidebar toggle after Help. Agent controls stay
+   before the window buttons. */
 .desktop-chrome-shell .window-chrome { height: var(--desktop-titlebar-height); }
-.desktop-chrome-shell .window-chrome-leading { left: auto; right: calc(var(--desktop-window-controls-width) + 112px); }
+.desktop-titlebar-sidebar-controls { display: flex; align-items: center; height: 100%; margin-left: 6px; }
+.desktop-titlebar-sidebar-controls .window-chrome-leading { position: static; }
 .desktop-chrome-shell .window-chrome-trailing { right: calc(var(--desktop-window-controls-width) + 8px); }
 
 /* The menu-bar mark, recolored like the other strip icons. */

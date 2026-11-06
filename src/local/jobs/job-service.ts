@@ -809,14 +809,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** macOS ships Expect: it allocates the PTY even when Electron has no controlling terminal. */
+/** Expect allocates the PTY even when Electron has no controlling terminal.
+ * Binary translation selects byte-preserving I/O on Tcl 8 and 9; explicitly
+ * selecting the removed "binary" encoding prevents Tcl 9 from starting. */
 const terminalRelayScript = `
 log_user 0
 set timeout -1
-fconfigure stdin -blocking 0 -translation binary -encoding binary
-fconfigure stdout -buffering none -translation binary -encoding binary
+fconfigure stdin -blocking 0 -translation binary
+fconfigure stdout -buffering none -translation binary
 spawn -noecho {*}[lrange $argv 1 end]
-fconfigure $spawn_id -blocking 0 -translation binary -encoding binary -buffering none
+fconfigure $spawn_id -blocking 0 -translation binary -buffering none
 if {[catch {set pidfile [open [lindex $argv 0] w]; puts $pidfile [exp_pid]; close $pidfile}]} {
   catch {exec /bin/kill -KILL -- -[exp_pid]}
   exit 1

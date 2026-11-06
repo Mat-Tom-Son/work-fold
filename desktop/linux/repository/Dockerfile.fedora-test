@@ -1,0 +1,6 @@
+FROM registry.fedoraproject.org/fedora:44
+RUN dnf install -y nodejs24-bin xorg-x11-server-Xvfb xorg-x11-xauth \
+    dbus-daemon gnome-keyring \
+    && useradd --create-home --uid 1000 smoke \
+    && dnf clean all
+WORKDIR /work

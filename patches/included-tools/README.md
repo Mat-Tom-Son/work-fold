@@ -22,6 +22,62 @@ browser/CLI development falls back to Pi's ordinary private profile files.
 See [the integration trace](../../docs/archive/pi-1.1-integration.md) and the pinned
 [SDK example](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
+## Computer 0.5.1: Linux additions
+
+The same reviewed package contains the Rust Linux helper. Its Cargo lockfile
+and every Rust input are pinned in the integration manifest. The Linux client
+accepts the app-owned helper path with runtime setup disabled, so the packaged
+app never needs system Node, Cargo or a helper download. Catalog loading stays
+cold. Dispatch cancellation waits for helper termination before rejecting with
+an uncertain-effect outcome; no native action is automatically replayed.
+
+AT-SPI's `Application.Id` is an arbitrary registry number, not an operating
+system PID ([interface contract](https://gnome.pages.gitlab.gnome.org/at-spi2-core/devel-docs/doc-org.a11y.atspi.Application.html)).
+The reviewed Linux patch resolves the accessible application's D-Bus peer PID
+instead, so explicit process selection and X11 window correlation use the right
+identity. The live [accessibility smoke](../../scripts/linux-accessibility-smoke.cjs)
+targets only its own GTK editor, edits and saves a sentence, then verifies the
+file. `tests/linux-computer-helper.test.ts` covers pre-dispatch abort, helper
+termination before rejection and no replay. The optional shared-screen backend
+in the same Pi factory adds a distinct visual target to the existing tools,
+StateStore and ResourceScheduler. It never manufactures a PID or accessible
+window, accepts stale session references, opens a portal chooser, or falls back
+to foreground browser capture. The host supplies Chat/turn-bound facilities;
+[the Wayland helper](../../desktop/native/linux-wayland/src/main.rs) owns the
+portal, frame and input lease. Its independent Cargo lockfile and packaged
+source/binary manifest are verified by the Linux native build lane.
+
+Root, observation and element identities include a fresh native session nonce.
+After a stopped or crashed helper restarts, a surviving Chat's old references
+cannot collide with another Chat's new observations. The Rust regression suite
+checks this across independent helper states. Concurrent calls wait for a
+stopping helper to drain before starting its replacement.
+
+The Linux accessibility patch also validates live refs against the recorded
+process start time, D-Bus owner, registered window, parent chain and stable
+control evidence. It does not substitute another control when an address is
+reused or detached. Post-dispatch errors return `interrupted_unknown`; batches
+stop and preserve uncertainty, without retrying through physical input. A
+successful `DoAction` reply means dispatched, not a verified application result.
+
+`setText` uses replacement and verifies readable values. `typeText` reads the
+caret/selection and uses `InsertText`, deleting only a nonempty selection;
+partial deletion/insertion stays uncertain. Insertion lengths follow the
+[AT-SPI byte-length contract](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/method.EditableText.insert_text.html),
+with Qt's bridge using UTF-16 units. Password values remain unreadable and are
+never echoed as evidence. The additive `valueReadable` outline field distinguishes
+an actual empty value from unavailable text. Existing protocol 4 envelopes and
+tool names remain unchanged.
+
+Depth/node cuts and failed tree reads mark the affected observation incomplete;
+Pi retains those flags when grafting scoped observations. A missing match in an
+incomplete tree never satisfies a disappearance condition. Contradictory successor
+values override a claimed write success, and uncertainty cannot be erased by a
+preexisting value or a failed successor capture. The private D-Bus fixture in
+`native/linux/bridge-rs/tests/accessibility_contract.rs` drives the real helper
+and asserts independent application state. It runs in `desktop:linux-native-tests`;
+`tests/computer-semantics.test.ts` checks the Pi result path and scoped outlines.
+
 ## Pi AI 1.1.0 identity retention
 
 The native direct ChatGPT OAuth flow now verifies the returned ID token against

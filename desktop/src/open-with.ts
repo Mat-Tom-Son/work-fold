@@ -15,6 +15,7 @@ export interface OpenWithDialogOptions {
 
 export type OpenWithLaunchPlan =
   | { kind: "exec"; command: "/usr/bin/open"; args: [string, string, string] }
+  | { kind: "exec"; command: "/usr/bin/gio"; args: ["launch", "--", string, string] }
   | { kind: "spawn"; command: string; args: [string] };
 
 export async function openFileWithPickedApp(platform: NodeJS.Platform, dependencies: {
@@ -45,6 +46,12 @@ export function openWithDialogOptions(platform: NodeJS.Platform, env: NodeJS.Pro
   if (platform === "win32") {
     return { ...base, defaultPath: env.ProgramFiles ?? "C:\\Program Files", filters: [{ name: "Applications", extensions: ["exe"] }] };
   }
+  if (platform === "linux") {
+    return { ...base, defaultPath: "/usr/share/applications", filters: [
+      { name: "Applications", extensions: ["desktop"] },
+      { name: "All files", extensions: ["*"] },
+    ] };
+  }
   return base;
 }
 
@@ -57,14 +64,17 @@ export function openWithAppName(appPath: string, platform: NodeJS.Platform): str
 }
 
 /**
- * macOS hands the file to the chosen bundle through `open -a`; elsewhere the
- * chosen executable receives the file path as its only argument. Both are
- * argument vectors, never a shell string.
+ * macOS uses `open -a`; Linux desktop entries use GIO, which owns Exec field
+ * expansion and D-Bus activation. An explicitly chosen executable elsewhere
+ * receives the file path as its only argument. No launch uses a shell string.
  */
 export function openWithLaunchPlan(platform: NodeJS.Platform, appPath: string, filePath: string): OpenWithLaunchPlan {
   if (!appPath || !filePath || appPath.includes("\0") || filePath.includes("\0")) {
     throw new Error("An app and a file are required.");
   }
   if (platform === "darwin") return { kind: "exec", command: "/usr/bin/open", args: ["-a", appPath, filePath] };
+  if (platform === "linux" && appPath.endsWith(".desktop")) {
+    return { kind: "exec", command: "/usr/bin/gio", args: ["launch", "--", appPath, filePath] };
+  }
   return { kind: "spawn", command: appPath, args: [filePath] };
 }
