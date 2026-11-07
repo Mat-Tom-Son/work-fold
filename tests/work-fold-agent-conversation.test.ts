@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -92,10 +92,10 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     // The work-fold agent is never taught the retired desktop-served sharing
     // verbs or a Shared pages surface.
     assert.doesNotMatch(workFoldAgentContext, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|help pages|Shared pages/);
-    // Pages (docs/pages.md) are Worker work, delegated like any other, and
-    // nothing offers to publish one yet.
-    assert.match(workFoldAgentContext, /\*\*Pages and apps are built by Workers\.\*\* A page is something other people open on the web/);
-    assert.match(workFoldAgentContext, /delegate building one to that work-folder's Worker\. Pages can't be published yet\./);
+    // Pages (docs/pages.md) are Worker work, delegated like any other; they
+    // run in their page tab on this computer and are never published.
+    assert.match(workFoldAgentContext, /\*\*Pages and apps are built by Workers\.\*\* A page is a small interactive page that runs in its page tab on this computer/);
+    assert.match(workFoldAgentContext, /delegate building one to that work-folder's Worker\. Pages are not published to the web\./);
     assert.match(workFoldAgentContext, /agent overview --json/);
     // Receipts, not gates (docs/receipts-not-gates.md, F19–F24): every verb
     // runs on the first call and returns a receipt, destruction is reversible
@@ -169,10 +169,11 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     // truncation disclosed, seen markers untouched, never self-scheduled.
     assert.match(workFoldAgentContext, /never present a truncated section as complete/);
     assert.match(workFoldAgentContext, /narration never advances a marker/);
-    // Seen markers are per-surface — popover, main window, and one marker per
-    // paired remote browser grant — and narration advances none of them.
-    assert.match(workFoldAgentContext, /remote:<grantId>/);
-    assert.match(workFoldAgentContext, /not the popover's, not the main window's, not any remote grant's/);
+    // Seen markers are per-surface — the popover and the main window — and
+    // narration advances neither of them.
+    assert.match(workFoldAgentContext, /the popover and the main window separately/);
+    assert.match(workFoldAgentContext, /not the popover's, not the main window's\./);
+    assert.doesNotMatch(workFoldAgentContext, /remote:<grantId>/);
     assert.match(workFoldAgentContext, /Narration is on demand only\./);
     // Needs-you is a question list, never work waiting to be let through (F24).
     assert.match(workFoldAgentContext, /needs-you items \(questions, due snoozes, and requests waiting on the person's answer\)/);
@@ -253,7 +254,7 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
     assert.match(skillContent, /an automation's `agent` step is the only way you are ever scheduled/);
     assert.match(skillContent, /Run-now is a copy that does not consume the one-time slot/);
     assert.doesNotMatch(skillContent, /\bpages (share|share-app|list|status|revoke|narrow|widen|snapshot-off)\b|Shared pages/);
-    assert.match(skillContent, /are built by a work-folder's Worker: delegate them\. Pages can't be published yet\./);
+    assert.match(skillContent, /are built by a work-folder's Worker: delegate them\. Pages are not published to the web\./);
     assert.match(skillContent, /agent overview --json/);
     assert.match(skillContent, /files move --work-folder <id>/);
     assert.match(skillContent, /Read each receipt: executed is done, failed or refused is not/);
@@ -278,10 +279,10 @@ test("the work-fold agent runs above all work-folders on the shared turn machine
       /\bpoll(ing)? (until|every)\b|\bsleep \d/i,
       "the manage-work-folders Skill is never taught to busy-wait",
     );
-    // Needs-you, paired-browser seen markers, and the help topics reach the
+    // Needs-you, per-surface seen markers, and the help topics reach the
     // Skill too.
     assert.match(skillContent, /never work waiting to be let through/);
-    assert.match(skillContent, /remote:<grantId>/);
+    assert.match(skillContent, /Seen markers are per surface\./);
     assert.match(skillContent, /work-fold help <family>/);
     assert.doesNotMatch(
       skillContent,
@@ -372,8 +373,8 @@ test("the work-fold agent fails closed when its required instructions cannot be 
   }
 });
 
-test("remote recovery recognizes shipped browser-scoped requests that predate grant provenance", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-legacy-recovery-test-"));
+test("work-fold agent transcripts saved with remote provenance still load as ordinary messages and are never rewritten", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-legacy-read-test-"));
   const stateBase = join(sandbox, "state");
   const conversationId = "chat-f6e5b83-legacy";
   const transcriptDir = join(stateBase, "management", ".work-fold", "conversations");
@@ -386,6 +387,7 @@ test("remote recovery recognizes shipped browser-scoped requests that predate gr
     createdAt: "2026-08-01T12:00:00.000Z",
     source: "remote_web",
     remotePrincipalId: "browser-legacy",
+    remoteGrantId: "grant-legacy",
     remoteRequestId: "request-before-grant-provenance",
   };
   const originalTranscript = `${JSON.stringify({
@@ -405,311 +407,18 @@ test("remote recovery recognizes shipped browser-scoped requests that predate gr
     loadEnv: false,
   });
   try {
-    const recovered = await api.remoteFacade.execute(
-      "management.send",
-      { content: "must not run again", newConversation: true },
-      {
-        browserId: legacyMessage.remotePrincipalId,
-        grantId: "grant-added-after-0.2.2",
-        requestId: legacyMessage.remoteRequestId,
-      },
-    ) as { accepted: boolean; duplicate?: boolean; conversationId: string; taskId: string | null; message: { id: string } };
-
-    assert.equal(recovered.accepted, true);
-    assert.equal(recovered.duplicate, true, "the recovered signed request must not enqueue a second full-trust prompt");
-    assert.equal(recovered.conversationId, conversationId);
-    assert.equal(recovered.taskId, null);
-    assert.equal(recovered.message.id, legacyMessage.id);
-    assert.equal(await readFile(transcriptPath, "utf8"), originalTranscript, "compatibility lookup never rewrites the append-only log");
-    assert.deepEqual(
-      await readdir(transcriptDir),
-      [`${conversationId}.jsonl`],
-      "replaying a legacy New chat request does not leave another transcript",
-    );
-  } finally {
-    await api.close();
-    await rm(sandbox, { recursive: true, force: true });
-  }
-});
-
-test("remote access reuses the canonical management conversation through a bounded path-safe facade", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-remote-agent-test-"));
-  const expiredUpload = join(sandbox, "state", "management", "Incoming", "Remote", "expired-grant", "expired-request");
-  await mkdir(expiredUpload, { recursive: true });
-  await writeFile(join(expiredUpload, "old.txt"), "expired", "utf8");
-  const expiredAt = new Date(Date.now() - 25 * 60 * 60 * 1_000);
-  await utimes(expiredUpload, expiredAt, expiredAt);
-  await mkdir(join(sandbox, "agent", "extensions"), { recursive: true });
-  await writeFile(join(sandbox, "agent", "extensions", "hold.ts"), `export default function (pi) {
-    pi.registerCommand("hold", {
-      description: "Hold a test turn",
-      handler: async () => await new Promise((resolve) => setTimeout(resolve, 180)),
-    });
-  }\n`, "utf8");
-  const api = await startLocalApi({
-    port: 0,
-    stateBase: join(sandbox, "state"),
-    workFolderBase: join(sandbox, "content"),
-    loadEnv: false,
-    piRuntimeProvider: {
-      async resolveRuntime() { return { agentDir: join(sandbox, "agent") }; },
-    },
-  });
-  try {
-    assert.equal(existsSync(expiredUpload), false, "startup prunes remote uploads after their 24-hour expiry without waiting for another upload");
-    const principal = { browserId: "browser-1", grantId: "grant-1", requestId: "request-1" };
-    const initial = await api.remoteFacade.execute("management.summary", {}, principal) as { conversation: unknown };
-    assert.equal(initial.conversation, null);
-
-    const locallyStarted = await api.actFacade.agentSend({ content: "/hold local-owner" });
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.request",
-        { taskId: locallyStarted.taskId },
-        { ...principal, requestId: "request-local-task-status" },
-      ),
-      /not found for this browser grant/,
-      "remote task status never adopts locally-started management work",
-    );
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.stop",
-        { taskId: locallyStarted.taskId },
-        { ...principal, requestId: "request-local-task-stop" },
-      ),
-      /not found for this browser grant/,
-      "remote stop never adopts locally-started management work",
-    );
-    assert.equal((await api.actFacade.agentStop({ taskId: locallyStarted.taskId })).workFoldAgentAborted, true);
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: locallyStarted.taskId })).task.state !== "running");
-
-    const workFolder = await api.actFacade.createWorkFolder({ name: "Remote Files" });
-    await writeFile(join(workFolder.workFolder.workFolderRoot, "brief.txt"), "private content", "utf8");
-    const workFolders = await api.remoteFacade.execute("work-folders.list", {}, principal) as { workFolders: Array<Record<string, unknown>> };
-    assert.deepEqual(workFolders.workFolders, [{ id: workFolder.workFolder.id, name: "Remote Files" }], "absolute roots never cross the remote facade");
-    const tree = await api.remoteFacade.execute("work-folders.tree", { workFolderId: workFolder.workFolder.id, path: "" }, principal) as {
-      tree: Array<{ name: string; path: string }>;
-    };
-    assert.deepEqual(tree.tree.map((entry) => ({ name: entry.name, path: entry.path })), [{ name: "brief.txt", path: "brief.txt" }]);
-    await assert.rejects(
-      () => api.remoteFacade.execute("work-folders.tree", { workFolderId: workFolder.workFolder.id, path: "../outside" }, principal),
-      /work-folder-relative/,
-    );
-
-    const sent = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as {
-      conversationId: string;
-      taskId: string;
-    };
-    const running = await api.kernel.getTasks({ kind: "system" });
-    assert.equal(running.tasks.find((task) => task.id === sent.taskId)?.actor.kind, "renderer", "the stable kernel actor vocabulary treats the approved web client as a renderer surface");
-    const ownedSummary = await api.remoteFacade.execute(
-      "management.summary",
-      { conversationId: sent.conversationId },
-      { ...principal, requestId: "request-owned-summary" },
-    ) as { latestRequest: { taskId: string; canStop: boolean } };
-    assert.equal(ownedSummary.latestRequest.taskId, sent.taskId);
-    assert.equal(ownedSummary.latestRequest.canStop, true);
-    const crossGrantSummary = await api.remoteFacade.execute(
-      "management.summary",
-      { conversationId: sent.conversationId },
-      { ...principal, grantId: "grant-other", requestId: "request-cross-grant-summary" },
-    ) as { latestRequest: Record<string, unknown> };
-    assert.equal(crossGrantSummary.latestRequest.canStop, false);
-    assert.equal("taskId" in crossGrantSummary.latestRequest, false, "cross-grant summaries omit task authority");
-    assert.equal("actions" in crossGrantSummary.latestRequest, false, "cross-grant summaries omit action details");
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.stop",
-        { taskId: sent.taskId },
-        { ...principal, grantId: "grant-other", requestId: "request-cross-grant-stop" },
-      ),
-      /not found for this browser grant/,
-      "a different approved grant cannot stop a request whose task id it learns",
-    );
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.request",
-        { taskId: sent.taskId },
-        { ...principal, browserId: "browser-other", requestId: "request-cross-browser-status" },
-      ),
-      /not found for this browser grant/,
-      "task-scoped request status is owned by the accepting browser and grant",
-    );
-    const ownedRequest = await api.remoteFacade.execute(
-      "management.request",
-      { taskId: sent.taskId },
-      { ...principal, requestId: "request-owned-status" },
-    ) as { request: { taskId: string } };
-    assert.equal(ownedRequest.request.taskId, sent.taskId);
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.rename",
-        { conversationId: sent.conversationId, title: "Rename while working" },
-        { ...principal, requestId: "request-running-rename" },
-      ),
-      /Wait for the current turn to finish/,
-      "renaming never races a running turn",
-    );
-    const ownedStop = await api.remoteFacade.execute(
-      "management.stop",
-      { taskId: sent.taskId },
-      { ...principal, requestId: "request-owned-stop" },
-    ) as { stopped: { taskId: string; workFoldAgentAborted: boolean } };
-    assert.equal(ownedStop.stopped.taskId, sent.taskId);
-    assert.equal(ownedStop.stopped.workFoldAgentAborted, true, "the exact accepting browser grant can stop its request");
-
-    const duplicate = await api.remoteFacade.execute("management.send", { content: "/hold" }, principal) as { duplicate?: boolean; taskId: string | null };
-    assert.equal(duplicate.duplicate, true, "the signed request id is idempotent at the semantic adapter");
-    assert.equal(duplicate.taskId, null);
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: sent.taskId })).task.state !== "running");
-    const sameIdOtherGrant = await api.remoteFacade.execute(
-      "management.send",
-      { content: "cross-grant request", conversationId: sent.conversationId },
-      { ...principal, grantId: "grant-other" },
-    ) as { duplicate?: boolean; taskId: string };
-    assert.equal(sameIdOtherGrant.duplicate, undefined, "request ids are idempotent only within their exact browser grant");
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: sameIdOtherGrant.taskId })).task.state !== "running");
-
-    const renamePrincipal = { ...principal, requestId: "request-rename-chat" };
-    const transcriptPath = join(workFoldAgentRoot(), ".work-fold", "conversations", `${sent.conversationId}.jsonl`);
-    const renamed = await api.remoteFacade.execute(
-      "management.rename",
-      { conversationId: sent.conversationId, title: "  Remote planning notes  " },
-      renamePrincipal,
-    ) as { conversation: { id: string; title: string } };
-    assert.equal(renamed.conversation.title, "Remote planning notes");
-    const afterRename = await readFile(transcriptPath, "utf8");
-    const renameReplay = await api.remoteFacade.execute(
-      "management.rename",
-      { conversationId: sent.conversationId, title: "A retry must preserve the accepted result" },
-      renamePrincipal,
-    ) as { conversation: { title: string } };
-    assert.equal(renameReplay.conversation.title, "Remote planning notes");
-    assert.equal(await readFile(transcriptPath, "utf8"), afterRename, "an exact signed retry never appends a second rename");
-    assert.equal(
-      (await api.actFacade.agentConversationStatus({ conversationId: sent.conversationId })).conversation.title,
-      "Remote planning notes",
-      "the desktop and CLI management surface see the remote title",
-    );
-    const renamedFromOtherGrant = await api.remoteFacade.execute(
-      "management.rename",
-      { conversationId: sent.conversationId, title: "Planning notes for approval" },
-      { ...renamePrincipal, grantId: "grant-other" },
-    ) as { conversation: { title: string } };
-    assert.equal(renamedFromOtherGrant.conversation.title, "Planning notes for approval");
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.rename",
-        { conversationId: sent.conversationId, title: "Nope", unexpected: true },
-        { ...principal, requestId: "request-bad-rename-shape" },
-      ),
-      /does not accept unexpected/,
-    );
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.rename",
-        { conversationId: sent.conversationId, title: "   " },
-        { ...principal, requestId: "request-empty-rename" },
-      ),
-      /Enter a Chat title/,
-    );
-
-    const transcript = await api.remoteFacade.execute(
-      "management.transcript",
-      { conversationId: sent.conversationId },
-      { ...principal, requestId: "request-2" },
-    ) as { messages: Array<{ role: string; content: string; source?: string }> };
-    const remoteMessage = transcript.messages.find((message) => message.role === "user" && message.content === "/hold");
-    assert.equal(remoteMessage?.source, "remote_web");
-    assert.equal((await api.actFacade.agentConversationStatus({})).conversation.id, sent.conversationId, "web and menu-bar/CLI views resolve the same transcript");
-    assert.equal(transcript.messages.filter((message) => message.role === "user" && message.content === "/hold").length, 1);
-
-    const newChatPrincipal = { ...principal, requestId: "request-new-chat" };
-    const fresh = await api.remoteFacade.execute(
-      "management.send",
-      { content: "/hold", newConversation: true },
-      newChatPrincipal,
-    ) as { conversationId: string; taskId: string };
-    assert.notEqual(fresh.conversationId, sent.conversationId, "New chat starts a separate saved transcript");
-    const freshDuplicate = await api.remoteFacade.execute(
-      "management.send",
-      { content: "/hold", newConversation: true },
-      newChatPrincipal,
-    ) as { conversationId: string; duplicate?: boolean; taskId: string | null };
-    assert.equal(freshDuplicate.duplicate, true, "recovery does not create another transcript for the same signed request");
-    assert.equal(freshDuplicate.conversationId, fresh.conversationId);
-    assert.equal(freshDuplicate.taskId, null);
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: fresh.taskId })).task.state !== "running");
-    assert.equal((await api.actFacade.agentConversationStatus({})).conversation.id, fresh.conversationId);
-
-    const chats = await api.remoteFacade.execute(
-      "management.chats",
-      {},
-      { ...principal, requestId: "request-list-chats" },
-    ) as { conversations: Array<{ id: string }>; truncated: boolean };
-    assert.deepEqual(new Set(chats.conversations.map((conversation) => conversation.id)), new Set([sent.conversationId, fresh.conversationId]));
-    assert.equal(chats.truncated, false);
-
-    const resumed = await api.remoteFacade.execute(
-      "management.send",
-      { content: "/hold", conversationId: sent.conversationId },
-      { ...principal, requestId: "request-existing-chat" },
-    ) as { conversationId: string; taskId: string };
-    assert.equal(resumed.conversationId, sent.conversationId, "an explicit saved Chat wins over the most recently used Chat");
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: resumed.taskId })).task.state !== "running");
-    const selectedSummary = await api.remoteFacade.execute(
-      "management.summary",
-      { conversationId: sent.conversationId },
-      { ...principal, requestId: "request-selected-summary" },
-    ) as { conversation: { id: string }; latestRequest: { conversationId: string } };
-    assert.equal(selectedSummary.conversation.id, sent.conversationId);
-    assert.equal(selectedSummary.latestRequest.conversationId, sent.conversationId);
-
-    const workFoldAgentUploadRequestId = "request-agent-upload";
-    const uploadedToWorkFoldAgent = await api.remoteFacade.execute(
-      "management.send",
-      {
-        content: "/hold",
-        conversationId: sent.conversationId,
-        attachments: [{ name: "brief-upload.txt", data: Buffer.from("remote brief", "utf8").toString("base64url") }],
-      },
-      { ...principal, requestId: workFoldAgentUploadRequestId },
-    ) as {
-      conversationId: string;
-      taskId: string;
-      uploads: Array<{ name: string; sizeBytes: number }>;
-    };
-    assert.deepEqual(uploadedToWorkFoldAgent.uploads, [{ name: "brief-upload.txt", sizeBytes: 12 }]);
-    assert.doesNotMatch(JSON.stringify(uploadedToWorkFoldAgent), new RegExp(sandbox.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-    const stagedWorkFoldAgentPath = join(
-      workFoldAgentRoot(),
-      "Incoming",
-      "Remote",
-      principal.grantId,
-      workFoldAgentUploadRequestId,
-      "brief-upload.txt",
-    );
-    assert.equal(existsSync(stagedWorkFoldAgentPath), true);
-    await waitForAsync(async () => (await api.actFacade.agentTurnStatus({ taskId: uploadedToWorkFoldAgent.taskId })).task.state !== "running");
-    const uploadTranscript = await api.remoteFacade.execute(
-      "management.transcript",
-      { conversationId: sent.conversationId },
-      { ...principal, requestId: "request-agent-upload-transcript" },
-    ) as { messages: Array<{ role: string; attachments?: Array<{ kind: string; name: string; target?: string }> }> };
-    const uploadMessage = uploadTranscript.messages.find((message) => message.attachments?.some((attachment) => attachment.name === "brief-upload.txt"));
-    assert.deepEqual(uploadMessage?.attachments, [{ kind: "file", name: "brief-upload.txt" }], "remote transcripts expose attachment identity without local paths");
-
-    await api.remoteFacade.purgeUploads(principal.grantId);
-    assert.equal(existsSync(stagedWorkFoldAgentPath), false, "revoking a browser can purge its staged management uploads");
-
-    await assert.rejects(
-      () => api.remoteFacade.execute(
-        "management.send",
-        { content: "no", newConversation: "yes" },
-        { ...principal, requestId: "request-bad-new-chat" },
-      ),
-      /newConversation must be a boolean/,
-    );
+    const response = await fetch(new URL(`/api/work-fold-agent/conversations/${conversationId}`, api.origin));
+    assert.equal(response.status, 200);
+    const { messages } = await response.json() as { messages: Array<Record<string, unknown>> };
+    const loaded = messages.find((message) => message.id === legacyMessage.id);
+    assert.equal(loaded?.role, "user");
+    assert.equal(loaded?.content, legacyMessage.content);
+    for (const field of ["source", "remotePrincipalId", "remoteGrantId", "remoteRequestId"]) {
+      assert.equal(field in loaded!, false, `${field} is dropped on read`);
+    }
+    assert.equal((await api.actFacade.agentList()).conversations.some((conversation) => conversation.id === conversationId), true);
+    assert.equal(await readFile(transcriptPath, "utf8"), originalTranscript, "reading never rewrites the append-only log");
+    assert.deepEqual(await readdir(transcriptDir), [`${conversationId}.jsonl`], "reading a legacy Chat does not leave another transcript");
   } finally {
     await api.close();
     await rm(sandbox, { recursive: true, force: true });

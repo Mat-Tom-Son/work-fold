@@ -40,7 +40,8 @@ import {
   RegisteredWorkFolderTrustAuthority,
 } from "../../src/local/agent/registered-work-folder-runtime.js";
 import type { PiRuntimeProvider } from "../../src/local/agent/pi-runtime-config.js";
-import { startLocalApi } from "../../src/local/server.js";
+import { startLocalApi, transferFileEntries } from "../../src/local/server.js";
+import { addSidebarFolder, assertStandardFolderPathUnowned, isStandardFolderId, resolveStandardFolderPath, standardFolderRoot } from "../../src/local/standard-folders.js";
 import { loadLocalEnvironmentFile } from "../../src/local/server-dev-options.js";
 import type { WorkFoldActFacade } from "../../src/local/cli/act-facade.js";
 import {
@@ -122,18 +123,17 @@ import { macSpellingGuesses } from "./mac-spelling.js";
 import { BuiltInBrowser, parseBrowserCommand, parseBrowserTabsSync, parseBrowserViewRequest } from "./built-in-browser.js";
 import { isBrowserPageId } from "../../src/shared/browser.js";
 import { productIdentity } from "../../src/shared/product-identity.js";
-import { resolveDesktopApplicationVersion } from "./application-version.js";
-import { createDesktopPagesBridge } from "./pages-bridge.js";
 import {
-  RemoteAccessClient,
-  RemoteBridgeRequestError,
-  generateRemoteDeviceKeys,
-  remoteBridgeRequestTimeoutMs,
-  runRemoteAccountRemoval,
-  type RemoteAccessStatus,
-  type RemotePairingPrompt,
-} from "./remote-access.js";
-import type { RemoteAccessSettings } from "./settings.js";
+  commandLineStatus,
+  defaultCommandLineEnvironment,
+  installCommandOnPath,
+  installSkill,
+  isCommandLineSkillTarget,
+  removeCommandFromPath,
+  removeSkill,
+} from "./command-line-install.js";
+import { outsideAgentSkill } from "../../src/shared/outside-agent-skill.js";
+import { resolveDesktopApplicationVersion } from "./application-version.js";
 
 const productionProductName = productIdentity.productName;
 const localMacSmokeProductName = productIdentity.macSmokeProductName;
@@ -208,7 +208,6 @@ let modelContextWindow: ModelContextWindow | null = null;
 const localApiLifetime = new AppLifetimeResource<Awaited<ReturnType<typeof startLocalApi>>>();
 let piRuntime: PackagedPiRuntimeProvider | null = null;
 let secureSettings: SecureSettingsStore | null = null;
-let remoteAccessClient: RemoteAccessClient | null = null;
 let apiSessionToken = "";
 let actFacade: WorkFoldActFacade | null = null;
 let actToken = "";
@@ -220,8 +219,6 @@ let resolveWorkFoldAgentLineageParent: ((taskId: string) => { taskId: string } |
  * API exists; both calls are safe no-ops after close.
  */
 let automationPowerLifecycle: { suspend: () => void; resume: () => Promise<void> } | null = null;
-/** Published pages check in after waking (docs/pages.md, "Checking in"). */
-let pagesCheckIn: (() => Promise<unknown>) | null = null;
 let quitting = false;
 let quittingForUpdate = false;
 let activeAgentTurns = 0;
@@ -654,7 +651,6 @@ async function startInteractiveApp(): Promise<void> {
     registerRendererProtocol();
     registerIpc();
     await ensureMainWindow();
-    await ensureRemoteAccessClient(api);
     configureUpdater();
     createTrayIfSupported();
     if (!activateRegistered) {
@@ -790,9 +786,6 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
       // Resolved before any window exists, so no app view can be mounted
       // without this wire in place (docs/collaboration-contract.md, F30).
       onAppAssistantActivity: (activity) => host.restrictedAppHost.publishAssistantActivity(activity),
-      // Publishing pages (docs/pages.md, "Publishing (stage 2)") calls the
-      // bridge with the Web Access device token, read at call time.
-      pagesBridge: createDesktopPagesBridge(host.settings),
     });
     // The per-launch act token authorizes the CLI act lane for exactly this
     // interactive run; without a readable token file, act commands stay
@@ -801,7 +794,6 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     actFacade = api.actFacade;
     resolveWorkFoldAgentLineageParent = api.resolveWorkFoldAgentLineageParent;
     automationPowerLifecycle = api.automations;
-    pagesCheckIn = () => api.pages.checkIn();
     try {
       await writeWorkFoldCliActTokenFile(userData, actToken, productName);
     } catch (error) {
@@ -811,196 +803,6 @@ function ensureInteractiveLocalApi(): Promise<Awaited<ReturnType<typeof startLoc
     }
     return api;
   });
-}
-
-async function ensureRemoteAccessClient(api: Awaited<ReturnType<typeof startLocalApi>>): Promise<RemoteAccessClient> {
-  if (remoteAccessClient) return remoteAccessClient;
-  const host = await ensureDesktopHost();
-  remoteAccessClient = new RemoteAccessClient({
-    settingsStore: host.settings,
-    facade: api.remoteFacade,
-    promptPairing: promptRemoteBrowserPairing,
-    onStatus: (status) => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("work-fold:remote-access:status", status);
-    },
-  });
-  const settings = await host.settings.getRemoteAccess();
-  if (settings?.enabled) await remoteAccessClient.start();
-  return remoteAccessClient;
-}
-
-async function promptRemoteBrowserPairing(pairing: RemotePairingPrompt): Promise<boolean> {
-  const unverifiedBrowserLabel = JSON.stringify(pairing.label);
-  const options = {
-    type: "question" as const,
-    title: "Confirm Remote Browser",
-    message: "Pair this remote browser?",
-    detail: `Unverified browser-supplied label: ${unverifiedBrowserLabel}\n\nConfirm that this code also appears in the browser:\n\n${pairing.code}\n\nThis is a full-trust grant. The browser can ask work-fold to read or change files your account can access and run commands on this computer. Revoke it immediately if you do not recognize it.`,
-    buttons: ["Pair Browser", "Decline"],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  };
-  const result = mainWindow && !mainWindow.isDestroyed()
-    ? await dialog.showMessageBox(mainWindow, options)
-    : await dialog.showMessageBox(options);
-  return result.response === 0;
-}
-
-async function configureRemoteAccess(value: unknown): Promise<RemoteAccessStatus> {
-  const request = remoteAccessSetupRequest(value);
-  const host = await ensureDesktopHost();
-  const api = await ensureInteractiveLocalApi();
-  const existing = await host.settings.getRemoteAccess();
-  const bridgeUrl = existing?.bridgeUrl ?? remoteBridgeUrl();
-  if (!existing) {
-    const keys = generateRemoteDeviceKeys();
-    const enrolled = await remoteBridgeRequest<{
-      account: { id: string; slug: string };
-      deviceToken: string;
-    }>(bridgeUrl, "/api/device/enroll", {
-      method: "POST",
-      body: {
-        slug: request.slug,
-        password: request.password,
-        deviceSigningPublicJwk: keys.deviceSigningPublicJwk,
-        deviceEncryptionPublicJwk: keys.deviceEncryptionPublicJwk,
-      },
-    });
-    await host.settings.setRemoteAccess({
-      enabled: true,
-      bridgeUrl,
-      accountId: enrolled.account.id,
-      slug: enrolled.account.slug,
-      deviceToken: enrolled.deviceToken,
-      ...keys,
-      grants: [],
-    });
-  } else {
-    const updated = await remoteBridgeRequest<{ account: { id: string; slug: string } }>(bridgeUrl, "/api/device/account", {
-      method: "PUT",
-      token: existing.deviceToken,
-      body: { slug: request.slug, password: request.password },
-    });
-    await host.settings.setRemoteAccess({ ...existing, enabled: true, slug: updated.account.slug });
-  }
-  const client = await ensureRemoteAccessClient(api);
-  client.stop();
-  await client.start();
-  return client.status();
-}
-
-async function setRemoteAccessEnabled(value: unknown): Promise<RemoteAccessStatus> {
-  if (typeof value !== "boolean") throw new Error("Web access enabled state must be a boolean.");
-  const host = await ensureDesktopHost();
-  const settings = await host.settings.setRemoteAccessEnabled(value);
-  if (!settings) throw new Error("Set up web access before enabling it.");
-  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  if (value) await client.start(); else {
-    try { await client.stopActiveRemoteTasks(); }
-    finally { client.stop(); }
-  }
-  return client.status();
-}
-
-async function revokeRemoteBrowser(value: unknown): Promise<RemoteAccessStatus> {
-  if (typeof value !== "string" || !value || value.length > 160) throw new Error("A browser grant id is required.");
-  const host = await ensureDesktopHost();
-  const settings = await requiredRemoteAccessSettings(host.settings);
-  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  await runRemoteRevocationSteps([
-    () => client.revokeLocalGrant(value),
-    () => remoteBridgeRequest(settings.bridgeUrl, `/api/device/grants/${encodeURIComponent(value)}`, { method: "DELETE", token: settings.deviceToken }),
-  ]);
-  return client.status();
-}
-
-async function revokeAllRemoteBrowsers(): Promise<RemoteAccessStatus> {
-  const host = await ensureDesktopHost();
-  const settings = await requiredRemoteAccessSettings(host.settings);
-  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  await runRemoteRevocationSteps([
-    () => client.revokeAllLocalGrants(),
-    () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/grants/revoke-all", { method: "POST", token: settings.deviceToken, body: {} }),
-  ]);
-  return client.status();
-}
-
-async function removeRemoteAccess(): Promise<RemoteAccessStatus> {
-  const host = await ensureDesktopHost();
-  const settings = await requiredRemoteAccessSettings(host.settings);
-  const client = await ensureRemoteAccessClient(await ensureInteractiveLocalApi());
-  try {
-    await runRemoteAccountRemoval({
-      revokeLocalAuthority: () => client.revokeAllLocalGrants(),
-      disableLocalAccess: () => host.settings.setRemoteAccessEnabled(false),
-      deleteBridgeAccount: () => remoteBridgeRequest(settings.bridgeUrl, "/api/device/account", { method: "DELETE", token: settings.deviceToken }),
-      clearLocalCredentials: () => host.settings.clearRemoteAccess(),
-    });
-  } finally {
-    client.stop();
-  }
-  return client.status();
-}
-
-async function runRemoteRevocationSteps(steps: Array<() => Promise<unknown>>): Promise<void> {
-  const failures: string[] = [];
-  for (const step of steps) {
-    try { await step(); }
-    catch (error) { failures.push(errorMessage(error)); }
-  }
-  if (failures.length) throw new Error(failures.join(" "));
-}
-
-async function requiredRemoteAccessSettings(settings: SecureSettingsStore): Promise<RemoteAccessSettings> {
-  const configured = await settings.getRemoteAccess();
-  if (!configured) throw new Error("Web access is not configured.");
-  return configured;
-}
-
-function remoteBridgeUrl(): string {
-  const value = process.env.WORKFOLD_REMOTE_BRIDGE_URL?.trim() || "https://www.work-fold.com";
-  const url = new URL(value);
-  if ((url.protocol !== "https:" && !(url.protocol === "http:" && new Set(["localhost", "127.0.0.1"]).has(url.hostname)))
-    || url.pathname !== "/" || url.username || url.password) throw new Error("WORKFOLD_REMOTE_BRIDGE_URL is invalid.");
-  return url.toString();
-}
-
-function remoteAccessSetupRequest(value: unknown): { slug: string; password: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Web access setup is invalid.");
-  const record = value as { slug?: unknown; password?: unknown };
-  const slug = typeof record.slug === "string" ? record.slug.trim().toLowerCase() : "";
-  if (!/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/.test(slug) || slug.length < 3) {
-    throw new Error("Choose 3–32 lowercase letters, numbers, or hyphens.");
-  }
-  if (typeof record.password !== "string" || record.password.length < 8 || record.password.length > 256) {
-    throw new Error("Use a password of at least 8 characters.");
-  }
-  return { slug, password: record.password };
-}
-
-async function remoteBridgeRequest<T = unknown>(
-  bridgeUrl: string,
-  path: string,
-  options: { method: "GET" | "POST" | "PUT" | "DELETE"; token?: string; body?: unknown },
-): Promise<T> {
-  const response = await fetch(new URL(path, bridgeUrl), {
-    method: options.method,
-    headers: {
-      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
-      ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: AbortSignal.timeout(remoteBridgeRequestTimeoutMs),
-  });
-  const body = await response.json().catch(() => ({})) as { error?: unknown } & T;
-  if (!response.ok) {
-    throw new RemoteBridgeRequestError(
-      response.status,
-      typeof body.error === "string" ? body.error : `Remote bridge request failed (${response.status}).`,
-    );
-  }
-  return body;
 }
 
 async function createMainWindow(): Promise<void> {
@@ -1258,6 +1060,14 @@ function registerIpc(): void {
     const { facade, automationId } = await automationSettings(event, value);
     return facade.enable(automationId!);
   });
+  // A ready-made Automation from the file manager's Info panel: the host builds it for this work-folder.
+  ipcMain.handle("work-fold:automations:enable-template", async (event, value: unknown) => {
+    const { facade } = await automationSettings(event);
+    if (!isRecord(value) || typeof value.workFolderId !== "string" || typeof value.templateId !== "string") {
+      throw new Error("A work-folder and a ready-made Automation are required.");
+    }
+    return facade.enableTemplate(value.workFolderId, value.templateId);
+  });
   ipcMain.handle("work-fold:automations:run", async (event, value: unknown) => {
     const { facade, automationId } = await automationSettings(event, value);
     return facade.run(automationId!);
@@ -1333,6 +1143,118 @@ function registerIpc(): void {
     if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
     window.previewFile(filePath, basename(filePath));
     return true;
+  });
+  // Standard Folders (the file manager's Desktop, Documents, and Downloads):
+  // the same open, Quick Look, and drag paths as a work-folder's files, and
+  // Move to Trash where a work-folder would use Recently deleted.
+  ipcMain.handle("work-fold:standard-folder:open-path", async (event, value: unknown) => {
+    assertTrustedRenderer(event);
+    const request = standardFolderPathRequest(value, true);
+    const filePath = await resolveStandardFolderItem(request.standardFolderId, request.path);
+    if (request.action === "reveal" && request.path) {
+      shell.showItemInFolder(filePath);
+      return;
+    }
+    const result = await shell.openPath(filePath);
+    if (result) throw new Error(`${productName} could not open this item. ${result}`);
+  });
+  ipcMain.handle("work-fold:standard-folder:open-path-with", async (event, value: unknown): Promise<{ opened: boolean; canceled: boolean; appName: string | null }> => {
+    assertTrustedRenderer(event);
+    const request = standardFolderPathRequest(value);
+    return openFileWithPickedApp(process.platform, {
+      resolveFile: async () => {
+        const filePath = await resolveStandardFolderItem(request.standardFolderId, request.path);
+        if (!(await stat(filePath)).isFile()) throw new Error("Only files can be opened with another app.");
+        return filePath;
+      },
+      pickApp: async () => {
+        const options = openWithDialogOptions(process.platform);
+        const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+        const choice = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+        return choice.canceled ? null : choice.filePaths[0] ?? null;
+      },
+      launch: launchOpenWith,
+    });
+  });
+  ipcMain.handle("work-fold:standard-folder:start-drag", async (event, value: unknown) => {
+    assertTrustedRenderer(event);
+    const request = standardFolderPathRequest(value);
+    const filePath = await resolveStandardFolderItem(request.standardFolderId, request.path);
+    if (!(await stat(filePath)).isFile()) throw new Error("Only files can be dragged out.");
+    const icon = nativeImage.createFromPath(join(resolveDesktopAssetsDir(), "icon-32.png"));
+    if (icon.isEmpty()) return false;
+    event.sender.startDrag({ file: filePath, icon });
+    return true;
+  });
+  ipcMain.handle("work-fold:standard-folder:preview-file", async (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (process.platform !== "darwin") return false;
+    const request = standardFolderPathRequest(value);
+    const filePath = await resolveStandardFolderItem(request.standardFolderId, request.path);
+    if (!(await stat(filePath)).isFile()) throw new Error("Only files can be previewed with Quick Look.");
+    const window = mainWindow;
+    if (!window || window.isDestroyed()) throw new Error("The work-fold window is not available.");
+    window.previewFile(filePath, basename(filePath));
+    return true;
+  });
+  // Copy and paste with Finder (2026-11-07): files copied in Finder paste into the file manager, and
+  // files copied here paste into Finder, through the system's file pasteboard.
+  // Paste reads the pasteboard here, never in the window (the window can't read the clipboard): what was
+  // copied in this window pastes by place (so ⌥⌘V can move it); anything else Finder copied is copied in.
+  ipcMain.handle("work-fold:file-clipboard:paste", async (event, value: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isRecord(value) || !isRecord(value.target)) throw new Error("Choose where to paste.");
+    const mode = value.mode === "move" ? "move" : "copy";
+    const internal = isRecord(value.internal) && Array.isArray(value.internal.paths) && Array.isArray(value.internal.nativePaths) ? value.internal : null;
+    const pasteboard = readPasteboardFilePaths();
+    const internalNative = internal ? (internal.nativePaths as unknown[]).filter((item): item is string => typeof item === "string") : [];
+    const fromHere = Boolean(internal) && (!pasteboard.length || (pasteboard.length === internalNative.length && pasteboard.every((path) => internalNative.includes(path))));
+    const sources = fromHere
+      ? (internal!.paths as unknown[]).map((path) => ({ place: internal!.place, path }))
+      : pasteboard.map((nativePath) => ({ nativePath }));
+    if (!sources.length) return { mode: "copy", written: [], restorePoints: [], nothing: true };
+    const result = await transferFileEntries({ mode: fromHere ? mode : "copy", sources, target: value.target });
+    return { ...result, fromHere, count: sources.length };
+  });
+  ipcMain.handle("work-fold:file-clipboard:write", (event, value: unknown): boolean => {
+    assertTrustedMainRenderer(event);
+    if (!Array.isArray(value) || !value.length || value.length > 5_000) throw new Error("Choose items to copy.");
+    const paths = value.map((item) => {
+      if (typeof item !== "string" || !isAbsolute(item) || item.includes("\0")) throw new Error("Choose items to copy.");
+      return item;
+    }).filter((path) => existsSync(path));
+    if (!paths.length) return false;
+    writePasteboardFilePaths(paths);
+    return true;
+  });
+  // The file manager's + beside Standard Folders: the person chooses a folder in the picker, and only that adds it.
+  ipcMain.handle("work-fold:standard-folder:add", async (event): Promise<{ id: string; name: string } | null> => {
+    assertTrustedMainRenderer(event);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options = { title: "Add a Folder to the Sidebar", buttonLabel: "Add", properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory"> };
+    const choice = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    const folderPath = choice.filePaths[0];
+    if (choice.canceled || !folderPath) return null;
+    return addSidebarFolder(folderPath);
+  });
+  ipcMain.handle("work-fold:standard-folder:trash", async (event, value: unknown): Promise<{ trashed: string[]; failed: { path: string; error: string } | null }> => {
+    assertTrustedMainRenderer(event);
+    if (!isRecord(value) || !Array.isArray(value.paths) || !value.paths.length || value.paths.length > 10_000) throw new Error("Choose items to move to the Trash.");
+    const standardFolderId = typeof value.standardFolderId === "string" ? value.standardFolderId : "";
+    if (!isStandardFolderId(standardFolderId)) throw new Error("That standard folder isn’t on this computer.");
+    const trashed: string[] = [];
+    for (const path of value.paths) {
+      try {
+        const request = standardFolderPathRequest({ standardFolderId, path });
+        // Anything a work-folder owns is changed through that work-folder, where History keeps it.
+        await assertStandardFolderPathUnowned(standardFolderId, request.path);
+        await shell.trashItem(await resolveStandardFolderItem(standardFolderId, request.path));
+        trashed.push(request.path);
+      } catch (error) {
+        return { trashed, failed: { path: typeof path === "string" ? path : "", error: error instanceof Error ? error.message : String(error) } };
+      }
+    }
+    return { trashed, failed: null };
   });
   ipcMain.handle("work-fold:work-folder:popup-file-menu", async (event, value: unknown): Promise<NativeFileMenuCommand | null> => {
     assertTrustedMainRenderer(event);
@@ -1445,39 +1367,38 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     popupApplicationSubmenu(menuId, bounds);
   });
+  // Other AI agents (Settings → Command Line): the command on Terminal's PATH
+  // and the skill in Claude Code's and Codex's skills folders, each on a click.
+  const commandLineEnvironment = () => defaultCommandLineEnvironment({ isPackaged: app.isPackaged });
+  ipcMain.handle("work-fold:command-line:status", (event) => {
+    assertTrustedMainRenderer(event);
+    return commandLineStatus(commandLineEnvironment());
+  });
+  ipcMain.handle("work-fold:command-line:install-path", (event) => {
+    assertTrustedMainRenderer(event);
+    return installCommandOnPath(commandLineEnvironment());
+  });
+  ipcMain.handle("work-fold:command-line:remove-path", (event) => {
+    assertTrustedMainRenderer(event);
+    return removeCommandFromPath(commandLineEnvironment());
+  });
+  ipcMain.handle("work-fold:command-line:install-skill", (event, target: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isCommandLineSkillTarget(target)) throw new Error("Choose Claude Code or Codex.");
+    return installSkill(commandLineEnvironment(), target);
+  });
+  ipcMain.handle("work-fold:command-line:remove-skill", (event, target: unknown) => {
+    assertTrustedMainRenderer(event);
+    if (!isCommandLineSkillTarget(target)) throw new Error("Choose Claude Code or Codex.");
+    return removeSkill(commandLineEnvironment(), target);
+  });
+  ipcMain.handle("work-fold:command-line:skill", (event) => {
+    assertTrustedMainRenderer(event);
+    return outsideAgentSkill();
+  });
   ipcMain.handle("work-fold:settings:status", (event) => {
     assertTrustedRenderer(event);
     return secureSettings?.status() ?? { encryptionAvailable: false, configuredProviders: [] };
-  });
-  ipcMain.handle("work-fold:remote-access:status", async (event) => {
-    assertTrustedMainRenderer(event);
-    return (await ensureRemoteAccessClient(await ensureInteractiveLocalApi())).status();
-  });
-  ipcMain.handle("work-fold:remote-access:configure", (event, value: unknown) => {
-    assertTrustedMainRenderer(event);
-    return configureRemoteAccess(value);
-  });
-  ipcMain.handle("work-fold:remote-access:set-enabled", (event, value: unknown) => {
-    assertTrustedMainRenderer(event);
-    return setRemoteAccessEnabled(value);
-  });
-  ipcMain.handle("work-fold:remote-access:revoke-browser", (event, value: unknown) => {
-    assertTrustedMainRenderer(event);
-    return revokeRemoteBrowser(value);
-  });
-  ipcMain.handle("work-fold:remote-access:revoke-all", (event) => {
-    assertTrustedMainRenderer(event);
-    return revokeAllRemoteBrowsers();
-  });
-  ipcMain.handle("work-fold:remote-access:remove", (event) => {
-    assertTrustedMainRenderer(event);
-    return removeRemoteAccess();
-  });
-  ipcMain.handle("work-fold:remote-access:open", async (event) => {
-    assertTrustedMainRenderer(event);
-    const status = await (await ensureRemoteAccessClient(await ensureInteractiveLocalApi())).status();
-    if (!status.url) throw new Error("Set up web access before opening it.");
-    await shell.openExternal(status.url);
   });
   ipcMain.on("work-fold:window:rail-tooltip-show", (event, value: unknown) => {
     assertTrustedMainRenderer(event);
@@ -1731,7 +1652,7 @@ function buildApplicationSubmenuTemplate(menuId: ApplicationMenuId): MenuItemCon
     ];
   }
   const items: MenuItemConstructorOptions[] = [
-    { id: "open-capabilities", label: "Skills & Extensions", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("open-capabilities") },
+    { id: "open-capabilities", label: "Skills && Extensions", accelerator: "CommandOrControl+Shift+S", enabled: rendererMenuState.workFolderOpen, click: () => sendRendererMenuCommand("open-capabilities") },
     { label: "Shortcut Keys", accelerator: "CommandOrControl+/", click: () => sendRendererMenuCommand("open-keyboard-shortcuts") },
   ];
   if (process.platform !== "darwin") {
@@ -1800,7 +1721,7 @@ function macEditMenuAdditions(): MenuItemConstructorOptions[] {
       ],
     },
     { type: "separator" },
-    { label: "Emoji & Symbols", accelerator: "Control+Command+Space", click: () => app.showEmojiPanel() },
+    { label: "Emoji && Symbols", accelerator: "Control+Command+Space", click: () => app.showEmojiPanel() },
   ];
 }
 
@@ -2036,6 +1957,31 @@ function launchOpenWith(plan: OpenWithLaunchPlan): Promise<void> {
   });
 }
 
+/**
+ * An item in Desktop, Documents, or Downloads (the file manager's Standard
+ * Folders). The host resolves the folder from the home folder; the renderer
+ * supplies only its id and a relative path, held to the same path policy and
+ * real-path containment as a work-folder item.
+ */
+async function resolveStandardFolderItem(standardFolderId: string, itemPath: string): Promise<string> {
+  if (!isStandardFolderId(standardFolderId)) throw new Error("That standard folder isn’t on this computer.");
+  const root = await realpath(standardFolderRoot(standardFolderId));
+  const candidate = itemPath ? resolveStandardFolderPath(standardFolderId, itemPath) : standardFolderRoot(standardFolderId);
+  const resolvedCandidate = await realpath(candidate);
+  assertPathInsideRoot(root, resolvedCandidate);
+  return resolvedCandidate;
+}
+
+function standardFolderPathRequest(value: unknown, allowRoot = false): { standardFolderId: string; path: string; action: WorkFolderPathAction } {
+  if (!isRecord(value)) throw new Error("A standard folder file request is required.");
+  const standardFolderId = typeof value.standardFolderId === "string" ? value.standardFolderId : "";
+  const path = typeof value.path === "string" ? value.path : "";
+  if (!isStandardFolderId(standardFolderId)) throw new Error("That standard folder isn’t on this computer.");
+  if ((!path && !allowRoot) || path.includes("\0") || isAbsolute(path)) throw new Error("A relative path inside the folder is required.");
+  const action = value.action === "reveal" || value.action === "open-native" ? value.action : "open";
+  return { standardFolderId, path, action };
+}
+
 async function resolveWorkFolderItem(workFolderId: string, itemPath: string): Promise<string> {
   const workFolder = await getWorkFolder(workFolderId);
   const workFolderRoot = await realpath(workFolder.workFolderRoot);
@@ -2065,7 +2011,9 @@ async function setActiveNativeWorkFolder(workFolderId: string | null): Promise<v
 
 async function validateNativeFileMenuEntry(request: NativeFileMenuRequest): Promise<void> {
   let info;
-  if (request.path) {
+  if (request.standardFolderId) {
+    info = await stat(await resolveStandardFolderItem(request.standardFolderId, request.path));
+  } else if (request.path) {
     info = await stat(await resolveWorkFolderItem(request.workFolderId, request.path));
   } else {
     const workFolder = await getWorkFolder(request.workFolderId);
@@ -2090,7 +2038,7 @@ function popupNativeFileMenu(request: NativeFileMenuRequest): Promise<NativeFile
     };
     const template = nativeFileMenuItems(request).map<MenuItemConstructorOptions>((item) => item.type === "separator"
       ? { type: "separator" }
-      : { label: item.label, click: () => finish(item.command), ...(item.icon === "work-fold" ? workFoldMenuIcon() : {}) });
+      : { label: nativeMenuLabel(item.label), click: () => finish(item.command), ...(item.icon === "work-fold" ? workFoldMenuIcon() : {}) });
     Menu.buildFromTemplate(template).popup({
       window,
       x: request.point.x,
@@ -2110,6 +2058,43 @@ type NativeCommandMenuItem<Command extends string> =
   | { type: "submenu"; label: string; items: NativeCommandMenuItem<Command>[] };
 
 /** Shows a native menu at a point in the app's CSS pixels; resolves with the chosen command, or null. */
+/** The files on the system pasteboard (Finder's Copy), newest format first; empty when it holds no files. */
+function readPasteboardFilePaths(): string[] {
+  if (process.platform !== "darwin") return [];
+  const plist = clipboard.read("NSFilenamesPboardType");
+  const listed = [...plist.matchAll(/<string>([^<]*)<\/string>/g)].map((match) => decodeXmlText(match[1] ?? "")).filter((path) => isAbsolute(path));
+  if (listed.length) return listed;
+  const url = clipboard.read("public.file-url").trim();
+  if (url.startsWith("file://")) {
+    try { return [fileURLToPath(url)]; } catch { return []; }
+  }
+  return [];
+}
+
+/** Puts files on the system pasteboard the way Finder's Copy does, so Finder (and Mail, and Messages) can paste them. */
+function writePasteboardFilePaths(paths: readonly string[]): void {
+  if (process.platform !== "darwin") { clipboard.writeText(paths.join("\n")); return; }
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><array>${paths.map((path) => `<string>${encodeXmlText(path)}</string>`).join("")}</array></plist>`;
+  clipboard.writeBuffer("NSFilenamesPboardType", Buffer.from(plist, "utf8"));
+}
+
+function encodeXmlText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function decodeXmlText(value: string): string {
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+
+/**
+ * A menu label as written, for Electron: it reads a single "&" as a keyboard
+ * mnemonic and drops it, so "Skills & Extensions…" showed as "Skills
+ * Extensions…". Doubling it shows the "&" itself, in file and tab names too.
+ */
+function nativeMenuLabel(label: string): string {
+  return label.replace(/&/g, "&&");
+}
+
 function popupNativeCommandMenu<Command extends string>(items: NativeCommandMenuItem<Command>[], point: { x: number; y: number }): Promise<Command | null> {
   const window = mainWindow;
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
@@ -2124,8 +2109,8 @@ function popupNativeCommandMenu<Command extends string>(items: NativeCommandMenu
     };
     const template = (entries: NativeCommandMenuItem<Command>[]): MenuItemConstructorOptions[] => entries.map((item) => {
       if (item.type === "separator") return { type: "separator" };
-      if (item.type === "submenu") return { label: item.label, submenu: template(item.items) };
-      return { label: item.label, ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
+      if (item.type === "submenu") return { label: nativeMenuLabel(item.label), submenu: template(item.items) };
+      return { label: nativeMenuLabel(item.label), ...(item.sublabel ? { sublabel: item.sublabel } : {}), enabled: item.enabled !== false, click: () => finish(item.command) };
     });
     // The point is in the app's CSS pixels; the menu goes where the pointer is in the zoomed window.
     const zoom = window.webContents.getZoomFactor() || 1;
@@ -2252,7 +2237,6 @@ async function shutdown(): Promise<void> {
   actFacade = null;
   actToken = "";
   resolveWorkFoldAgentLineageParent = null;
-  remoteAccessClient?.stop();
   updateAgentPowerState(0);
   const runtime = piRuntime;
   piRuntime = null;
@@ -2503,11 +2487,6 @@ function configurePowerMonitor(): void {
     void automationPowerLifecycle?.resume().catch((error) => {
       console.warn(`${productName} could not resume Automations after wake: ${errorMessage(error)}`);
     });
-    void remoteAccessClient?.recoverConnection().catch((error) => {
-      console.warn(`${productName} could not recover Web Access after resume: ${errorMessage(error)}`);
-    });
-    // Entries visitors made while the computer slept come back into page folders.
-    setTimeout(() => { void pagesCheckIn?.().catch(() => undefined); }, resumeRendererHealthDelayMs);
     setTimeout(ensureRendererAfterResume, resumeRendererHealthDelayMs);
     setTimeout(() => { void checkForUpdates(false); }, resumeUpdateCheckDelayMs);
   });

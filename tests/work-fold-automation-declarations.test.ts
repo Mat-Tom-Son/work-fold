@@ -306,8 +306,8 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
     value.kind = "work-fold.check-proposal";
   })), /kind must be work-fold\.automation-proposal/);
   assert.throws(() => normalizeWorkFoldAutomationProposal(mutated((value) => {
-    value.version = 6;
-  })), /unsupported version 6/);
+    value.version = 7;
+  })), /unsupported version 7/);
   assert.throws(() => normalizeWorkFoldAutomationProposal(mutated((value) => {
     value.enabled = true;
   })), /unsupported field: enabled/);
@@ -351,7 +351,7 @@ test("unknown kinds, versions, fields, and unpinned references fail closed", () 
 
   const declaration = declarationFromWorkFoldAutomationProposal(normalizeWorkFoldAutomationProposal(proposalValue), "automation-12345678");
   assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, enabled: true }), /unsupported field: enabled/);
-  assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, version: 6 }), /unsupported version 6/);
+  assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, version: 7 }), /unsupported version 7/);
   assert.throws(() => normalizeWorkFoldAutomationDeclaration({ ...declaration, id: "check-12345678" }), /Automation id is invalid/);
 });
 

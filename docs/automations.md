@@ -60,12 +60,31 @@ record. Live testing prompted this: a Worker told to "look at each
 screenshot" sometimes asked a person to describe the images, and the run
 still read Succeeded.
 
-The declaration contract accepts versions 1 through 5. Version 2 added a
+**Amended 2026-11-07 (owner direction): ready-made Automations.** The file
+manager's Info panel lists a small fixed set a person can switch on for one
+work-folder: **Organize New Files**, **Give New Files Clear Names**, **Keep
+Screenshots Together**, and **Weekly Tidy-Up**
+(`src/shared/automation-templates.ts`; the host builds their declarations in
+`src/local/automations/automation-templates.ts`). Each is one `chat` step to
+that work-folder's own Worker, in plain words that tell it never to delete
+anything, on a folder-change trigger over the work-folder's top level with
+`"ifMissed": "run"` (or, for the tidy-up, a weekly interval). Switching one on
+is the same receipted `automations.enable` act as Settings' Turn on, with a
+stable id per work-folder (`automation-ready-<template>-<work-folder id>`), so
+off and on again is the same Automation and Settings → Automations lists it
+like any other. To watch a work-folder's top level, declaration **version 6**
+admits `"watch": {"kind": "tree", "path": "", "recursive": false, …}`: the
+ordinary files directly in the work-folder with a watched extension, never a
+subfolder, so a nested work-folder is never read; a recursive top-level watch
+is refused. Versions 1–5 normalize exactly as before.
+
+The declaration contract accepts versions 1 through 6. Version 2 added a
 bounded one-time `at` trigger on 2026-09-01; version 3 adds explicit folder
 observation, shipped in September 2026; version 4 adds the closed placeholder
 set and the `agent` step (then named `fold`), shipped with the
 receipts-not-gates build; version 5 adds the optional `ifMissed` field on a
-folder-change trigger (2026-10-11).
+folder-change trigger (2026-10-11); version 6 adds the work-folder's top
+level as a watched folder (2026-11-07).
 **Settings → Automations** is the desktop management surface. The
 store schema is version 3; version-1 and version-2 records load and are
 rewritten as version 3 on the next mutation, converting the grants an older
@@ -535,7 +554,7 @@ The five questions, per mutation:
 
 | Mutation | Journaled by | Receipt contains | Revoked / undone by | Mid-act failure | Replay prevented by |
 |---|---|---|---|---|---|
-| Enable | Act-lane journal plus automation store commit (`automation/enabled` with digest, surface, request id) | Automation id, declaration digest, surface and browser identity, timestamp | Disable; work-folder removal (automatic revocation to `suspended`) | Declaration-then-receipt as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Act request-id at-most-once; an identical already-enabled digest is a no-op |
+| Enable | Act-lane journal plus automation store commit (`automation/enabled` with digest, surface, request id) | Automation id, declaration digest, surface, timestamp (grants older builds wrote may also carry a `remote_web` browser identity) | Disable; work-folder removal (automatic revocation to `suspended`) | Declaration-then-receipt as one logical operation; failure leaves inert declaration, never digest-mismatched authority | Act request-id at-most-once; an identical already-enabled digest is a no-op |
 | Run (scheduled / on-settled) | Automation receipts journal, run `accepted` then durable schedule claim before hop 1, per-hop accepted/terminal pairs | Trigger cause, digest, occurrence id for one-time work, per-hop domain evidence (task ids, run ids, conversation id, restore-point id, counts) | Stop (active); files effects restorable via the hop's restore point; chat effects are an ordinary archivable Chat | Startup reconciles an accepted slot, records `interrupted`, and never replays it; completed hops keep receipts | Host-minted run ids; journal-first accepted gate; pre-hop interval/occurrence claim; serialized trigger funnel |
 | Run-now | Act-lane journal plus the same run journal | As above, plus the act request id | Same as a run | Same as a run | Act request-id at-most-once plus run-id gate |
 | Stop | Act-lane journal (or desktop action record) plus run terminal record | Run id, aborted hop task ids, skipped hops | Not applicable — stop is itself the revocation act | Abort signals are idempotent; a second stop finds a settled run | Act request-id at-most-once; a settled run refuses stop with its terminal state |
@@ -705,8 +724,7 @@ The plan items shipped as follows:
   related automations, not a second management home.
 - **Read-lane automation status.** All automation commands remain act-lane.
 - **Hosted or remote execution.** Automations run only on this desktop while
-  the app runs, and no automation step can publish anything (see the
-  [Online pages plan](online-pages-plan.md)).
+  the app runs, and no automation step can publish anything.
 - **A general job system.** 64 run slots by default, generous bounds,
   four step kinds. If a flow does not fit, it belongs to a work-folder app's named
   automations, a Check, or a person.

@@ -24,6 +24,11 @@ export interface ConversationContextImage {
 
 export interface ConversationContextAttachment {
   sourcePath: string;
+  /**
+   * Set when the reference is a folder (the file manager's "Work on this
+   * folder", 2026-11-06). A folder is always a path-only reference.
+   */
+  sourceKind?: "folder";
   sourceFileName: string;
   sourceSizeBytes: number;
   mode: ConversationContextMode;
@@ -54,7 +59,7 @@ export async function previewConversationContextAttachment(
   return { ...attachment, budgetStatus: "preview", detail: `${attachment.detail} This is an extraction preview. Inline inclusion is decided when sending, using the selected model and current conversation; the file path remains available to tools.` };
 }
 
-/** Staging a work-folder file attaches its path, without reading or extracting its body. */
+/** Staging a work-folder file or folder attaches its path, without reading or extracting its body. */
 export async function previewConversationContextReference(
   workFolderRoot: string,
   input: { path: string },
@@ -66,7 +71,15 @@ export async function previewConversationContextReference(
     if (error.code === "ENOENT" || error.code === "ENOTDIR") throw new Error(`File not found: ${sourcePath}`);
     throw error;
   });
-  if (!info.isFile()) throw new Error("Only files can be attached to Chat.");
+  if (info.isDirectory()) {
+    return {
+      sourcePath, sourceKind: "folder", sourceFileName: basename(sourcePath), sourceSizeBytes: 0,
+      mode: "path_only_reference", includedInPrompt: false, reason: null,
+      estimatedTokens: 0, budgetTokens: 0, provenance: [], warnings: [],
+      userLabel: "Folder", detail: "The Worker can look inside this folder with its tools when you send your message.",
+    };
+  }
+  if (!info.isFile()) throw new Error("Only files and folders can be attached to Chat.");
   return {
     sourcePath, sourceFileName: basename(sourcePath), sourceSizeBytes: info.size,
     mode: "path_only_reference", includedInPrompt: false, reason: null,

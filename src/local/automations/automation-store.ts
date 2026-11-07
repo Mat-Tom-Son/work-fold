@@ -396,6 +396,7 @@ export interface WorkFoldAutomationGrant {
   enabledAt: string;
   /** Current surfaces on write; a legacy surface an older build recorded still loads. */
   surface: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
+  /** Read only: the paired browser older builds recorded with a `remote_web` grant. */
   browserId?: string;
 }
 
@@ -455,7 +456,6 @@ export interface WorkFoldAutomationEnableInput {
   grant: {
     requestId: string;
     surface: WorkFoldCliActSurface;
-    browserId?: string;
   };
   now?: Date;
 }
@@ -607,7 +607,6 @@ export class WorkFoldAutomationStore {
         title: declaration.title,
         surface: grantRef.surface,
         requestId: grantRef.requestId,
-        ...(grantRef.browserId !== undefined ? { browserId: grantRef.browserId } : {}),
         ...(existing ? { detail: `Re-enabled from ${existing.health}; a fresh enablement replaced the prior grant.` } : {}),
       });
       draft.automations = [...draft.automations.filter((candidate) => candidate.declaration.id !== declaration.id), record];
@@ -923,16 +922,7 @@ function normalizeGrantInput(value: WorkFoldAutomationEnableInput["grant"]): Wor
   if (!WORKFOLD_CLI_ACT_SURFACES.includes(value.surface)) {
     throw new WorkFoldAutomationStoreError("INPUT_INVALID", "The enabling surface must be an act surface.");
   }
-  if (value.surface === "remote_web") {
-    requireReference(value.browserId, "Paired browser id");
-  } else if (value.browserId !== undefined) {
-    throw new WorkFoldAutomationStoreError("INPUT_INVALID", "Browser identity belongs only to the remote surface.");
-  }
-  return {
-    requestId: value.requestId,
-    surface: value.surface,
-    ...(value.browserId !== undefined ? { browserId: value.browserId } : {}),
-  };
+  return { requestId: value.requestId, surface: value.surface };
 }
 
 function normalizeActionReceiptContext(

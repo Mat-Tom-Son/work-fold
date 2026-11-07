@@ -66,7 +66,11 @@ export function isWorkFoldRequestTerminalState(state: WorkFoldRequestState): boo
   return (workFoldRequestTerminalStates as readonly string[]).includes(state);
 }
 
-/** Where the turn came from. `system` covers automations and app-started work. */
+/**
+ * Where the turn came from. `system` covers automations and app-started work.
+ * `remote_web` is read only: older builds wrote it for work a paired browser
+ * sent before Web Access was removed (2026-11-07).
+ */
 export type WorkFoldRequestSurface =
   | "cli"
   | "popover"
@@ -276,7 +280,7 @@ export const workFoldRequestActionCommands = [
   "worktrees.archive",
   "worktrees.restore",
   "recently-deleted.restore",
-  // Publishing pages (docs/pages.md, "Publishing (stage 2)").
+  // Read only: older builds recorded these while pages could be published.
   "pages.publish",
   "pages.unpublish",
 ] as const;
@@ -331,6 +335,7 @@ export interface WorkFoldRequestAction {
   }>;
 }
 
+/** Read only: the paired browser older builds recorded on work sent through Web Access. */
 export interface WorkFoldRequestRemoteRef {
   principalId: string;
   grantId: string;
@@ -643,11 +648,6 @@ export function workFoldRequestStateToAgentPhase(
     }
   })();
   return phase;
-}
-
-/** `local` or `remote_web`, derived rather than stored twice. */
-export function workFoldRequestSource(record: WorkFoldRequestRecord): "local" | "remote_web" {
-  return record.remote ? "remote_web" : "local";
 }
 
 // --- parsers -------------------------------------------------------------

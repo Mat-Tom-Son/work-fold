@@ -36,7 +36,7 @@ deleted.
 | **direct verb** | The work-fold agent performs it through the act lane: explicit selection, journal-first receipt, at-most-once execution, desktop conflict rules. |
 | **prepared verb** | A direct verb whose execution shape is prepare → pin → journal-first → fenced execute → receipt, run on the call that asks. Covers app install/update, Pi package and skill-bundle install/update, app grants and automation enablement, automation enablement, managed-work-folder deletion, app storage clear and retained-data purge. |
 | **reversible deletion** | A delete whose undo is a History restore point or a Recently-deleted entry (`recently-deleted restore`). No product verb destroys permanently; retention does. |
-| **setup-only boundary** | The work-fold agent can neither perform nor request it: Web Access administration, act-token and pairing machinery, provider credentials, and anything that widens the set of principals controlling the work-fold agent. |
+| **setup-only boundary** | The work-fold agent can neither perform nor request it: act-token machinery, provider credentials, settings administration, and anything that widens the set of principals controlling the work-fold agent. |
 | **deliberately absent** | Not a product verb — desktop-session mechanics, machine-local UI preference, or a surface whose meaning does not survive leaving the desktop. Listed so absence is a decision, not a gap. |
 
 The tables' "Fold today" column is historical: it records what the act lane
@@ -255,26 +255,16 @@ removing live data.
 ### Pages
 
 A page is a folder in a work-folder that contains `page.json`
-([Pages](pages.md)). Stage 2 publishes page folders online
-([Pages](pages.md#desktop), [Online pages](online-pages-plan.md)). A page id
-grants access to its page, so receipts and the overview name a page by its
-path and the id's first 8 characters; only a command's own output carries the
-link.
+([Pages](pages.md)) and runs in its page tab on this computer. Publish, the
+`page.publish` prepared act, and `pages publish|unpublish|list` were removed
+on 2026-11-07 with online pages.
 
 | Verb | Human surface | Fold today | Target | Command shape | Receipt adds | Undo / revocation | Conflicts |
 |---|---|---|---|---|---|---|---|
 | Check a page folder | the page tab's problem list | none | direct verb (content-bearing act read) | `pages validate --work-folder <id> --page <path>` | page path and `valid` or the error count | n/a — it changes nothing | a folder without `page.json` is `notFound`; a path that leaves the work-folder, names hidden or reserved folders, or crosses a link is `usage`; a nested registered work-folder's page is `notFound` |
-| Publish a page, or publish changes | page tab → Publish / Publish changes | none | **prepared verb** (`page.publish`) | `pages publish --work-folder <id> --page <path>` | `page.publish`, page path, id prefix, revision, uploaded file count and bytes | `pages unpublish` (the link stays the page's; entries are kept) | refused with the page's problems while any is an error (`conflict`); `unavailable` until Web Access is set up and on; a page whose content digest moved between the check and the upload is a pin mismatch (`conflict`); refused while an Automation's work runs or when `--parent-task` names an Automation's request — Automations can't publish |
-| Unpublish a page | page tab → Unpublish; Settings → Published | none | direct verb | `pages unpublish --work-folder <id> --page <path>` | page path, id prefix, `unpublished` | `pages publish` brings back the same link | `notFound` for a page never published; `unavailable` without Web Access; a page the page service no longer knows is recorded offline |
-| List published pages | Settings → Published | none | direct verb (content-bearing act read) | `pages list [--work-folder <id>]` | page count | n/a — it changes nothing | — |
 
 Test entries made in a page's preview and the Data view's edits are local-API
-operations on machine-local preview databases, not act verbs. Edits, deletes,
-and restores of **Online entries** from the Data view go to the page service
-through the bridge and are journaled as main-window acts (`pages.data.update`,
-`pages.data.delete`, `pages.data.restore`; page path, id prefix, table, and
-entry count). Checking in writes the page folder's `data.sqlite` without a
-receipt: it is the folder copy of data that lives online, not a person's act.
+operations on machine-local preview databases, not act verbs.
 
 ### Library (removed)
 
@@ -380,13 +370,11 @@ refused at parse time.
 |---|---|---|
 | Configure a provider connection, API key, or provider OAuth | Settings → AI Models | **setup-only** (provider credentials) |
 | Remove or replace stored provider credential | Settings → AI Models | **setup-only** |
-| Web Access: create/change address, password, approve or revoke a browser, revoke generations, disable, delete | Settings → Web Access | **setup-only** (fold-authority surface) |
-| Act-token and pairing machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
+| Act-token machinery: minting, scope, lifetime | none (app-owned) | **setup-only** |
 | Delete now (purge one Recently-deleted entry early) or change Limits | Settings → Recently deleted or Settings → Automations | **desktop-only** (no act verb; nothing a task needs is behind it) |
 
-Approved remote browsers use the same verbs and receipts as the desktop;
-each remote-originated receipt records the browser and grant. They cannot
-touch this table.
+Web Access administration and browser pairing left this table on 2026-11-07,
+when Web Access was removed from the desktop.
 
 ### Deliberately absent
 
@@ -456,9 +444,9 @@ Consolidated, so implementations and tests can point at one list:
 optional fields beyond the baseline; readers accept every prior version:
 
 - `surface` — the authenticated surface that initiated the act, from the
-  closed vocabulary `cli`, `popover`, `main-window`, `remote_web`, plus
-  browser and grant ids when remote. This is the attribution control for
-  remote-originated acts.
+  closed vocabulary `cli`, `popover`, `main-window`. Lines written before
+  Web Access was removed on 2026-11-07 may carry `remote_web` with browser
+  and grant ids; readers still accept them.
 - `undoRef` — a typed reference to the prior state an undo verb needs:
   prior title or name, prior lifecycle state, prior appearance
   customization ref, safety checkpoint id, Recently-deleted entry id

@@ -71,8 +71,17 @@ test("pages validate parses an explicit work-folder and page folder", () => {
   assert.match(usage(["pages", "validate", "--work-folder", "Events", "--page", "Sign up", "--path", "x"]), /--path cannot be used/);
   assert.match(usage(["pages", "validate", "--work-folder", "Events", "--page", "Sign up", "--parent-task", "t"]), /--parent-task cannot be used/);
   assert.match(usage(["pages", "share", "--work-folder", "Events", "--page", "Sign up"]), /Unknown command: pages share/);
-  assert.match(workFoldCliHelp("work-fold", "pages"), /pages validate --work-folder <id-or-name> --page <page-folder-path>/);
-  assert.match(workFoldCliHelp("work-fold"), /pages validate/);
+  // Pages are not published to the web: the publishing verbs are gone.
+  assert.match(usage(["pages", "publish", "--work-folder", "Events", "--page", "Sign up"]), /Unknown command: pages publish/);
+  assert.match(usage(["pages", "unpublish", "--work-folder", "Events", "--page", "Sign up"]), /Unknown command: pages unpublish/);
+  assert.match(usage(["pages", "list"]), /Unknown command: pages list/);
+  const pagesHelp = workFoldCliHelp("work-fold", "pages");
+  assert.match(pagesHelp, /pages validate --work-folder <id-or-name> --page <page-folder-path>/);
+  assert.doesNotMatch(pagesHelp, /publish|unpublish|pages list/);
+  const help = workFoldCliHelp("work-fold");
+  assert.match(help, /pages validate\s+Check a page folder/);
+  assert.doesNotMatch(help, /pages publish|pages unpublish|pages list|Web Access|pairing/);
+  assert.match(help, /Act tokens and provider\s+credentials are local setup: this CLI refuses them\./);
 });
 
 test("pages validate reports a stable JSON shape, a readable summary, and a receipt", async (t) => {
@@ -142,9 +151,9 @@ test("a folder that isn't a page, or a path outside the work-folder, is refused"
   assert.notEqual(unknownWorkFolder.exitCode, 0);
 });
 
-test("both platform shims route the pages verbs to the act lane", async () => {
+test("both platform shims route pages validate to the act lane", async () => {
   const jxa = await readFile(join(rootDir, "desktop", "cli", "work-fold-cli.jxa.js"), "utf8");
-  assert.match(jxa, /if \(group === "pages"\) return \["validate", "publish", "unpublish", "list"\]\.includes\(positional\[1\]\);/u);
+  assert.match(jxa, /if \(group === "pages"\) return \["validate"\]\.includes\(positional\[1\]\);/u);
   const powershell = await readFile(join(rootDir, "desktop", "cli", "work-fold-cli.ps1"), "utf8");
-  assert.match(powershell, /\$group -ceq 'pages'.*@\('validate', 'publish', 'unpublish', 'list'\)/u);
+  assert.match(powershell, /\$group -ceq 'pages'.*@\('validate'\) -ccontains/u);
 });

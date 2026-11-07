@@ -584,7 +584,6 @@ test("requests, questions, results, and the action trail survive a restart", asy
     taskId: "task-1",
     content: "Place the contract.",
     attachments: [{ kind: "file", target: "/tmp/contract.pdf", name: "contract.pdf" }],
-    remote: { principalId: "browser-1", grantId: "grant-1", requestId: "remote-1" },
   });
   const child = await store.beginChild({ parentTaskId: "task-1", kind: "work-folder", owner: workFolderOwner, surface: "cli", taskId: "task-2" });
   const question = await store.ask({ requestId: child.requestId, taskId: "task-2", respondent: "parent", text: "Which folder?" });
@@ -596,7 +595,8 @@ test("requests, questions, results, and the action trail survive a restart", asy
   const recovered = reopened.get(request.requestId);
   assert.equal(recovered?.content, "Place the contract.");
   assert.deepEqual(recovered?.attachments, [{ kind: "file", target: "/tmp/contract.pdf", name: "contract.pdf" }]);
-  assert.deepEqual(recovered?.remote, { principalId: "browser-1", grantId: "grant-1", requestId: "remote-1" });
+  // New records carry no paired-browser provenance (Web Access was removed 2026-11-07).
+  assert.equal(recovered?.remote, null);
   assert.equal(recovered?.actions.length, 1);
   assert.equal(recovered?.actions[0]?.command, "files.add");
   assert.deepEqual(recovered?.childRequestIds, [child.requestId]);

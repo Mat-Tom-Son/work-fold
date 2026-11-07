@@ -54,7 +54,8 @@ test("an interrupted reply's row shows Continue as soon as it is offered, and ca
 test("Continue sends without the files staged for the person's draft", async () => {
   const chatPanel = await readFile(resolve("web-local/src/components/chat/ChatPanel.tsx"), "utf8");
   assert.match(chatPanel, /sendMessageRef\.current\(continueInterruptedTurnMessage, \{ withoutAttachments: true \}\)/);
-  assert.match(chatPanel, /const attachmentsForSend = options\.withoutAttachments \? \[\] : contextAttachments;/);
+  // The file manager's message box hands its own references in (`options.attachments`); Continue still sends none.
+  assert.match(chatPanel, /const attachmentsForSend = options\.withoutAttachments \? \[\] : options\.attachments \?\? contextAttachments;/);
   assert.match(chatPanel, /contextPaths: attachmentsForSend\.map/);
   assert.doesNotMatch(chatPanel, /contextPaths: contextAttachments\.map\(\(attachment\) => attachment\.sourcePath\),\n\s*transientConversation/);
 });

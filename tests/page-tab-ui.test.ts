@@ -225,7 +225,7 @@ test("the Data view sorts, searches, filters, edits, deletes, restores, and expo
   await renderPageTab(dom, client, "data");
   await dom.waitFor(() => dom.container.querySelectorAll(".page-data-grid-body [role=row]").length === 3);
   assert.equal(dom.container.querySelector(".page-data-note")!.textContent, testEntriesNote);
-  assert.equal(testEntriesNote, "Test entries — only you can see these. They're never published.");
+  assert.equal(testEntriesNote, "Entries made in Preview. Only you can see them.");
   const names = () => [...dom.container.querySelectorAll(".page-data-grid-body [role=row]")].sort((a, b) => Number(a.getAttribute("aria-rowindex")) - Number(b.getAttribute("aria-rowindex"))).map((item) => item.querySelectorAll("[role=gridcell]")[1]!.textContent);
   assert.deepEqual(names(), ["Priya", "Oliver", "Maya"], "newest first");
   assert.deepEqual([...dom.container.querySelectorAll(".page-data-grid-body .new")].map((item) => item.getAttribute("data-entry-id")).sort(), ["r2", "r3"], "what's new since last looked is marked");
@@ -330,7 +330,7 @@ test("only changes that can matter reload a page or Files' page list", () => {
   assert.equal(pageFileChange({ path: `${pagePath}/images/cake.png` }, pagePath), true);
   assert.equal(pageFileChange({ path: "Events" }, pagePath), true, "a folder above it moved");
   assert.equal(pageFileChange({ path: null }, pagePath), true);
-  assert.equal(pageFileChange({ path: `${pagePath}/data.sqlite-wal` }, pagePath), false, "real visitors' data isn't part of the page");
+  assert.equal(pageFileChange({ path: `${pagePath}/data.sqlite-wal` }, pagePath), false, "the page's data file isn't part of the page");
   assert.equal(pageFileChange({ path: `${pagePath}/.work-fold/x.json` }, pagePath), false);
   assert.equal(pageFileChange({ path: `${pagePath} 2/index.html` }, pagePath), false);
   assert.equal(pageFileChange({ path: "Notes/todo.md" }, pagePath), false);

@@ -163,15 +163,9 @@ export interface RestrictedAppAutomationDeclaration {
 }
 
 /**
- * The reviewed viewer surface: the read-only web view a paired browser may
- * open for an installed app. `entry` names the packaged document that view
- * serves; `readable` names the exact instance-owned storage key prefixes
- * ("collections") it may read. This declaration is the complete
- * viewer-readable surface: the desktop reader
- * (src/local/agent/restricted-app-viewer.ts) refuses every read outside it,
- * and every write, action, network, connection, notification, file,
- * automation, OAuth, or host-UI call regardless of it. Because the field is
- * reviewed, it appears in review copy.
+ * A read-only web view an app could offer to a paired browser. Web Access was
+ * removed (2026-11-07), so nothing opens it any more; the declaration still
+ * parses so apps made for earlier versions keep installing and running.
  */
 export interface RestrictedAppViewerDeclaration {
   entry: string;

@@ -82,7 +82,6 @@ import {
   type WorkFoldRequestKind,
   type WorkFoldRequestOwner,
   type WorkFoldRequestRecord,
-  type WorkFoldRequestRemoteRef,
   type WorkFoldRequestSurface,
   type WorkFoldRequestTurnRef,
   type WorkFoldRequestTurnState,
@@ -364,7 +363,6 @@ export class WorkFoldRequestStore {
     app?: WorkFoldRequestAppRef;
     content?: string;
     attachments?: readonly WorkFoldAgentAttachmentRef[];
-    remote?: WorkFoldRequestRemoteRef | null;
     continuedFromTaskId?: string | null;
     acceptedAt?: string;
   }): Promise<WorkFoldRequestRecord> {
@@ -1072,7 +1070,6 @@ export class WorkFoldRequestStore {
     app?: WorkFoldRequestAppRef;
     content?: string;
     attachments?: readonly WorkFoldAgentAttachmentRef[];
-    remote?: WorkFoldRequestRemoteRef | null;
     continuedFromTaskId?: string | null;
     acceptedAt?: string;
     parentTaskId?: string;
@@ -1118,7 +1115,7 @@ export class WorkFoldRequestStore {
       stopRequestedAt: null,
       limitHit: null,
       reconciledAt: null,
-      remote: input.remote ?? null,
+      remote: null,
       assignment: boundContent(input.content ?? ""),
       content: boundContent(input.content ?? ""),
       attachments: dedupeAttachments([...(input.attachments ?? [])]).slice(0, maxWorkFoldAgentAttachments),

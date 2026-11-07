@@ -21,14 +21,16 @@ interface WorkFoldDesktopUpdateStatus {
   error: string | null;
 }
 
-interface WorkFoldRemoteAccessStatus {
-  configured: boolean;
-  enabled: boolean;
-  connection: "stopped" | "connecting" | "connected" | "error";
-  slug: string | null;
-  url: string | null;
-  lastError: string | null;
-  approvedBrowsers: Array<{ id: string; browserId: string; label: string; approvedAt: string }>;
+interface WorkFoldCommandLineSkillStatus {
+  available: boolean;
+  installed: "none" | "current" | "outdated";
+  path: string;
+}
+
+interface WorkFoldCommandLineStatus {
+  command: string;
+  path: { supported: boolean; reason: string | null; state: "installed" | "missing" | "elsewhere"; binDirectory: string | null; entryFile: string };
+  skills: { claude: WorkFoldCommandLineSkillStatus; codex: WorkFoldCommandLineSkillStatus };
 }
 
 type WorkFoldDesktopMenuCommand =
@@ -50,14 +52,23 @@ type WorkFoldDesktopMenuCommand =
 
 type WorkFoldDesktopMenuId = "file" | "edit" | "view" | "help";
 type WorkFoldDesktopPathAction = "open" | "open-native" | "reveal";
-type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete";
+type WorkFoldDesktopFileMenuCommand = "open" | "open-with" | "reveal" | "copy-path" | "attach-chat" | "version-history" | "new-folder" | "upload-here" | "refresh" | "give-worker" | "rename" | "delete"
+  | "copy" | "paste" | "duplicate" | "compress" | "new-folder-with-selection";
 
 type WorkFoldDesktopTabMenuCommand = "rename" | "copy" | "resume" | "archive" | "restore" | "delete" | "close" | "close-others" | "close-right" | "reopen" | `snooze:${string}`;
 
-type WorkFoldDesktopHeaderMenuCommand = "new-chat" | "customize" | "set-up" | "look" | "reveal" | "manage";
+type WorkFoldDesktopHeaderMenuCommand = "new-chat" | "customize" | "set-up" | "look" | "reveal" | "manage" | "skills" | "settings"
+  | "put-to-work" | "remove-from-sidebar" | "create-work-folder" | "use-existing-folder" | "remove-work-folder";
 
 interface WorkFoldDesktopHeaderMenuRequest {
-  actions: { newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean };
+  /**
+   * The file manager's Action menu adds Skills & Extensions and Settings and
+   * leaves out Manage; its sidebar uses the Standard Folder and + commands.
+   */
+  actions: {
+    newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean; skills?: boolean; settings?: boolean; manage?: boolean;
+    putToWork?: boolean; removeFromSidebar?: boolean; createWorkFolder?: boolean; useExistingFolder?: boolean; remove?: boolean;
+  };
   point: { x: number; y: number };
 }
 
@@ -68,7 +79,10 @@ interface WorkFoldDesktopTabMenuRequest {
 }
 
 interface WorkFoldDesktopFileMenuRequest {
+  /** Empty for an entry in a standard folder. */
   workFolderId: string;
+  /** Desktop, Documents, or Downloads in the file manager; Delete becomes Move to Trash. */
+  standardFolderId?: string;
   path: string;
   kind: "file" | "folder";
   capabilities: {
@@ -79,6 +93,9 @@ interface WorkFoldDesktopFileMenuRequest {
     rename: boolean;
     delete: boolean;
     worker?: boolean;
+    /** The file manager's Copy, Duplicate, Compress, and New Folder with Selection, and Paste on a folder. */
+    organize?: boolean;
+    paste?: boolean;
   };
   /** Several rows selected together: the menu offers only what applies to all of them. */
   selection?: { files: number; folders: number };
@@ -191,6 +208,29 @@ declare global {
         onOpenWorkFolder: (listener: (workFolderId: string, view?: "checks") => void) => () => void;
         onOpenFolder: (listener: () => void) => () => void;
       };
+      /** Standard Folders in the file manager (absent in older desktop builds). */
+      standardFolder?: {
+        openPath: (standardFolderId: string, path: string, action?: WorkFoldDesktopPathAction) => Promise<void>;
+        openPathWith: (standardFolderId: string, path: string) => Promise<{ opened: boolean; canceled: boolean; appName: string | null }>;
+        startDrag: (standardFolderId: string, path: string) => Promise<boolean>;
+        previewFile: (standardFolderId: string, path: string) => Promise<boolean>;
+        trash: (standardFolderId: string, paths: string[]) => Promise<{ trashed: string[]; failed: { path: string; error: string } | null }>;
+        /** Opens the folder picker and adds the chosen folder to Standard Folders (absent in older desktop builds). */
+        add?: () => Promise<{ id: string; name: string } | null>;
+      };
+      /**
+       * Files on the system pasteboard, to and from Finder (absent in older
+       * desktop builds). The window never reads the pasteboard: paste happens
+       * in the desktop process, which answers with what landed.
+       */
+      fileClipboard?: {
+        write: (paths: string[]) => Promise<boolean>;
+        paste: (request: {
+          target: { place: { kind: "work-folder" | "standard"; id: string }; path: string };
+          mode: "copy" | "move";
+          internal: { place: { kind: "work-folder" | "standard"; id: string }; paths: string[]; nativePaths: string[] } | null;
+        }) => Promise<{ mode: string; written: string[]; restorePoints: Array<{ workFolderId: string; checkpointId: string }>; copiedInstead?: boolean; moves?: Array<{ from: string; to: string }>; nothing?: boolean; fromHere?: boolean; count?: number }>;
+      };
       agent: {
         /** The local path of a file dropped on the work-fold agent panel. */
         getPathForFile?: (file: File) => string;
@@ -208,6 +248,8 @@ declare global {
         show: (automationId: string) => Promise<AutomationDetailResponse>;
         history: (automationId: string) => Promise<AutomationHistoryResponse>;
         enable: (automationId: string) => Promise<AutomationEnableResponse>;
+        /** Turns on a ready-made Automation for one work-folder (absent in older desktop builds). */
+        enableTemplate?: (workFolderId: string, templateId: string) => Promise<AutomationEnableResponse>;
         run: (automationId: string) => Promise<AutomationRunResponse>;
         stop: (automationId: string) => Promise<unknown>;
         disable: (automationId: string) => Promise<unknown>;
@@ -288,15 +330,14 @@ declare global {
       settings: {
         getStatus: () => Promise<{ encryptionAvailable: boolean; configuredProviders: string[] }>;
       };
-      remoteAccess: {
-        getStatus: () => Promise<WorkFoldRemoteAccessStatus>;
-        configure: (request: { slug: string; password: string }) => Promise<WorkFoldRemoteAccessStatus>;
-        setEnabled: (enabled: boolean) => Promise<WorkFoldRemoteAccessStatus>;
-        revokeBrowser: (grantId: string) => Promise<WorkFoldRemoteAccessStatus>;
-        revokeAll: () => Promise<WorkFoldRemoteAccessStatus>;
-        remove: () => Promise<WorkFoldRemoteAccessStatus>;
-        open: () => Promise<void>;
-        onStatusChanged: (listener: (status: WorkFoldRemoteAccessStatus) => void) => () => void;
+      /** Other AI agents: the command on Terminal's PATH and the skill file (Settings → Command Line). */
+      commandLine?: {
+        status: () => Promise<WorkFoldCommandLineStatus>;
+        installPath: () => Promise<WorkFoldCommandLineStatus>;
+        removePath: () => Promise<WorkFoldCommandLineStatus>;
+        installSkill: (target: "claude" | "codex") => Promise<WorkFoldCommandLineStatus>;
+        removeSkill: (target: "claude" | "codex") => Promise<WorkFoldCommandLineStatus>;
+        skill: () => Promise<string>;
       };
       menu: {
         setState: (state: { workFolderOpen: boolean }) => void;

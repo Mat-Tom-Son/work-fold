@@ -24,8 +24,6 @@ import {
 } from "../../shared/pages/index.js";
 import { getWorkFolder, type WorkFolderSummary } from "../work-folder.js";
 import { PAGE_FRAME_CONTENT_SECURITY_POLICY, PAGE_FRAME_HTML, PAGE_FRAME_SCRIPT } from "./frame/page-frame-assets.js";
-import { PagesBridgeError, PagesBridgeUnavailableError, type PagesBridgeDataAction } from "./page-bridge-client.js";
-import { PagePublishError, type PagePublicationView, type PagePublishingService, type PagePublishUploaded } from "./page-publishing.js";
 import { findPageFolders, PageFolderError } from "./page-folder-files.js";
 import { analyzePageFolder, assemblePageFolder, inspectPageFolder, readPageFolderDeclaration } from "./page-inspection.js";
 import { currentPreviewVisitor, withPagePreviewDatabase } from "./page-preview-store.js";
@@ -33,20 +31,6 @@ import { currentPreviewVisitor, withPagePreviewDatabase } from "./page-preview-s
 export interface PageRouteContext {
   /** Reads the request's JSON body with the server's ordinary bounds. */
   readJson(): Promise<unknown>;
-  /** Publishing (docs/pages.md, "Publishing (stage 2)"); without it those routes answer 404. */
-  publishing?: PageRoutePublishing;
-}
-
-/**
- * The publishing routes' hooks into the server: the service, and the acts
- * the server journals (publish runs as the prepared `page.publish` act; the
- * rest are direct verbs with a receipt each).
- */
-export interface PageRoutePublishing {
-  service: PagePublishingService;
-  publish(workFolder: WorkFolderSummary, page: unknown): Promise<{ publication: PagePublicationView; uploaded: PagePublishUploaded }>;
-  unpublish(workFolder: WorkFolderSummary, page: unknown): Promise<{ publication: PagePublicationView }>;
-  changeData(workFolder: WorkFolderSummary, action: PagesBridgeDataAction, body: Record<string, unknown>): Promise<unknown>;
 }
 
 const pageCallStatus: Record<PageCallErrorCode, number> = {
@@ -81,7 +65,6 @@ export function servePageFrameAsset(req: IncomingMessage, res: ServerResponse): 
 }
 
 const pagesRoute = /^\/api\/work-folders\/([^/]+)\/pages(?:\/(.*))?$/u;
-const publishedPagesRoute = "/api/pages/published";
 
 /**
  * Handles `/api/work-folders/:id/pages…`. Returns false when the path isn't a
@@ -96,11 +79,6 @@ export async function handlePageRoute(
   context: PageRouteContext,
 ): Promise<boolean> {
   const method = req.method ?? "GET";
-  if (url.pathname === publishedPagesRoute) {
-    if (method !== "GET" || !context.publishing) throw new PageFolderError(404, "Not found.");
-    sendJson(res, { publications: await context.publishing.service.listPublished() });
-    return true;
-  }
   const matched = pagesRoute.exec(url.pathname);
   if (!matched) return false;
   const workFolderId = decodePathSegment(matched[1] ?? "");
@@ -217,7 +195,6 @@ export async function handlePageRoute(
         return true;
       }
       default:
-        if (context.publishing && await handlePublishingRoute(route, res, url, workFolder, context, context.publishing)) return true;
         throw new PageFolderError(404, "Not found.");
     }
   } catch (error) {
@@ -225,94 +202,7 @@ export async function handlePageRoute(
       sendJson(res, { error: error.message, ...error.toJSON() }, pageCallStatus[error.code]);
       return true;
     }
-    if (error instanceof PagePublishError) {
-      sendJson(res, { error: error.message, code: error.code, ...(error.problems ? { problems: error.problems } : {}) }, error.statusCode);
-      return true;
-    }
-    if (error instanceof PagesBridgeUnavailableError) {
-      sendJson(res, { error: error.message, code: error.code }, error.statusCode);
-      return true;
-    }
     throw error;
-  }
-}
-
-/**
- * Publishing and Online entries (docs/pages.md, "Publishing (stage 2)" →
- * "Desktop"). Online entries answer the preview data routes' shapes; reads
- * come from the page folder's `data.sqlite`, changes go online and then
- * check in.
- */
-async function handlePublishingRoute(
-  route: string,
-  res: ServerResponse,
-  url: URL,
-  workFolder: WorkFolderSummary,
-  context: PageRouteContext,
-  publishing: PageRoutePublishing,
-): Promise<boolean> {
-  const service = publishing.service;
-  switch (route) {
-    case "GET publication":
-      sendJson(res, await service.publicationFor(workFolder, url.searchParams.get("page")));
-      return true;
-    case "POST publish": {
-      const body = await readBody(context);
-      sendJson(res, await publishing.publish(workFolder, body.page));
-      return true;
-    }
-    case "POST unpublish": {
-      const body = await readBody(context);
-      sendJson(res, await publishing.unpublish(workFolder, body.page));
-      return true;
-    }
-    case "POST online/check-in": {
-      const body = await readBody(context);
-      await service.requireAvailable();
-      // The page must be one of this work-folder's page folders.
-      await readPageFolderDeclaration(workFolder.workFolderRoot, body.page);
-      const summary = await service.checkIn();
-      if (summary.error) throw new PagesBridgeError(502, summary.error);
-      const { publication } = await service.publicationFor(workFolder, body.page);
-      sendJson(res, { publication });
-      return true;
-    }
-    case "GET online/data": {
-      const table = url.searchParams.get("table");
-      const deleted = /^(?:1|true)$/iu.test(url.searchParams.get("deleted") ?? "");
-      const page = url.searchParams.get("page");
-      sendJson(res, table ? await service.onlineTable(workFolder, page, table, deleted) : await service.onlineTables(workFolder, page));
-      return true;
-    }
-    case "POST online/data/update":
-    case "POST online/data/delete":
-    case "POST online/data/restore": {
-      const body = await readBody(context);
-      requireTableName(body.table);
-      const action = route.slice("POST online/data/".length) as PagesBridgeDataAction;
-      sendJson(res, await publishing.changeData(workFolder, action, body));
-      return true;
-    }
-    case "POST online/data/seen": {
-      const body = await readBody(context);
-      const table = requireTableName(body.table);
-      sendJson(res, await service.markOnlineSeen(workFolder, body.page, table));
-      return true;
-    }
-    case "GET online/data/export": {
-      const table = requireTableName(url.searchParams.get("table"));
-      const csv = await service.onlineExport(workFolder, url.searchParams.get("page"), table);
-      res.writeHead(200, {
-        "content-type": "text/csv; charset=utf-8",
-        "content-length": Buffer.byteLength(csv),
-        "content-disposition": `attachment; filename="${table}.csv"`,
-        "cache-control": "no-store",
-      });
-      res.end(csv);
-      return true;
-    }
-    default:
-      return false;
   }
 }
 

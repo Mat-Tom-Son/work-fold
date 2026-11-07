@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckmarkCircle16Filled, ErrorCircle16Filled, Info16Filled } from "@fluentui/react-icons";
 import { X } from "../components/chrome/icons";
 import { useModalDialog } from "../hooks/useModalDialog";
 
@@ -180,7 +181,8 @@ export function ToastHost() {
 }
 
 export function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: () => void }) {
-  const remainingMsRef = useRef(toast.durationMs ?? 4500);
+  // An error stays long enough to read; anything else leaves after four and a half seconds unless it says otherwise.
+  const remainingMsRef = useRef(toast.durationMs ?? (toast.tone === "error" ? 9000 : 4500));
   const startedAtRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const closedRef = useRef(false);
@@ -222,7 +224,9 @@ export function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: 
   }, [clearTimer, startTimer]);
 
   return (
-    <div className={`toast toast-${toast.tone}`} role="status" onMouseEnter={pauseTimer} onMouseLeave={startTimer}>
+    <div className={`toast toast-${toast.tone}`} role={toast.tone === "error" ? "alert" : "status"} onMouseEnter={pauseTimer} onMouseLeave={startTimer}>
+      {/* What kind of notice this is, at a glance: done, worth knowing, or went wrong. */}
+      <span className="toast-icon" aria-hidden="true">{toast.tone === "success" ? <CheckmarkCircle16Filled /> : toast.tone === "error" ? <ErrorCircle16Filled /> : <Info16Filled />}</span>
       <span className="toast-text">{toast.text}</span>
       {toast.actionLabel && toast.onAction ? (
         <button

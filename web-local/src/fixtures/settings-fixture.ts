@@ -13,7 +13,7 @@ import type { DesktopUpdateStatus } from "../types";
 /**
  * Sample Settings data for the browser preview (`?fixture=work-folder`): the
  * pages that read from the desktop bridge or the local API — Recently Deleted,
- * Automations, Web Access, and About — show this instead, so the preview looks
+ * Automations, and About — show this instead, so the preview looks
  * like the shipped Mac app. Nothing here is a real address, account, or secret.
  */
 
@@ -261,38 +261,5 @@ export function createFixtureAutomationReads(): FixtureAutomationReads {
       if (!history) throw missing();
       return history;
     },
-  };
-}
-
-type RemoteAccessBridge = NonNullable<Window["workFoldDesktop"]>["remoteAccess"];
-
-/**
- * Settings → Web Access with a private address set up, the desktop connected,
- * and two paired browsers. Changes never reach this object: the pane shows a
- * preview notice first.
- */
-export function createFixtureRemoteAccess(): RemoteAccessBridge {
-  const status: Awaited<ReturnType<RemoteAccessBridge["getStatus"]>> = {
-    configured: true,
-    enabled: true,
-    connection: "connected",
-    slug: "you",
-    url: "https://you.work-fold.com",
-    lastError: null,
-    approvedBrowsers: [
-      { id: "grant-fixture-iphone", browserId: "browser-fixture-iphone", label: "Safari on iPhone", approvedAt: "2026-10-18T19:40:00.000Z" },
-      { id: "grant-fixture-laptop", browserId: "browser-fixture-laptop", label: "Chrome on macOS", approvedAt: "2026-09-29T08:12:00.000Z" },
-    ],
-  };
-  const unchanged = async () => status;
-  return {
-    getStatus: unchanged,
-    configure: unchanged,
-    setEnabled: unchanged,
-    revokeBrowser: unchanged,
-    revokeAll: unchanged,
-    remove: unchanged,
-    open: async () => undefined,
-    onStatusChanged: () => () => undefined,
   };
 }

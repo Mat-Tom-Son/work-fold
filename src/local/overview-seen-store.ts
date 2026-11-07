@@ -32,24 +32,17 @@ export interface WorkFoldOverviewSeenAdvanceResult {
   seenThrough: string | null;
 }
 
-/** The two desktop surfaces; paired remote browsers use `remote:<grantId>`. */
+/** The two desktop surfaces. */
 export const WORKFOLD_OVERVIEW_BUILTIN_SURFACES = ["popover", "main-window"] as const;
 
-const remoteSurfacePrefix = "remote:";
-const grantIdPattern = /^[A-Za-z0-9._:-]{1,160}$/;
 const defaultMaxSurfaces = 128;
 
-export function workFoldOverviewRemoteSurfaceId(grantId: string): string {
-  const normalized = grantId.trim();
-  if (!grantIdPattern.test(normalized)) throw new Error("A valid remote grant id is required.");
-  return `${remoteSurfacePrefix}${normalized}`;
-}
-
-/** Closed surface vocabulary: `popover`, `main-window`, or `remote:<grantId>`. */
+/**
+ * Closed surface vocabulary: `popover` or `main-window`. Markers older builds
+ * kept for paired browsers (`remote:<grantId>`) are skipped on read.
+ */
 export function isWorkFoldOverviewSurfaceId(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  if ((WORKFOLD_OVERVIEW_BUILTIN_SURFACES as readonly string[]).includes(value)) return true;
-  return value.startsWith(remoteSurfacePrefix) && grantIdPattern.test(value.slice(remoteSurfacePrefix.length));
+  return typeof value === "string" && (WORKFOLD_OVERVIEW_BUILTIN_SURFACES as readonly string[]).includes(value);
 }
 
 export function workFoldOverviewSeenFile(): string {
@@ -125,10 +118,7 @@ export class WorkFoldOverviewSeenStore {
     return operation;
   }
 
-  /**
-   * Deletes one surface's marker; revoking a remote browser removes its
-   * `remote:<grantId>` marker along with the rest of that grant's state.
-   */
+  /** Deletes one surface's marker. */
   removeSurface(surfaceId: string): Promise<boolean> {
     const operation = this.#queue.catch(() => undefined).then(async () => {
       if (typeof surfaceId !== "string" || !surfaceId) return false;

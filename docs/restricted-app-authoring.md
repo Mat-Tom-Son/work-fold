@@ -252,10 +252,6 @@ template exercises every current section:
         "description": "The records refresh automation finished. Open work-fold to review the result."
       }
     ]
-  },
-  "viewer": {
-    "entry": "viewer.html",
-    "readable": ["records/summary"]
   }
 }
 ```
@@ -301,16 +297,9 @@ person's current grants. Automations require a worker. Every notification
 declaration must be referenced by at least one automation. Notification title
 and description are reviewed, bounded, plain single-line text.
 
-`viewer` is optional and defines the read-only web view a paired browser opens
-privately. It is the complete viewer-readable surface: `entry` names the
-packaged document the view loads, and `readable` names up to 256 exact
-instance-owned storage key prefixes (lowercase letters, numbers, `._/-`, at
-most 64 characters each) the view may read. Everything else is refused to the
-view desktop-side — storage writes, network, connections, work-folder files,
-notifications, automations, OAuth, and host UI; declared worker actions use the
-separate request API below. Declaring `viewer` creates no link and no public
-audience. See [work-folder apps in paired browsers](browser-apps.md) and
-[Restricted app runtime](restricted-app-runtime.md).
+`viewer` is retired. It defined the read-only web view a paired browser
+opened; since Web Access was removed on 2026-11-07 nothing opens it. Older
+packages that declare it still parse, but new apps should leave it out.
 
 Network methods are limited to `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 Public targets are exact HTTPS origins. Loopback targets are numeric
@@ -332,48 +321,6 @@ destination may not name the header its own `api-key` credential occupies, and
 a header reviewed for one destination grants nothing to another.
 
 ## Visible UI and content policy
-
-For a private browser view, add the reviewed `viewer.entry` and `viewer.readable`
-declaration in the manifest template above and use `workFoldViewerApp` in that entry. Paired
-browsers open it from a Chat's result link; source-work-folder
-previews are supported too. Keep the web entry responsive and self-contained,
-and obtain packaged assets through `asset()`/`assetUrl()` instead of relative
-URLs in the blob document. Declared worker actions can use the separate private
-request API below. See
-[the browser view contract](browser-apps.md).
-
-When a private paired browser opens a web view with declared worker tools,
-it also receives `workFoldBrowserApp.actions`. Feature-detect it because older
-hosts do not install this API:
-
-```js
-const actions = globalThis.workFoldBrowserApp?.actions;
-if (actions) {
-  // Keep this exact request for an uncertain retry; do not create another id.
-  const request = actions.createRequest("save-quote", { supplier: "North", quantity: 10 });
-  const receipt = await actions.request(request);
-  // The request runs as soon as it is accepted; poll until it settles.
-  const current = await actions.get(receipt.requestId);
-  if (current.status === "succeeded") showResult(current.result);
-}
-```
-
-`actions.list()` returns this app/browser's receipt summaries and recovers
-request ids after reopening; use `get(requestId)` for a result and
-`cancel(requestId)` to stop a request. Poll conservatively while visible.
-`createRequest` works in opaque frames where `crypto.randomUUID` may be absent.
-Inputs are schema-checked and limited to 4 MiB, results to 4 MiB, on the
-desktop. A paired browser reaches the desktop through a relay that carries
-less: an action call (request id, action and input) of at most 2 MiB of UTF-8
-JSON, a result of about 3 MiB of JSON, and an asset from `asset()` of about
-2.3 MiB. Larger ones fail with the code `REQUEST_TOO_LARGE` or
-`RESPONSE_TOO_LARGE` and a plain message, and the app keeps running; see
-[transport limits](browser-apps.md#transport-limits). The normal
-worker executes with existing installed grants, not browser-chosen owners or
-new permissions. There is no app-facing shell or grant API.
-If a request times out, check its status or list existing requests before
-creating another. Stopped, failed or interrupted work may have completed
-earlier effects; do not describe these outcomes as rollback.
 
 The HTML entry runs with Node disabled and direct networking, navigation,
 popups, downloads, dialogs, permissions, workers, frames, service workers, and
@@ -636,8 +583,7 @@ because a view can miss a hint.** Nothing is replayed: a view that was
 inactive, occluded, or minimized while something changed is told nothing then
 and nothing extra when it comes back, a new mount starts with no backlog, and
 a machine that slept re-establishes its baseline instead of announcing what
-happened while it was asleep. A hint never starts a model turn. Remote app
-views have no push channel at all.
+happened while it was asleep. A hint never starts a model turn.
 
 People can export and restore app-owned data from the app's details in Settings → Apps;
 see [App data recovery](app-data-recovery.md). This management operation adds no
@@ -754,8 +700,7 @@ refused with `INFER_OUTPUT_TOO_LARGE`. The call uses the work-folder's configure
 model and thinking level with the model's own output-token limit.
 `receiptId` matches the id a `tasks.onChanged` hint carries. Active
 views, workers holding a tool action, and named automation runs reach
-`assistant.request`; views and workers reach `assistant.infer`; remote app
-views reach neither and get `INFER_UNAVAILABLE`. Both leave
+`assistant.request`; views and workers reach `assistant.infer`. Both leave
 receipts naming the effective model and its usage.
 
 An `assistantActions` entry may declare `outputSchema` beside its

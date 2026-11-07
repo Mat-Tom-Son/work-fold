@@ -112,7 +112,7 @@ test("enable is journal-first exact-digest authority: declaration and enable rec
     (error: unknown) => error instanceof WorkFoldAutomationStoreError && error.code === "DIGEST_MISMATCH",
     "a declaration that does not hash to the pinned digest is refused",
   );
-  for (const surface of ["policy", "unrestricted"] as const) {
+  for (const surface of ["policy", "unrestricted", "remote_web"] as const) {
     await assert.rejects(
       () => store.enable({
         ...enableInput(declarationInput("automation-weekly-handoff"), "request-3"),
@@ -123,25 +123,16 @@ test("enable is journal-first exact-digest authority: declaration and enable rec
       `a legacy ${surface} surface is never written again`,
     );
   }
-  await assert.rejects(
-    () => store.enable({
-      ...enableInput(declarationInput("automation-weekly-handoff"), "request-4"),
-      grant: { requestId: "request-4", surface: "remote_web" },
-    }),
-    (error: unknown) => error instanceof WorkFoldAutomationStoreError && error.code === "INPUT_INVALID",
-    "a remote enablement must record the paired browser identity",
-  );
-  const remote = await store.enable({
+  const again = await store.enable({
     ...enableInput(declarationInput("automation-weekly-handoff"), "request-5"),
-    grant: { requestId: "request-5", surface: "remote_web", browserId: "browser-1" },
+    grant: { requestId: "request-5", surface: "cli" },
   });
-  assert.equal(remote.grants.length, 2, "re-enablement appends a fresh receipt instead of rewriting history");
-  assert.deepEqual(remote.grants[1], {
-    digest: remote.digest,
+  assert.equal(again.grants.length, 2, "re-enablement appends a fresh receipt instead of rewriting history");
+  assert.deepEqual(again.grants[1], {
+    digest: again.digest,
     requestId: "request-5",
     enabledAt: fixedNow.toISOString(),
-    surface: "remote_web",
-    browserId: "browser-1",
+    surface: "cli",
   });
 });
 

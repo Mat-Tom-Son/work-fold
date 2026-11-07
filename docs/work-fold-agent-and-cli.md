@@ -65,11 +65,7 @@ The development extension UI adapter treats the work-fold agent as its own valid
 return current live Pi questions; `POST .../extension-ui/:requestId` validates
 one response for that exact Chat. Chat SSE sends `extension_ui_snapshot` on
 connection and change without putting prompts or answers in its replay log.
-Remote summary advertises `capabilities.extensionUi` and includes only the
-originating browser's non-secret questions. `management.extensionAnswer`
-requires that request's exact active task, question id and browser grant,
-rechecking revocation before callback delivery. It cannot answer another
-surface's work or a setup-secret prompt. These session-local callbacks are
+These session-local callbacks are
 not durable request questions and never dispatch a continuation turn; see
 [Skills & Extensions](skills-and-extensions.md#live-extension-questions).
 
@@ -80,7 +76,7 @@ routes read retained local diagnostics; optional `workFolderId` and `conversatio
 filters pin the exact owner. A conversation filter requires a work-folder filter.
 `POST /api/model-context` accepts either `{ enabled: boolean }` or
 `{ clear: true }`. These use the existing local renderer authentication, have
-no CLI or paired-browser operation, never create a client or Pi session, and
+no CLI operation, never create a client or Pi session, and
 cannot influence execution. All-request access is a developer diagnostic view,
 opened in the installed app through an explicit launch argument and its own
 diagnostics-only sandboxed window, never an ordinary Settings entry.
@@ -118,7 +114,7 @@ Domain services still own writes. The kernel does not bypass folder grants, regi
 The desktop's early-created Check service shares the interactive API's bounded,
 serialized fold-model reviewer through an in-process callback. This transport
 is resolved only for an authorized Check run; it adds no read-protocol, HTTP,
-act-lane, or remote verb.
+or act-lane verb.
 
 The dotted restricted-app edge is a boundary, not a data flow into the kernel. work-folder apps have their own reviewed package, grant, encrypted connection, storage, named-automation, notification, and sandbox-host state. Protocol v1 and `work-fold.capabilities` intentionally do not list or mutate that state. The machine-wide automation scheduler is an in-process execution coordinator for that domain, not a management-protocol mutation surface. Future app inventory belongs in a deliberately versioned kernel snapshot only after its content and authorization contract are designed.
 
@@ -160,8 +156,8 @@ available; reconnect refreshes the current runtime. A successful compaction
 appends a presentation-only `system` message with kind `context_compaction`, then
 publishes `context_compacted` with that saved message. Manual, automatic and
 background compactions share this path. The notice contains no summary text,
-does not become a model message or result, and remains visible in desktop,
-menu-bar and paired-web transcripts. Failure and cancellation leave no success
+does not become a model message or result, and remains visible in desktop
+and menu-bar transcripts. Failure and cancellation leave no success
 notice. The content-free CLI snapshots and task lifecycle are unchanged.
 
 This contract belongs only to work-fold's new profile and `.work-fold/` data. The kernel and its adapters never parse or project a legacy Workspace registry or `.workspace/` manifest. Registering a folder that contains preserved `.workspace/` data creates a new work-fold work-folder identity instead of adopting the old one.
@@ -169,6 +165,15 @@ This contract belongs only to work-fold's new profile and `.work-fold/` data. Th
 ## work-fold CLI
 
 The Windows installer places `work-fold.cmd`, an extensionless `work-fold` shim, and the private `work-fold-cli.ps1` helper in `<install>\bin`, then adds that directory to the current user's `PATH`. The Mac bundle places the extensionless shim and `work-fold-cli.jxa.js` under `work-fold.app/Contents/bin`; work-fold adds that directory to child-process `PATH` for Pi shell tools without editing a person's Terminal profile.
+
+### Other AI agents (Settings → Command Line)
+
+Claude Code, Codex, or any agent that runs shell commands can drive work-fold through this command (owner request, 2026-11-07). **Settings → Command Line**, also offered in first run, has two parts, and nothing changes until the person clicks:
+
+- **Add to Terminal** writes one line, the app's own `Contents/bin`, to `/etc/paths.d/<command>`, which every login shell reads, the way Postgres.app does it. macOS asks for the person's password once. The launcher finds the app from its own folder, so the PATH names that folder rather than a symlink. It is offered only by an installed Mac app running from its own place (not a translocated download copy); the row says when another copy's entry is there, and **Remove** deletes the line.
+- **AI Agents** writes the skill to `~/.claude/skills/<command>/SKILL.md` (Claude Code) or `~/.codex/skills/<command>/SKILL.md` (Codex), shows when an app update changed it, and removes only a skill whose front matter names this one. **Copy Skill** hands it to any other agent. `work-fold skill` prints the same file.
+
+The skill (`src/shared/outside-agent-skill.ts`) is short on purpose: the rules (`--json`, an explicit `--work-folder`, receipts over raw edits, no secrets, no polling), how to look around, handing work to a Worker and waiting for its result, asking the work-fold agent to work across work-folders, files and undo, and Automations, with `work-fold help <command>` for the rest. Its product name, command, and folder all come from `src/shared/product-identity.json`, and `tests/outside-agent-skill.test.ts` checks every command it cites against this help.
 
 ```powershell
 work-fold context --json
@@ -218,9 +223,6 @@ work-fold tools enable --path <resource-path> --kind extensions --scope work-fol
 work-fold recently-deleted list --json
 work-fold recently-deleted restore --entry <recently-deleted-id> --json
 work-fold pages validate --work-folder "Home" --page "Garden Party RSVP" --json
-work-fold pages publish --work-folder "Home" --page "Garden Party RSVP" --json
-work-fold pages unpublish --work-folder "Home" --page "Garden Party RSVP" --json
-work-fold pages list --json
 ```
 
 `tools enable|disable` uses Pi's resource filters for `extensions`, `skills`,
@@ -232,7 +234,7 @@ same path. Unrelated package defaults and filters are preserved; active work
 refuses the mutation rather than being interrupted. Native single-file package
 sources do not support filtering and return that limitation. Connection
 readiness is separate from enablement: included MCP/browser/OS secret setup
-stays local and has no act or paired-web operation. See
+stays local and has no act operation. See
 [Extensions and computer work](extension-foundation.md).
 
 The four collaboration verbs ([the collaboration contract](collaboration-contract.md),
@@ -305,58 +307,9 @@ page folder, and `""` means the page folder itself. `summary.tables` is empty
 while `page.json` has errors. Test entries and the Data view live behind the
 local API's `/api/work-folders/:id/pages` routes, not the act lane.
 
-`work-fold pages publish --work-folder <id> --page <path> [--json]` puts a page
-online ([Pages](pages.md#desktop)). It makes the folder's bytes reachable by
-anyone with the link, so it runs as the prepared `page.publish` act: the
-journaled request id, then the page checked and assembled exactly as Preview
-does, pinned to the work-folder, the path, and the content digest (SHA-256
-over the canonical `page.json` and the assembled document), rechecked inside
-the act, and uploaded at most once. It refuses with the page's problems
-(`conflict`, naming the first few) when any is an error, with `unavailable`
-until Web Access is set up and turned on, and with `conflict` while an
-Automation's work is running or when `--parent-task` names a request an
-Automation started: Automations can't publish. The first publish chooses the
-page id (`pg_` plus 26 lowercase base32 characters) and keeps it, in the state
-root, for that folder; publishing again uploads changes under the same link
-and keeps the entries. `pages unpublish` is a direct verb that takes the page
-offline and keeps its entries (`notFound` for a page never published), and
-`pages list [--work-folder <id>]` reads every page published from this
-computer. Publish and unpublish accept `--parent-task`.
-
-Only the command's own output carries the link. Receipts name the page by its
-path and the first 8 characters of its id (`page.publish; page Garden Party
-RSVP; id pg_k3x9q; revision 2; 4 files, 18211 bytes`, `page Garden Party
-RSVP; id pg_k3x9q; unpublished`, `pages 3`), and so does the overview. The
-`--json` shapes:
-
-```json
-{
-  "workFolder": { "id": "space-…", "name": "Home", "workFolderRoot": "/…" },
-  "publication": {
-    "path": "Garden Party RSVP",
-    "title": "Garden Party RSVP",
-    "url": "https://pages.work-fold.com/p/pg_…",
-    "idPrefix": "pg_k3x9q",
-    "status": "online",
-    "revision": 2,
-    "publishedAt": "2026-11-05T18:00:00.000Z",
-    "changesAvailable": false,
-    "lastCheckIn": "2026-11-05T18:00:01.000Z",
-    "dataRevision": 14,
-    "entries": 12
-  },
-  "uploaded": { "files": [{ "path": "index.html", "bytes": 9120 }], "bytes": 18211 }
-}
-```
-
-`pages unpublish` returns `workFolder` and `publication` (status
-`unpublished`); `pages list` returns `{ "publications": [...] }`, each a
-`publication` plus `workFolderId` and `workFolderName` (null when that
-work-folder is no longer registered). `url` is null until work-fold.com has
-said where pages are served, which the first check-in learns.
-`changesAvailable` says the folder's assembled document or `page.json`
-differs from what was last published. Entries visitors make online come back
-into the page folder as `data.sqlite` whenever work-fold is running.
+`pages validate` is the only `pages` verb. `pages publish`, `pages unpublish`,
+`pages list`, and the `page.publish` prepared act were removed on 2026-11-07
+with online pages; pages run in their page tab on this computer.
 
 `work-fold recently-deleted …` reads and restores **Recently deleted**, the machine-local
 store under the state root that holds what a delete could not leave to History:
@@ -395,7 +348,7 @@ Those two app-owned resources are required, not an optional enhancement. If work
 
 Be precise about its authority: the work-fold agent is a **full-trust agent, taught rather than caged**. Like every work-fold agent it keeps Pi's ordinary read/bash/edit/write tools, which accept absolute paths anywhere this user can reach. The materialized instructions teach it to prefer the `work-fold` read and act commands for anything that touches work-folders — those carry the trust grants, restore points, receipts, and conflict rules — but that preference is instruction, not an enforced authority boundary. An enforced CLI-only management agent would be a different, deliberate design (per-session tool restriction) that this personal, local product has not adopted.
 
-Without `--conversation`, manage commands target the most recent active work-fold agent, `agent send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; work-fold agent turns appear in `work-fold tasks list` under the work-fold agent scope id. The menu-bar and remote browser surfaces expose the same choice as **New chat**: the view becomes a clean slate immediately, the first send creates the new machine-local transcript, and the previous transcript remains saved rather than being cleared or rewritten. A person may rename or delete an idle work-fold agent Chat from either surface; deletion moves its exact transcript into **Recently deleted** under its Chat title and restoration preserves that Chat identity. Running, compacting, or unsettled Chats refuse deletion.
+Without `--conversation`, manage commands target the most recent active work-fold agent, `agent send` creates it on first use, and `--new` deliberately allows additional threads while the default stays a single conversation; work-fold agent turns appear in `work-fold tasks list` under the work-fold agent scope id. The menu-bar popover exposes the same choice as **New chat**: the view becomes a clean slate immediately, the first send creates the new machine-local transcript, and the previous transcript remains saved rather than being cleared or rewritten. A person may rename or delete an idle work-fold agent Chat there; deletion moves its exact transcript into **Recently deleted** under its Chat title and restoration preserves that Chat identity. Running, compacting, or unsettled Chats refuse deletion.
 
 ### Management attachments, request lineage, and the popover surface
 
@@ -407,7 +360,7 @@ Every accepted work-fold agent turn is a **request**. Its hidden turn context su
 
 The same request model backs the desktop's **menu-bar popover** (macOS menu-bar item; the Windows tray gains the same "work-fold agent" entry), which talks to `/api/work-fold-agent/*` local-API routes — send with attachments, summary, request status, request stop, transcript, per-conversation runtime and thinking-level changes, and the event stream — through the same acceptance path, conflict rules, and kernel task records as every other surface. The popover is deliberately a window, not a tab, so the work-folder-bound tab contract is untouched. Its transcript stays visible as a conventional compact chat: person messages are colored bubbles aligned right, agent replies are unboxed and aligned left, and redundant speaker labels and divider lines are absent. It follows streamed text while pinned near the bottom but respects deliberate scrollback. The header shows the current chat title, with separate **Previous** and **New chat** actions. The per-conversation stream renders replay-safe `turn_snapshot`, incremental `assistant_delta`, and final `assistant_message` text in place; when the request settles, the persisted transcript replaces that transient projection. The composer's model label uses one fixed bridge to show the main window's **Settings → AI Models** scoped to **work-fold agent**; the adjacent text-only reasoning selector is hydrated from the work-fold agent's selected model before the first send, saves Pi's default for a future session, and writes the live Pi session once the conversation has one. The aligned action becomes **Stop** while the request is active, using the existing request-scoped stop route, while the text area remains available for drafting; one compact live line carries the current activity without displacing the transcript. Dropping onto the macOS menu-bar icon stages bounded references, while dragging over the popover temporarily turns the whole surface into the drop target; neither sends anything, and send is always an explicit act. Its sandboxed renderer has a dedicated preload exposing only the local API session, dropped-file path resolution, hide/show-main, open-AI-Models-settings (`openAiModelsSettings`), and window-material actions — it does not inherit the main renderer's folder, restricted-app, update, general settings, or shell bridges.
 
-The work-fold agent has one machine-local provider/model preference distinct from every work-folder preference. Settings → AI Models labels that scope **work-fold agent**; the same choice governs this one work-fold agent in the menu-bar/tray popover and paired web client. Each registered work-folder may additionally keep bounded machine-local **Worker instructions**, keyed by its portable identity and appended to subsequent Pi turns without changing portable `.work-fold/` or `.pi/` content. Saving them never waits on or interrupts work: idle Chats pick them up at once, and a Chat that is mid-turn or compacting, including the Worker that saved them (as Set up for me does), picks them up as soon as that work ends. Provider credentials remain machine-wide Pi AuthStorage records rather than being duplicated per scope.
+The work-fold agent has one machine-local provider/model preference distinct from every work-folder preference. Settings → AI Models labels that scope **work-fold agent**; the same choice governs this one work-fold agent in the menu-bar/tray popover. Each registered work-folder may additionally keep bounded machine-local **Worker instructions**, keyed by its portable identity and appended to subsequent Pi turns without changing portable `.work-fold/` or `.pi/` content. Saving them never waits on or interrupts work: idle Chats pick them up at once, and a Chat that is mid-turn or compacting, including the Worker that saved them (as Set up for me does), picks them up as soon as that work ends. Provider credentials remain machine-wide Pi AuthStorage records rather than being duplicated per scope.
 
 ### Durable requests, questions, and continuation
 
@@ -527,134 +480,21 @@ continuations carry a stable `deliveryId`. A lost-response retry acknowledges
 the accepted answer or turn rather than dispatching another one. A continuation
 carries the selected child reports and records their delivery before prompting.
 
-The remote equivalents are `management.work`, `management.answer`, and
-`management.continue`, plus the existing `management.stop`. They accept a task id
-and require the root work-fold agent request's original browser and grant. A child
-inherits that root's ownership; unrelated work-folder requests do not. Summary
-capabilities advertise `work: true`; older hosts keep the existing presentation.
-The overview advertises whether an item can open these controls for that grant.
-
 See [Collaboration experience](collaboration-experience.md) for rendering,
 recovery, keyboard, and privacy behavior. These endpoints are for trusted
 surfaces; restricted app bridges receive no new access.
 
-### Remote browser surface
+### No remote browser surface
 
-Server-enabled private-alpha Web Access adds a browser surface to the canonical management
-conversation; it does not add another agent, transcript, Pi session, or work-folder-chat mode. The
-desktop renderer configures a unique address and password in Settings. A
-server-side switch controls whether new addresses may be created; the public
-desktop app carries no shared enrollment credential, and the bridge applies
-per-IP and global enrollment rate limits. A
-successful password check creates only a host-only, SameSite session. A new
-browser then creates non-exportable P-256 signing and agreement keys plus a
-fresh pairing id. The browser and desktop independently derive the matching
-six-digit code from that id, the browser identity, and both public keys; a code
-supplied by the relay is never authoritative. Confirming that code on the
-desktop creates a desktop-signed, generation-bound browser grant. One browser, every browser, the
-whole connection, and the address itself are separately revocable from the
-desktop.
+Web Access was removed from the desktop on 2026-11-07. There is no address
+enrollment, browser pairing, browser grant, relay client, remote management
+facade, remote file preview, remote upload staging, or browser-requested app
+action. The bridge in `services/bridge` is still in the repository and deployed
+separately; the desktop never connects to it. The archived
+[browser app views](archive/browser-apps.md) and
+[file previews](archive/browser-file-previews.md) record the earlier contract.
 
-The public bridge terminates HTTPS and WebSockets and the hosted origin serves
-the executable browser client. PostgreSQL durably stores the address and scrypt
-verifier, device and browser public keys, grant certificates and generations,
-hashed sessions, and bounded operation metadata. It does not store private keys.
-Browser requests and desktop results use signed ECDH/HKDF/AES-GCM envelopes;
-completed prompt, transcript, result, work-folder-name, and file-tree bodies are not
-written to the database. This application encryption protects passive handling
-and persisted relay state, not an actively compromised hosted origin: same-origin
-code can use a paired non-exportable browser key, so the hosted client and
-bridge are trusted authority in this alpha even though the desktop remains the
-local execution endpoint. Live bounded encrypted response buffers, browser
-event streams, desktop presence, and rate limits are process-local, so the
-service must stay at one replica until those functions move to a shared
-backplane. Scheduled cleanup, active-row expiry predicates, per-grant operation
-caps, SSE caps, per-client queued-byte limits, and a global ciphertext-byte
-budget bound the current process. Device protocol errors have a finite
-per-connection budget and are terminal when received, while unknown typed
-frames are ignored for forward compatibility. Structured aggregate metrics
-cover request rate, password-check admission, device frame rate, event-loop
-lag, connection counts, and the enrollment switch without recording ids,
-content, ciphertext, tokens, addresses, or network identifiers.
-
-The desktop does not expose its renderer token or tunnel arbitrary local HTTP.
-`WorkFoldRemoteFacade` is a closed semantic adapter with bounded saved-Chat
-listing, summary/transcript/rename/send/stop/watch operations for the work-fold agent,
-work-fold agent request projection,
-compatibility work-folder-name/tree projections, explicit file previews, and exact-installation read-only
-[app views](browser-apps.md). The browser-action foundation separately adds
-`apps.actions.request|get|list|cancel` over declared installed worker actions.
-The app's installed declaration and its current grant are the authority; the
-request executes immediately through the host's ordinary receipted path. There
-is no remote Review, Approve, or Run operation and no trusted-parent approval
-role. App frames receive only request/status/cancel. The adapter strips
-absolute roots and attachment target paths, applies
-the ordinary ignore policy to tree views, rejects traversal and unknown fields,
-and rechecks the locally encrypted grant immediately before execution.
-Dispatch admission and completion share a serialization fence with
-desktop-local authority mutations. A live `management.watch` waits outside
-that fence, so Stop and revocation can proceed immediately. Its progress and
-completion recheck authority; revocation and lifecycle changes cancel the
-subscription and clear its listeners and timers.
-Revocation removes local authority before contacting the bridge and stops
-locally tracked work-fold agent requests and their recorded delegated children.
-Every local and bridge cleanup lane is attempted even if another fails, and
-address removal keeps the device credential until server deletion is confirmed
-or the server confirms that the account is already absent. Grant-scoped signed
-request ids, atomic bridge delivery claims, desktop in-flight claims, and
-exact-id recovery prevent a reconnect or bridge restart from inventing a second
-prompt. A late signed result may complete an operation marked lost across a
-socket replacement, and repeated increasing progress events remain valid.
-`management.send` enters `acceptConversationTurn`, may explicitly
-start a new saved thread, persist `remote_web` browser/grant provenance and a
-signed request id, and participate in the same active-turn, stop, transcript, and Pi-session
-rules as the desktop management surface. `management.rename` records the same
-provenance on an append-only manual-title event, is retry-idempotent within that
-exact browser grant, and refuses to race an active turn or Chat compaction. Each
-`management.delete` is capability-advertised for older desktops and is retry-idempotent
-within its exact browser grant: it journals before moving only the validated,
-idle transcript into Recently deleted, where it remains restorable.
-accepted remote request records
-both its browser identity and exact grant. Direct task-scoped request status and
-stop calls reject every other browser or replacement grant, and cross-grant
-summaries omit task ids and action details. That direct-adapter ownership check
-is not hostile-browser isolation: every paired browser can prompt the same
-full-trust management agent within the personal single-user trust boundary.
-work-folder work is initiated only when that
-agent uses the attributed act path; delegated children then use the target
-work-folder's registered runtime authorization, native Pi project resources and tools,
-and pre/post-turn History path. The current web client removes its Files/work-folder browser. Earlier tree
-operations remain compatible. Paired browsers can explicitly read bounded
-text/image previews through capability-advertised `work-folders.filePreview`, with
-an exact work-folder id and relative path. Copied-file receipts and act receipts
-provide direct navigation; previewing neither invokes a model nor publishes
-content. See [file previews](browser-file-previews.md) for filtering, identity
-rechecks, rendering, byte limits and revocation. The
-stable kernel continues to classify it as a renderer surface; the durable
-message/request provenance distinguishes remote acceptance without changing
-the version-1 actor vocabulary. Current replay records require the exact
-browser, grant, and signed request id. Shipped 0.2.2 records, which predate the
-grant field, retain browser-and-request recovery compatibility. A bounded
-filesystem-verified derived index accelerates this lookup without replacing the
-append-only transcripts as authority; oversized stores fall back to the full
-authoritative scan.
-
-Remote file upload is bounded to six plain-named files, 6 MB each and 8 MB per
-message, carried inside the encrypted request envelope. Uploads are temporary
-management references under app-owned `management/Incoming/Remote/`: at most
-64 MB is retained, request directories expire after 24 hours, revoking a browser
-purges that browser's directory, and disabling Web Access purges the whole
-incoming root. The management agent can use them there or place them into a
-work-folder through the ordinary restore-pointed `files add` act. Remote results
-expose names and sizes, never holding paths.
-
-This is a powerful full-trust agent surface. Pairing authorizes a browser
-to ask the taught-but-not-tool-restricted management agent to act with the
-local user's authority while the desktop is online, including delegating to a
-Worker. Password possession alone is not that grant, and an offline
-desktop cannot pair a browser or execute anything.
-
-The closed remote operation vocabulary carries the work-fold agent's overview and watch surfaces: `management.glance`/`management.glanceSeen` return the deterministic digest and advance that grant's own last-seen marker — same signed envelopes, same effect-time grant recheck, no new persisted content classes at the bridge. `management.watch` streams one running work-fold agent turn's bounded response text and current activity line as throttled `operation.event` ticks under the operation's own envelope identity; the durable transcript remains authoritative and replaces that transient projection when the turn settles. `decisions.list` and `decisions.decide` were removed on 2026-09-10 ([Receipts, not gates](receipts-not-gates.md), F19); the web client tolerates a desktop that no longer advertises them and renders Needs you as questions and due snoozes only. Paired browsers use the same verbs and receipts as the desktop; every receipt for a remote-originated act records the initiating browser and grant. Revoking a browser refuses in-flight remote operations and deletes its overview marker.
+### Act command behavior
 
 work-folder-targeted act commands never resolve a work-folder from the working directory — every write names its work-folder explicitly. `recently-deleted list --json` and `recently-deleted restore --entry <id>` are work-folder-free act verbs over the machine-local trash; `apps list --work-folder <id> --json` and `apps invoke --work-folder <id> --app <id> --tool <name> --input <json>` let the work-fold agent see and call an installed app's declared tools with lineage and receipts. `work-folders worker show` is a content-bearing act read that returns the current default, only already-connected model choices, and instruction text; `work-folders worker model` saves the default for new Chats, while `work-folders worker instructions` changes subsequent turns. Both setters reserve the existing work-folder-scoped agent mutation fence across validation, write, and client invalidation, and their receipts contain model identifiers or an instruction character count, never instruction text. Provider credentials and connection setup have no act verb. `chat send` accepts a CLI-initiated agent turn through the exact same acceptance path as the renderer (conflict checks, stable request identity, durable acceptance before transcript append, kernel task record with a `cli` actor, portable transcript persistence, pre/post-turn History checkpoints) and returns a task id. The act-envelope request id is the turn's idempotency key, so an uncertain delivery cannot create a second agent run. Terminal failures and explicit stops append a typed, sanitized agent result before the task settles, including setup failures that occur before a provider can answer; that same durable rule covers the machine-local work-fold agent transcript and menu-bar popover, while raw provider diagnostics stay host-side. That task id is how a caller follows exactly its own turn: work-fold keeps recent terminal outcomes (`succeeded`, `failed`, or `aborted`, with the persisted response message id or failure message) in a bounded machine-local journal across app restarts. `chat status --task`/`chat result --task` read it, and `chat wait --task` is a shim-side poll that finishes with that turn's own result — a failed or aborted turn exits non-zero instead of presenting an older transcript message as success (wait timeout exit code 7). On startup, an accepted turn that reached its transcript but never settled is recorded as interrupted and is not automatically rerun, because completed tools may already have changed something. Quitting work-fold mid-turn records the turn the same way (interrupted, reported as failed), never as a Stop the person asked for. The Chat's last interrupted reply offers **Continue**, which sends the ordinary visible message "Continue where you left off." as a new turn, without the files staged for the person's draft; nothing is replayed. A tool call that never recorded a result reaches the model as an honest error saying it may have partly happened and its effects should be checked, instead of Pi's bare "No result provided" (2026-10-27). `chat status|result --conversation` remain the transcript-scoped views. `files add` copies outside material in with a targeted restore point that succeeds or fails together with the placement, and `work-folders create`/`work-folders register` grant the same registered-work-folder runtime authorization as the desktop actions. Content-bearing chat and agent-preference reads (`chat status|result`, `chats list`, `work-folders worker show`) belong to the act lane too, so the read lane keeps its content-free property. When the interactive app is not running, act commands fail fast with "Open work-fold…" and exit code 6.
 
@@ -682,9 +522,9 @@ The act lane is the separately versioned write surface (`src/local/cli/act-proto
 - **Per-launch request authentication.** The interactive app mints a random act token every run, writes it to `cli/act-token.json` (0600 on POSIX; Windows relies on the profile directory's ACLs), and removes it on shutdown. Shims attach the token to each act request; the desktop host compares it in constant time. On a single-account machine the OS user is the principal — the token binds requests to *this app run* and keeps stale or crash-residue requests inert; it does not pretend to distinguish same-user callers.
 - **Freshness and at-most-once execution.** Act requests reuse the broker's bounded, atomic, freshness-checked claim path; a pending request id returns its recorded response, and after the shim cleans those files up, the journal's `accepted` records refuse a duplicated id outright instead of re-executing the mutation. The broker refuses requests older than its freshness window, and journal rotation holds entries at least that long, so the two windows compose into a durable at-most-once guarantee.
 - **Explicit scope.** Every act command names its work-folder; there is no working-directory resolution for writes. Chat commands additionally name their conversation or task.
-- **Journal-first receipts.** Every authorized act command appends an `accepted` line to `cli/receipts/act.jsonl` **before** its mutation runs — an unwritable journal refuses the command — and a terminal `ok`/`error` line after. Receipts record the initiating surface (`cli`, `popover`, `main-window`, `remote_web`), the initiating browser/grant for remote-originated acts, and typed undo references including Recently-deleted entry ids — identifiers and digests only, never content. The act protocol version advanced to 3 on 2026-09-10 (`src/local/cli/act-protocol.ts`); older receipts stay readable, including the retired decision and policy fields. A crash can separate the pair, but an applied action can never be missing its `accepted` trace; a missing terminal record is itself the honest signal that the outcome was interrupted.
+- **Journal-first receipts.** Every authorized act command appends an `accepted` line to `cli/receipts/act.jsonl` **before** its mutation runs — an unwritable journal refuses the command — and a terminal `ok`/`error` line after. Receipts record the initiating surface (`cli`, `popover`, `main-window`; older lines may carry the retired `remote_web`) and typed undo references including Recently-deleted entry ids — identifiers and digests only, never content. The act protocol version advanced to 3 on 2026-09-10 (`src/local/cli/act-protocol.ts`); older receipts stay readable, including the retired decision and policy fields. A crash can separate the pair, but an applied action can never be missing its `accepted` trace; a missing terminal record is itself the honest signal that the outcome was interrupted.
 - **Existing domain checks.** Act execution happens through an in-process facade the interactive local API exposes on its handle, reusing the same route internals as the renderer — registered-work-folder trust grants, capability-mutation locks, turn-conflict rejection, History checkpoints, and kernel task records included. Without the running interactive app there is no facade and nothing mutates.
-- **Prepared acts.** Runnable-code, standing-power, and destruction acts still prepare a fully pinned record, recheck every pin at effect time, consume it journal-first, and execute at most once through a fenced kernel task — and they do so immediately on the call that asks. There is no pending state, no card, no expiry, no denial, and no authority mode; failed and interrupted executions are never auto-retried; destruction is reversible through History or the trash. The act and remote facades expose no secret entry, pairing, or enrollment.
+- **Prepared acts.** Runnable-code, standing-power, and destruction acts still prepare a fully pinned record, recheck every pin at effect time, consume it journal-first, and execute at most once through a fenced kernel task — and they do so immediately on the call that asks. There is no pending state, no card, no expiry, no denial, and no authority mode; failed and interrupted executions are never auto-retried; destruction is reversible through History or the trash. The act facade exposes no secret entry.
 
 Chat-scoped authorization (a token that may only touch one Chat), confirmation ceremonies, and revocation of individual grants remain future work for any surface that outgrows the personal single-user boundary.
 
@@ -758,7 +598,6 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | Prepared acts (prepare, pin, journal, execute) | `src/local/prepared-acts.ts` | `tests/prepared-acts.test.ts`, `tests/work-fold-cli-act-receipts.test.ts` |
 | Pages: page.json, rules engine, schema, and Data view | `src/shared/pages/` | `tests/page-declaration.test.ts`, `tests/page-rules-engine.test.ts` |
 | Page folders, assembly, preview databases, routes, and `pages validate` | `src/local/pages/` | `tests/page-folders.test.ts`, `tests/page-routes.test.ts`, `tests/work-fold-cli-pages-verbs.test.ts` |
-| Publishing pages: bridge client, publication records, `page.publish`, checking in, Online entries, and `pages publish`, `unpublish`, and `list` | `src/local/pages/page-bridge-client.ts`, `src/local/pages/page-publication-store.ts`, `src/local/pages/page-publishing.ts`, `desktop/src/pages-bridge.ts` | `tests/page-publishing.test.ts` |
 | Recently deleted (trash store, retention, restore) | `src/local/recently-deleted-store.ts` | `tests/work-fold-recently-deleted-store.test.ts`, `tests/work-fold-cli-recently-deleted-verbs.test.ts`, `tests/recently-deleted-settings.test.ts` |
 | Durable requests (records, store, reconciliation, retention) | `src/local/requests/request-records.ts`, `src/local/requests/request-store.ts` | `tests/work-fold-request-store.test.ts`, `tests/agent-requests.test.ts`, `tests/work-fold-request-integration.test.ts` |
 | work-folder turn context and operations guide | `src/local/agent/work-folder-turn-context.ts`, `src/local/agent/work-folder-operations-guide.ts` | `tests/work-folder-turn-context.test.ts`, `tests/work-folder-operations-guide-prompt.test.ts`, `tests/work-fold-agent-turn-context.test.ts` |
@@ -767,7 +606,6 @@ the trusted Settings → Apps page offers Details, Open Chat and Stop. See
 | App Worker requests and bounded inference | `src/local/agent/restricted-app-tasks.ts`, `src/local/agent/restricted-app-inference.ts`, `src/local/agent/bounded-inference.ts` | `tests/restricted-app-tasks.test.ts`, `tests/restricted-app-inference.test.ts`, `tests/bounded-inference.test.ts` |
 | Automation declarations, store, settle signals, and executor | `src/local/automations/` | `tests/work-fold-automation-declarations.test.ts`, `tests/work-fold-automation-store.test.ts`, `tests/work-fold-automation-settle-signal.test.ts`, `tests/work-fold-automation-service.test.ts` |
 | Glance composition and seen markers | `src/local/overview.ts`, `src/local/overview-seen-store.ts` | `tests/work-fold-overview.test.ts`, `tests/work-fold-overview-seen-store.test.ts` |
-| Web Access desktop transport | `desktop/src/remote-access.ts` | `tests/desktop-remote-access.test.ts` |
 | Visible and worker sandbox hosts | `desktop/src/restricted-app-host.ts`, `desktop/src/restricted-app-preload.cts` | `npm run desktop:restricted-app:smoke` plus focused host/broker tests. |
 
 See [Architecture](architecture.md) for the surrounding process boundaries, [Product model](product-model.md) for the user-facing mental model, and [Windows build](windows-build.md) for packaging and release verification.
@@ -847,16 +685,13 @@ The additive optional `fileChanges` field in `work-fold.turn.v1` records full
 pre/post History checkpoint ids and at most 64 changed/new file paths, hashes
 and sizes. It contains no file bytes and is admitted only on terminal turns;
 old records remain readable. Current work-fold agent requests project at most 12
-currently visible child-file paths and exact installed app references. Browser
-ownership filtering removes both from another browser's aggregate summary.
+currently visible child-file paths and exact installed app references.
 No content-free read-lane contract changes. The request trail is durable under
 the state root's `requests/` directory and bounded by the same per-request
 limits and 30-day retention as the rest of the record; turn metadata alone
-still does not reconstruct a request that retention has removed. See
-[file previews](browser-file-previews.md) and
-[browser apps](browser-apps.md) for current-file and installation semantics.
+still does not reconstruct a request that retention has removed.
 
-The authenticated renderer can list saved work-fold agent Chats at `GET /api/work-fold-agent/conversations` and pin `GET /api/work-fold-agent/summary?conversationId=<id>` to a selected Chat. The transcript and latest request always come from that same id. The paired `management.chats` projection optionally includes `requestState` and `needsAnswer` for browser-owned requests; older clients and host operations remain compatible. This changes no CLI protocol or request authority.
+The authenticated renderer can list saved work-fold agent Chats at `GET /api/work-fold-agent/conversations` and pin `GET /api/work-fold-agent/summary?conversationId=<id>` to a selected Chat. The transcript and latest request always come from that same id. This changes no CLI protocol or request authority.
 
 ## Bounded History review and durable turn evidence (2026-09-27)
 
@@ -868,7 +703,7 @@ Both are authenticated act-lane reads with metadata-only receipts. Protocol v1
 remains content-free. Local GET routes at `/api/work-folders/:id/history/read` and
 `/api/work-folders/:id/history/diff` take `path` plus `checkpointId` or
 `fromCheckpointId`/`toCheckpointId` and call the same `history-review.ts` service.
-No remote operation or restricted-app grant is added.
+No restricted-app grant is added.
 
 The service verifies checkpoint membership in the selected work-folder and the exact
 relative path before opening an object. It rejects internal paths, symlink
@@ -947,7 +782,7 @@ progress, final or command. A successful native stop without tool calls can mark
 final segment; stopped/incomplete turns keep progress and malformed metadata is
 ignored. Legacy aggregate text and streaming remain unchanged. This is an additive
 backend contract for the separate chat-rendering work, not an automatic change to
-how desktop, management or paired-web replies are displayed. Selected native edit
+how desktop or management replies are displayed. Selected native edit
 evidence is described in [the feedback contract](tool-feedback.md#selected-edit-evidence-and-presentation).
 
 ## Worker execution controls (2026-10-18)

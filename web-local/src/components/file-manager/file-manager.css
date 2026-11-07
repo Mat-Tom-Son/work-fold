@@ -1,0 +1,3599 @@
+/* The file manager layout (docs/product-model.md, "File manager layout").
+   These styles follow the approved mockup ("work-fold as a smart file
+   manager", 2026-11-06): neutral macOS surfaces, an inset sidebar, rounded
+   toolbar groups, and Finder-shaped icons. The accent is the app's own. */
+
+:root[data-platform="darwin"] .app-shell.layout-file-manager::before {
+  display: none;
+}
+
+/*
+ * The file manager's colors, sizes, and font. They sit on the app shell (not
+ * .fm-shell) so Settings and the other dialogs over the file manager share
+ * them, and Settings → Appearance restyles all of it: these are the design's
+ * own values, which the Original palette keeps; the rules at the end of this
+ * file map the other palettes, a chosen accent, font, text size, density,
+ * contrast, and transparency onto them.
+ */
+.app-shell.layout-file-manager {
+  --fm-window: #ffffff;
+  --fm-side-solid: #f1f1f4;
+  --fm-side-opacity: 94%;
+  --fm-side: color-mix(in srgb, var(--fm-side-solid) var(--fm-side-opacity), transparent);
+  --fm-side-line: rgba(0, 0, 0, 0.07);
+  --fm-text: #1d1d1f;
+  --fm-text2: #5d5d62;
+  --fm-text3: #66666c;
+  --fm-line: rgba(0, 0, 0, 0.08);
+  --fm-stripe: #f6f6f8;
+  --fm-hover: rgba(0, 0, 0, 0.05);
+  --fm-cap: rgba(0, 0, 0, 0.055);
+  --fm-cap2: rgba(0, 0, 0, 0.09);
+  --fm-seg: #ffffff;
+  /* The design's accent: Finder's solid blue with white text, in both themes. */
+  --fm-accent: #0a64d6;
+  --fm-accent-soft: color-mix(in srgb, var(--fm-accent) 14%, transparent);
+  --fm-link: var(--fm-accent);
+  --fm-on-accent: #ffffff;
+  --fm-columns: minmax(0, 1fr) 196px 96px 172px;
+  --fm-toolbar-height: 56px;
+  --fm-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  /* Text size scales type and rows; density scales rows. */
+  --fm-scale: 1;
+  --fm-density: 1;
+}
+
+.fm-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: var(--fm-window);
+  color: var(--fm-text);
+  font-family: var(--fm-font);
+  font-size: calc(13px * var(--fm-scale));
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:root[data-theme="dark"] .app-shell.layout-file-manager {
+  --fm-window: #1e1e21;
+  --fm-side-solid: #28282c;
+  --fm-side-line: rgba(255, 255, 255, 0.06);
+  --fm-text: #f1f1f4;
+  --fm-text2: #adadb4;
+  --fm-text3: #a2a2a9;
+  --fm-line: rgba(255, 255, 255, 0.09);
+  --fm-stripe: rgba(255, 255, 255, 0.035);
+  --fm-hover: rgba(255, 255, 255, 0.06);
+  --fm-cap: rgba(255, 255, 255, 0.08);
+  --fm-cap2: rgba(255, 255, 255, 0.14);
+  --fm-seg: #4a4a50;
+  --fm-accent: #0a64d6;
+  --fm-link: #4c9bff;
+}
+
+/* Under the Mac window material the window itself is see-through; the
+   sidebar panel lets a little of it show, the content stays solid. */
+:root[data-window-material="vibrancy"] .fm-shell {
+  background: transparent;
+}
+
+:root[data-window-material="vibrancy"] .fm-main {
+  background: var(--fm-window);
+}
+
+.fm-shell button {
+  font: inherit;
+  cursor: default;
+}
+
+.fm-shell button:focus-visible,
+.fm-shell input:focus-visible {
+  outline: 2px solid var(--fm-accent);
+  outline-offset: 1px;
+}
+
+/* Sidebar: an inset panel, as in the mockup and macOS 26 Finder. */
+
+.fm-sidebar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--fm-sidebar-width, 228px);
+  /* Flush with the window's edges, square like everything else in the window (owner decision, 2026-11-07). */
+  margin: 0;
+  padding: 0 10px 12px;
+  box-sizing: border-box;
+  border: 0;
+  border-right: 0.5px solid var(--fm-line);
+  border-radius: 0;
+  background: var(--fm-side);
+  overflow: hidden;
+}
+
+.fm-sidebar-inset {
+  flex: none;
+  height: 34px;
+  -webkit-app-region: drag;
+}
+
+.fm-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  margin: 0 -10px;
+  padding: 0 10px;
+  overflow: auto;
+}
+
+.fm-sidebar-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(30px * var(--fm-scale));
+  padding: 6px 2px 0 8px;
+  box-sizing: border-box;
+  color: var(--fm-text3);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fm-sidebar-heading > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The + at the far right of a section's heading, quiet until pointed at. */
+.fm-heading-add {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-text3);
+}
+
+.fm-heading-add:hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+.fm-heading-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.fm-sidebar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fm-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: calc(28px * var(--fm-scale) * var(--fm-density));
+  /* Every row keeps room left of its icon for a sub work-folders caret, as
+     Mail's and Notes' sidebars do, so icons line up whether a row has one. */
+  padding: 0 8px 0 var(--fm-sidebar-gutter, 21px);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  text-align: left;
+}
+
+.fm-sidebar-item:hover {
+  background: var(--fm-hover);
+}
+
+.fm-sidebar-item.is-current {
+  background: var(--fm-cap2);
+}
+
+.fm-sidebar-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+}
+
+.fm-sidebar-icon svg {
+  width: 16px;
+  height: 16px;
+  color: var(--fm-link);
+}
+
+.fm-sidebar-icon .fm-ic {
+  font-size: calc(15px * var(--fm-scale));
+}
+
+.fm-sidebar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The sidebar scrolls as one column. */
+.fm-sidebar-scroll {
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* Main column */
+
+.fm-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--fm-window);
+  container-type: inline-size;
+  container-name: fm-main;
+}
+
+.fm-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--fm-toolbar-height);
+  padding: 0 14px 0 12px;
+  -webkit-app-region: drag;
+}
+
+.fm-toolbar button,
+.fm-toolbar input,
+.fm-toolbar label {
+  -webkit-app-region: no-drag;
+}
+
+.fm-toolbar > * {
+  flex-shrink: 0;
+}
+
+.fm-capsule {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--fm-cap);
+}
+
+.fm-tool {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fm-text2);
+}
+
+.fm-tool:hover:not(:disabled) {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+.fm-tool:disabled {
+  opacity: 0.35;
+}
+
+.fm-tool.is-on {
+  background: var(--fm-seg);
+  color: var(--fm-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.fm-tool svg {
+  width: 16px;
+  height: 16px;
+}
+
+.fm-title {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  max-width: 42%;
+  min-width: 0;
+  margin: 0 0 0 4px;
+  font-size: calc(15px * var(--fm-scale));
+  /* Semibold, as the panel's name and the Mac's toolbar titles are. */
+  font-weight: 600;
+}
+
+.fm-title .fm-ic {
+  font-size: calc(17px * var(--fm-scale));
+}
+
+.fm-title-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-toolbar-space {
+  flex: 1 1 0;
+}
+
+.fm-search {
+  display: flex;
+  flex: 0 1 236px;
+  align-items: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 32px;
+  padding: 0 6px 0 11px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--fm-cap);
+  color: var(--fm-text2);
+}
+
+.fm-search:focus-within {
+  box-shadow: 0 0 0 3px var(--fm-accent-soft), inset 0 0 0 1px var(--fm-accent);
+}
+
+.fm-search svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.fm-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font: inherit;
+  outline: none;
+}
+
+.fm-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.fm-search input::placeholder {
+  color: var(--fm-text3);
+}
+
+.fm-search-clear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fm-cap2);
+  color: var(--fm-text2);
+}
+
+.fm-search-clear svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Contents */
+
+.fm-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+
+.fm-list-head {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: grid;
+  grid-template-columns: var(--fm-columns);
+  align-items: center;
+  height: 28px;
+  margin: 0 8px;
+  padding: 0 8px;
+  background: var(--fm-window);
+  border-top: 1px solid var(--fm-line);
+  border-bottom: 1px solid var(--fm-line);
+}
+
+.fm-col {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fm-col:hover {
+  color: var(--fm-text);
+}
+
+.fm-col.is-sorted {
+  color: var(--fm-text);
+}
+
+.fm-list-head .fm-col-size {
+  justify-content: flex-end;
+  padding-right: 22px;
+}
+
+.fm-sort-arrow {
+  width: 10px;
+  height: 10px;
+  flex: none;
+}
+
+.fm-rows {
+  padding: 4px 8px 24px;
+}
+
+.fm-row {
+  display: grid;
+  grid-template-columns: var(--fm-columns);
+  align-items: center;
+  height: calc(26px * var(--fm-scale) * var(--fm-density));
+  padding: 0 8px;
+  border-radius: 6px;
+}
+
+.fm-row.is-odd {
+  background: var(--fm-stripe);
+}
+
+.fm-row.is-selected {
+  background: var(--fm-cap2);
+}
+
+.fm-content:focus .fm-row.is-selected {
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fm-row.is-ignored,
+.fm-tile.is-ignored {
+  opacity: 0.6;
+}
+
+.fm-cell {
+  display: block;
+  min-width: 0;
+  padding-right: 10px;
+  overflow: hidden;
+  color: var(--fm-text2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-cell.fm-col-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fm-text);
+}
+
+.fm-cell.fm-col-size {
+  padding-right: 22px;
+  text-align: right;
+}
+
+.fm-content:focus .fm-row.is-selected .fm-cell {
+  color: color-mix(in srgb, var(--fm-on-accent) 90%, transparent);
+}
+
+.fm-content:focus .fm-row.is-selected .fm-cell.fm-col-name {
+  color: var(--fm-on-accent);
+}
+
+.fm-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+}
+
+.fm-row-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  align-content: start;
+  gap: 12px 6px;
+  padding: 16px 16px 28px;
+  border-top: 1px solid var(--fm-line);
+}
+
+.fm-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 2px;
+}
+
+.fm-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 74px;
+  border-radius: 10px;
+}
+
+.fm-tile-icon .fm-ic {
+  font-size: 56px;
+}
+
+.fm-tile.is-selected .fm-tile-icon {
+  background: var(--fm-cap2);
+}
+
+.fm-tile-name {
+  display: block;
+  max-width: 104px;
+  padding: 1px 5px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 4px;
+  font-size: calc(12px * var(--fm-scale));
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-tile.is-selected .fm-tile-name {
+  background: var(--fm-cap2);
+}
+
+.fm-content:focus .fm-tile.is-selected .fm-tile-name {
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fm-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 48px 20px;
+  overflow: hidden;
+  color: var(--fm-text3);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-note {
+  margin: 0;
+  padding: 0 24px 24px;
+  overflow: hidden;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-text-button {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-link);
+  font-weight: 600;
+}
+
+.fm-text-button:hover {
+  background: var(--fm-hover);
+}
+
+/* Path bar */
+
+.fm-pathbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 14px;
+  border-top: 1px solid var(--fm-line);
+  color: var(--fm-text2);
+  font-size: calc(11px * var(--fm-scale));
+  white-space: nowrap;
+}
+
+.fm-crumbs {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fm-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.fm-crumb {
+  padding: 2px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: calc(11px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-crumb:hover:not(:disabled) {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+.fm-crumb:disabled {
+  color: inherit;
+  opacity: 1;
+}
+
+.fm-crumb-sep {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  opacity: 0.55;
+}
+
+.fm-status {
+  flex: none;
+  padding-left: 12px;
+}
+
+/* The right panel: Info and History in grouped cards, as in the mockup. */
+
+.app-shell.layout-file-manager {
+  /* The panel is narrow: its Chat reads two pixels under the Reading Size chosen in Appearance (15 → 13). */
+  --fm-reading-size: calc(var(--work-fold-reading-size, 15px) - 2px);
+  --fm-panel: #f5f5f7;
+  --fm-field: #ffffff;
+  --fm-field-line: rgba(0, 0, 0, 0.14);
+  --fm-card: #ffffff;
+  --fm-card-line: rgba(0, 0, 0, 0.08);
+  --fm-btn: #ffffff;
+  --fm-btn-hover: #f6f6f8;
+  --fm-btn-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 1px 2px rgba(0, 0, 0, 0.14), 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="dark"] .app-shell.layout-file-manager {
+  --fm-panel: #19191c;
+  --fm-field: #28282c;
+  --fm-field-line: rgba(255, 255, 255, 0.14);
+  --fm-card: #28282c;
+  --fm-card-line: rgba(255, 255, 255, 0.07);
+  --fm-btn: #3c3c41;
+  --fm-btn-hover: #47474c;
+  --fm-btn-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.fm-panel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--fm-panel-width, 320px);
+  /* A narrower window takes room from the panel first, so the folder list keeps 360px. */
+  max-width: calc(100vw - var(--fm-sidebar-width, 228px) - 360px);
+  min-width: 270px;
+  min-height: 0;
+  border-left: 1px solid var(--fm-line);
+  background: var(--fm-panel);
+}
+
+.fm-tabs {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  height: var(--fm-toolbar-height);
+  align-items: center;
+  padding: 0 16px;
+  -webkit-app-region: drag;
+}
+
+.fm-seg {
+  display: flex;
+  width: 100%;
+  max-width: 240px;
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--fm-cap);
+  -webkit-app-region: no-drag;
+}
+
+.fm-seg-b {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fm-seg-b:hover:not(.is-on) {
+  background: var(--fm-hover);
+}
+
+.fm-seg-b.is-on {
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+}
+
+.fm-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 16px 18px;
+}
+
+.fm-hd {
+  text-align: center;
+}
+
+.fm-pv {
+  display: grid;
+  place-items: center;
+  height: 124px;
+}
+
+.fm-pv .fm-ic {
+  font-size: 92px;
+}
+
+.fm-pv-image {
+  max-width: 100%;
+  max-height: 120px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  object-fit: contain;
+}
+
+.fm-pv-name {
+  margin-top: 8px;
+  overflow: hidden;
+  font-size: calc(15px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-pv-meta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-multi {
+  position: relative;
+  height: 124px;
+}
+
+.fm-multi .fm-ic {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 76px;
+}
+
+.fm-multi .fm-multi-0 { transform: translate(-50%, -50%); }
+.fm-multi .fm-multi-1 { transform: translate(-22%, -44%) rotate(7deg); }
+.fm-multi .fm-multi-2 { transform: translate(-78%, -46%) rotate(-7deg); }
+
+.fm-sec {
+  margin-top: 20px;
+}
+
+.fm-sec-h {
+  margin: 0 4px 6px;
+  overflow: hidden;
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* History's Changes and Chats sections: the first starts at the top of the tab. */
+.fm-panel-scroll > .fm-sec:first-child,
+.fm-panel-scroll > .fm-pane > .fm-sec:first-child {
+  margin-top: 4px;
+}
+
+.fm-sec-empty {
+  margin: 0 4px;
+  overflow: hidden;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell .fm-crow-more {
+  justify-content: center;
+  min-height: 32px;
+  color: var(--fm-link);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fm-card {
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+.fm-crow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(36px * var(--fm-scale) * var(--fm-density));
+  margin-bottom: -0.5px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  border-bottom: 0.5px solid var(--fm-card-line);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+.fm-crow-l {
+  flex: none;
+  color: var(--fm-text2);
+}
+
+.fm-crow-v {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-crow-n {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-crow-t {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fm-crow-t > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-crow-s {
+  flex: none;
+  color: var(--fm-text2);
+  font-size: calc(11px * var(--fm-scale));
+}
+
+.fm-crow-t .fm-crow-s {
+  flex: initial;
+}
+
+/* The design's on/off switch for an Automation. */
+.fm-sw {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fm-cap2);
+  transition: background 0.2s;
+}
+
+.fm-sw-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s;
+}
+
+.fm-sw.is-on {
+  background: var(--fm-accent);
+}
+
+.fm-sw.is-on .fm-sw-knob {
+  transform: translateX(14px);
+}
+
+.fm-sw:disabled {
+  opacity: 0.6;
+}
+
+/* "No Worker here yet" in a standard folder. */
+.fm-cta {
+  padding: 18px 16px;
+  border-radius: 10px;
+  background: var(--fm-card);
+  text-align: center;
+}
+
+.fm-cta-t {
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+}
+
+.fm-cta-s {
+  margin: 4px 0 12px;
+  overflow: hidden;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-cta .fm-btn {
+  margin-top: 2px;
+}
+
+.fm-hd-act {
+  margin-top: 12px;
+}
+
+.fm-btn.is-primary {
+  background: var(--fm-accent);
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.2);
+  color: var(--fm-on-accent);
+}
+
+.fm-btn.is-primary:hover:not(:disabled) {
+  background: var(--fm-accent);
+  filter: brightness(1.08);
+}
+
+.fm-btn:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.fm-panel-scroll.is-untabbed {
+  padding-top: 16px;
+}
+
+/* An error such as macOS asking for Downloads access is a sentence, so it may wrap. */
+.fm-empty-text {
+  max-width: 380px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.fm-crow-tag {
+  flex: none;
+  color: var(--fm-text2);
+  font-size: calc(11px * var(--fm-scale));
+}
+
+.fm-crow-glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--fm-text2);
+}
+
+.fm-crow-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fm-crow-icon {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 18px;
+}
+
+.fm-crow-icon .fm-ic {
+  font-size: calc(15px * var(--fm-scale));
+}
+
+.fm-crow-icon .fm-ic-doc::after {
+  color: transparent;
+}
+
+.fm-pill {
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 500;
+}
+
+.fm-pill:hover {
+  background: var(--fm-hover);
+}
+
+.fm-pill.is-on {
+  background: var(--fm-cap2);
+}
+
+.fm-panel-actions {
+  margin: 4px 0 0;
+}
+
+.fm-panel-actions + .fm-sec {
+  margin-top: 14px;
+}
+
+.fm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fm-btn:hover:not(:disabled) {
+  background: var(--fm-btn-hover);
+}
+
+.fm-panel-actions .fm-btn {
+  width: 100%;
+}
+
+.fm-panel-empty {
+  margin: 28px 0 0;
+  color: var(--fm-text3);
+  text-align: center;
+}
+
+/* Icons: the mockup's Finder-shaped drawings, sized by font-size. */
+
+.fm-ic {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  font-size: calc(18px * var(--fm-scale));
+}
+
+.fm-ic-folder {
+  --fold: #62b3f4;
+  --fold-tab: #4a9de6;
+  width: 1.16em;
+  height: 0.84em;
+  margin-top: 0.1em;
+  border-radius: 0.08em;
+  background: var(--fold-tab);
+}
+
+.fm-ic-folder::before {
+  content: "";
+  position: absolute;
+  top: -0.1em;
+  left: 0;
+  width: 0.44em;
+  height: 0.16em;
+  border-radius: 0.07em 0.07em 0 0;
+  background: var(--fold-tab);
+}
+
+.fm-ic-folder::after {
+  content: "";
+  position: absolute;
+  inset: 0.13em 0 0;
+  border-radius: 0.08em;
+  background: var(--fold);
+  box-shadow: inset 0 0.03em 0 rgba(255, 255, 255, 0.35);
+}
+
+/* A work-folder's folder takes its own color. */
+.fm-ic-folder.is-tinted {
+  --fold: color-mix(in srgb, var(--fold-base) 62%, #fff);
+  --fold-tab: color-mix(in srgb, var(--fold-base) 80%, #fff);
+}
+
+.fm-ic-doc {
+  --tag: #77777f;
+  width: 0.76em;
+  height: 0.98em;
+  border: 0.045em solid #c4c4cb;
+  border-radius: 0.07em;
+  background:
+    repeating-linear-gradient(180deg, #dadae0 0, #dadae0 0.03em, transparent 0.03em, transparent 0.1em) 0.13em 0.16em / 0.48em 0.42em no-repeat,
+    #fff;
+}
+
+.fm-ic-doc::after {
+  content: attr(data-label);
+  position: absolute;
+  right: 0;
+  bottom: 0.8em;
+  left: 0;
+  height: 1.4em;
+  overflow: hidden;
+  background: var(--tag);
+  color: #fff;
+  font-size: 0.15em;
+  font-weight: 700;
+  line-height: 1.4em;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.fm-row-icon .fm-ic-doc::after,
+.fm-sidebar-icon .fm-ic-doc::after {
+  color: transparent;
+}
+
+.fm-tag-pdf { --tag: #de4339; }
+.fm-tag-word { --tag: #2f6ddb; }
+.fm-tag-sheet { --tag: #1e8a4c; }
+.fm-tag-slides { --tag: #d9622a; }
+.fm-tag-code { --tag: #6b57c9; }
+.fm-tag-web { --tag: #c2410c; }
+.fm-tag-data { --tag: #0f766e; }
+
+.fm-ic-img {
+  --tint: #7fb3e0;
+  width: 1.1em;
+  height: 0.84em;
+  margin-top: 0.08em;
+  overflow: hidden;
+  border: 0.04em solid rgba(0, 0, 0, 0.14);
+  border-radius: 0.07em;
+  background: var(--tint);
+}
+
+.fm-ic-img::before {
+  content: "";
+  position: absolute;
+  right: 0.25em;
+  bottom: -0.32em;
+  left: -0.15em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.fm-ic-img::after {
+  content: "";
+  position: absolute;
+  top: 0.13em;
+  right: 0.17em;
+  width: 0.17em;
+  height: 0.17em;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.fm-ic-media {
+  --tint: #a98bd8;
+}
+
+.fm-ic-box {
+  width: 0.98em;
+  height: 0.78em;
+  margin-top: 0.12em;
+  border: 0.04em solid rgba(0, 0, 0, 0.14);
+  border-radius: 0.09em;
+  background: #d8c29a;
+}
+
+.fm-ic-box::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0.4em;
+  width: 0.14em;
+  height: 0.36em;
+  background: #bd9d61;
+}
+
+/* Narrow windows drop columns rather than squeezing names. */
+
+@container fm-main (max-width: 760px) {
+  .fm-list-head,
+  .fm-row {
+    grid-template-columns: minmax(160px, 1fr) 172px 76px;
+  }
+
+  .fm-col-kind {
+    display: none;
+  }
+}
+
+@container fm-main (max-width: 560px) {
+  .fm-list-head,
+  .fm-row {
+    grid-template-columns: minmax(0, 1fr) 150px;
+  }
+
+  .fm-col-size {
+    display: none;
+  }
+}
+
+@container fm-main (max-width: 620px) {
+  .fm-toolbar-space {
+    display: none;
+  }
+
+  .fm-search {
+    flex: 1 1 236px;
+  }
+}
+
+/* History rows that open a Chat, and the small push buttons on changes. */
+.fm-crow-btn {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font: inherit;
+  text-align: left;
+}
+
+.fm-crow-btn:hover {
+  background: var(--fm-hover);
+}
+
+.fm-crow-chev {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  color: var(--fm-text2);
+  opacity: 0.6;
+}
+
+.fm-btn.is-small {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: calc(12px * var(--fm-scale));
+}
+
+/* An open Chat: a back button and its title, as in the design. */
+.fm-ph {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--fm-toolbar-height);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--fm-line);
+  -webkit-app-region: drag;
+}
+
+.fm-capbtn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fm-text2);
+  -webkit-app-region: no-drag;
+}
+
+.fm-capbtn:hover {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+.fm-capbtn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.fm-ph-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The message box at the panel's foot, on the panel's own ground with no rule above it (owner decision, 2026-11-07). */
+.fm-comp {
+  flex: none;
+  padding: 12px;
+  border-top: 0;
+  background: var(--fm-panel);
+}
+
+.fm-ctx {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.fm-cchip {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: var(--fm-cap);
+  font-size: calc(11px * var(--fm-scale));
+  white-space: nowrap;
+}
+
+.fm-cchip.is-removable {
+  padding-right: 3px;
+}
+
+.fm-cchip.is-more {
+  flex: none;
+  color: var(--fm-text2);
+}
+
+.fm-cchip .fm-ic {
+  flex: none;
+  font-size: calc(13px * var(--fm-scale));
+}
+
+.fm-cchip-n {
+  min-width: 0;
+  max-width: 190px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-cx {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fm-text2);
+}
+
+.fm-cx:hover {
+  background: var(--fm-cap2);
+}
+
+.fm-cx svg {
+  width: 9px;
+  height: 9px;
+}
+
+.fm-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 4px 4px 14px;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 18px;
+  background: var(--fm-field);
+}
+
+.fm-field:focus-within {
+  border-color: var(--fm-accent);
+  box-shadow: 0 0 0 3px var(--fm-accent-soft);
+}
+
+.fm-field input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font: inherit;
+  font-size: calc(13px * var(--fm-scale));
+  outline: none;
+}
+
+/* The pill draws the focus ring; the app's own field ring must not draw a square inside it. */
+:root[data-theme] .app-shell .fm-field input,
+:root[data-theme] .app-shell .fm-field input:is(:hover, :focus, :focus-visible) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.fm-field input::placeholder {
+  color: var(--fm-text3);
+}
+
+.fm-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fm-cap2);
+  color: var(--fm-text2);
+}
+
+.fm-send.is-ready {
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fm-send svg {
+  width: 14px;
+  height: 14px;
+}
+
+/*
+ * The Chat in the panel is work-fold's own Chat (ChatPanel, variant "panel"),
+ * drawn here the way the design draws it: plain messages, the person's in an
+ * accent bubble, and a rounded Reply field with its Send button inside.
+ */
+.fm-chat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fm-chat[hidden] {
+  display: none;
+}
+
+:root .app-shell .fm-chat .chat-panel.is-in-panel {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+.fm-chat .chat-top-chrome:not(.empty) {
+  padding: 10px 12px 0;
+}
+
+.fm-chat .message-list {
+  gap: 14px;
+  padding: 16px;
+  scrollbar-gutter: auto;
+}
+
+.fm-chat .message {
+  max-width: 100%;
+  line-height: 1.5;
+}
+
+.fm-chat .message.user {
+  max-width: 85%;
+}
+
+/* Above the appearance palette's soft bubble: the design draws the person's message in solid accent. */
+:root .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-surface {
+  padding: 7px 12px;
+  border-radius: 16px;
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+  line-height: 1.4;
+}
+
+
+/* The palette colors message text itself; in the panel the design's colors win. */
+:root[data-appearance-palette] .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-body,
+:root[data-appearance-palette] .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-body :is(h1, h2, h3, h4, h5, h6, a, code, strong, em),
+:root .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-body {
+  color: var(--fm-on-accent);
+}
+
+:root[data-appearance-palette] .app-shell .fm-chat .chat-panel.is-in-panel .message.assistant .message-body,
+:root .app-shell .fm-chat .chat-panel.is-in-panel .message.assistant .message-surface {
+  color: var(--fm-text);
+}
+
+/* The panel's Reply field, drawn exactly as the design's message box. */
+:root[data-theme] .app-shell .fm-chat .composer {
+  gap: 0;
+  padding: 12px;
+  border-top: 0;
+  background: var(--fm-panel);
+}
+
+:root[data-theme] .app-shell .fm-chat .composer-input-shell {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 0;
+  padding: 4px 4px 4px 14px;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 18px;
+  outline: none;
+  background: var(--fm-field);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .composer-input-shell:focus-within {
+  border-color: var(--fm-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--fm-accent-soft);
+}
+
+:root[data-theme] .app-shell .fm-chat .composer-input-shell textarea,
+:root[data-theme] .app-shell .fm-chat .composer-input-shell textarea:focus,
+:root[data-theme] .app-shell .fm-chat .composer-input-shell textarea:focus-visible {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  max-height: 112px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  line-height: 20px;
+}
+
+:root[data-theme] .app-shell .fm-chat .composer textarea::placeholder {
+  color: var(--fm-text3);
+}
+
+:root[data-theme] .app-shell .fm-chat .composer-capability-bar {
+  flex: none;
+  gap: 0;
+  padding: 0;
+  pointer-events: auto;
+}
+
+:root[data-theme] .app-shell .fm-chat .composer-capability-spacer {
+  display: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .send-button {
+  position: static;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .send-button:disabled {
+  background: var(--fm-cap2);
+  color: var(--fm-text2);
+  opacity: 1;
+}
+
+:root[data-theme] .app-shell .fm-chat .send-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Suggested messages above the message box (Info tab only), as push buttons. */
+.fm-suggests {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.fm-btn.fm-suggest {
+  justify-content: flex-start;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  font-weight: 400;
+  text-align: left;
+}
+
+.fm-suggest svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--fm-link);
+}
+
+.fm-suggest span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A panel Chat opens with its first message already on its way, so the new-Chat greeting never shows. */
+.fm-chat .chat-empty-state {
+  display: none;
+}
+
+/* The design's activity dots: pulsing while a Worker runs, green for a new reply. */
+.app-shell.layout-file-manager {
+  --fm-green: #1e9e4a;
+}
+
+:root[data-theme="dark"] .app-shell.layout-file-manager {
+  --fm-green: #34c262;
+}
+
+.fm-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.fm-dot.is-run {
+  background: var(--fm-accent);
+  animation: fm-pulse 1.2s ease-in-out infinite;
+}
+
+.fm-dot.is-done {
+  background: var(--fm-green);
+}
+
+@keyframes fm-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.75); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-dot.is-run { animation: none; }
+}
+
+.fm-seg-b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Organize, the design's wide toolbar button. */
+.fm-tool.fm-tool-wide {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 32px;
+  padding: 0 13px 0 11px;
+  border-radius: 999px;
+  background: var(--fm-cap);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fm-tool.fm-tool-wide:hover {
+  background: var(--fm-cap2);
+}
+
+.fm-tool.fm-tool-wide svg {
+  width: 16px;
+  height: 16px;
+}
+
+@container (max-width: 620px) {
+  .fm-tool-wide-t { display: none; }
+  .fm-tool.fm-tool-wide { padding: 0 9px; }
+}
+
+/* Search names and contents: the scope bar and the design's search columns. */
+.fm-scope {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 18px;
+  border-top: 1px solid var(--fm-line);
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+}
+
+.fm-scope .fm-pill {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-content.is-search {
+  --fm-columns: minmax(0, 1fr) minmax(0, 1.25fr) 160px;
+}
+
+.fm-col-match,
+.fm-col-where {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-col-match.is-name {
+  color: var(--fm-text3);
+}
+
+.fm-col-match mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: rgba(255, 196, 0, 0.42);
+  color: inherit;
+}
+
+.fm-row.is-selected .fm-col-match.is-name {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.fm-row.is-selected .fm-col-match mark {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@container (max-width: 620px) {
+  .fm-content.is-search { --fm-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .fm-content.is-search .fm-col-where { display: none; }
+}
+
+/* Finder shows where the keyboard is by the blue selection, never a ring around the list. */
+:root[data-theme] .app-shell .fm-shell .fm-content:focus,
+:root[data-theme] .app-shell .fm-shell .fm-content:focus-visible,
+.fm-shell .fm-content:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* The Action menu where macOS shows no native one (the browser preview, other platforms). */
+.fm-menu-back {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.fm-menu {
+  position: fixed;
+  z-index: 31;
+  min-width: 228px;
+  padding: 5px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fm-window) 84%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22), 0 0 0 0.5px var(--fm-line);
+}
+
+.fm-menu-i {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fm-menu-i:hover,
+.fm-menu-i:focus-visible {
+  outline: none;
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fm-menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--fm-line);
+}
+
+/*
+ * The small row under the message box and the panel's Reply field: the
+ * Worker's model (or Set Up AI when no AI is connected) on the left, and in a
+ * Chat its context circle on the right. One line, never wrapping.
+ */
+:root[data-theme] .app-shell .composer-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 20px;
+  /* The model lines up with the field's words, the context circle sits under Send. */
+  margin: 6px 9px 0 8px;
+}
+
+/*
+ * With the small row under the field, the box's bottom padding matches the
+ * gap above the row, so the row sits centered between the field and the
+ * window's edge (owner request, 2026-11-07).
+ */
+.fm-comp:has(> .composer-panel-meta),
+:root[data-theme] .app-shell .fm-chat .composer:has(.composer-panel-meta) {
+  padding-bottom: 6px;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-control {
+  min-width: 0;
+  max-width: 100%;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-chip {
+  height: 20px;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text2);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-chip:hover,
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-chip[aria-expanded="true"] {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-chip svg {
+  width: 11px;
+  height: 11px;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-set-up-ai {
+  height: 20px;
+  min-height: 20px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fm-accent-soft);
+  color: var(--fm-link);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-set-up-ai:hover {
+  background: color-mix(in srgb, var(--fm-accent) 24%, transparent);
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-context-control {
+  flex: none;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .conversation-context-meter {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+}
+
+/*
+ * The edges between the sidebar, the folder list, and the panel, dragged to
+ * resize either pane. Each is a zero-width item in the row with a 9px grab
+ * strip over the edge, so it takes no room and moves nothing until dragged.
+ */
+.fm-resize {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  width: 0;
+  outline: none;
+}
+
+.fm-resize::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  cursor: col-resize;
+  content: "";
+}
+
+.fm-resize::after {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -1px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--fm-accent);
+  opacity: 0;
+  content: "";
+  transition: opacity 120ms ease;
+}
+
+.fm-resize.is-after-sidebar::after {
+  left: -1px;
+}
+
+.fm-resize:focus-visible::after,
+.fm-resize.is-dragging::after {
+  opacity: 0.55;
+}
+
+/* While an edge is dragged, the whole window shows the resize cursor and no text is selected. */
+.fm-shell:has(.fm-resize.is-dragging),
+.fm-shell:has(.fm-resize.is-dragging) * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+/*
+ * The icon chosen in Customize work-folder, stamped on the folder's front in
+ * a deeper shade of its color, as macOS draws a symbol on a folder.
+ */
+.fm-folder-symbol {
+  position: absolute;
+  inset: 0.13em 0 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--fold-base, #2f7fd8) 72%, #000);
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+/* The glyph sets its own font size inline; sizing it from the folder's keeps it in proportion at every size. */
+.fm-folder-symbol svg {
+  width: 0.44em;
+  height: 0.44em;
+  font-size: inherit !important;
+}
+
+/* Customize work-folder's preview in the file manager: the folder as the sidebar and Info draw it. */
+.fm-customize-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0 6px;
+}
+
+.fm-customize-preview .fm-ic {
+  font-size: 84px;
+}
+
+.fm-customize-preview > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Settings → Appearance restyles the file manager (owner decision, 2026-11-07).
+ * Original keeps the design's Finder colors above; every other palette maps
+ * its grounds, text, and lines onto the same tokens, in light and dark. A
+ * chosen accent replaces the design's blue, and the app font, text size, list
+ * density, contrast, transparency, and message style apply here too.
+ */
+:root:not([data-appearance-palette="original"]) .app-shell.layout-file-manager {
+  --fm-window: var(--ui-surface);
+  --fm-side-solid: var(--ui-canvas);
+  --fm-side-line: var(--ui-border);
+  --fm-text: var(--ui-text);
+  --fm-text2: var(--ui-text-muted);
+  --fm-text3: var(--ui-text-subtle);
+  --fm-line: var(--ui-border);
+  --fm-stripe: var(--ui-surface-subtle);
+  --fm-hover: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  --fm-cap: color-mix(in srgb, var(--ui-text) 6%, transparent);
+  --fm-cap2: color-mix(in srgb, var(--ui-text) 11%, transparent);
+  --fm-seg: var(--ui-surface);
+  --fm-panel: var(--ui-surface-subtle);
+  --fm-field: var(--ui-surface);
+  --fm-field-line: var(--ui-border-strong);
+  --fm-card: var(--ui-surface);
+  --fm-card-line: var(--ui-border);
+  --fm-btn: var(--ui-surface);
+  --fm-btn-hover: var(--ui-surface-hover);
+}
+
+:root[data-theme="dark"]:not([data-appearance-palette="original"]) .app-shell.layout-file-manager {
+  --fm-side-solid: var(--ui-surface-subtle);
+  --fm-stripe: color-mix(in srgb, var(--ui-text) 3.5%, transparent);
+  --fm-seg: var(--ui-surface-hover);
+  --fm-panel: var(--ui-canvas);
+  --fm-field: var(--ui-surface-subtle);
+  --fm-card: var(--ui-surface-subtle);
+  --fm-btn: var(--ui-surface-hover);
+  --fm-btn-hover: color-mix(in srgb, var(--ui-surface-hover) 88%, var(--ui-text));
+}
+
+/*
+ * A chosen accent (the presets choose one) replaces the design's blue: the
+ * color itself fills selection and buttons in both themes, as Finder fills
+ * them with the system accent, with white or near-black text, whichever reads.
+ */
+:root[data-appearance-accent="custom"] .app-shell.layout-file-manager {
+  --fm-accent: var(--ui-accent-chosen);
+  --fm-on-accent: var(--ui-on-accent-chosen);
+  --fm-link: var(--ui-accent);
+}
+
+/* App Font: Default is the Mac's own, as Finder uses; the others are the app's choices. */
+:root[data-work-fold-font]:not([data-work-fold-font="default"]) .app-shell.layout-file-manager {
+  --fm-font: var(--work-fold-ui-font), system-ui, sans-serif;
+}
+
+:root[data-work-fold-text-size="compact"] .app-shell.layout-file-manager { --fm-scale: 0.92; }
+:root[data-work-fold-text-size="comfortable"] .app-shell.layout-file-manager { --fm-scale: 1.08; }
+:root[data-work-fold-text-size="large"] .app-shell.layout-file-manager { --fm-scale: 1.2; }
+
+:root[data-appearance-density="compact"] .app-shell.layout-file-manager { --fm-density: 0.86; }
+:root[data-appearance-density="spacious"] .app-shell.layout-file-manager { --fm-density: 1.2; }
+
+/* Higher Contrast: secondary text reads as body text and every line darkens. */
+:root[data-appearance-contrast="more"] .app-shell.layout-file-manager {
+  --fm-text2: var(--fm-text);
+  --fm-text3: color-mix(in srgb, var(--fm-text) 82%, transparent);
+  --fm-line: color-mix(in srgb, var(--fm-text) 32%, transparent);
+  --fm-side-line: color-mix(in srgb, var(--fm-text) 32%, transparent);
+  --fm-card-line: color-mix(in srgb, var(--fm-text) 32%, transparent);
+  --fm-field-line: color-mix(in srgb, var(--fm-text) 50%, transparent);
+}
+
+/* Opaque Surfaces: the sidebar and window stop letting the desktop show through. */
+:root[data-appearance-transparency="opaque"] .app-shell.layout-file-manager {
+  --fm-side-opacity: 100%;
+}
+
+:root[data-appearance-transparency="opaque"] .fm-shell {
+  background: var(--fm-window);
+}
+
+/* Your Messages: Quiet draws the person's message as a plain card instead of the accent bubble. */
+:root[data-appearance-messages="quiet"] .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-surface {
+  background: var(--fm-card);
+  box-shadow: 0 0 0 0.5px var(--fm-card-line);
+  color: var(--fm-text);
+}
+
+/* As on the Mac, plain folders take a chosen accent's color; a work-folder keeps its own. */
+:root[data-appearance-accent="custom"] .app-shell.layout-file-manager .fm-ic-folder:not(.is-tinted) {
+  --fold: color-mix(in srgb, var(--fm-accent) 62%, #fff);
+  --fold-tab: color-mix(in srgb, var(--fm-accent) 80%, #fff);
+}
+
+/*
+ * A Chat in the panel: text at the panel's reading size, headings a step or
+ * two above it rather than the classic transcript's display sizes.
+ */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel {
+  --work-fold-reading-size: var(--fm-reading-size);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message :is(h1, h2) {
+  margin: 0.9em 0 0.4em;
+  font-size: 1.15em;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message :is(h3, h4, h5, h6) {
+  margin: 0.8em 0 0.3em;
+  font-size: 1em;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* The model row: the reasoning level reads as the model's quiet second word. */
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-reasoning {
+  color: var(--fm-text3);
+  font-weight: 500;
+}
+
+/* The context circle sits at the row's far end, under Send (the classic spacer is hidden here). */
+:root[data-theme] .app-shell .composer-panel-meta .composer-context-control {
+  margin-left: auto;
+}
+
+:root[data-theme] .app-shell .composer-panel-meta .composer-model-control {
+  flex: 0 1 auto;
+}
+
+/* Notices rise from the bottom center of the window, clear of the panel's message box. */
+:root[data-theme] .app-shell.layout-file-manager .toast-stack {
+  right: auto;
+  bottom: 40px;
+  /* Centered over the folder list, between the sidebar and the panel. */
+  left: calc(var(--fm-notice-left, 228px) + (100vw - var(--fm-notice-left, 228px) - var(--fm-notice-right, 320px)) / 2);
+  justify-items: center;
+  transform: translateX(-50%);
+}
+
+/*
+ * The path bar (owner request, 2026-11-07): Go to Folder at its start, every
+ * item copies its path on a click and opens on a double-click, and the last
+ * items stay whole while the ones before them give way.
+ */
+.fm-goto-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 4px 0 -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-text2);
+}
+
+.fm-goto-button:hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+.fm-goto-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fm-crumb-wrap {
+  flex: 0 1 auto;
+}
+
+.fm-crumb-wrap.is-last {
+  flex: 0 0 auto;
+  max-width: 48%;
+}
+
+.fm-crumb:not(:disabled):hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+.fm-crumb:disabled {
+  opacity: 1;
+}
+
+/* Go to Folder: Finder's sheet near the top of the window, a large path field over its completions. */
+.fm-goto-back {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.fm-goto {
+  position: fixed;
+  z-index: 71;
+  top: 72px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(380px, calc(100vh - 120px));
+  overflow: hidden;
+  border: 0.5px solid var(--fm-line);
+  border-radius: 14px;
+  background: var(--fm-card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  color: var(--fm-text);
+  font-family: var(--fm-font);
+  transform: translateX(-50%);
+}
+
+.fm-goto-field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 14px 0 18px;
+  border-bottom: 0.5px solid var(--fm-line);
+}
+
+.fm-goto-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font: inherit;
+  font-size: calc(17px * var(--fm-scale));
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+:root[data-theme] .app-shell .fm-goto-field input:is(:focus, :focus-visible) {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+
+.fm-goto-clear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fm-text3);
+  color: var(--fm-card);
+}
+
+.fm-goto-clear svg {
+  width: 10px;
+  height: 10px;
+}
+
+.fm-goto-list {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+  background: var(--fm-panel);
+}
+
+.fm-goto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: calc(28px * var(--fm-scale));
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fm-goto-row .fm-ic {
+  font-size: calc(16px * var(--fm-scale));
+}
+
+.fm-goto-row.is-active {
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fm-goto-name {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The full path, trimmed from its start so its end stays in view. */
+.fm-goto-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fm-text3);
+  direction: rtl;
+  font-size: calc(12px * var(--fm-scale));
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.fm-goto-row.is-active .fm-goto-path {
+  color: color-mix(in srgb, var(--fm-on-accent) 80%, transparent);
+}
+
+.fm-goto-message {
+  margin: 0;
+  padding: 10px 10px 8px;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+}
+
+/* A drag over the list: the folder shown, or the folder row under the pointer, rings in the accent. */
+.fm-content.is-drop-target {
+  box-shadow: inset 0 0 0 2px var(--fm-accent);
+}
+
+.fm-row.is-drop-target,
+.fm-tile.is-drop-target {
+  background: var(--fm-accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--fm-accent);
+}
+
+/* Dragging files over the message box, or onto a place in the sidebar. */
+.fm-comp.is-drop-target .fm-field {
+  border-color: var(--fm-accent);
+  box-shadow: 0 0 0 3px var(--fm-accent-soft);
+}
+
+.fm-sidebar-item.is-drop-target {
+  background: var(--fm-accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--fm-accent);
+}
+
+/* Ask in search: the last row of the results, handing the question to the Worker. */
+.fm-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  height: calc(30px * var(--fm-scale));
+  margin: 6px 8px 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fm-accent-soft);
+  color: var(--fm-link);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fm-ask-row:hover {
+  background: color-mix(in srgb, var(--fm-accent) 22%, transparent);
+}
+
+.fm-ask-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+
+.fm-ask-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fm-ask-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-ask-hint {
+  flex: none;
+  color: var(--fm-text3);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 400;
+}
+
+/* Recents sits above the sections, as Finder's does. */
+.fm-sidebar-top {
+  margin-top: 4px;
+}
+
+.fm-title-glyph {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--fm-link);
+}
+
+.fm-title-glyph svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* What the Worker changed: a dot after the name, as Finder marks what is new, and a receipt at the top of Info. */
+.fm-changed-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 6px;
+  border-radius: 50%;
+  background: var(--fm-accent);
+  vertical-align: middle;
+}
+
+.fm-row.is-selected .fm-changed-dot {
+  background: var(--fm-on-accent);
+}
+
+.fm-receipt {
+  margin: 4px 0 18px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+.fm-receipt-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.fm-receipt-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-receipt-time,
+.fm-receipt-sum,
+.fm-receipt-more {
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+}
+
+.fm-receipt-sum {
+  margin: 2px 0 8px 14px;
+}
+
+.fm-receipt-list {
+  display: grid;
+  gap: 1px;
+  margin: 0 -6px;
+}
+
+.fm-receipt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: calc(26px * var(--fm-scale));
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  text-align: left;
+}
+
+.fm-receipt-row:hover {
+  background: var(--fm-hover);
+}
+
+.fm-receipt-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-receipt-verb {
+  flex: none;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+}
+
+.fm-receipt-more {
+  padding: 4px 6px 0;
+}
+
+.fm-receipt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/*
+ * First run in the file manager (owner request, 2026-11-07): the window with
+ * its sidebar, and the steps in one card at the middle, as macOS's Setup
+ * Assistant shows them.
+ */
+.fm-sidebar-item.is-static {
+  cursor: default;
+}
+
+.fm-sidebar-item.is-static:hover {
+  background: transparent;
+}
+
+.fm-welcome-none {
+  margin: 2px 8px 0;
+  color: var(--fm-text3);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+.fm-welcome-main {
+  background: var(--fm-panel);
+}
+
+.fm-welcome-toolbar {
+  justify-content: center;
+}
+
+.fm-welcome-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+}
+
+.fm-welcome-card {
+  display: flex;
+  flex-direction: column;
+  width: min(540px, 100%);
+  padding: 28px 32px 22px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 14px;
+  background: var(--fm-card);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.12);
+}
+
+.fm-welcome-card h2 {
+  margin: 0 0 8px;
+  font-size: calc(22px * var(--fm-scale));
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.fm-welcome-card > p,
+.fm-welcome-step > p {
+  margin: 0 auto 18px;
+  max-width: 420px;
+  color: var(--fm-text2);
+  font-size: calc(13px * var(--fm-scale));
+  line-height: 1.5;
+  text-align: center;
+}
+
+.fm-welcome-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.fm-welcome-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fm-cap2);
+}
+
+.fm-welcome-dot.is-done {
+  background: color-mix(in srgb, var(--fm-accent) 45%, transparent);
+}
+
+.fm-welcome-dot.is-on {
+  background: var(--fm-accent);
+}
+
+.fm-welcome-lockup {
+  align-self: center;
+  height: 44px;
+  margin: 6px 0 18px;
+}
+
+.fm-welcome-lockup img {
+  height: 100%;
+  width: auto;
+}
+
+.fm-welcome-list {
+  display: grid;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-panel);
+}
+
+.fm-welcome-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fm-text);
+  text-align: left;
+}
+
+.fm-welcome-list > :first-child,
+.fm-welcome-list > :first-child > .fm-welcome-row {
+  border-top: 0;
+}
+
+.fm-welcome-tool + .fm-welcome-tool > .fm-welcome-row {
+  border-top: 0.5px solid var(--fm-card-line);
+}
+
+.fm-welcome-row:hover:not(:disabled) {
+  background: var(--fm-hover);
+}
+
+.fm-welcome-row-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--fm-card);
+  box-shadow: 0 0 0 0.5px var(--fm-card-line);
+  color: var(--fm-link);
+}
+
+.fm-welcome-row-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fm-welcome-row-text {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fm-welcome-row-text strong {
+  overflow: hidden;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-welcome-row-text span {
+  overflow: hidden;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fm-welcome-row-action {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 600;
+}
+
+.fm-welcome-chev {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--fm-text3);
+}
+
+.fm-welcome-tool.is-open .fm-welcome-chev {
+  transform: rotate(90deg);
+}
+
+.fm-welcome-tool-body {
+  padding: 4px 14px 14px 56px;
+  font-size: calc(12px * var(--fm-scale));
+}
+
+.fm-welcome-ok {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 6px 0;
+  color: var(--fm-green);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+.fm-welcome-note {
+  margin: 12px 0 0;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+  text-align: center;
+}
+
+.fm-welcome-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+/* Back always sits at the left, the step's own buttons at the right. */
+.fm-welcome-back {
+  margin-right: auto;
+}
+
+/* Connect AI inside first run: the providers as one card of rows, as in the Connect AI sheet. */
+.fm-welcome-connect .connect-ai-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-panel);
+}
+
+:root[data-theme] .app-shell .fm-welcome-connect .connect-ai-card {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 34px 9px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  text-align: left;
+}
+
+:root[data-theme] .app-shell .fm-welcome-connect .connect-ai-card:first-child {
+  border-top: 0;
+}
+
+:root[data-theme] .app-shell .fm-welcome-connect .connect-ai-card:hover {
+  background: var(--fm-hover);
+}
+
+.fm-welcome-connect .connect-ai-card::after {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  color: var(--fm-text3);
+  content: "›";
+  font-size: 17px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.fm-welcome-connect .connect-ai-card strong {
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+}
+
+.fm-welcome-connect .connect-ai-card span {
+  overflow: hidden;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell .fm-welcome-connect :is(input, select) {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 7px;
+  background: var(--fm-field);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell .fm-welcome-card .ui-control {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell .fm-welcome-card .ui-control--primary {
+  background: var(--fm-accent);
+  box-shadow: none;
+  color: var(--fm-on-accent);
+}
+
+/*
+ * A Worker's reply in the panel (owner request, 2026-11-07): drawn in the file
+ * manager's own look and sized for a narrow panel instead of the classic
+ * full-window Chat. Code and tables are white cards with hairlines, quotes
+ * carry an accent bar, checklists use the Mac's checkboxes, file mentions are
+ * accent links with a file glyph, the files the reply touched are one card of
+ * rows, the Worker's steps are a quiet pill, and Copy appears on hover.
+ */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body {
+  color: var(--fm-text);
+  line-height: 1.55;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body > :first-child {
+  margin-top: 0;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body p {
+  margin: 0 0 0.7em;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body :is(ul, ol) {
+  margin: 0.3em 0 0.8em;
+  padding-left: 1.3em;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body li {
+  margin: 0.2em 0;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body li::marker {
+  color: var(--fm-text3);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body a {
+  color: var(--fm-link);
+  text-decoration: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body a:hover {
+  text-decoration: underline;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* A file the reply names: an accent link with a file glyph, which shows the file in the list. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .work-folder-file-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fm-link);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .work-folder-file-link::before {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  align-self: center;
+  background: currentColor;
+  content: "";
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.75h5l3.25 3.25v9.25H4z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M9 1.75V5h3.25' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.75h5l3.25 3.25v9.25H4z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M9 1.75V5h3.25' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .work-folder-file-link:hover {
+  background: var(--fm-accent-soft);
+}
+
+/* Inline code: a quiet chip. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--fm-cap);
+  color: var(--fm-text);
+  font-family: var(--work-fold-monospace-font, ui-monospace, monospace);
+  font-size: 0.88em;
+}
+
+/* Code: a white card, a small header with the language and Copy, and lines that scroll sideways. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-block {
+  margin: 0.8em 0;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 8px;
+  background: var(--fm-card);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-bottom: 0.5px solid var(--fm-card-line);
+  background: transparent;
+  color: var(--fm-text3);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-text2);
+  font-size: calc(11px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-toolbar button:hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-toolbar button svg {
+  width: 12px;
+  height: 12px;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-block pre {
+  margin: 0;
+  padding: 9px 12px 10px;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font-family: var(--work-fold-monospace-font, ui-monospace, monospace);
+  font-size: calc(12px * var(--fm-scale));
+  line-height: 1.5;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-code-block pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+/* Tables: a white card with a gray header row and hairlines between rows; a wide one scrolls sideways. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-table-scroll {
+  margin: 0.8em 0;
+  overflow-x: auto;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 8px;
+  background: var(--fm-card);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-table-scroll table {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-collapse: collapse;
+  font-size: calc(12px * var(--fm-scale));
+  line-height: 1.4;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-table-scroll :is(th, td) {
+  padding: 6px 10px;
+  border: 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-table-scroll th {
+  background: var(--fm-panel);
+  color: var(--fm-text2);
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-table-scroll tbody tr + tr td {
+  border-top: 0.5px solid var(--fm-card-line);
+}
+
+/* Quotes: an accent bar, the words a step quieter. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body blockquote {
+  margin: 0.8em 0;
+  padding: 1px 0 1px 11px;
+  border: 0;
+  border-left: 3px solid color-mix(in srgb, var(--fm-accent) 45%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fm-text2);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Checklists: the Mac's checkboxes, filled with the accent when done. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .contains-task-list {
+  padding-left: 0.1em;
+  list-style: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .task-list-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .task-list-item input[type="checkbox"] {
+  position: relative;
+  top: 2px;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 4px;
+  background: var(--fm-field);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-body .task-list-item input[type="checkbox"]:checked {
+  border-color: var(--fm-accent);
+  background: var(--fm-accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 10px no-repeat;
+}
+
+/* The Worker's steps: a quiet pill above the answer, opening to the list. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps {
+  margin: 0 0 10px;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fm-cap);
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps-summary:hover {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps-summary svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .work-steps-rows {
+  margin-top: 6px;
+  font-size: calc(12px * var(--fm-scale));
+  color: var(--fm-text2);
+}
+
+/* The files the reply touched: one card of rows, each showing the file in the list. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-files {
+  margin: 10px 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+  list-style: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-files li + li {
+  border-top: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-files li > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  text-align: left;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-files li > button:hover {
+  background: var(--fm-hover);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-files .file-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--fm-link);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-file-copy {
+  display: grid;
+  flex: 1;
+  gap: 0;
+  min-width: 0;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-file-name {
+  overflow: hidden;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-file-detail {
+  overflow: hidden;
+  color: var(--fm-text3);
+  font-size: calc(11px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .turn-file-open {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-link);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 500;
+}
+
+/* A reply's Copy shows while the pointer is on it; the time stays out of the way. */
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-footer {
+  display: flex;
+  min-height: 20px;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message:hover .message-footer,
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-footer:focus-within {
+  opacity: 1;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-time {
+  display: none;
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-copy-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fm-text3);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message-copy-button:hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-footer {
+  display: none;
+}
+
+/* Sub work-folders (owner request, 2026-11-07): each sits under its parent,
+   indented, and a caret inside the row, left of its icon, shows or hides
+   them (owner request, 2026-11-07: inside the highlight, as Mail and Notes
+   draw it). */
+.fm-sidebar-node {
+  position: relative;
+}
+
+.fm-sidebar-node .fm-sidebar-item {
+  padding-left: calc(var(--fm-sidebar-gutter, 21px) + var(--fm-depth, 0) * 16px);
+}
+
+/* The caret and its row are one target: hovering either lights the row. */
+.fm-sidebar-node:hover > .fm-sidebar-item:not(.is-current):not(.is-drop-target) {
+  background: var(--fm-hover);
+}
+
+.fm-sidebar-caret {
+  position: absolute;
+  top: 0;
+  /* In the row's own space left of the folder icon, inside its highlight. */
+  left: calc(var(--fm-depth, 0) * 16px + 4px);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text3);
+  cursor: default;
+}
+
+.fm-sidebar-caret:hover,
+.fm-sidebar-node:has(> .fm-sidebar-item.is-current) > .fm-sidebar-caret {
+  color: var(--fm-text2);
+}
+
+.fm-sidebar-caret:hover {
+  color: var(--fm-text);
+}
+
+.fm-sidebar-caret {
+  transition: color 120ms ease-out;
+}
+
+.fm-sidebar-caret svg {
+  width: 11px;
+  height: 11px;
+  transition: transform 220ms var(--work-fold-ease-smooth);
+}
+
+.fm-sidebar-caret:active svg {
+  scale: 0.85;
+}
+
+.fm-sidebar-caret.is-open svg {
+  transform: rotate(90deg);
+}
+
+.fm-sidebar-caret:focus-visible {
+  outline: 2px solid var(--fm-accent);
+  outline-offset: -1px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-sidebar-caret svg {
+    transition: none;
+  }
+}
+
+/* Sub work-folders grow in under their parent, one after another, and slide
+   down into place; closing collapses them (lib/motion.ts). */
+@keyframes fm-sidebar-row-open {
+  from { height: 0; opacity: 0; overflow: clip; }
+  to { overflow: clip; }
+}
+
+@keyframes fm-sidebar-row-drop {
+  from { translate: 0 -7px; }
+}
+
+.fm-sidebar-node.is-arriving {
+  interpolate-size: allow-keywords;
+  animation: fm-sidebar-row-open var(--work-fold-motion-base) var(--work-fold-ease-smooth) both;
+  animation-delay: calc(var(--fm-arrive-index, 0) * 28ms);
+}
+
+.fm-sidebar-node.is-arriving > .fm-sidebar-item {
+  animation: fm-sidebar-row-drop 240ms var(--work-fold-ease-smooth) both;
+  animation-delay: calc(var(--fm-arrive-index, 0) * 28ms);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion in the file manager (owner request, 2026-11-07): small touches that
+   say where something came from. Timings and easing are the app's motion
+   tokens (motion.css); both reduce-motion switches turn every one off.
+   --------------------------------------------------------------------------- */
+
+@keyframes fm-from-right {
+  from { opacity: 0; translate: 16px 0; }
+}
+
+@keyframes fm-from-left {
+  from { opacity: 0; translate: -16px 0; }
+}
+
+@keyframes fm-push-in {
+  from { opacity: 0; translate: 32px 0; }
+}
+
+@keyframes fm-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes fm-rise-in {
+  from { opacity: 0; translate: 0 6px; }
+}
+
+@keyframes fm-sheet-in {
+  from { opacity: 0; translate: 0 -10px; scale: 0.98; }
+}
+
+@keyframes fm-pop-in {
+  from { opacity: 0; scale: 0; }
+}
+
+/* Info and History: a thumb slides to the tab you choose, as a Mac segmented
+   control does, and the pane comes in from that side. */
+.fm-seg.has-thumb {
+  position: relative;
+}
+
+.fm-seg-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  border-radius: 6px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  transform: translateX(calc(var(--fm-seg-index, 0) * 100%));
+  transition: transform var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+.fm-seg.has-thumb .fm-seg-b {
+  position: relative;
+  z-index: 1;
+  transition: background-color 120ms ease-out;
+}
+
+.fm-seg.has-thumb .fm-seg-b.is-on {
+  background: transparent;
+  box-shadow: none;
+}
+
+.fm-panel-scroll {
+  overflow-x: clip;
+}
+
+.fm-pane[data-from="right"] {
+  animation: fm-from-right 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-pane[data-from="left"] {
+  animation: fm-from-left 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-pane[data-from="none"] {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* A Chat pushes in from the right, like the next screen of a Mac app; Back
+   brings the panel in from the left (the pane above). */
+.fm-panel {
+  overflow-x: clip;
+}
+
+.fm-panel.is-chat > .fm-chat:not([hidden]) {
+  animation: fm-push-in var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+.fm-panel.is-chat > .fm-ph {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* The panel slides in when it's shown. */
+.fm-panel.is-arriving {
+  animation: fm-from-right var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+/* What arrives in Info: the Worker's receipt, then suggestions one by one. */
+.fm-receipt {
+  animation: fm-rise-in 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-suggests .fm-suggest {
+  animation: fm-rise-in var(--work-fold-motion-base) var(--work-fold-ease-smooth) both;
+}
+
+.fm-suggests .fm-suggest:nth-child(2) { animation-delay: 40ms; }
+.fm-suggests .fm-suggest:nth-child(3) { animation-delay: 80ms; }
+.fm-suggests .fm-suggest:nth-child(4) { animation-delay: 120ms; }
+
+/* Activity and change dots pop in. */
+.fm-dot,
+.fm-changed-dot {
+  animation: fm-pop-in 240ms var(--work-fold-ease-pop) both;
+}
+
+.fm-dot.is-run {
+  animation: fm-pop-in 240ms var(--work-fold-ease-pop), fm-pulse 1.2s ease-in-out 240ms infinite;
+}
+
+/* Sheets and the search scope bar arrive instead of appearing. */
+.fm-goto {
+  animation: fm-sheet-in var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+.fm-scope {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* Rows, sidebar items, and buttons answer the pointer smoothly, and buttons
+   answer a press. */
+.fm-row,
+.fm-tile,
+.fm-sidebar-item,
+.fm-crow {
+  transition: background-color 110ms ease-out, color 110ms ease-out, box-shadow 110ms ease-out;
+}
+
+.fm-tool,
+.fm-btn,
+.fm-capbtn,
+.fm-heading-add {
+  transition: background-color 110ms ease-out, color 110ms ease-out, box-shadow 110ms ease-out, scale 160ms var(--work-fold-ease-smooth);
+}
+
+.fm-tool:active:not(:disabled),
+.fm-btn:active:not(:disabled),
+.fm-capbtn:active:not(:disabled),
+.fm-heading-add:active:not(:disabled) {
+  scale: 0.95;
+  transition-duration: 110ms, 110ms, 110ms, 70ms;
+}
+
+/* First run: each step slides in from the side you went; the step dots ease. */
+.fm-welcome-step {
+  display: contents;
+}
+
+.fm-welcome-step[data-from="right"] > *,
+.fm-welcome-step[data-from="left"] > *,
+.fm-welcome-step[data-from="none"] > * {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out both;
+}
+
+.fm-welcome-step[data-from="right"] > * {
+  animation: fm-from-right 240ms var(--work-fold-ease-smooth) both;
+}
+
+.fm-welcome-step[data-from="left"] > * {
+  animation: fm-from-left 240ms var(--work-fold-ease-smooth) both;
+}
+
+.fm-welcome-step > :nth-child(2) { animation-delay: 30ms; }
+.fm-welcome-step > :nth-child(3) { animation-delay: 60ms; }
+.fm-welcome-step > :nth-child(n + 4) { animation-delay: 90ms; }
+
+.fm-welcome-dot {
+  transition: background-color var(--work-fold-motion-base) var(--work-fold-ease-smooth), scale var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+.fm-welcome-dot.is-on {
+  scale: 1.25;
+}
+
+/* Highlights ease in: the message box's focus ring and every drop target. */
+.fm-field {
+  transition: border-color 140ms ease-out, box-shadow 160ms ease-out, background-color 140ms ease-out;
+}
+
+.fm-content {
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out;
+}

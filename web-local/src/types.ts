@@ -120,7 +120,7 @@ export interface ChatMessage {
   /** Sent into an already-running turn; the agent saw it after its current step. */
   delivery?: "steer";
   /** `app`: an installed app asked for this (`assistant.request`), not the person. */
-  source?: "remote_web" | "app";
+  source?: "app";
   appId?: string;
   appTitle?: string;
 }
@@ -165,6 +165,8 @@ export type ChatLifecycleView = "active" | "snoozed" | "archived";
 export type ContextAttachmentMode = "full_original_text" | "full_extracted_text" | "image" | "path_only_reference";
 export interface ContextAttachment {
   sourcePath: string;
+  /** A folder reference ("Work on this folder" in the file manager). */
+  sourceKind?: "folder";
   sourceFileName: string;
   sourceSizeBytes: number;
   mode: ContextAttachmentMode;
@@ -184,6 +186,16 @@ export interface ChatContextPathRequest {
   paths: readonly string[];
   workFolderId: string;
   surfaceTabId: string;
+}
+/**
+ * Sends a message at once with these work-folder paths as references: the
+ * file manager's message box (2026-11-06) hands its words and selection to
+ * the Chat it opens in the panel.
+ */
+export interface ChatSendRequest {
+  id: number;
+  text: string;
+  paths: readonly string[];
 }
 /** Seeds a Chat composer with starter text; the person finishes the sentence and sends. */
 export interface ChatDraftRequest {

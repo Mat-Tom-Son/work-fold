@@ -11,7 +11,7 @@ Library. Since the 2026-10-10 domain migration these words are also the code's:
 identifiers, HTTP routes, CLI verbs and flags, JSON keys, schemas, and storage
 paths use them, with the exceptions listed in [the vocabulary
 glossary](../scripts/vocabulary/GLOSSARY.md) (for example the app-state
-`management/` folder and the paired-web `management.*` operations). Historical
+`management/` folder). Historical
 release notes, dated evidence, quoted copy, and archived documents retain the
 names they recorded.
 
@@ -30,8 +30,7 @@ instruction to implement its contents.
 | Checks and Automations | [Checks](checks.md), [Automations (technical automation contract)](automations.md), [The overview](work-fold-agent-overview.md) |
 | Native agent capabilities | [Skills, Extensions, packages, and scopes](skills-and-extensions.md), [Pi resources](pi-resources.md), [Declarative Extension surfaces](extension-surfaces.md) |
 | Restricted work-folder apps | [Authoring](restricted-app-authoring.md), [Runtime](restricted-app-runtime.md), [App platform foundation](app-platform-foundation.md) |
-| Pages | [Pages (page folders, preview, test entries)](pages.md), [Online pages plan](online-pages-plan.md) |
-| Web access | [Bridge operations](../services/bridge/README.md), [Privacy](../PRIVACY.md), [Security](../SECURITY.md) |
+| Pages | [Pages (page folders, preview, entries)](pages.md) |
 | Desktop interaction and appearance | [Desktop parity](ui-parity.md), [Collaboration experience](collaboration-experience.md), [Visual system](visual-design.md), [Application appearance](application-appearance.md), [work-folder customization](work-folder-customization.md), [Image generation](image-generation.md) |
 | Mac distribution | [Build lanes](macos-build.md), [Release procedure](macos-release.md), [Release notes and candidate history](releases/README.md) |
 
@@ -40,8 +39,7 @@ The App platform's [ontology](app-platform-ontology.md),
 [portable runtime contract](app-platform-runtime-contract.md) are accepted
 supporting design contracts. The foundation's **Current local boundary** and
 **Implemented local product boundary** identify what is implemented. Accepted
-hosted-runtime semantics do not imply a deployed cloud runtime. Paired-browser
-private app views are a separate shipped capability.
+hosted-runtime semantics do not imply a deployed cloud runtime.
 
 ## Harness and example boundaries
 
@@ -76,7 +74,7 @@ private app views are a separate shipped capability.
 | [Feedback during agent work](tool-feedback.md) | General native-tool feedback contract, adversarial review decisions, local model-context inspection and implementation evidence |
 | [Collaboration contract](collaboration-contract.md) | The built wave B specification (accepted 2026-09-11): durable requests, work-folder turn context, report/ask/answer/handoff, one result shape, app change hints — also listed under current contracts |
 | [Receipts, not gates](receipts-not-gates.md) | Accepted 2026-09-10 direction and the specification the canonical documents now follow: one authority mode, reversible destruction, apps that come up able to work; supersedes F3–F7 and F17, narrows F8, F9, F18 |
-| [Online pages plan](online-pages-plan.md) | Proposed: interactive page folders published online with saved data; replaces desktop-served sharing, retired 2026-11-05 |
+| [Rebrand plan](rebrand-plan.md) | Proposed 2026-11-07: every place the work-fold names appear, the contract decisions, what must come along, and the order of work for the new name and repository |
 | [Windows build](windows-build.md), [Windows releases](windows-release.md) | Inactive platform references; no Windows gate on Mac releases |
 
 Finished plans, superseded designs, and dated evidence live in the

@@ -19,7 +19,7 @@ agent on the CLI gets the same verbs. Nothing in this contract adds a gate.
 
 The person-facing presentation is specified in [Collaboration experience](collaboration-experience.md):
 request-wide progress and Stop, addressed questions, selected files, and explicit recovery
-across Chats, the work-fold agent, Apps, and the paired browser.
+across Chats, the work-fold agent, and Apps.
 
 Native Pi Extension dialogs are a separate compatibility mechanism: the
 development [Extension UI adapter](skills-and-extensions.md#live-extension-questions)
@@ -141,7 +141,7 @@ graph, receipts, and Stop above.
 - **Checklist.** A Worker or the work-fold agent can keep a short
   checklist for its request with the `checklist` tool, sending the whole
   list each time. The host keeps it on the request record, shows it in the
-  Chat's work view and the paired browser, and hands it back at the start of
+  Chat's work view, and hands it back at the start of
   every later turn of that request: an answer's continuation, a follow-up
   that brings results back. When a long turn is compacted partway through,
   the host restates the checklist as it stands together with the turn's ids

@@ -715,17 +715,13 @@ test("ledger command flag validation refuses malformed and misplaced shapes", ()
 
 test("setup-only authority families are refused at parse time", () => {
   const refusals: Array<[string[], RegExp]> = [
-    [["remote", "disable"], /Web Access administration/],
-    [["browsers", "approve"], /Web Access administration/],
-    [["browser", "revoke"], /Web Access administration/],
-    [["pairing", "approve"], /Act-token and pairing machinery/],
-    [["token", "mint"], /Act-token and pairing machinery/],
-    [["tokens", "rotate"], /Act-token and pairing machinery/],
+    [["token", "mint"], /Act-token machinery/],
+    [["tokens", "rotate"], /Act-token machinery/],
     [["provider", "set-key"], /Provider credentials/],
     [["providers", "remove"], /Provider credentials/],
     [["credentials", "remove"], /Provider credentials/],
     [["settings", "assistant"], /Settings administration/],
-    [["--json", "remote", "disable"], /Web Access administration/],
+    [["--json", "token", "mint"], /Act-token machinery/],
   ];
   for (const [argv, category] of refusals) {
     assert.throws(
@@ -737,6 +733,15 @@ test("setup-only authority families are refused at parse time", () => {
         && /local setup only/.test(error.message)
         && /cannot perform it/.test(error.message),
       `expected setup-only refusal for '${argv.join(" ")}'`,
+    );
+  }
+
+  // Web Access is gone: its former family words are ordinary unknown commands.
+  for (const argv of [["remote", "disable"], ["browsers", "approve"], ["browser", "revoke"], ["pairing", "approve"]]) {
+    assert.throws(
+      () => parseWorkFoldCliActArgv(argv),
+      (error: unknown) => error instanceof WorkFoldCliError && error.code !== "permissionDenied" && /Unknown command/.test(error.message),
+      `expected an ordinary unknown command for '${argv.join(" ")}'`,
     );
   }
 
@@ -989,30 +994,6 @@ test("formerly gated verbs execute through the facade and receipt without a deci
   assert.equal(neverList.exitCode, 4);
   assert.match(neverList.stderr, /Provider credentials is local setup only/);
   assert.deepEqual(records, []);
-});
-
-test("remote lineage on a work-fold agent parent stamps the browser identity on act receipts", async () => {
-  const facade = {
-    automationsDisable: async () => ({ automationId: "automation-1", disabled: true, digest: "e".repeat(64), stoppedRunId: null }),
-  } as unknown as WorkFoldActFacade;
-  const records: Array<Record<string, unknown>> = [];
-  const response = await executeWorkFoldCliActRequest(
-    createWorkFoldCliActRequest({ id: randomUUID(), argv: ["automations", "disable", "--automation", "automation-1", "--parent-task", "task-remote"], cwd, actToken: token }),
-    {
-      version: "test",
-      getActFacade: () => ({ facade, token }),
-      resolveLineageParent: (taskId) => (taskId === "task-remote" ? { taskId, browserId: "browser-9", grantId: "grant-9" } : null),
-      receipts: {
-        hasAccepted: async () => false,
-        append: async (record) => { records.push({ ...record }); return true; },
-      },
-    },
-  );
-  assert.equal(response.exitCode, 0);
-  assert.deepEqual(records.map((record) => [record.outcome, record.parentTaskId, record.browserId, record.grantId]), [
-    ["accepted", "task-remote", "browser-9", "grant-9"],
-    ["ok", "task-remote", "browser-9", "grant-9"],
-  ]);
 });
 
 test("agent overview parses strictly, dispatches to the facade, journals, and renders the digest", async () => {

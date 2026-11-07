@@ -35,7 +35,7 @@ test("shared motion cancels running effects and removes exits when either Reduce
           dialog.innerHTML = '<section role="dialog" aria-modal="true" id="qa-dialog"><input id="qa-input" data-tree-row="true" value="fixture"></section>';
           document.body.append(dialog); await flush(); dialog.remove(); await flush();
           const ghost = document.querySelector('[data-exit-ghost]');
-          glideFrom(mover, {left: -50, top: -50}); settleIn([mover]); celebrateFinish(dot);
+          glideFrom(mover, {left: -50, top: -50}); settleIn([mover]); slideIn(mover, 'right'); celebrateFinish(dot);
           const effects = document.getAnimations().filter(a => a.effect instanceof KeyframeEffect && a.constructor.name !== 'CSSAnimation');
           effects.forEach(a => { a.pause(); a.currentTime = 50; });
           const result = {preference, started:effects.length, ghost:!!ghost, inert:ghost?.inert, hidden:ghost?.getAttribute('aria-hidden'), hooks:ghost?.querySelectorAll('[id], [role], [aria-modal], [data-tree-row]').length};
@@ -44,7 +44,7 @@ test("shared motion cancels running effects and removes exits when either Reduce
           await flush();
           result.remaining = effects.filter(a => a.playState !== 'idle').length;
           result.ghosts = document.querySelectorAll('[data-exit-ghost]').length;
-          glideFrom(mover, {left:-100, top:-100}); settleIn([mover]); celebrateFinish(dot);
+          glideFrom(mover, {left:-100, top:-100}); settleIn([mover]); slideIn(mover, 'left'); celebrateFinish(dot);
           result.newEffects = document.getAnimations().filter(a => a.effect instanceof KeyframeEffect && a.constructor.name !== 'CSSAnimation').length;
           results.push(result);
         }
@@ -59,7 +59,7 @@ test("shared motion cancels running effects and removes exits when either Reduce
     assert.equal(results.error, undefined, results.stack);
     assert.equal(results.length, 2);
     for (const result of results) {
-      assert.ok(result.started >= 6, `${result.preference}: dialog exit, glide, settle, and both finish effects must run`);
+      assert.ok(result.started >= 7, `${result.preference}: dialog exit, glide, settle, slide, and both finish effects must run`);
       assert.equal(result.ghost, true); assert.equal(result.inert, true); assert.equal(result.hidden, "true"); assert.equal(result.hooks, 0);
       assert.equal(result.remaining, 0, `${result.preference}: running scripted effects must stop`);
       assert.equal(result.ghosts, 0, `${result.preference}: leaving copies must be removed immediately`);

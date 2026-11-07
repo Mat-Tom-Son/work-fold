@@ -25,14 +25,10 @@ export interface ChatMessage {
   interruption?: ChatMessageInterruption;
   attachments?: ChatMessageAttachmentRef[];
   /**
-   * Durable surface provenance: `remote_web` for messages accepted through
-   * remote access, `app` for a request an installed app made with
-   * `assistant.request` (the message is the app's, not the person's).
+   * Durable surface provenance: `app` for a request an installed app made
+   * with `assistant.request` (the message is the app's, not the person's).
    */
-  source?: "remote_web" | "app";
-  remotePrincipalId?: string;
-  remoteGrantId?: string;
-  remoteRequestId?: string;
+  source?: "app";
   /** With `source: "app"`: the app's manifest id and its title when it asked. */
   appId?: string;
   appTitle?: string;
@@ -87,13 +83,6 @@ export interface ConversationSummary {
 export interface ConversationLifecyclePatch {
   archived?: boolean;
   snoozedUntil?: string | null;
-}
-
-export interface ConversationRemoteTitleProvenance {
-  source: "remote_web";
-  remotePrincipalId: string;
-  remoteGrantId: string;
-  remoteRequestId: string;
 }
 
 export interface ChatMessageLanding {
@@ -187,29 +176,16 @@ export async function createConversation(
   return { id: conversationId, title: normalizedTitle, createdAt: now, updatedAt: now, archivedAt: null, snoozedUntil: null };
 }
 
-export async function findRemoteConversationTitleRename(
-  workFolderRoot: string,
-  conversationId: string,
-  provenance: ConversationRemoteTitleProvenance,
-): Promise<ConversationSummary | null> {
-  const messages = await readConversation(workFolderRoot, conversationId);
-  const replayIndex = remoteConversationTitleRenameIndex(messages, provenance);
-  return replayIndex < 0 ? null : conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
-}
-
 export async function renameConversation(
   workFolderRoot: string,
   conversationId: string,
   title: string,
-  provenance?: ConversationRemoteTitleProvenance,
 ): Promise<ConversationSummary> {
   const now = new Date().toISOString();
   const normalizedTitle = normalizeConversationTitle(title);
   if (!normalizedTitle) throw new Error("Conversation title is required.");
   const messages = await readConversation(workFolderRoot, conversationId);
   if (!messages.length) throw new Error("Conversation not found.");
-  const replayIndex = provenance ? remoteConversationTitleRenameIndex(messages, provenance) : -1;
-  if (replayIndex >= 0) return conversationSummary(conversationId, messages.slice(0, replayIndex + 1));
   const titleMessage: ChatMessage = {
     id: randomUUID(),
     role: "system",
@@ -217,7 +193,6 @@ export async function renameConversation(
     titleSource: "manual",
     content: normalizedTitle,
     createdAt: now,
-    ...(provenance ?? {}),
   };
   await appendMessage(workFolderRoot, conversationId, titleMessage);
   const refreshedMessages = await readConversation(workFolderRoot, conversationId);
@@ -527,20 +502,12 @@ function parseChatMessage(line: string): ChatMessage | null {
       const attachments = parsed.attachments.filter(isChatMessageAttachmentRef).slice(0, 32);
       if (attachments.length) message.attachments = attachments;
     }
-    if (parsed.source === "remote_web"
-      && isRemoteProvenanceId(parsed.remotePrincipalId)
-      && isRemoteProvenanceId(parsed.remoteRequestId)) {
-      message.source = "remote_web";
-      message.remotePrincipalId = parsed.remotePrincipalId;
-      if (isRemoteProvenanceId(parsed.remoteGrantId)) message.remoteGrantId = parsed.remoteGrantId;
-      message.remoteRequestId = parsed.remoteRequestId;
-    }
     // An app's request keeps its marker only with a readable title; a log
     // without it (or from before it existed) loads as an ordinary message.
     if (parsed.role === "user" && parsed.source === "app" && isAppSourceTitle(parsed.appTitle)) {
       message.source = "app";
       message.appTitle = parsed.appTitle;
-      if (isRemoteProvenanceId(parsed.appId)) message.appId = parsed.appId;
+      if (isProvenanceId(parsed.appId)) message.appId = parsed.appId;
     }
     if (isTurnIdentity(parsed.turnId)) message.turnId = parsed.turnId;
     if (isTurnIdentity(parsed.requestId)) message.requestId = parsed.requestId;
@@ -562,7 +529,7 @@ function isChatToolTitle(value: unknown): value is string {
     && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(value);
 }
 
-function isRemoteProvenanceId(value: unknown): value is string {
+function isProvenanceId(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 160 && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
@@ -726,21 +693,6 @@ function manualConversationTitle(messages: ChatMessage[]): string | null {
     if (title) return title;
   }
   return null;
-}
-
-function remoteConversationTitleRenameIndex(
-  messages: ChatMessage[],
-  provenance: ConversationRemoteTitleProvenance,
-): number {
-  return messages.findIndex((message) => (
-    message.role === "system"
-    && message.kind === "conversation_title"
-    && message.titleSource === "manual"
-    && message.source === provenance.source
-    && message.remotePrincipalId === provenance.remotePrincipalId
-    && message.remoteGrantId === provenance.remoteGrantId
-    && message.remoteRequestId === provenance.remoteRequestId
-  ));
 }
 
 function generatedConversationTitle(messages: ChatMessage[]): string | null {

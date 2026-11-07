@@ -16,17 +16,17 @@ export function WorkFolderAppearanceModal({ onRenameWorkFolder, onClose, onOpenW
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useModalDialog({ onClose, initialFocusRef: closeRef });
-  const sections = ["banner", "title", "icon", "color"] as const;
+  const sections = appearance.bannerControls === false ? ["icon", "color"] as const : ["banner", "title", "icon", "color"] as const;
   // One scrolling page (2026-11-05): opening at a section scrolls to it.
   useEffect(() => {
-    if (initialSection === "banner") return;
+    if (initialSection === "banner" || (appearance.bannerControls === false && initialSection === "title")) return;
     document.getElementById(`folder-appearance-section-${initialSection}`)?.scrollIntoView({ block: "start" });
   }, [initialSection]);
   /** The section at the top of the page, so Settings can bring the person back to it. */
   function sectionInView(): WorkFolderAppearanceSection {
     const scroller = dialogRef.current?.querySelector<HTMLElement>(".work-folder-appearance-sections");
     const top = (scroller?.getBoundingClientRect().top ?? 0) + 24;
-    return [...sections].reverse().find((section) => (document.getElementById(`folder-appearance-section-${section}`)?.getBoundingClientRect().top ?? Infinity) <= top) ?? "banner";
+    return [...sections].reverse().find((section) => (document.getElementById(`folder-appearance-section-${section}`)?.getBoundingClientRect().top ?? Infinity) <= top) ?? sections[0];
   }
 
   return (

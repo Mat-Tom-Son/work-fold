@@ -18,15 +18,14 @@ const deletion = () => prepareAct({
 });
 
 test("prepareFoldAct refuses unknown kinds, unknown or malformed fields, and mismatched identities", () => {
-  // The closed vocabulary: the fifteen kinds behind every verb that installs
-  // code, widens a power, or destroys data; permanent file deletion and the
-  // retired desktop-served exposure are gone, and publishing a page folder
-  // online (docs/pages.md, stage 2) is its own kind.
-  assert.equal(PREPARED_ACT_KINDS.length, 15);
+  // The closed vocabulary: the fourteen kinds behind every verb that installs
+  // code, widens a power, or destroys data; permanent file deletion, the
+  // retired desktop-served exposure, and online page publishing are gone.
+  assert.equal(PREPARED_ACT_KINDS.length, 14);
   assert.equal((PREPARED_ACT_KINDS as readonly string[]).includes("files.destroy"), false);
   assert.equal((PREPARED_ACT_KINDS as readonly string[]).includes("publish.viewer.expose"), false);
+  assert.equal((PREPARED_ACT_KINDS as readonly string[]).includes("page.publish"), false);
   assert.equal((PREPARED_ACT_KINDS as readonly string[]).includes("app.review.install"), true);
-  assert.equal((PREPARED_ACT_KINDS as readonly string[]).includes("page.publish"), true);
 
   const refused = (input: Parameters<typeof prepareAct>[0], code: string, message: RegExp) =>
     assert.throws(

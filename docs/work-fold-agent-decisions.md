@@ -20,10 +20,11 @@ reconnecting re-reads current records, and these hints carry no grant and
 replay no action.
 
 The **work-fold agent** is the one user-facing name for work-fold's one management
-surface in three coats: the **work-fold agent** above all work-folders, its
-**menu-bar/tray popover** ("Your fold"), and the **Remote access web client**
-("Your fold on the web"). It is the one door to all work-folders: things come in
-through it (drops, attachments, uploads, `files add`). work-folders are the
+surface: the **work-fold agent** above all work-folders and its
+**menu-bar/tray popover** ("Your fold"). The **Remote access web client**
+("Your fold on the web") was removed from the desktop with Web Access on
+2026-11-07. It is the one door to all work-folders: things come in
+through it (drops, attachments, `files add`). work-folders are the
 rooms; the work-fold agent is the door.
 
 > **The work-fold agent is the one door to all your work-folders: what you hand it gets put
@@ -36,7 +37,7 @@ work-fold agent's rails, nouns, and contract text on 2026-08-11:
 [Product model](product-model.md) (nouns, explicit-context rows, rails 9–11,
 the roadmap direction), `AGENTS.md` (contributor rails, act-lane families),
 [the work-fold agent layer](work-fold-agent-and-cli.md) (receipts, prepared acts,
-remote operations, the verification map), `README.md`, `SECURITY.md`,
+the verification map), `README.md`, `SECURITY.md`,
 `PRIVACY.md`, [Desktop parity](ui-parity.md), and
 [the visual system](visual-design.md). The sibling documents are shipped
 contract references retaining the detail canon does not carry:
@@ -48,7 +49,7 @@ contract references retaining the detail canon does not carry:
 - [Consecrations](archive/fold-consecrations.md) — superseded 2026-09-10; retained for the threat-model residuals that still apply.
 - [Automations](automations.md) — declared deterministic cross-work-folder glue: triggers, declarations, the executor, and bounds.
 - [The overview](work-fold-agent-overview.md) — the deterministic digest: sources, sections, markers, surfaces, and non-goals.
-- [The publishing ladder](archive/shared-pages.md) — retired 2026-11-05 with desktop-served sharing; the [Online pages plan](online-pages-plan.md) proposes its replacement.
+- [The publishing ladder](archive/shared-pages.md) — retired 2026-11-05 with desktop-served sharing; its replacement, the [Online pages plan](archive/online-pages-plan.md), was removed from the desktop with Publish on 2026-11-07.
 - [Integration](archive/fold-integration.md) — the promotion record: applied amendment blocks, cross-thread reconciliations, and the items still held with their gates.
 
 ## The doctrine in one paragraph
@@ -61,7 +62,7 @@ and Recently deleted holds the rest for a retention window — and every
 grant is revocable. Disclosure is after the fact: the overview,
 receipts, and Settings → Apps say what happened, and needs-you means an
 Assistant asked a question. Setup that establishes identity or secrets —
-pairing, provider secrets, remote enrollment — stays outside the act
+the act token and provider secrets — stays outside the act
 vocabulary and never blocks a task. Bounds are generous defaults in
 Settings, and every limit hit names the limit. A person's ask is a durable
 request: the work-fold agent and Workers divide it into child turns, hand each
@@ -85,8 +86,7 @@ What the work-fold agent is **not**:
   that was a separate decision, not a fold rename.)
 - Not a new technical contract. `work-fold agent …`, the
   `work-fold-agent` scope id, the `/api/management/*` routes, the
-  `management.*` remote-facade methods, the `management/` application-state
-  root, and "work-fold agent" as a contract term all stay exactly as
+  `management/` application-state root, and "work-fold agent" as a contract term all stay exactly as
   documented in [the work-fold agent layer](work-fold-agent-and-cli.md).
 
 ## Decision register
@@ -97,7 +97,10 @@ canonical documents on 2026-08-11 through the amendment blocks recorded in
 decisions, not around them. Rows without an inline date were recorded on
 2026-08-10. F3–F7 and F17 are retained as history and superseded by F19
 (2026-09-10); F8, F9, and F18 are narrowed as noted in their rows. F11 was
-retired on 2026-11-05, and F15 narrowed, as noted in their rows. The
+retired on 2026-11-05, and F15 narrowed, as noted in their rows. On
+2026-11-07 (owner decision) Web Access and Publish were removed from the
+desktop: no paired browser, web client connection, or online page remains,
+and F1, F11, F13, and F15 carry that note in their rows. The
 2026-09-10 decisions F19–F24 are recorded here verbatim from
 [Receipts, not gates](receipts-not-gates.md), which remains their
 specification. The 2026-09-11 decisions F25–F30 are recorded here verbatim
@@ -106,7 +109,7 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 
 | # | Decision (dated) | What it does not change |
 |---|---|---|
-| F1 | One thing, one name: the work-fold agent, the menu-bar/tray popover, and the Remote access web client are one product surface named **the work-fold agent** — the one door to all work-folders, capture in and publish out. | No new runtime, transcript store, or Assistant; the three surfaces keep their existing machinery. |
+| F1 | One thing, one name: the work-fold agent, the menu-bar/tray popover, and the Remote access web client are one product surface named **the work-fold agent** — the one door to all work-folders, capture in and publish out. *Narrowed 2026-11-07 (owner decision):* the Remote access web client was removed from the desktop with Web Access. | No new runtime, transcript store, or Assistant; the three surfaces keep their existing machinery. |
 | F2 | Scope: one complete effort, no phases. Four threads — verb ledger, automations + overview, naming and copy, publishing ladder — delivered as proposal documents; implementation follows owner review. | Nothing in this set is implemented before that review. |
 | F3 | **Superseded by F19 (2026-09-10).** The work-fold agent becomes able to do anything a person can do in the app, with a receipt for everything — except the consecrations and the never-list. | The click remains the product's definition of authorization; receipts are added, trust prompts are not. |
 | F4 | **Superseded by F19 (2026-09-10).** Tier model: exactly two tiers (direct receipted verbs; consecrations) plus a never-list. There is no general "co-sign everything big" tier. | Standing policies narrow consecrations; they do not create a third tier. |
@@ -116,11 +119,11 @@ their specification; F8 and F9 keep the narrowings that record relies on.
 | F8 | Agency on a schedule always lives in work-folders. Above work-folders, only declared deterministic glue (automations) runs unattended; enabling an automation is a consecration. *Narrowed 2026-09-10:* keeps its ban on ambient or arbitrary event-driven fold turns; now permits an automation's declared `fold` step and, in the collaboration work, bounded continuations of a person-initiated request. Enabling an automation is one receipted call (F23). | Only a declared automation step starts a scheduled work-fold agent turn; the overview's narration stays on-demand. |
 | F9 | Management-scope and cross-work-folder work never runs inside a work-folder chat, because work-folder transcripts are portable (`.work-fold/conversations/` travels with the folder) and cross-work-folder context in a work-folder transcript is a leak. *Narrowed 2026-09-10:* a payload-admission rule rather than a transport rule — what may enter a work-folder Chat from above is its assignment, explicitly released payloads, and answers to its own questions; the work-fold agent transcript, the work-folder registry, and other work-folders' results never enter a work-folder Chat. | Delegated in-work-folder work continues to run in work-folder chats with that work-folder's Assistant. |
 | F10 | The overview is a deterministic digest composed by app code from kernel-recorded state only — no model call, no file scanning, no ambient watching. | Nothing new is recorded to feed it; it reads state the product already keeps. |
-| F11 | Publishing introduces the **viewer**: per-artifact, read-only, link-scoped, revocable, receipted. Viewers are not paired browsers and never touch the management lane. Out of scope: public discovery, an App Store, uptime promises. *Retired 2026-11-05 (owner decision):* desktop-served sharing and its viewer plane were removed; the [Online pages plan](online-pages-plan.md) proposes the replacement. | Paired-browser trust and the bridge's content-free default are not redefined by viewer traffic. |
+| F11 | Publishing introduces the **viewer**: per-artifact, read-only, link-scoped, revocable, receipted. Viewers are not paired browsers and never touch the management lane. Out of scope: public discovery, an App Store, uptime promises. *Retired 2026-11-05 (owner decision):* desktop-served sharing and its viewer plane were removed; the [Online pages plan](archive/online-pages-plan.md) proposed the replacement. *2026-11-07:* that replacement was removed from the desktop with Publish. | Paired-browser trust and the bridge's content-free default are not redefined by viewer traffic. |
 | F12 | Naming depth: user-facing copy and docs only. The CLI keeps `work-fold agent …`; internal types, protocol identifiers, scope ids, routes, provenance values, and "work-fold agent" as a contract term stay. | Brand word and contract words do not have to match; no compatibility break is spent on a rename. |
-| F13 | Copy specifics: **"Fold it in"** is the capture verb; Settings → Remote access becomes **"Your fold on the web"** without renaming technical contracts; the word work-folder stays; no "foldr"; work-folders are never renamed to folds. | work-folder, Library, Skills & Extensions, Chats, History vocabulary is untouched. |
+| F13 | Copy specifics: **"Fold it in"** is the capture verb; Settings → Remote access becomes **"Your fold on the web"** without renaming technical contracts; the word work-folder stays; no "foldr"; work-folders are never renamed to folds. *Narrowed 2026-11-07:* Settings → Remote access was removed with Web Access. | work-folder, Library, Skills & Extensions, Chats, History vocabulary is untouched. |
 | F14 | Automation chat-step provenance: the message an automation sends into a work-folder chat is an **ordinary user-role message** — the portable transcript carries no automation marker. Attribution is machine-local: automation run receipts, hop journals, run history, and the overview. *Narrowed 2026-09-10 (F23):* the reviewed message is a template; the closed set of host-resolved placeholders is the only substitution, and the resolved text is bounded and recorded on the hop receipt. | The interruption-marker semantics of work-folder chats and the F9 leak rule are untouched; the message is still reviewed at enablement and names nothing cross-work-folder beyond what the declared placeholders carry. |
-| F15 | The work-fold agent's Settings surface is one section named **Settings → The work-fold agent**, hosting **Your fold on the web** (web access) as a subsection alongside standing policies, automation management, and publication controls. *Narrowed 2026-09-10 (F19, F20):* the section hosts Your fold on the web, Recently deleted, Limits, automation management, and publication controls; it has no standing-rules or authority subsection. *Narrowed 2026-11-05:* publication controls were removed with desktop-served sharing (F11). | Page ids and routes stay technical per F12; "Remote access" survives in contract and security prose. |
+| F15 | The work-fold agent's Settings surface is one section named **Settings → The work-fold agent**, hosting **Your fold on the web** (web access) as a subsection alongside standing policies, automation management, and publication controls. *Narrowed 2026-09-10 (F19, F20):* the section hosts Your fold on the web, Recently deleted, Limits, automation management, and publication controls; it has no standing-rules or authority subsection. *Narrowed 2026-11-05:* publication controls were removed with desktop-served sharing (F11). *Narrowed 2026-11-07:* Your fold on the web was removed with Web Access. | Page ids and routes stay technical per F12; "Remote access" survives in contract and security prose. |
 | F16 | At promotion, [fold.md](work-fold-agent-decisions.md) shrinks into a compact fold decision register named by AGENTS.md's required reading (the Checks precedent); the siblings shrink into it as their sections ship. | product-model.md remains the constitution; the amendment blocks in [Integration](archive/fold-integration.md) still apply exactly as written. |
 | F17 | **Superseded by F19 (2026-09-10).** **Authority modes** (2026-08-31): Settings → The work-fold agent → Authority offers **Reviewed** and **Unrestricted**. Reviewed preserves host-composed cards and standing policies. Unrestricted executes every newly admitted staged act, including irreversible destruction, viewer exposure, automation enablement, and whole-work-folder file grants. Approved browsers inherit it structurally through the desktop host. Mode changes, pairing, and credential entry remain local setup surfaces with no Assistant/CLI/remote verb. Existing pending cards are not drained when the mode changes. | Pins, eligibility, effect-time rechecks, journal-first consumption, receipts, fences, at-most-once execution, and failure-without-auto-retry remain intact. The five setup-only families are boundaries of identity and secret handling, not recurring approvals. |
 | F18 | **Explicit folder observation and text review** (2026-09-05): version-3 automations may watch one bounded folder with explicit types, debounce, and cooldown. Watchers baseline on startup/wake and pause during automation work, without catch-up, to prevent file feedback loops. Cross-work-folder composition remains one ordered automation. The built-in text-review Check uses the work-fold agent's selected model with only designated text and criteria, no conversation or general tools, and quote/digest admission. *Narrowed 2026-09-10:* the text-review Check keeps its evidence admission; it is no longer the only bounded model lane, and `assistant.infer` reuses its transport. *Amended 2026-10-11 (owner decision):* a version-5 folder trigger may opt into catch-up with `"ifMissed": "run"`: a machine-local metadata snapshot lets work-fold start one coalesced run for files added or changed while it was closed, asleep, or the automation was off. Pausing during automation work, the fresh post-run baseline, and the no-backlog rule stay; see [Automations](automations.md). | Observation is an exact standing grant, never inferred from opening a work-folder. Model findings are suggestions; provider charges and target limits are disclosed at enablement. |
@@ -160,9 +163,9 @@ for interruption-safe folder and History moves.
   manifest per entry, restorable from Settings → Recently deleted and
   `work-fold recently-deleted list|restore`, purged only by retention (default 30
   days).
-- **Setup-only authority:** the three families with no model/CLI/remote
-  verb: Remote access administration, act-token and pairing machinery,
-  provider credentials — identity and secrets, never a mid-task wait.
+- **Setup-only authority:** the families with no model or CLI verb:
+  act-token machinery, provider credentials, and settings administration —
+  identity and secrets, never a mid-task wait.
 - **An automation:** a machine-local, inert-until-enabled declaration of
   deterministic steps (`chat`, `files`, `check`, `fold`) on one
   reviewed trigger, executed by app code with per-hop receipts; enabling it
@@ -202,9 +205,7 @@ for interruption-safe folder and History moves.
    addressee.
 3. **"Fold it in"** is the popover composer's capture verb, shown exactly
    when material is being handed over (reference chips present). A
-   message without material is just "Send". The web client does not carry
-   the two-state label: its send button is always "Send message". The
-   popover has no permanent drop-zone instruction; its whole surface shows a
+   message without material is just "Send". The popover has no permanent drop-zone instruction; its whole surface shows a
    drop affordance only while files, folders, or links are being dragged over
    it. While a request runs, the same aligned composer action reads **Stop**;
    it does not create a second action row.
@@ -212,11 +213,12 @@ for interruption-safe folder and History moves.
    area inside **Settings → Web access**. "Web access" is the
    short operational form inside that area (toggle, danger actions, errors).
    "Remote access" survives wherever a document speaks contract or security
-   posture.
+   posture. *Retired 2026-11-07* with Web Access.
 5. **Contract terms are frozen** (decision F12): `work-fold agent …`, the
-   `work-fold-agent` scope id, `/api/management/*`, `management.*`
-   remote-facade methods, the `management/` application-state root, the
-   `remote_web` provenance value, and the `remote` settings page id. A
+   `work-fold-agent` scope id, `/api/management/*`, the `management/`
+   application-state root, and the `remote_web` provenance value that older
+   records still carry. (The `management.*` remote-facade methods and the
+   `remote` settings page id were removed with Web Access on 2026-11-07.) A
    document's first user-facing use binds the vocabularies once — "the work-fold agent
    (technically: the work-fold agent)" — then each section speaks
    its own language.
@@ -224,8 +226,8 @@ for interruption-safe folder and History moves.
    website". Honest absence states stay honest: an offline desktop is
    "asleep", not an error page pretending otherwise. *Retired 2026-11-05*
    with desktop-served sharing (F11); the
-   [Online pages plan](online-pages-plan.md) sets publishing copy for its
-   replacement.
+   [Online pages plan](archive/online-pages-plan.md) set publishing copy for
+   its replacement, which was removed with Publish on 2026-11-07.
 7. work-folder, Library, Skills & Extensions, Chats, and History copy is untouched.
    *(2026-09-25: the desktop Library and the Skills & Extensions tab were retired
    separately; Skills & Extensions is the surface's only name.)*

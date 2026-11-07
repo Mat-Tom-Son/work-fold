@@ -1028,20 +1028,20 @@ test("the work-fold agent asks and receives one durable answer through the same 
   const h = await collaborationHarness(t); const api = await h.open();
   h.held.add(workFoldAgentScopeId);
   try {
-    const principal = { browserId: "question-browser", grantId: "question-grant", requestId: "question-send" };
-    const root = await api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as { taskId: string; conversationId: string };
+    const root = await api.actFacade.agentSend({ content: "/hold", newConversation: true });
     const asked = await api.actFacade.agentAsk({ taskId: root.taskId, question: "Which quarter?" });
     assert.equal(asked.request.state, "waiting");
     await h.release(root.taskId); await settled(api, workFoldAgentScopeId, root.taskId);
-    const ownedList = await api.remoteFacade.execute("management.chats", {}, principal) as { conversations: Array<{ id: string; needsAnswer?: boolean }> };
-    assert.equal(ownedList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, true);
-    const otherList = await api.remoteFacade.execute("management.chats", {}, { ...principal, grantId: "another-grant" }) as typeof ownedList;
-    assert.equal(otherList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, undefined, "the chat list does not grant another browser question access");
+    const chatList = async () => {
+      const response = await fetch(new URL("/api/work-fold-agent/conversations", api.origin));
+      assert.equal(response.status, 200);
+      return (await response.json() as { conversations: Array<{ id: string; needsAnswer?: boolean }> }).conversations;
+    };
+    assert.equal((await chatList()).find((chat) => chat.id === root.conversationId)?.needsAnswer, true);
     const answer = await api.actFacade.agentAnswer({ questionId: asked.question.questionId, answer: "/hold Q3" });
     assert.equal(answer.request.id, asked.request.id);
     assert.equal(answer.request.state, "working");
-    const answeredList = await api.remoteFacade.execute("management.chats", {}, principal) as typeof ownedList;
-    assert.equal(answeredList.conversations.find((chat) => chat.id === root.conversationId)?.needsAnswer, false);
+    assert.equal((await chatList()).find((chat) => chat.id === root.conversationId)?.needsAnswer, false);
     await assert.rejects(api.actFacade.agentAnswer({ questionId: asked.question.questionId, answer: "Q4" }), /already has an answer/);
     await h.release(answer.continuation.taskId); await settled(api, workFoldAgentScopeId, answer.continuation.taskId);
     assert.equal(api.requests.byTaskId(root.taskId)?.state, "done");

@@ -159,12 +159,8 @@ export type WorkFoldCliActCommandName =
   | "chat.children"
   | "jobs.input"
   | "worktrees.manage"
-  // Page folders (docs/pages.md): a read-only check of one page, and
-  // publishing it online (stage 2).
-  | "pages.validate"
-  | "pages.publish"
-  | "pages.unpublish"
-  | "pages.list";
+  // Page folders (docs/pages.md): a read-only check of one page.
+  | "pages.validate";
 
 export interface WorkFoldCliActParsedCommand {
   name: WorkFoldCliActCommandName;
@@ -318,13 +314,8 @@ export interface WorkFoldCliActExecutorOptions {
   now?: () => Date;
   getActFacade: () => WorkFoldCliActAuthority | null;
   receipts: Pick<WorkFoldCliActReceipts, "append" | "hasAccepted">;
-  /**
-   * Validates an explicitly named work-fold agent parent while its turn is active.
-   * When that request arrived through Web Access, the paired browser
-   * identity rides along and is stamped on the accepted and terminal receipts
-   * (docs/receipts-not-gates.md, F19).
-   */
-  resolveLineageParent?: (taskId: string) => { taskId: string; browserId?: string; grantId?: string } | null;
+  /** Validates an explicitly named work-fold agent parent while its turn is active. */
+  resolveLineageParent?: (taskId: string) => { taskId: string } | null;
 }
 
 export const workFoldCliActUnavailableMessage =
@@ -350,12 +341,8 @@ const cliControlCharacters = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2
  * can never even be shaped, and the act lane never grows a verb for them.
  */
 const workFoldCliActSetupOnlyFamilies = new Map<string, string>([
-  ["remote", "Web Access administration"],
-  ["browser", "Web Access administration"],
-  ["browsers", "Web Access administration"],
-  ["pairing", "Act-token and pairing machinery"],
-  ["token", "Act-token and pairing machinery"],
-  ["tokens", "Act-token and pairing machinery"],
+  ["token", "Act-token machinery"],
+  ["tokens", "Act-token machinery"],
   ["provider", "Provider credentials"],
   ["providers", "Provider credentials"],
   ["credentials", "Provider credentials"],
@@ -784,8 +771,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
     "worktrees manage",
     "jobs start",
     "jobs stop",
-    "pages publish",
-    "pages unpublish",
   ]);
   if (rawParentTaskId !== undefined && !lineageCommands.has(command)) {
     throw usageError(`--parent-task cannot be used with '${command || "(none)"}'.`);
@@ -1908,21 +1893,6 @@ export function parseWorkFoldCliActArgv(argv: readonly string[]): WorkFoldCliAct
         workFolder: requireWorkFolder(),
         page: boundedActPath("--page", stringFlag("--page") ?? "", "page-folder-path"),
       };
-    case "pages publish":
-    case "pages unpublish":
-      allowOnlyFlags("--work-folder", "--page", "--parent-task");
-      return {
-        name: command === "pages publish" ? "pages.publish" : "pages.unpublish",
-        output,
-        workFolder: requireWorkFolder(),
-        page: boundedActPath("--page", stringFlag("--page") ?? "", "page-folder-path"),
-        ...(parentTaskId ? { parentTaskId } : {}),
-      };
-    case "pages list": {
-      allowOnlyFlags("--work-folder");
-      const workFolder = stringFlag("--work-folder")?.trim();
-      return { name: "pages.list", output, ...(workFolder ? { workFolder } : {}) };
-    }
     case "jobs stop":
       allowOnlyFlags("--work-folder", "--job", "--parent-task");
       return {
@@ -1945,7 +1915,7 @@ export async function executeWorkFoldCliActRequest(
   let command: WorkFoldCliActParsedCommand | undefined;
   let accepted = false;
   let receiptParentTaskId: string | undefined;
-  let receiptLineage: { parentTaskId?: string; browserId?: string; grantId?: string } = {};
+  let receiptLineage: { parentTaskId?: string } = {};
   try {
     command = parseWorkFoldCliActArgv(request.argv);
     const authority = options.getActFacade();
@@ -1992,13 +1962,8 @@ export async function executeWorkFoldCliActRequest(
       throw new WorkFoldCliError("conflict", "The work-fold agent request named by --parent-task is no longer active.");
     }
     receiptParentTaskId = lineageParent?.taskId;
-    // Lineage on receipts: the work-fold agent parent, and when that request came
-    // through Web Access, the approved browser identity behind it.
-    const lineage = {
-      ...(receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {}),
-      ...(lineageParent?.browserId ? { browserId: lineageParent.browserId } : {}),
-      ...(lineageParent?.grantId ? { grantId: lineageParent.grantId } : {}),
-    };
+    // Lineage on receipts: the work-fold agent parent.
+    const lineage = receiptParentTaskId ? { parentTaskId: receiptParentTaskId } : {};
     receiptLineage = lineage;
     const acceptedRecorded = await options.receipts.append({
       requestId: request.id,
@@ -2438,22 +2403,6 @@ async function runActCommand(
       }));
     case "pages.validate":
       return toJson(await facade.pagesValidate({ workFolder: command.workFolder!, page: command.page! }));
-    case "pages.publish":
-      return toJson(await facade.pagesPublish({
-        workFolder: command.workFolder!,
-        page: command.page!,
-        requestId: request.id,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-      }));
-    case "pages.unpublish":
-      return toJson(await facade.pagesUnpublish({
-        workFolder: command.workFolder!,
-        page: command.page!,
-        requestId: request.id,
-        ...(command.parentTaskId ? { parentTaskId: command.parentTaskId } : {}),
-      }));
-    case "pages.list":
-      return toJson(await facade.pagesList(command.workFolder ? { workFolder: command.workFolder } : {}));
     case "history.versions":
       return toJson(await facade.historyVersions({ workFolder: command.workFolder!, path: command.path!, ...(command.cursor ? { cursor: command.cursor } : {}), ...(command.limit ? { limit: command.limit } : {}) }));
     case "history.read":
@@ -3869,32 +3818,6 @@ function humanActOutput(name: WorkFoldCliActCommandName, data: WorkFoldCliJson):
         + (lines.length ? `${lines.join("\n")}\n` : "")
         + `Entry ${terminalText(summary.entry)}; ${terminalText(summary.files)} file${summary.files === 1 ? "" : "s"}, ${terminalText(summary.bytes)} bytes; tables: ${tableText}.\n`;
     }
-    case "pages.publish": {
-      const publication = (record.publication ?? {}) as { path?: unknown; title?: unknown; url?: unknown; revision?: unknown };
-      const uploaded = (record.uploaded ?? {}) as { files?: unknown; bytes?: unknown };
-      const files = (Array.isArray(uploaded.files) ? uploaded.files : []) as Array<{ path?: unknown; bytes?: unknown }>;
-      return `Published ${terminalText(publication.title)} [${terminalText(publication.path)}] from ${workFolderLabel} (revision ${terminalText(publication.revision)}).\n`
-        + (typeof publication.url === "string"
-          ? `Link: ${terminalText(publication.url)}\nAnyone with the link can open the page.\n`
-          : "The link will be ready after the next check-in; run pages list to see it.\n")
-        + `Uploaded ${files.length} file${files.length === 1 ? "" : "s"}, ${terminalText(uploaded.bytes)} bytes:\n`
-        + files.map((file) => `- ${terminalText(file.path)} (${terminalText(file.bytes)} bytes)`).join("\n")
-        + (files.length ? "\n" : "");
-    }
-    case "pages.unpublish": {
-      const publication = (record.publication ?? {}) as { path?: unknown; title?: unknown };
-      return `Unpublished ${terminalText(publication.title)} [${terminalText(publication.path)}] in ${workFolderLabel}. Its entries are kept, and publishing it again brings back the same link.\n`;
-    }
-    case "pages.list": {
-      const publications = (Array.isArray(record.publications) ? record.publications : []) as Array<{
-        title?: unknown; path?: unknown; workFolderName?: unknown; workFolderId?: unknown; status?: unknown; url?: unknown; changesAvailable?: unknown; entries?: unknown;
-      }>;
-      if (!publications.length) return "No pages have been published from this computer.\n";
-      return `${publications.map((page) => `${terminalText(page.title)} [${terminalText(page.path)}] in ${terminalText(page.workFolderName ?? page.workFolderId)}: `
-        + `${page.status === "online" ? "online" : "unpublished"}${page.changesAvailable === true ? ", changes not yet published" : ""}`
-        + `${typeof page.entries === "number" ? `, ${page.entries} entr${page.entries === 1 ? "y" : "ies"}` : ""}`
-        + `${typeof page.url === "string" ? `\n  ${terminalText(page.url)}` : ""}`).join("\n")}\n`;
-    }
     case "automations.stop":
       return `Stopped the active run ${terminalText(record.runId)} of automation [${terminalText(record.automationId)}]. `
         + `The current hop was aborted through its own domain, later hops are recorded skipped, and the run settles stopped.\n`;
@@ -4220,21 +4143,6 @@ function actReceiptDetail(
       const copy = record as { copiedFromConversationId?: unknown; copiedMessages?: unknown; taskId?: unknown };
       return `copy of ${typeof copy.copiedFromConversationId === "string" ? copy.copiedFromConversationId : "unknown"}; ${typeof copy.copiedMessages === "number" ? copy.copiedMessages : 0} messages${typeof copy.taskId === "string" ? `; task ${copy.taskId}` : ""}`;
     }
-    // A page's id grants access to it: receipts name the page by path and
-    // the id's first 8 characters, never the whole id or the link.
-    case "pages.publish":
-    case "pages.unpublish": {
-      const publication = (record as { publication?: { path?: unknown; idPrefix?: unknown; revision?: unknown; status?: unknown } }).publication ?? {};
-      const uploaded = (record as { uploaded?: { files?: unknown; bytes?: unknown } }).uploaded;
-      const path = boundedReceiptText(typeof publication.path === "string" ? publication.path : "unknown");
-      const prefix = typeof publication.idPrefix === "string" ? publication.idPrefix.slice(0, 8) : "unknown";
-      return name === "pages.publish"
-        ? `page.publish; page ${path}; id ${prefix}; revision ${String(publication.revision)}; `
-          + `${Array.isArray(uploaded?.files) ? uploaded.files.length : 0} files, ${typeof uploaded?.bytes === "number" ? uploaded.bytes : 0} bytes`
-        : `page ${path}; id ${prefix}; ${publication.status === "unpublished" ? "unpublished" : String(publication.status)}`;
-    }
-    case "pages.list":
-      return `pages ${Array.isArray((record as { publications?: unknown }).publications) ? ((record as { publications: unknown[] }).publications).length : 0}`;
     case "pages.validate": {
       const validation = record as { page?: unknown; valid?: unknown; problems?: unknown };
       const errors = Array.isArray(validation.problems)

@@ -11,6 +11,11 @@ export async function workFolderRawFileObjectUrl(workFolderId: string, path: str
   return URL.createObjectURL(await workFolderRawFileBlob(workFolderId, path, signal));
 }
 
+/** A file through any place's raw-file route (a work-folder's or a standard folder's), as a `blob:` URL. */
+export async function rawFileObjectUrlAt(apiBase: string, path: string, signal?: AbortSignal): Promise<string> {
+  return URL.createObjectURL(await sessionBlob(apiUrl(`${apiBase}/raw-file?path=${encodeURIComponent(path)}`), signal));
+}
+
 /** The same file's bytes, for a caller that keeps them (a `blob:` URL cannot be fetched back under the renderer's policy). */
 export async function workFolderRawFileBlob(workFolderId: string, path: string, signal?: AbortSignal): Promise<Blob> {
   return sessionBlob(apiUrl(`/api/work-folders/${workFolderId}/raw-file?path=${encodeURIComponent(path)}`), signal);

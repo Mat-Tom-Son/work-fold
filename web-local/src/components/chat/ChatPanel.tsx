@@ -41,7 +41,7 @@ import { dismissRestrictedAppProposal, installRestrictedAppProposal } from "../.
 import { resolveFixtureWorkFolderPathCandidates } from "../../lib/work-folder-path-links";
 import { workFolderIdentityStyle, type WorkFolderIdentity } from "../../lib/work-folder-identity";
 import type { AgentCatalog, AgentCommand, AgentModel, AgentStatus, ComposerState, ChatContextPathRequest,
-  ChatDraftRequest, ChatLifecycleView, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../../types";
+  ChatDraftRequest, ChatLifecycleView, ChatSendRequest, ChatMessage, ChatStreamEvent, ContextAttachment, ConversationRuntime, ConversationSummary, ExtensionUiRequest, PendingChatSend, RestrictedAppInstalled, RestrictedAppProposal, RuntimePreviewEntry, TreeEntry, WorkFolderCustomizationMap, WorkFolderFixtureConversation, WorkFolderSummary } from "../../types";
 import type { WorkRequestView } from "../../../../src/shared/request-presentation";
 import { ExtensionQuestions } from "./ExtensionQuestions";
 import { AttachmentChip } from "./AttachmentChip";
@@ -114,6 +114,8 @@ export function ChatPanel({
   targetConversationId = null,
   contextPathRequest,
   draftRequest = null,
+  sendRequest = null,
+  variant = "default",
   onAddPathToChatContext,
   onUploadDroppedFiles,
   onOpenWorkFolderFile,
@@ -142,6 +144,15 @@ export function ChatPanel({
   targetConversationId?: string | null;
   contextPathRequest: ChatContextPathRequest | null;
   draftRequest?: ChatDraftRequest | null;
+  /** Sends at once with these references (the file manager's message box). */
+  sendRequest?: ChatSendRequest | null;
+  /**
+   * `panel`: the file manager's right panel (docs/product-model.md,
+   * 2026-11-06), drawn as the design draws it. Its composer is Reply and Send
+   * (or Stop); what to attach comes from the selection, and the model is
+   * chosen in Settings → AI Models.
+   */
+  variant?: "default" | "panel";
   onAddPathToChatContext?: (paths: readonly string[]) => void;
   onUploadDroppedFiles?: (dataTransfer: DataTransfer) => Promise<string[]>;
   onOpenWorkFolderFile?: (path: string) => void;
@@ -832,6 +843,32 @@ export function ChatPanel({
     void (async () => { for (const path of contextPathRequest.paths) await attachContextPath(path); })();
   }, [contextPathRequest?.id]);
 
+  // A send request goes out once, after this Chat has loaded. Scheduling it
+  // lets a cleanup cancel a run React repeats, so it can never send twice.
+  const handledSendRequestRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!sendRequest || handledSendRequestRef.current === sendRequest.id) return;
+    const request = sendRequest;
+    const timer = window.setTimeout(() => {
+      handledSendRequestRef.current = request.id;
+      void (async () => {
+        const staged: ContextAttachment[] = [];
+        for (const path of request.paths) {
+          if (fixtureMode) { staged.push(createFixtureContextAttachment(path)); continue; }
+          try {
+            staged.push((await api<{ attachment: ContextAttachment }>(`/api/work-folders/${workFolder.id}/context-attachments`, { method: "POST", body: { path } })).attachment);
+          } catch (caught) {
+            setError(errorText(caught));
+            setDraft((current) => current.trim() ? current : request.text);
+            return;
+          }
+        }
+        await sendMessage(request.text, { attachments: staged });
+      })();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [sendRequest?.id]);
+
   useEffect(() => {
     if (!draftRequest) return;
     // Seed the composer and leave the caret at the end so the person simply
@@ -1296,10 +1333,10 @@ export function ChatPanel({
     }
   }
 
-  async function sendMessage(contentOverride?: string, options: { withoutAttachments?: boolean } = {}) {
+  async function sendMessage(contentOverride?: string, options: { withoutAttachments?: boolean; attachments?: ContextAttachment[] } = {}) {
     const content = (contentOverride ?? draft).trim();
     // Continue sends only its own words: files staged for the person's draft stay staged.
-    const attachmentsForSend = options.withoutAttachments ? [] : contextAttachments;
+    const attachmentsForSend = options.withoutAttachments ? [] : options.attachments ?? contextAttachments;
     if (!content || running) return;
     // While a fixture script is replaying, the composer belongs to the playback — ignore manual sends.
     if (fixtureMode && scriptPlaybackStateRef.current === "playing") return;
@@ -1333,7 +1370,7 @@ export function ChatPanel({
     const now = Date.now();
     const requestId = clientTurnIdentity("request");
     const userMessageId = clientTurnIdentity("message");
-    const sentAttachments = attachmentsForSend.map((attachment) => ({ kind: "file" as const, target: attachment.sourcePath, name: attachment.sourceFileName }));
+    const sentAttachments = attachmentsForSend.map((attachment) => ({ kind: attachment.sourceKind === "folder" ? "folder" as const : "file" as const, target: attachment.sourcePath, name: attachment.sourceFileName }));
     const localUserMessage: ChatMessage = {
       id: userMessageId,
       role: "user",
@@ -1909,7 +1946,7 @@ export function ChatPanel({
 
   return (
     <section
-      className={startLayout ? "panel chat-panel is-start" : "panel chat-panel"}
+      className={`panel chat-panel${startLayout && variant !== "panel" ? " is-start" : ""}${variant === "panel" ? " is-in-panel" : ""}`}
     >
       <div className={error ? "chat-top-chrome" : "chat-top-chrome empty"}>
         <div className="chat-top-notice">
@@ -2167,11 +2204,12 @@ export function ChatPanel({
                 void sendMessage();
               }
             }}
-            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : "Message Worker"}
+            placeholder={running && !pendingSendRef.current ? "Steer (Enter) · Queue (⌘Enter)" : variant === "panel" ? "Reply" : "Message Worker"}
           />
           {/* What you add sits on the left; how the Worker runs and Send sit on
               the right (2026-10-27). */}
           <div className="composer-capability-bar">
+            {variant === "panel" ? null : <>
             <ComposerAttachMenu
               workFolderId={workFolder.id}
               workFolderName={workFolder.name}
@@ -2192,8 +2230,11 @@ export function ChatPanel({
               <span aria-hidden="true">/</span>
               <span>Commands</span>
             </button>
+            </>}
             <span className="composer-capability-spacer" />
-            {modelStatus?.configured && conversationRuntime ? (
+            {/* The panel's Reply field is the design's: words and Send, with
+                the model and context on a small row under it. */}
+            {variant === "panel" ? null : modelStatus?.configured && conversationRuntime ? (
               <>
                 <ConversationContextControl runtime={conversationRuntime} busy={running || requestBusy} compacting={conversationRuntime.isCompacting || compactPending} onCompact={compactFromContextMenu} />
                 <ConversationModel runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
@@ -2214,8 +2255,17 @@ export function ChatPanel({
             )}
           </div>
         </div>
+        {variant === "panel" ? <div className="composer-panel-meta">
+          {modelStatus?.configured && conversationRuntime ? <>
+            <ConversationModel runtime={conversationRuntime} status={modelStatus} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
+            <span className="composer-capability-spacer" />
+            <ConversationContextControl runtime={conversationRuntime} busy={running || requestBusy} compacting={conversationRuntime.isCompacting || compactPending} onCompact={compactFromContextMenu} />
+          </> : modelStatus?.configured && composerState?.model
+            ? <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={composerModelPicker} reasoning={composerReasoning} />
+            : modelStatus && !modelStatus.configured ? <SetUpAiButton /> : null}
+        </div> : null}
       </form>
-      {startLayout && recentChats.length && onOpenConversation ? <ChatRecentChats chats={recentChats} onOpen={onOpenConversation} /> : null}
+      {startLayout && variant !== "panel" && recentChats.length && onOpenConversation ? <ChatRecentChats chats={recentChats} onOpen={onOpenConversation} /> : null}
       {appProposal ? <RestrictedAppAddedNotice proposal={appProposal} busy={appProposalBusy} onOpen={appProposal.installedApp && onRestrictedAppInstalled ? () => { onRestrictedAppInstalled(appProposal.installedApp!); setAppProposal(null); } : undefined} onRetry={() => void retryAppProposal()} onDismiss={() => void dismissAppProposal()} /> : null}
     </section>
   );
@@ -2709,6 +2759,79 @@ function ComposerModelPicker({
       ) : null}
     </div>
   );
+}
+
+/** Set Up AI, where the model would be, when no AI provider is connected. */
+function SetUpAiButton({ then }: { then?: () => void }) {
+  return <button className="composer-connect-ai composer-set-up-ai" type="button" onClick={() => requestConnectAi(then)} title="Connect an AI provider so Workers can start">Set Up AI</button>;
+}
+
+/**
+ * The model for this work-folder's new Chats, under the file manager's message
+ * box (docs/product-model.md, 2026-11-06 file manager layout): the same chip
+ * and menu as the Chat composer, or Set Up AI when no AI is connected yet.
+ */
+export function WorkerModelRow({ workFolder, fixtureMode, revision = 0, onOpenModelSettings }: {
+  workFolder: Pick<WorkFolderSummary, "id" | "name">;
+  fixtureMode: boolean;
+  /** Changes when AI is connected or the model configuration changes elsewhere. */
+  revision?: number;
+  onOpenModelSettings?: () => void;
+}) {
+  const [modelStatus, setModelStatus] = useState<AgentStatus | null>(null);
+  const [composerState, setComposerState] = useState<ComposerState | null>(null);
+  const [localRevision, setLocalRevision] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    if (fixtureMode) {
+      setModelStatus({ ready: true, configured: true, provider: fixtureConversationRuntime.model?.provider ?? null, model: fixtureConversationRuntime.model?.id ?? null, piVersion: null, error: null });
+      setComposerState({ model: fixtureConversationRuntime.model, thinkingLevel: fixtureConversationRuntime.thinkingLevel, thinkingLevels: fixtureConversationRuntime.thinkingLevels ?? [] });
+      return;
+    }
+    void Promise.allSettled([
+      api<{ status: AgentStatus }>(`/api/agent/status?workFolderId=${encodeURIComponent(workFolder.id)}`),
+      api<{ composer: ComposerState }>(`/api/agent/composer?scope=work-folder&workFolderId=${encodeURIComponent(workFolder.id)}`),
+    ]).then(([statusResult, composerResult]) => {
+      if (cancelled) return;
+      setModelStatus(statusResult.status === "fulfilled" ? statusResult.value.status : null);
+      setComposerState(composerResult.status === "fulfilled" ? composerResult.value.composer : null);
+    });
+    return () => { cancelled = true; };
+  }, [workFolder.id, fixtureMode, revision, localRevision]);
+  const reload = () => setLocalRevision((value) => value + 1);
+  async function changeThinkingLevel(level: string) {
+    if (fixtureMode) { setComposerState((current) => current ? { ...current, thinkingLevel: level } : current); return; }
+    try {
+      const result = await api<{ composer: ComposerState }>("/api/agent/thinking", { method: "POST", body: { scope: "work-folder", workFolderId: workFolder.id, level } });
+      setComposerState(result.composer);
+      showToast({ text: `Reasoning level: ${thinkingLevelLabel(result.composer.thinkingLevel)}`, tone: "success" });
+    } catch (caught) {
+      showToast({ text: errorText(caught), tone: "error" });
+    }
+  }
+  if (!modelStatus) return null;
+  if (!modelStatus.configured) return <div className="composer-panel-meta"><SetUpAiButton then={reload} /></div>;
+  if (!composerState?.model) return null;
+  const picker: ComposerModelPickerProps = {
+    workFolderId: workFolder.id,
+    fixtureMode,
+    revision: revision + localRevision,
+    disabled: false,
+    forNewChats: false,
+    shownModel: composerState.model,
+    onSaved: (status, model) => {
+      setModelStatus(status);
+      setComposerState((current) => current ? { ...current, model: { provider: model.provider, id: model.id, name: model.name } } : current);
+      reload();
+    },
+    onOpenModelSettings,
+  };
+  const reasoning: ComposerReasoning | undefined = (composerState.thinkingLevels?.length ?? 0) > 1
+    ? { level: composerState.thinkingLevel, levels: composerState.thinkingLevels ?? [], forThisChat: false, onChange: changeThinkingLevel }
+    : undefined;
+  return <div className="composer-panel-meta">
+    <ConfiguredModel model={composerState.model} workFolderName={workFolder.name} picker={picker} reasoning={reasoning} />
+  </div>;
 }
 
 function ConfiguredModel({ model, workFolderName, picker, reasoning }: { model: NonNullable<ComposerState["model"]>; workFolderName: string; picker: ComposerModelPickerProps; reasoning?: ComposerReasoning }) {

@@ -49,8 +49,7 @@ document carries `assistant.infer`, the bounded model call with no tools and
 no transcript. Neither needs a grant beyond installation and both leave
 receipts naming the effective model and its usage; active views, workers
 holding a tool action, and named automation runs reach `assistant.request`,
-views and workers reach `assistant.infer`, and remote app views reach
-neither.
+and views and workers reach `assistant.infer`.
 
 `agent-app.json` is strict and versioned. It declares:
 
@@ -69,10 +68,10 @@ neither.
   controlled named interval jobs. Each job declares its handler, schedule,
   catch-up policy, overlap policy, and an exact subset of the app's reviewed
   network, file, and notification permissions; and
-- an optional `viewer` declaration — the complete readable surface of a
-  paired browser's private app view: a packaged `entry` document plus the
-  exact instance-owned storage key prefixes the view may read. Declaring
-  `viewer` grants nothing by itself and creates no link or public audience.
+- an optional, retired `viewer` declaration (a packaged `entry` plus readable
+  storage key prefixes). It once defined a paired browser's read-only app
+  view; since Web Access was removed on 2026-11-07 it still parses but nothing
+  opens it and it grants nothing.
 
 Public destinations use `{ "kind": "public-https", "origin": "https://api.example.com" }`.
 Local development services use an explicit numeric target such as
@@ -162,18 +161,6 @@ is an interactive reference package with a separate ordinary loopback demo
 service. work-fold does not launch or trust that developer process.
 
 ## Visible app host
-
-Paired browsers can separately open the reviewed `viewer` entry as a private
-read-only view, including a Development preview. The declaration alone does
-not publish anything. That browser host uses two opaque frames and the same
-selected-data read implementation behind an exact-installation adapter; it
-exposes no native runtime, write, network, file, Check or Worker authority.
-What reaches a paired browser is bounded by the relay, not by the desktop's
-larger limits: about 3 MiB of JSON per response (an asset of about 2.3 MiB)
-and an app action call of at most 2 MiB. The desktop answers a larger response
-with a `RESPONSE_TOO_LARGE` refusal and a plain message instead of sending it.
-See [work-folder apps in paired browsers](browser-apps.md) and its
-[transport limits](browser-apps.md#transport-limits).
 
 The trusted work-fold renderer owns only a placeholder rectangle and app
 identity. Electron main verifies the installed Runtime Instance, Feature
@@ -301,15 +288,6 @@ Revoking one installation cannot stop or lend authority to another installation
 of the same bytes. Removing and re-adding authority also invalidates launches
 that have not created a worker yet. Duplicate Feature Installation identities
 in an authority snapshot are rejected before replacing the current snapshot.
-
-The browser-action foundation can supply a host-only invocation id, cancellation
-signal and live authority callback to this same worker path. The callback is
-rechecked at launch, every broker effect boundary and result delivery. An abort
-owns only its exact pending operation and releases its listener at settlement;
-it cannot kill a later action or a sibling installation. Ordinary native actions
-keep their existing dispatch path. The separate intent/review journal and
-trusted browser controls are described in
-[work-folder apps in paired browsers](browser-apps.md).
 
 Automations are first-class host jobs, not one app-wide background switch.
 Every declared job is enabled on install and can be turned off or on separately in Settings → Apps.
@@ -453,8 +431,8 @@ would be a lie. Storage and Check hints reach active visible views only, matchin
 the Check-result lane's own view-only rule. Task and granted-file hints also
 reach a worker while it holds a tool action or an automation run, matching the
 owned-power rule those two read lanes use. Nothing reaches an inactive or
-occluded view, a minimized window, a worker between operations, a view owned by
-another Feature Installation even in the same work-folder, or a remote app view.
+occluded view, a minimized window, a worker between operations, or a view owned
+by another Feature Installation even in the same work-folder.
 
 Hints are briefly coalesced in memory and never durably queued or replayed. A
 hint whose eligible mounts all closed while it waited is dropped and its
@@ -728,8 +706,8 @@ happened while the machine was asleep.
 `assistant.request` channel: the sender must be an owned main frame that is either an
 active app view or a worker holding a tool action or an automation run, and the
 host captures an effect lease it rechecks before the result is delivered. An
-inactive view, a worker between operations, and a remote app view are refused
-with `INFER_UNAVAILABLE`.
+inactive view and a worker between operations are refused with
+`INFER_UNAVAILABLE`.
 
 The host parses the request against the published bounds, pins the
 installation, revision, and authority before and after the model call, and runs

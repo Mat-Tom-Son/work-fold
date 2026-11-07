@@ -20,12 +20,9 @@ import {
   ChevronRight16Regular, ChevronRight20Regular,
   Circle16Regular, Circle20Regular,
   Clock16Regular, Clock20Regular,
-  CloudArrowUp16Regular, CloudArrowUp20Regular,
-  CloudOff16Regular, CloudOff20Regular,
   Compose16Regular, Compose20Regular,
   Copy16Regular, Copy20Regular,
   CursorClick20Regular,
-  Database16Regular, Database20Regular,
   Delete16Regular, Delete20Regular,
   Dismiss16Regular, Dismiss20Regular,
   Document16Regular, Document20Regular,
@@ -55,8 +52,8 @@ import {
 
 /**
  * Interface icons are drawn from Fluent, the family the rail, menus, and
- * Settings already use (docs/visual-design.md). The three requested Lucide
- * exceptions (the rail's Blocks, Settings' Layout Panel Left and Globe Code)
+ * Settings already use (docs/visual-design.md). The requested Lucide
+ * exceptions (the rail's Blocks and Settings' Layout Panel Left)
  * stay with their controls and are deliberately not offered here. These components keep the names and `size` prop the
  * call sites were written with, so a call site reads the same while its
  * drawing matches the rest of the app. A size of 16 or less uses Fluent's
@@ -117,13 +114,8 @@ export const Link2 = icon("Link2", Link16Regular, Link20Regular);
 export const Loader2 = icon("Loader2", SpinnerIos16Regular, SpinnerIos20Regular);
 export const MoreHorizontal = icon("MoreHorizontal", MoreHorizontal16Regular, MoreHorizontal20Regular);
 export const MousePointerClick = icon("MousePointerClick", CursorClick20Regular);
-/** A page made for other people (docs/pages.md): Files' page folders and the page tab. */
+/** A page (docs/pages.md): Files' page folders and the page tab. */
 export const PageIcon = icon("PageIcon", WebAsset16Regular, WebAsset20Regular);
-/** A page's entries: Files shows a page folder's data.sqlite as Data. */
-export const PageDataIcon = icon("PageDataIcon", Database16Regular, Database20Regular);
-/** Publishing a page, and taking it offline. */
-export const CloudUpload = icon("CloudUpload", CloudArrowUp16Regular, CloudArrowUp20Regular);
-export const CloudOff = icon("CloudOff", CloudOff16Regular, CloudOff20Regular);
 export const Pencil = icon("Pencil", Edit16Regular, Edit20Regular);
 export const PencilLine = icon("PencilLine", Edit16Regular, Edit20Regular);
 export const RefreshCw = icon("RefreshCw", ArrowClockwise16Regular, ArrowClockwise20Regular);

@@ -53,9 +53,10 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     ...(process.platform === "darwin" ? {
       popupFileMenu: (request: {
         workFolderId: string;
+        standardFolderId?: string;
         path: string;
         kind: "file" | "folder";
-        capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean };
+        capabilities: { open: boolean; attach: boolean; history: boolean; upload: boolean; rename: boolean; delete: boolean; worker?: boolean; organize?: boolean; paste?: boolean };
         selection?: { files: number; folders: number };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-file-menu", request),
@@ -65,7 +66,10 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-tab-menu", request),
       popupHeaderMenu: (request: {
-        actions: { newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean };
+        actions: {
+          newChat: boolean; customize: boolean; setUp: boolean; reveal: boolean; skills?: boolean; settings?: boolean; manage?: boolean;
+          putToWork?: boolean; removeFromSidebar?: boolean; createWorkFolder?: boolean; useExistingFolder?: boolean; remove?: boolean;
+        };
         point: { x: number; y: number };
       }) => ipcRenderer.invoke("work-fold:work-folder:popup-header-menu", request),
     } : {}),
@@ -98,6 +102,21 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
       return () => ipcRenderer.removeListener("work-fold:menu:open-folder", listener);
     },
   },
+  // Desktop, Documents, and Downloads in the file manager: the host resolves each folder by id.
+  standardFolder: {
+    openPath: (standardFolderId: string, path: string, action: "open" | "open-native" | "reveal" = "open") => (
+      ipcRenderer.invoke("work-fold:standard-folder:open-path", { standardFolderId, path, action })
+    ),
+    openPathWith: (standardFolderId: string, path: string) => ipcRenderer.invoke("work-fold:standard-folder:open-path-with", { standardFolderId, path }),
+    startDrag: (standardFolderId: string, path: string) => ipcRenderer.invoke("work-fold:standard-folder:start-drag", { standardFolderId, path }),
+    previewFile: (standardFolderId: string, path: string) => ipcRenderer.invoke("work-fold:standard-folder:preview-file", { standardFolderId, path }),
+    trash: (standardFolderId: string, paths: string[]) => ipcRenderer.invoke("work-fold:standard-folder:trash", { standardFolderId, paths }),
+    add: () => ipcRenderer.invoke("work-fold:standard-folder:add"),
+  },
+  fileClipboard: {
+    write: (paths: string[]) => ipcRenderer.invoke("work-fold:file-clipboard:write", paths),
+    paste: (request: { target: { place: { kind: "work-folder" | "standard"; id: string }; path: string }; mode: "copy" | "move"; internal: { place: { kind: "work-folder" | "standard"; id: string }; paths: string[]; nativePaths: string[] } | null }) => ipcRenderer.invoke("work-fold:file-clipboard:paste", request),
+  },
   agent: {
     // A file dropped on the work-fold agent panel becomes a path reference, as in the popover.
     getPathForFile: (file: File): string => {
@@ -125,6 +144,7 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
     show: (automationId: string) => ipcRenderer.invoke("work-fold:automations:show", automationId),
     history: (automationId: string) => ipcRenderer.invoke("work-fold:automations:history", automationId),
     enable: (automationId: string) => ipcRenderer.invoke("work-fold:automations:enable", automationId),
+    enableTemplate: (workFolderId: string, templateId: string) => ipcRenderer.invoke("work-fold:automations:enable-template", { workFolderId, templateId }),
     run: (automationId: string) => ipcRenderer.invoke("work-fold:automations:run", automationId),
     stop: (automationId: string) => ipcRenderer.invoke("work-fold:automations:stop", automationId),
     disable: (automationId: string) => ipcRenderer.invoke("work-fold:automations:disable", automationId),
@@ -237,19 +257,13 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
   settings: {
     getStatus: () => ipcRenderer.invoke("work-fold:settings:status"),
   },
-  remoteAccess: {
-    getStatus: () => ipcRenderer.invoke("work-fold:remote-access:status"),
-    configure: (request: { slug: string; password: string }) => ipcRenderer.invoke("work-fold:remote-access:configure", request),
-    setEnabled: (enabled: boolean) => ipcRenderer.invoke("work-fold:remote-access:set-enabled", enabled),
-    revokeBrowser: (grantId: string) => ipcRenderer.invoke("work-fold:remote-access:revoke-browser", grantId),
-    revokeAll: () => ipcRenderer.invoke("work-fold:remote-access:revoke-all"),
-    remove: () => ipcRenderer.invoke("work-fold:remote-access:remove"),
-    open: () => ipcRenderer.invoke("work-fold:remote-access:open"),
-    onStatusChanged: (callback: (status: unknown) => void) => {
-      const listener = (_event: unknown, status: unknown) => callback(status);
-      ipcRenderer.on("work-fold:remote-access:status", listener);
-      return () => ipcRenderer.removeListener("work-fold:remote-access:status", listener);
-    },
+  commandLine: {
+    status: () => ipcRenderer.invoke("work-fold:command-line:status"),
+    installPath: () => ipcRenderer.invoke("work-fold:command-line:install-path"),
+    removePath: () => ipcRenderer.invoke("work-fold:command-line:remove-path"),
+    installSkill: (target: "claude" | "codex") => ipcRenderer.invoke("work-fold:command-line:install-skill", target),
+    removeSkill: (target: "claude" | "codex") => ipcRenderer.invoke("work-fold:command-line:remove-skill", target),
+    skill: () => ipcRenderer.invoke("work-fold:command-line:skill"),
   },
   menu: {
     setState: (state: unknown) => ipcRenderer.send("work-fold:menu:set-state", state),

@@ -40,7 +40,7 @@ hover and drag, work inside scrolling panels, attach local files to file inputs,
 and find completed downloads. Its sign-ins belong to work-fold's own profile,
 separate from Chrome.
 
-What a Worker or the work-fold agent does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. Sharing a page, an app's access, and anything running on a schedule can all be turned off afterwards.
+What a Worker or the work-fold agent does happens right away and leaves a record you can read in the app. Nothing it deletes is gone for good: **History** keeps versions of your files, and anything History cannot keep waits in **Recently deleted** for 30 days. An app's access and anything running on a schedule can both be turned off afterwards.
 
 Use **Compare** in Version History or a selected work-folder restore point to read saved text beside the current file before restoring. Binary, oversized, uncaptured, and incomplete comparisons explain their limits. The authenticated CLI offers paged `history list`/`versions`, verified `history read --offset-bytes 0` ranges for large saved text, and streaming `search` with `--path` narrowing and `--cursor` continuation; see `work-fold help history` and `work-fold help search`.
 
@@ -56,7 +56,7 @@ endpoint, API key, and deployment names for each format you use; all three can
 stay connected together. Existing Azure connections continue to work. See
 [model connections](docs/skills-and-extensions.md) for setup and scope.
 
-Files live on your computer. Content a Worker uses goes to your chosen model provider. Optional Web Access is in private alpha and needs your Mac online. See [Privacy](PRIVACY.md) for details.
+Files live on your computer. Content a Worker uses goes to your chosen model provider. See [Privacy](PRIVACY.md) for details.
 
 ## Under the hood
 
@@ -68,8 +68,12 @@ and an app's task reads stay pinned to its own installation. See the
 [collaboration contract](docs/collaboration-contract.md#completion-delivery-and-recovery)
 for stop, expiry, and restart behavior, and the
 [collaboration experience](docs/collaboration-experience.md) for how progress,
-questions, and result files appear in Chats, the work-fold agent, apps, and the
-paired browser.
+questions, and result files appear in Chats, the work-fold agent, and apps.
+
+Claude Code, Codex, and other AI agents can use work-fold too: **Settings →
+Command Line** adds the `work-fold` command to Terminal and adds a short skill
+that teaches an agent to hand work to your Workers, follow it, and run
+Automations. See [the CLI guide](docs/work-fold-agent-and-cli.md#other-ai-agents-settings--command-line).
 
 Long work runs in the background: a Worker or the work-fold agent starts an
 export, build, install, or server as a background job, keeps working or ends
@@ -85,9 +89,7 @@ and saved findings after compaction with `progress`, including file freshness
 checks. See [Worker tools](docs/worker-tools.md) for their lifecycle and limits.
 
 The work-fold agent's menu-bar popover has a **Chats** view that reopens saved
-conversations and keeps unsent drafts while you switch. The paired web client
-focuses on new and saved Chats and keeps questions inside the Chat that asked
-them.
+conversations and keeps unsent drafts while you switch.
 
 **Skills & Extensions** manages native Pi resources, package updates and
 removal, and setup for the included Computer Control, Chrome, Web, Documents,

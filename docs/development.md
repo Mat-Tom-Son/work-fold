@@ -77,26 +77,6 @@ a [background job](background-jobs.md)'s wake-up, and reports each with the
 message that started it. See
 [the work-fold agent and CLI](work-fold-agent-and-cli.md) before driving real work.
 
-## Publishing pages in development
-
-Publishing a page and checking in its entries ([Pages](pages.md#desktop))
-call the bridge's device page routes with a device token. The desktop takes
-both from Settings → Web Access. `npm run local:dev` has no Web Access, so it
-reads two variables instead, from the shell or the root `.env`:
-
-```sh
-export WORKFOLD_DEV_BRIDGE_URL="http://127.0.0.1:8787"   # a bridge you run
-export WORKFOLD_DEV_DEVICE_TOKEN="<a device token that bridge issued>"
-npm run local:dev
-```
-
-With both set, the local API builds the same client the desktop builds, so
-**Publish**, **Unpublish**, Online entries, and checking in (at startup and
-every minute) work against that bridge. Without them, publishing says Web
-Access isn't set up. Use a development bridge and page service, not the
-production work-fold.com account: published pages are reachable by anyone
-with their link.
-
 ## Inspect a model request
 
 For an installed Mac build, run:

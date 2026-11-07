@@ -36,3 +36,28 @@ test("the work-folder header's native menu rejects malformed requests", () => {
     assert.throws(() => parseNativeWorkFolderMenuRequest(bad), /invalid/);
   }
 });
+
+test("the file manager's Action menu adds Skills & Extensions and Settings and leaves out Manage", () => {
+  const request = parseNativeWorkFolderMenuRequest({
+    actions: { newChat: false, customize: false, setUp: true, reveal: true, skills: true, settings: true, manage: false },
+    point: { x: 10, y: 20 },
+  });
+  assert.deepEqual(nativeWorkFolderMenuItems(request).map((item) => item.type === "item" ? item.label : "—"), [
+    "Set Up for Me", "Just the Look", "Show in Finder", "Skills & Extensions…", "—", "Settings…",
+  ]);
+  // Older renderers send only the four header actions and still get Manage work-folders.
+  const header = parseNativeWorkFolderMenuRequest({ actions: { newChat: true, customize: true, setUp: false, reveal: false }, point: { x: 0, y: 0 } });
+  assert.equal(nativeWorkFolderMenuItems(header).at(-1)?.type === "item" && (nativeWorkFolderMenuItems(header).at(-1) as { label: string }).label, "Manage work-folders");
+  assert.throws(() => parseNativeWorkFolderMenuRequest({ actions: { newChat: true, customize: true, setUp: false, reveal: false, skills: "yes" }, point: { x: 0, y: 0 } }), /invalid/);
+});
+
+test("the file manager's sidebar menus: a Standard Folder's right-click and the + beside work-folders", () => {
+  const labels = (actions: Record<string, boolean>) => nativeWorkFolderMenuItems(parseNativeWorkFolderMenuRequest({
+    actions: { newChat: false, customize: false, setUp: false, reveal: false, manage: false, ...actions },
+    point: { x: 0, y: 0 },
+  })).map((item) => item.type === "item" ? item.label : "—");
+  assert.deepEqual(labels({ reveal: true, putToWork: true }), ["Show in Finder", "Put This Folder to Work"]);
+  assert.deepEqual(labels({ reveal: true, putToWork: true, removeFromSidebar: true }), ["Show in Finder", "Put This Folder to Work", "—", "Remove from Sidebar"]);
+  assert.deepEqual(labels({ createWorkFolder: true, useExistingFolder: true }), ["Create New work-folder…", "Use Existing Folder…"]);
+  assert.deepEqual(labels({ customize: true, settings: true, remove: true }), ["Customize work-folder", "—", "Remove work-folder…", "Settings…"]);
+});

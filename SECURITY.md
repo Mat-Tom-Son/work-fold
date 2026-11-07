@@ -23,9 +23,7 @@ work-folders the **work-fold agent**, and deterministic cross-work-folder automa
 The native Extension UI adapter scopes pending callbacks and
 extension-managed editor text to a root and conversation, validates response
 types and selection membership, bounds text and pending counts, and cancels
-callbacks on Stop/session disposal. Its paired-web response operation requires
-the exact originating work-fold agent turn and browser grant, checks live
-revocation before delivery, and excludes explicitly secret inputs. Standard
+callbacks on Stop/session disposal. Standard
 Pi text input has no secret classification, so Extension authors must use a
 desktop setup path for credentials. This adapter is not a sandbox for native
 Extensions and does not make their external effects reversible. See
@@ -126,14 +124,14 @@ exact registered work-folder/runtime. Credential writes and OAuth token commits
 recheck the selected configuration revision inside the same capability fence.
 Closing setup cancels OAuth and probes; restart does not resume them. Saved
 secrets are not returned in status, native config errors omit source snippets,
-and neither the CLI nor paired browser can enter these secrets. Native HTTP
+and the CLI cannot enter these secrets. Native HTTP
 and stdio transports remain upstream-owned; only the configured Pi files are
 loaded, automatic other-app imports are disabled, and native MCP currently has
 no elicitation or sampling path. Desktop OAuth state is encrypted around Pi's
 native file and refresh locks. Auth mutations drain old sessions first, and
 closed runtime credential stores reject late refresh writes.
 A Chat-owned question from a reused connection must not adopt a newer task's
-identity or become available to an unrelated paired browser.
+identity.
 
 ### Model context inspection (development)
 
@@ -178,6 +176,8 @@ A GUI launch (Dock, Finder, Spotlight, `open`) resolves the current user's login
 
 ## Local management surfaces
 
+**Other AI agents (Settings → Command Line).** Adding the command to Terminal runs one administrator shell command, after the standard macOS password prompt, that writes the app's own `Contents/bin` path to `/etc/paths.d/<command>`; every value in it is shell-quoted, and the action is offered only by an installed app running from its own place. Adding the skill writes a `SKILL.md` into `~/.claude/skills/<command>/` or `~/.codex/skills/<command>/`, and Remove deletes only a skill whose front matter names this one. All of it happens only on the person's click. An agent using the command has the same act lane as the CLI, with the same receipts and limits; the skill tells it never to handle secrets.
+
 Restricted apps can make named
 [Worker requests](docs/app-assistant-tasks.md). A request is journaled and
 dispatched at once as an ordinary full-trust work-folder Chat in the owning work-folder, not
@@ -220,112 +220,11 @@ host follow-up carrying the end of it.
 
 The packaged main renderer and work-fold agent popover talk to a loopback-only local API with a per-launch desktop session token and an app-specific allowed origin. That boundary is for trusted packaged renderers; it is not a network API intended for other local applications. The sandboxed popover uses a dedicated narrow preload exposing only that API session, dropped-file path resolution, hide/show-main actions, and window material; it does not inherit the main renderer's folder, restricted-app, update, settings, or shell bridges. Development mode has different local-origin assumptions and must not be exposed beyond the loopback interface.
 
-Optional Web Access does not expose that loopback API. The public bridge
-accepts only a closed list of semantic operations and routes opaque signed
-envelopes to an authenticated desktop WebSocket. Password sign-in alone is not
-agent authority: every new browser generates non-exportable signing and
-key-agreement keys and a fresh pairing id. Browser and desktop independently
-derive the displayed six-digit pairing code from that id, the browser
-identity, and both P-256 public keys, so a relay substitution changes the code
-the person compares unless it hits the short authentication string's six-digit
-collision space.
-The resulting desktop-signed grant is bound to the account, browser keys, and a
-revocation generation. The desktop re-reads its operating-system-encrypted
-grant state immediately before an operation and before each progress event a
-live watch streams; disabling Web Access, revoking
-one browser, revoking every grant generation, or deleting the address stops
-later operations and silences an in-flight watch. The bridge enforces exact origins, host-only SameSite secure
-cookies, stable session-bound CSRF tokens, bounded bodies, fresh signatures,
-login/enrollment/operation rate limits, and security headers. Malformed login
-addresses are rejected before scrypt; well-formed checks pass through bounded
-IP-only admission and a fair queue with global and per-IP concurrency limits.
-There is no attacker-triggerable account-wide pre-verification lockout. Its
-PostgreSQL records contain a scrypt password verifier, public keys and certificates, hashed sessions, and
-operation metadata—not device/browser private keys or durable decrypted
-message/file bodies. Live presence, event streams, and bounded encrypted result
-buffers are process-local in the private alpha, which therefore runs one
-replica. Database and transient-memory cleanup runs throughout the process
-lifetime; per-session operation limits, event-byte budgets, and event-stream
-caps bound one paired browser's retention pressure. Device protocol errors
-are finite and terminal instead of self-amplifying, unknown typed frames are
-forward-compatible, stale replaced sockets are fenced, and SSE clients are
-dropped only after an explicit queued-byte bound rather than an ordinary stream
-high-water signal.
-
-New-address enrollment is controlled by a server-side deployment switch and
-bounded by per-IP and process-wide rate limits. The downloadable desktop carries
-no shared enrollment secret: embedding one in a public app would not create a
-meaningful authorization boundary. Closing enrollment does not disable or
-weaken the independently authenticated device tokens for existing addresses.
-The `pages` slug and `pages-` prefix stay reserved at enrollment, and
-`pages-<slug>` hosts serve nothing.
-
-A paired remote browser is nevertheless a powerful authority. It can send
-prompts to the full-trust management agent, read bounded saved management
-transcripts, read explicit text/image result
-previews, and upload bounded files while the desktop is online. The current
-client has no Files/work-folder browser; the semantic tree adapter remains for
-older clients. The management agent may delegate through the attributed
-act path; those child turns reuse the canonical registered-work-folder runtime, native
-Pi resources and tools, conflict rules, and History path.
-File previews exclude ignored and reserved paths, links and nested registered
-work-folders, recheck file identity and registration after reading, and travel only
-through the paired-browser encrypted operation lane. Revocation fences late
-completion and cache insertion. HTML/SVG remain escaped text. See [preview bounds](docs/browser-file-previews.md).
-Private app views use a separate exact-installation adapter over the reviewed
-web-entry/selected-data read surface. Both intermediary and app frames are
-opaque; the management document keeps its restrictive script rules, and
-the intermediary denies direct network access and non-blob child navigation.
-An exact-source, per-view message channel exposes only bounded reads. See
-[browser app isolation](docs/browser-apps.md).
-The separate browser-action foundation requires exact installation and browser
-provenance, an exact installed-revision digest, durable acceptance and a live
-grant fence. Native broker effects recheck that fence even after dispatch.
-Idempotent retry returns the original receipt; uncertain accepted work becomes
-Interrupted at startup without replay. Revocation fences accepted runs. A
-request from a paired browser's app view runs on acceptance, as the same app's
-actions run on the desktop; the app frame can only ask, read, list, or stop its
-own requests, the read bridge cannot reach them, and
-the private trusted parent outside the frame shows each request and offers
-Stop. Forged frame request messages are refused before entering the encrypted
-adapter.
-Direct task-scoped request status, work details, addressed answers, explicit
-continuation, and stop calls through the remote semantic adapter are bound to
-the browser identity and exact grant that accepted the root work-fold agent request.
-These controls include its deliberately linked descendants; unrelated requests
-are refused. Local trusted screens share the same host projection and journaled
-action paths; restricted app bridges gain no question access. Summary projections omit task ids and action details for other grants.
-This is not isolation between mutually hostile paired browsers: each can
-still prompt the same full-trust management agent inside the product's
-personal single-user trust boundary.
-The semantic adapter removes absolute roots and attachment targets and does not
-expose capability/settings mutation or generic local calls, but each agent
-itself remains taught rather than tool-restricted and may use ordinary local
-tools under the current user's permissions.
-
-Revocation and address removal attempt local task/upload/cache cleanup and
-server cleanup independently. The desktop retains the only device credential
-until account deletion is confirmed, treats a later unauthorized response as
-confirmation that the stored device credential no longer authorizes that
-account, and does not treat network or server failures as deletion success.
-Bridge grant, session, operation, and event-stream cleanup is account-scoped.
-
-One message accepts at most six plain-named uploads, 6 MB each and 8 MB total.
-Uploads are temporary app-owned management references
-with a 64 MB retained cap and a 24-hour retention window; revoking one browser
-purges its holding folder, and disabling Web Access purges every remote
-management holding folder. The agent may explicitly place one into a work-folder
-through the normal restore-pointed path. Responses expose upload names and sizes,
-never local holding paths.
-Pair only browsers you control, revoke a lost browser promptly, and use a
-unique password. The hosted web client and bridge are trusted parts of this
-private alpha's authority boundary. Signed application-encrypted envelopes reduce
-plaintext persistence and passive relay visibility, but same-origin hosted code
-can use a paired browser's non-exportable key; they do not protect against an
-active hosted-service compromise, a compromised paired browser, or a
-compromised desktop endpoint. Public/full-trust release requires either a
-separately installed and pinned signing client or another authority design that
-does not grant mutable first-load web code this power.
+Web Access and online page publishing were removed on 2026-11-07. The desktop
+no longer pairs browsers, enrolls a work-fold.com address, holds a device
+credential, or opens a connection to the bridge or page service; there is no
+remote semantic adapter over the local API. Settings an earlier build stored for
+Web Access are dropped the next time the encrypted settings file is saved.
 
 The installed `work-fold` command uses a separate protocol-v1 file broker under the platform application-data directory (`%APPDATA%\work-fold\cli` on Windows and `~/Library/Application Support/work-fold/cli` on macOS). Requests and responses are UUID-named, atomic, size- and age-bounded, path-confined, and rejected when they are symbolic links or unsafe file types. Electron's single-instance host serializes accepted requests and cleans stale files.
 
@@ -333,36 +232,28 @@ That broker is same-operating-system-user coordination, not authenticated interp
 
 Mutations ride a separately versioned act lane over the same broker files. Act requests must carry the per-launch act token the interactive app mints into `cli/act-token.json` on startup and removes on quit; without the running app there is no token match, no act facade, and nothing mutates. The token binds requests to one app run on a single-account machine — it does not distinguish same-user callers, and same-user processes remain inside the trust boundary. Every act command names its work-folder explicitly (no working-directory resolution for writes), reuses the interactive app's registered-work-folder trust grants, History checkpoints, capability-mutation locks, and active-turn conflict checks, and is executed at most once: a mandatory flushed `accepted` journal record is written to `cli/receipts/act.jsonl` before the mutation runs (an unwritable or damaged journal refuses the command), a terminal outcome record follows it, and a duplicated request id — including one replayed after the broker's response file was cleaned up — is refused rather than re-executed. The broker additionally refuses requests older than its freshness window, and the journal retains replay-relevant records for at least that window. Because act commands include starting agent turns, reading their results, searching content, and listing History and app records, act request and response files can briefly contain prompt, conversation, query, overview, and listing text; they remain bounded, local, and are deleted after completion, and the receipts journal itself stays metadata-only. The `agent` command group talks to the work-fold agent — a machine-local conversation scope above all work-folders whose transcript lives under the app profile's `management/` root. Its Pi session is granted that app-owned folder, whose only project configuration is what work-fold itself materializes there (the work-fold agent's `AGENTS.md` and `manage-work-folders` Skill), plus the user's Everywhere capabilities. Those app-owned resources are mandatory: if they cannot be prepared as safe regular files and directories, the work-fold agent scope remains unavailable instead of running uninstructed. It is a full-trust agent: like every work-fold agent it keeps ordinary local file and shell tools that can reach anything this user can. The materialized instructions teach it to prefer the `work-fold` commands — journaled, work-folder-explicit, restore-pointed — for cross-work-folder work, but that is guidance, not an enforced authority boundary. work-fold agent file/folder/link attachments are bounded references, not copies: missing or unsupported sources are refused, a symlink cannot be attached as the reference root, and their contents remain untrusted data. Readable files may enter model context; folders, binaries, oversized files, and links remain path/link references until tools inspect them. Downstream mutation lineage is explicit rather than ambient: the agent passes the active work-fold agent task id as `--parent-task`, the act host validates it before the journaled mutation, and unrelated same-user commands are not credited to the request. Request projections and request-level stop state last for the app run; the transcript and act receipts are the durable records. Chat-scoped grants, confirmation ceremonies, and per-grant revocation remain future work for any surface that outgrows this personal single-user boundary. See [work-fold agent and CLI](docs/work-fold-agent-and-cli.md).
 
-**Receipts, not gates.** work-fold has one authority setting for acts: none. Every act-lane verb — including making bytes runnable, widening an app's standing power, and deleting — runs on its first call through the same prepare, pin, journal-first, fenced execution path the desktop uses, and returns a receipt. The security properties are the receipt and the pins, not a person's click: journal-before-effect, identity pins rechecked at effect time, at-most-once execution, failure without automatic retry, capability-mutation fences, and turn-conflict rejection all remain. A changed package identity or a moved target invalidates an act instead of executing something else. Receipts preserve the initiating surface and, for remote-originated acts, the exact browser and grant. A paired browser inherits the same lane; it gains no authority the desktop does not already hold.
+**Receipts, not gates.** work-fold has one authority setting for acts: none. Every act-lane verb — including making bytes runnable, widening an app's standing power, and deleting — runs on its first call through the same prepare, pin, journal-first, fenced execution path the desktop uses, and returns a receipt. The security properties are the receipt and the pins, not a person's click: journal-before-effect, identity pins rechecked at effect time, at-most-once execution, failure without automatic retry, capability-mutation fences, and turn-conflict rejection all remain. A changed package identity or a moved target invalidates an act instead of executing something else. Receipts preserve the initiating surface.
 
 Destruction is reversible. File deletion and work-folder removal refuse until affected work has settled, including waiting questions and stopped turns still draining; the desktop and CLI share that reservation. Managed parents also refuse deletion while nested work-folder registrations remain. Once idle, `files delete` keeps History coverage and moves every uncovered path into a machine-local trash under the application-data root with a manifest per item (source work-folder, original work-folder-relative path, kind, size, deleted-at, restore-by, and the receipt that produced it). `work-folders delete` moves the managed folder and its History there and unregisters the work-folder; interrupted moves retain remaining state until it can be matched to one intact recovery entry. Clearing an app's storage, purging retained data, and uninstalling with purge leave a recoverable copy there first, removing an imported Skill moves its whole folder there with its scope, and deleting an unused App Studio Release keeps its record and envelope there; a restore re-verifies the envelope against its content digest before the Release returns. Items are restorable from Settings → Recently deleted and from `work-fold recently-deleted list|restore`, and are removed only when their retention window ends (30 days by default). No verb empties the trash, and retention never erases an item whose tree contains legacy `.workspace/` state. The clean-break rule for legacy `.workspace/` trees and the rule that `.work-fold/`, `.pi/`, and `.workspace/` are never valid file endpoints are unchanged.
 
-The only human-only surfaces establish identity or secrets: entering a provider or app secret, pairing a browser, and enrolling or administering a remote address. They have no act verb and no remote operation, and no task needs them mid-flight. This boundary binds the product's lanes; the management agent remains full-trust and taught rather than tool-restricted, and same-user processes remain inside the local trust boundary, exactly as documented above.
+The only human-only surface establishes secrets: entering a provider or app secret. It has no act verb, and no task needs it mid-flight. This boundary binds the product's lanes; the management agent remains full-trust and taught rather than tool-restricted, and same-user processes remain inside the local trust boundary, exactly as documented above.
 
-Automations are the one thing above work-folders that runs unattended. An automation is a machine-local, closed, typed declaration — no code, no credentials, no expressions, and only the literal declared message plus a closed set of host-resolved placeholders — enabled by one receipted `automations enable` act that pins the exact declaration. The executor is app code on the shared scheduler discipline with its own bounded budget; every run and hop is journal-first receipted; a failed hop fails the run rather than being smoothed over; disable and work-folder removal stop the active run before the authority change reads as complete, and a suspended automation never retargets or resumes without a fresh enable. Unknown placeholders are refused at enable time; resolved text is bounded and recorded on the hop receipt, and a `fold` step reaches the work-fold agent through the same acceptance path as any other message. Nothing automation-shaped is written into any work-folder's folder, automation-caused settles never trigger other automations, and no automation step can publish a page. The trusted renderer can also list the automations that name a work-folder and turn them on or off or run them through the session-authenticated local API (`/api/work-folders/:id/automations`); those calls run the same facade methods and receipts as Settings, refuse an automation that does not name that work-folder, and are not reachable from the paired remote client.
+Automations are the one thing above work-folders that runs unattended. An automation is a machine-local, closed, typed declaration — no code, no credentials, no expressions, and only the literal declared message plus a closed set of host-resolved placeholders — enabled by one receipted `automations enable` act that pins the exact declaration. The executor is app code on the shared scheduler discipline with its own bounded budget; every run and hop is journal-first receipted; a failed hop fails the run rather than being smoothed over; disable and work-folder removal stop the active run before the authority change reads as complete, and a suspended automation never retargets or resumes without a fresh enable. Unknown placeholders are refused at enable time; resolved text is bounded and recorded on the hop receipt, and a `fold` step reaches the work-fold agent through the same acceptance path as any other message. Nothing automation-shaped is written into any work-folder's folder, and automation-caused settles never trigger other automations. The trusted renderer can also list the automations that name a work-folder and turn them on or off or run them through the session-authenticated local API (`/api/work-folders/:id/automations`); those calls run the same facade methods and receipts as Settings, and refuse an automation that does not name that work-folder.
 
 Checks do not treat portable data as authority. `.work-fold/checks/` may contain only strict code-free declarations; registration discovers but never enables them. Enablement binds a local grant to the exact declaration digest, installed sensor revision, and implementation/source digest. The runner rejects root, metadata, Pi configuration, nested-work-folder, link/junction, special-file, path-escape, Windows device/ADS, target-count, byte, depth, finding, and duration hazards. Sensors receive a host-created closed projection of designated inputs, not filesystem paths, and findings surface only after independent host re-verification; that boundary is checked again before an old finding is shown, so a target that later falls under another registered work-folder becomes blocked. Infrastructure, admission, skipped-input, persistence, timeout, and damaged-state failures fail closed as health errors. The Files tree fetches aggregate status first and receives only exact current target paths when a decoration is necessary; titles, details, evidence, decisions, runs, and aborts stay behind the trusted renderer's per-launch session token and allowed-origin local API boundary. Check operations reserve their work-folder before asynchronous work and participate in the same removal/capability fence until completion. Removal acquires its Check-cleanup lease before committing an intent, while work-folder creation and registration acquire an exclusive registry-mutation lease before changing target ownership; neither can interleave with evidence work. Run acceptance and terminal state are durable, incomplete startup state becomes `interrupted` without replay, and a terminal-write failure retains the same-process task/capability fence for retry instead of releasing a ghost run. work-folder removal keeps its durable intent until primary and backup Check state have been purged without parsing potentially damaged or future-version bytes; backup recovery strips enablement rather than resurrecting older authority. See [Checks](docs/checks.md).
 
-### Published pages
+### Pages
 
-A page's code is untrusted. In the desktop preview and on the page service it
+A page's code is untrusted. In the desktop preview it
 runs in an opaque-origin sandboxed frame (`allow-scripts allow-forms`, never
 `allow-same-origin`) under content security rules that deny network access,
 form navigation, nested frames, and remote resources; it reaches nothing but the
 `workFoldPage` calls relayed by a trusted host over a per-view channel. No
 content security rule covers WebRTC, so a page could still reach a STUN server; that gap is
-known and open. Page code never runs on work-fold's servers.
+known and open. Pages are not published to the web.
 
-Every page call is checked by the same rules engine locally and online:
-declared tables, column types, visitor permissions, limits, and uniqueness,
-with bound SQL parameters only. Visitors are identified by a random id in a
-page-scoped `HttpOnly` cookie and never see other visitors' ids. The page
-service's publisher and owner API listens on a separate internal port,
-requires a shared secret, and is reached only through the bridge, which
-authenticates the desktop by its device token and the owner by a signed-in
-session (with same-origin and CSRF checks on changes). Page ids carry 130
-random bits and are kept out of receipts, logs, and metrics. Publishing runs
-as a prepared act; Automations and page code cannot publish.
+Every page call is checked by the rules engine: declared tables, column types,
+visitor permissions, limits, and uniqueness, with bound SQL parameters only.
 
 ## Release integrity
 
@@ -439,7 +330,7 @@ and original assignments remain machine-local. Only deliberately released
 child reports enter a work-folder Chat; app task reads remain pinned to their own
 installation. See the contract for stop, expiry and restart behavior.
 
-The popover’s saved-chat list and explicitly selected summary use the authenticated renderer lane and read only management-scope transcripts. The paired web chat list adds request state and an answer indicator only for requests owned by that browser/grant; this does not widen question, answer, result, or Stop authority. Inline work-folder previews reuse the existing bounded inert preview broker. Preparing a work-folder/file chat draft is local UI state and does not execute work.
+The popover’s saved-chat list and explicitly selected summary use the authenticated renderer lane and read only management-scope transcripts. Inline work-folder previews reuse the existing bounded inert preview broker. Preparing a work-folder/file chat draft is local UI state and does not execute work.
 
 ### History comparison and selected edit evidence
 

@@ -24,7 +24,6 @@ const [settingsSource, paneSource, mainPreload, popoverPreload, desktopMain] = a
 
 test("General Settings includes Automations without introducing a builder", () => {
   assert.match(settingsSource, /type SettingsSection = "automations" \| "deleted" \| "limits";/);
-  assert.match(settingsSource, /id: "web-access", label: "Web Access"/);
   assert.match(settingsSource, /id: "automations", label: "Automations"/);
   assert.match(settingsSource, /id: "recently-deleted", label: "Recently Deleted"/);
   assert.match(settingsSource, /page === "automations" \? \(\s*<div[^>]*>\s*<AutomationsPane fixtureMode=\{fixtureMode\} \/>/);

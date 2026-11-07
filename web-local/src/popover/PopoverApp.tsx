@@ -1125,7 +1125,7 @@ export function WorkFoldAgentChat({ host, fixtureMode = false, controlsTarget = 
             <article
               className={message.kind === "assistant_continuation" || message.kind === "context_compaction" ? "work-continuation" : `popover-message ${message.role}`}
               key={message.id}
-              title={`${message.source === "remote_web" ? "Sent from the web · " : ""}${timestampTitle(message.createdAt)}`}
+              title={timestampTitle(message.createdAt)}
             >
               {message.role === "assistant" && message.kind !== "assistant_continuation" ? <RuntimeContextPreview entries={savedWorkTrailPreviews(message as ChatMessage)} renderText={renderStepText} /> : null}
               <div className="popover-message-body">

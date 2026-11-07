@@ -823,11 +823,17 @@ function WorkFolderAppearancePanel({
   onReplaceWorkFolder,
   onUndoWorkFolder,
   onResetWorkFolder,
+  preview,
+  bannerControls = true,
 }: {
   workFolder: WorkFolderSummary;
   identity: WorkFolderIdentity;
   customization?: WorkFolderCustomization;
   canUndo: boolean;
+  /** Shown in place of the banner previews, for a layout that draws no banner. */
+  preview?: ReactNode;
+  /** False where no banner is drawn (the file manager layout): Banner and Title are left out. */
+  bannerControls?: boolean;
   onCustomizeWorkFolder: (workFolderId: string, patch: WorkFolderCustomizationPatch) => void;
   onReplaceWorkFolder: (workFolderId: string, customization: WorkFolderCustomization) => void;
   onUndoWorkFolder: (workFolderId: string) => void;
@@ -942,11 +948,11 @@ function WorkFolderAppearancePanel({
       </div>
       <input ref={proposalFileInputRef} className="work-folder-banner-file-input" type="file" accept=".json,application/json" onChange={(event) => void importAppearanceProposal(event)} tabIndex={-1} aria-hidden="true" />
       {proposalImportError ? <div className="work-folder-appearance-import-error" role="alert">{proposalImportError}</div> : null}
-      <WorkFolderBannerPreview identity={identity} name={workFolder.name} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />
+      {preview ?? <WorkFolderBannerPreview identity={identity} name={workFolder.name} onFrame={(bannerFraming) => onCustomizeWorkFolder(workFolderId, { bannerFraming })} />}
       {!appearancePasses ? <div className="work-folder-appearance-audit warning" role="status"><Warning20Regular aria-hidden="true" /><span>Choose a higher-contrast accent.</span></div> : null}
       {/* One page with a section each (2026-11-05); the previews above stay in view. */}
       <div className="work-folder-appearance-sections">
-        <section className="work-folder-appearance-section" id="folder-appearance-section-banner" aria-labelledby="folder-appearance-heading-banner">
+        {bannerControls ? <><section className="work-folder-appearance-section" id="folder-appearance-section-banner" aria-labelledby="folder-appearance-heading-banner">
           <h3 id="folder-appearance-heading-banner">Banner</h3>
           <div className="work-folder-banner-section-heading"><strong>Layout</strong></div>
           <div className="work-folder-banner-layouts" role="group" aria-label="Banner Layout">
@@ -1020,7 +1026,7 @@ function WorkFolderAppearancePanel({
               {bannerIconStyleOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={identity.bannerIconStyle === option.id} className={identity.bannerIconStyle === option.id ? "active" : ""} onClick={() => onCustomizeWorkFolder(workFolderId, { bannerIconStyle: option.id })}>{option.label}</button>)}
             </div>
           </div>
-        </section>
+        </section></> : null}
         <section className="work-folder-appearance-section" id="folder-appearance-section-icon" aria-labelledby="folder-appearance-heading-icon">
           <h3 id="folder-appearance-heading-icon">Icon</h3>
         <div className="work-folder-icon-picker">

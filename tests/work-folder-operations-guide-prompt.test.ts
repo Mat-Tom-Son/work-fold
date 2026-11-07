@@ -84,20 +84,18 @@ test("the guide teaches the two rules the host actually enforces", () => {
 /**
  * Pages (docs/pages.md) are taught in the Worker's guide: what makes a page
  * rather than an app, the page folder and page.json, the calls and the form
- * helper, the no-network rule, the recipes, the validate verb a Worker
- * finishes with, and publishing (stage 2): only when the person asks, with
- * `pages publish`, telling them the link. The retired single-file sharing is
- * gone.
+ * helper, the no-network rule, the recipes, and the validate verb a Worker
+ * finishes with. Pages run in their page tab on this computer; publishing to
+ * the web and the retired single-file sharing are gone.
  */
-test("the guide teaches pages: page.json, workFoldPage, the form helper, no network, pages validate, and publishing", () => {
+test("the guide teaches pages: page.json, workFoldPage, the form helper, no network, pages validate, and local-only pages", () => {
   const guide = workFoldWorkFolderOperationsGuide();
   const section = workFolderPagesGuide().join("\n");
   assert.ok(guide.includes(section), "the operations guide carries the pages section");
   assert.ok(section.startsWith("### Pages\n"));
 
   // When to make a page, and when an app.
-  assert.match(section, /A page is something other people will open on the web: a form, sign-up sheet, RSVP, poll, or announcement\./);
-  assert.match(section, /Sharing a document means making a page from it\./);
+  assert.match(section, /A page is a small interactive page that runs in its page tab on this computer: a form, sign-up sheet, RSVP, poll, or announcement, with entries saved as the page declares\./);
   assert.match(section, /An app is a tool for the person inside work-fold that uses their files, a Worker, notifications, or connections\./);
 
   // The folder, page.json, and its compact example.
@@ -114,7 +112,7 @@ test("the guide teaches pages: page.json, workFoldPage, the form helper, no netw
   for (const permission of ["add", "see-own", "see-all", "edit-own", "delete-own"]) {
     assert.ok(section.includes(`\`${permission}\``), `the guide names the ${permission} visitor permission`);
   }
-  assert.match(section, /never put private files, notes, or source documents there/);
+  assert.match(section, /Keep drafts and source documents out of the page folder; draft in `\.worker\/`\./);
   assert.match(section, /never one inside another/);
 
   // The calls, the refusal codes, and the form helper.
@@ -146,21 +144,14 @@ test("the guide teaches pages: page.json, workFoldPage, the form helper, no netw
   // Finish with validate, then point the person at the page tab.
   assert.match(section, /Finish by running `work-fold pages validate --work-folder <id> --page <path> --json`/);
   assert.match(section, /fixing every problem it reports/);
-  assert.match(section, /open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the test entries/);
+  assert.match(section, /open the page from Files to try it: Preview runs it, Viewing as switches between Visitor, Owner, and New visitor, and the Data view shows the entries, which stay on this computer\./);
   assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages validate --work-folder <id>"), "the executable name substitutes");
 
-  // Publishing: only when asked, with pages publish, telling the person the
-  // link and what was uploaded; private files never go in a page folder.
-  assert.doesNotMatch(section, /Pages can't be published yet/);
-  assert.match(section, /Everything in a page folder except `data\.sqlite` goes online when the page is published, so never put private files/);
-  assert.match(section, /publish only when the person asks, with `work-fold pages publish --work-folder <id> --page <path> --json`/);
-  assert.match(section, /Anyone with the link can open the page\. Tell the person the `url` from the result, and list the files it uploaded \(`uploaded\.files`\)/);
-  assert.match(section, /Settings → Web Access/);
-  assert.match(section, /`work-fold pages unpublish` takes a page offline and keeps its entries/);
-  assert.match(section, /come back into the page folder as `data\.sqlite`/);
-  assert.match(section, /read it with `sqlite3 -readonly`/);
-  assert.match(section, /Never write to it/);
-  assert.ok(workFoldWorkFolderOperationsGuide("wf").includes("`wf pages publish --work-folder <id>"), "the executable name substitutes in publishing too");
+  // Pages stay on this computer: no publishing verbs, Web Access, or
+  // downloaded entries database.
+  assert.match(section, /Pages are not published to the web\./);
+  assert.doesNotMatch(section, /pages publish|pages unpublish|pages list|Web Access|data\.sqlite|on the web:|Anyone with the link/);
+  assert.doesNotMatch(guide, /pages publish|pages unpublish|Web Access/);
   // The retired single-file sharing is gone.
   assert.doesNotMatch(guide, /Pages the person may share|shareable HTML|sharing pages|shares it from the file's tab/);
 });

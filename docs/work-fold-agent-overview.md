@@ -4,8 +4,7 @@
 build — `src/local/overview.ts` and `src/local/overview-seen-store.ts` with
 their suites are the implementation authority — and its decisions were
 promoted on 2026-08-11 into [the work-fold agent decision register](work-fold-agent-decisions.md) (F10),
-[the work-fold agent and CLI](work-fold-agent-and-cli.md) (the remote-operation paragraph
-and verification map), `README.md`, `SECURITY.md`, `PRIVACY.md`, and
+[the work-fold agent and CLI](work-fold-agent-and-cli.md) (the verification map), `README.md`, `SECURITY.md`, `PRIVACY.md`, and
 [Desktop parity](ui-parity.md)/[the visual system](visual-design.md)
 (surface placement). This document retains what canon does not carry: the
 closed source inventory, the section and ordering rules, the marker
@@ -145,10 +144,10 @@ and evidence stay in the work-folder's Checks work tab.
 ## Last-seen markers
 
 One machine-local record (`overview-seen.json` under the state root,
-`src/local/overview-seen-store.ts`) maps active surface ids — `main-window`
-and `remote:<grantId>`, one marker per paired browser grant so two phones
-do not clear each other — to the cursor each surface has acknowledged.
-`popover` remains an accepted legacy id so existing state and an older
+`src/local/overview-seen-store.ts`) maps surface ids — `main-window` and
+`popover` — to the cursor each surface has acknowledged. Markers older builds
+kept for paired browsers (`remote:<grantId>`) are skipped on read since Web
+Access was removed on 2026-11-07. `popover` remains an accepted legacy id so existing state and an older
 renderer cannot corrupt the store, but the current popover neither fetches
 the digest nor advances that marker. Markers are presentation preference
 exactly as the product model defines for Chat attention state: machine-local,
@@ -162,25 +161,19 @@ Marker advance is the overview's only mutation, and its standard answers:
 - **Journaling and receipt:** none, deliberately. The write changes no
   product state, content, or authority — only which items a surface renders
   as new, the same class as the unjournaled Chat attention acknowledgement.
-  Remote advances still ride the signed envelope with a grant-scoped signed
-  request id.
 - **Revocation and undo:** a marker hides nothing — **Show earlier**
   reveals the bounded tail regardless — so there is nothing to undo.
-  Revoking a browser deletes its `remote:<grantId>` marker with the rest of
-  that grant's state.
 - **Failure mid-act:** the store is a single atomic small-file write. A
   failed write leaves the old marker; the failure direction is
   over-reporting, never under-reporting.
 - **Replay:** advance is monotonic (cursor comparison by timestamp then
-  id), so a replayed or reordered advance is a no-op; remote advances
-  additionally inherit the signed-request-id replay refusal.
+  id), so a replayed or reordered advance is a no-op.
 
 ## Surfaces
 
 No current in-app surface renders the digest; `work-fold agent overview --json`
 and the work-fold agent's narration read it on request. The `main-window` marker stays an
-accepted id, and older paired clients retain their grant-scoped marker through
-the compatible host operations. No surface receives push: the digest is pulled
+accepted id. No surface receives push: the digest is pulled
 on request and never recomputed in the background for nobody.
 
 **Not the popover.** The compact menu-bar surface is reserved for the live
@@ -189,12 +182,9 @@ footer, does not request `GET /api/work-fold-agent/overview`, and never advances
 overview marker. Removing that presentation does not remove or clear any
 recorded state.
 
-**The paired web client.** Questions now live inside their owning Chat, with an
-answer indicator in the saved-chat list. There is no Needs you destination or
-receipt feed. The current client neither requests nor acknowledges the overview.
-The signed `management.glance`/`management.glanceSeen` host operations remain
-compatible with older paired clients, with their existing 64 KB bound and
-per-grant marker isolation.
+**No paired web client.** Web Access, its web client, and the
+`management.glance`/`management.glanceSeen` host operations were removed from
+the desktop on 2026-11-07.
 
 **Not the main window.** The compact "Since you last looked" panel that hung off
 the work-folder header was removed (2026-09-23). The main window neither requests nor
@@ -257,7 +247,7 @@ The plan items shipped as follows:
 5. CLI act command (`agent overview`) — `src/local/cli/act-commands.ts`, `src/local/cli/act-facade.ts`; `tests/work-fold-cli-act-protocol.test.ts`, `tests/work-fold-cli-commands.test.ts` (read-lane guard).
 6. Narration teaching in the work-fold agent's instructions — `src/local/work-fold-agent-instructions.ts`; `tests/work-fold-agent-conversation.test.ts`.
 7. Shared renderer — removed; `web-local/src/popover/OverviewSection.tsx` was unmounted on 2026-09-23 and deleted on 2026-10-10, and `tests/work-fold-agent-popover-refresh.test.ts` pins its absence.
-8. Remote surface — `src/local/remote-work-fold-agent.ts`, `desktop/src/remote-access.ts`, `services/bridge/`; `tests/desktop-remote-access.test.ts`, `tests/work-fold-agent-remote.test.ts`, the bridge suite.
+8. Remote surface — shipped, then removed with Web Access on 2026-11-07.
 9. Main-window panel — shipped, then removed on 2026-09-23; `tests/frontend-interaction-contract.test.ts` pins its absence.
 10. Documentation promotion — recorded in [Fold integration](archive/fold-integration.md).
 11. Receipts-not-gates (2026-09-10, F24) — needs-you reduced to questions and due snoozes, the removed source and its change kind dropped, the remote screen's allow controls removed — `src/local/overview.ts`, `services/bridge/`; `tests/work-fold-overview.test.ts`, the bridge suite.

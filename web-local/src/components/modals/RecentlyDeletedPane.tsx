@@ -220,11 +220,11 @@ export function RecentlyDeletedPane({ fixtureMode = false }: { fixtureMode?: boo
       ) : null}
       {data && !entries.length ? <p className="recently-deleted-empty">{recentlyDeletedSettings.empty}</p> : null}
       {entries.length ? (
-        <div className="remote-browser-list">
+        <div className="settings-list">
           {entries.map((entry) => {
             const uncovered = describeUncovered(entry);
             return (
-              <div className="remote-browser-row" key={entry.id}>
+              <div className="settings-list-row" key={entry.id}>
                 <div>
                   <strong>{entry.name}</strong>
                   <small>
