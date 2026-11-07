@@ -169,7 +169,7 @@ function listedWorkFolders(registry: WorkFolderRegistry, workFolderId?: string):
     .filter((workFolder) => workFolderId === undefined || workFolder.id === workFolderId)
     .filter((workFolder) => !removingIds.has(workFolder.id))
     .filter((workFolder) => existsSync(workFolder.workFolderRoot))
-    .filter((workFolder) => workFolder.location.storage !== "linked" || linkedWorkFolderStateSeparated(workFolder.workFolderRoot))
+    .filter((workFolder) => workFolder.location.storage !== "linked" || linkedWorkFolderStateSeparated(workFolder.workFolderRoot) || insideManagedWorkFolder(workFolder.workFolderRoot, registry))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
@@ -237,7 +237,7 @@ export async function touchWorkFolderRoot(workFolderRoot: string): Promise<void>
 
 export async function registerLinkedWorkFolder(workFolderRoot: string, providerHint?: "google-drive"): Promise<WorkFolderSummary> {
   const safeRoot = ensureSafeWorkFolderRoot(workFolderRoot);
-  assertLinkedWorkFolderStateSeparation(safeRoot);
+  if (!insideManagedWorkFolder(safeRoot, await readRegistry())) assertLinkedWorkFolderStateSeparation(safeRoot);
   const info = await stat(safeRoot).catch(() => null);
   if (!info?.isDirectory()) throw new Error("The folder selected for this work-folder does not exist.");
   return registerWorkFolder({
@@ -1763,6 +1763,23 @@ function samePath(left: string, right: string): boolean {
 function assertLinkedWorkFolderStateSeparation(workFolderRoot: string): void {
   if (linkedWorkFolderStateSeparated(workFolderRoot)) return;
   throw new Error("Linked folders cannot contain, or be contained by, work-fold application data. Choose a different folder.");
+}
+
+/**
+ * A folder strictly inside a registered managed work-folder is that
+ * work-folder's own content, not app data, so it may become a sub
+ * work-folder even though managed work-folders live in the app's data folder
+ * (2026-11-07). Hidden folders there (`.work-fold/`, a removal's claimed
+ * folder) stay off limits.
+ */
+function insideManagedWorkFolder(workFolderRoot: string, registry: WorkFolderRegistry): boolean {
+  const root = normalizeComparisonPath(workFolderRoot);
+  return registry.workFolders.some((candidate) => {
+    if (candidate.location.storage !== "managed") return false;
+    const parent = normalizeComparisonPath(candidate.workFolderRoot);
+    if (!root.startsWith(`${parent}${sep}`)) return false;
+    return !root.slice(parent.length + 1).split(sep).some((part) => part.startsWith("."));
+  });
 }
 
 function linkedWorkFolderStateSeparated(workFolderRoot: string): boolean {

@@ -214,3 +214,37 @@ test("activity, outline, addressed Workers, and nested-Folder file guards over t
   assert.equal(finalWorkFolders.some((item) => item.id === managed.id), true);
   assert.equal(finalWorkFolders.some((item) => item.id === managedChild.id), true);
 });
+
+test("a folder inside a managed work-folder can become a sub work-folder where the app keeps managed work-folders in its data folder", async (t) => {
+  // The shipped app keeps managed work-folders under its data folder
+  // (`<state>/spaces`), so the guard that keeps linked folders out of app data
+  // must still let a managed work-folder's own folders become sub work-folders.
+  const sandbox = await mkdtemp(join(tmpdir(), "work-fold-nested-managed-"));
+  const state = join(sandbox, "state");
+  const api = await startLocalApi({ port: 0, stateBase: state, workFolderBase: join(state, "spaces"), loadEnv: false });
+  t.after(async () => { await api.close(); await rm(sandbox, { recursive: true, force: true }); });
+  const call = async (path: string, init: { method?: string; body?: unknown } = {}) => {
+    const response = await fetch(`${api.origin}${path}`, {
+      method: init.method ?? "GET",
+      headers: init.body === undefined ? undefined : { "content-type": "application/json" },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    });
+    return { status: response.status, body: await response.json().catch(() => null) as Record<string, any> | null };
+  };
+
+  const created = await call("/api/work-folders", { method: "POST", body: { name: "Home Renovation" } });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const parent = created.body!.workFolder;
+  await mkdir(join(parent.workFolderRoot, "Permits"));
+  await mkdir(join(parent.workFolderRoot, ".work-fold", "hidden"), { recursive: true });
+
+  const child = await call(`/api/work-folders/${parent.id}/nested-folders`, { method: "POST", body: { path: "Permits" } });
+  assert.equal(child.status, 201, JSON.stringify(child.body));
+  assert.equal(resolve(child.body!.workFolder.workFolderRoot), resolve(join(parent.workFolderRoot, "Permits")));
+  const listed = (await call("/api/bootstrap")).body!.workFolders.map((item: { name: string }) => item.name).sort();
+  assert.deepEqual(listed, ["Home Renovation", "Permits"], "the sub work-folder stays listed");
+
+  // Hidden folders inside a managed work-folder, and the rest of app data, stay off limits.
+  const hidden = await call(`/api/work-folders/${parent.id}/nested-folders`, { method: "POST", body: { path: ".work-fold/hidden" } });
+  assert.notEqual(hidden.status, 201);
+});

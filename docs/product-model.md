@@ -672,7 +672,11 @@ Files, so a native front end could later sit on the same server.
   left gutter (owner request, 2026-11-07): the caret (or the arrow keys)
   shows and hides the work-folders inside, the sidebar remembers which are
   open, a closed parent shows its sub work-folders' activity on its own dot,
-  and going into a sub work-folder opens its parents.
+  and going into a sub work-folder opens its parents. A folder inside a
+  work-folder made with **Create New work-folder** can become a sub
+  work-folder too, although managed work-folders live in the app's data
+  folder; the rest of that folder, and hidden folders such as `.work-fold/`,
+  stay off limits.
 - **Standard Folders** are ordinary folders, not work-folders: no Worker,
   History, or `.work-fold/` record. The host resolves each from the home folder
   and lists it only when it exists; macOS asks for access the first time one is
