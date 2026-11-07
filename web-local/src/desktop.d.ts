@@ -21,6 +21,18 @@ interface WorkFoldDesktopUpdateStatus {
   error: string | null;
 }
 
+interface WorkFoldCommandLineSkillStatus {
+  available: boolean;
+  installed: "none" | "current" | "outdated";
+  path: string;
+}
+
+interface WorkFoldCommandLineStatus {
+  command: string;
+  path: { supported: boolean; reason: string | null; state: "installed" | "missing" | "elsewhere"; binDirectory: string | null; entryFile: string };
+  skills: { claude: WorkFoldCommandLineSkillStatus; codex: WorkFoldCommandLineSkillStatus };
+}
+
 type WorkFoldDesktopMenuCommand =
   | "new-work-folder"
   | "open-local-folder"
@@ -317,6 +329,15 @@ declare global {
       };
       settings: {
         getStatus: () => Promise<{ encryptionAvailable: boolean; configuredProviders: string[] }>;
+      };
+      /** Other AI agents: the command on Terminal's PATH and the skill file (Settings → Command Line). */
+      commandLine?: {
+        status: () => Promise<WorkFoldCommandLineStatus>;
+        installPath: () => Promise<WorkFoldCommandLineStatus>;
+        removePath: () => Promise<WorkFoldCommandLineStatus>;
+        installSkill: (target: "claude" | "codex") => Promise<WorkFoldCommandLineStatus>;
+        removeSkill: (target: "claude" | "codex") => Promise<WorkFoldCommandLineStatus>;
+        skill: () => Promise<string>;
       };
       menu: {
         setState: (state: { workFolderOpen: boolean }) => void;

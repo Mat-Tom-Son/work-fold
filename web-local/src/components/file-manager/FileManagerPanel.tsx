@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { Chat16Regular, ChevronLeft20Regular, ChevronRight16Regular, History16Regular } from "@fluentui/react-icons";
 
 import { api, errorText } from "../../lib/api";
@@ -36,7 +36,7 @@ interface HistoryRow { id: string; kind: "chat" | "change"; conversationId?: str
  * the selection is and History lists its Chats and changes. A standard folder
  * offers to put the folder to work.
  */
-export function FileManagerPanel({ place, workFolder, placeName, folderPath, folderName, folderColor, folderSymbol, receipt = null, itemCount, selection, automations, fixture, chat, composer, chatStatuses, searchItem, historyRefreshKey, onPutToWork, onOpenChat, onRestored, onError }: {
+export function FileManagerPanel({ place, workFolder, placeName, folderPath, folderName, folderColor, folderSymbol, receipt = null, arriving = false, itemCount, selection, automations, fixture, chat, composer, chatStatuses, searchItem, historyRefreshKey, onPutToWork, onOpenChat, onRestored, onError }: {
   place: FileManagerPlace;
   workFolder: WorkFolderSummary | null;
   placeName: string;
@@ -58,6 +58,8 @@ export function FileManagerPanel({ place, workFolder, placeName, folderPath, fol
    * in the design; closed, it stays mounted so a running reply keeps streaming.
    */
   chat: { open: boolean; title: string; onBack: () => void; content: ReactNode } | null;
+  /** The panel was just shown: it slides in. */
+  arriving?: boolean;
   /** The message box at the panel's foot in a work-folder; its suggestions show on Info only. */
   composer: ((options: { showSuggestions: boolean }) => ReactNode) | null;
   /** Changes whenever the work-folder's files change, so History reloads. */
@@ -106,13 +108,24 @@ export function FileManagerPanel({ place, workFolder, placeName, folderPath, fol
   }
 
   const chatShown = Boolean(chat?.open);
-  return <aside className={`fm-panel${chatShown ? " is-chat" : ""}`} aria-label={chatShown ? "Chat" : tabsShown ? "Info and History" : "Info"}>
+  // Motion (2026-11-07): Info and History slide in from the side of the tab
+  // you chose, and coming back from a Chat slides the panel in from the left,
+  // as a Mac app's navigation does. Decided while rendering, so the first
+  // frame of the new pane already has it.
+  const shownRef = useRef<{ tab: PanelTab; chat: boolean } | null>(null);
+  const previous = shownRef.current;
+  const paneFrom = !previous ? "none" : previous.chat && !chatShown ? "left" : previous.tab !== tab ? (tab === "history" ? "right" : "left") : null;
+  const paneFromRef = useRef<"left" | "right" | "none">("none");
+  if (paneFrom) paneFromRef.current = paneFrom;
+  useEffect(() => { shownRef.current = { tab, chat: chatShown }; });
+  return <aside className={`fm-panel${chatShown ? " is-chat" : ""}${arriving ? " is-arriving" : ""}`} aria-label={chatShown ? "Chat" : tabsShown ? "Info and History" : "Info"}>
     {chatShown && chat ? <div className="fm-ph">
       <button type="button" className="fm-capbtn" onClick={chat.onBack} aria-label="Back to Info" title="Back"><ChevronLeft20Regular /></button>
       <div className="fm-ph-t" title={chat.title}>{chat.title}</div>
     </div> : null}
     {!chatShown && tabsShown ? <div className="fm-tabs">
-      <div className="fm-seg" role="tablist" aria-label="Panel">
+      <div className="fm-seg has-thumb" role="tablist" aria-label="Panel" style={{ "--fm-seg-index": tab === "history" ? 1 : 0 } as CSSProperties}>
+        <span className="fm-seg-thumb" aria-hidden="true" />
         <button type="button" role="tab" aria-selected={tab === "info"} className={`fm-seg-b${tab === "info" ? " is-on" : ""}`} onClick={() => setTab("info")}>Info</button>
         <button type="button" role="tab" aria-selected={tab === "history"} className={`fm-seg-b${tab === "history" ? " is-on" : ""}`} onClick={() => setTab("history")}>
           <span>History</span>
@@ -121,9 +134,11 @@ export function FileManagerPanel({ place, workFolder, placeName, folderPath, fol
       </div>
     </div> : null}
     {chatShown ? null : <div className={`fm-panel-scroll${tabsShown ? "" : " is-untabbed"}`} role={tabsShown ? "tabpanel" : undefined}>
-      {tab === "info" || !workFolder
-        ? <>{receipt}{info}</>
-        : <HistoryList workFolder={workFolder} file={single?.kind === "file" ? single : null} fixture={fixture} chatStatuses={chatStatuses} refreshKey={historyRefreshKey} onOpenChat={onOpenChat} onRestored={onRestored} onError={onError} />}
+      <div key={tab} className="fm-pane" data-from={paneFromRef.current}>
+        {tab === "info" || !workFolder
+          ? <>{receipt}{info}</>
+          : <HistoryList workFolder={workFolder} file={single?.kind === "file" ? single : null} fixture={fixture} chatStatuses={chatStatuses} refreshKey={historyRefreshKey} onOpenChat={onOpenChat} onRestored={onRestored} onError={onError} />}
+      </div>
     </div>}
     {chat ? <div className="fm-chat" hidden={!chatShown}>{chat.content}</div> : null}
     {chatShown || !composer ? null : composer({ showSuggestions: tab === "info" })}

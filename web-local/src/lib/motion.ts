@@ -230,6 +230,17 @@ export function settleIn(elements: Iterable<Element | null | undefined>, duratio
   }
 }
 
+/**
+ * New content arriving from a side (2026-11-07): a folder opened deeper or
+ * forward slides in from the right, one gone up or back from the left, and
+ * anything else settles in place.
+ */
+export function slideIn(element: Element | null | undefined, from: "left" | "right" | "none", duration = 220): void {
+  if (!element || typeof element.animate !== "function" || motionReduced(element.ownerDocument)) return;
+  const offset = from === "right" ? "14px 0" : from === "left" ? "-14px 0" : "0 3px";
+  animate(element, [{ opacity: 0.2, translate: offset }, { opacity: 1, translate: "0 0" }], { duration, easing: ease });
+}
+
 /** The dot's small moment when a Worker's reply lands: a pop and one ring. */
 export function celebrateFinish(dot: HTMLElement | null): void {
   if (!dot || typeof dot.animate !== "function" || motionReduced(dot.ownerDocument)) return;

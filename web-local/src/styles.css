@@ -22653,3 +22653,24 @@ to {
 .toast-icon {
   display: none;
 }
+
+/* Settings → Command Line (2026-11-07), classic layout. */
+.command-line-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-text-muted);
+  font-size: var(--work-fold-type-xs);
+  white-space: nowrap;
+}
+
+.command-line-skill {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  font-size: var(--work-fold-type-xs);
+  white-space: pre-wrap;
+}

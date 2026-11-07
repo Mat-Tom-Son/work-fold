@@ -257,6 +257,14 @@ contextBridge.exposeInMainWorld("workFoldDesktop", {
   settings: {
     getStatus: () => ipcRenderer.invoke("work-fold:settings:status"),
   },
+  commandLine: {
+    status: () => ipcRenderer.invoke("work-fold:command-line:status"),
+    installPath: () => ipcRenderer.invoke("work-fold:command-line:install-path"),
+    removePath: () => ipcRenderer.invoke("work-fold:command-line:remove-path"),
+    installSkill: (target: "claude" | "codex") => ipcRenderer.invoke("work-fold:command-line:install-skill", target),
+    removeSkill: (target: "claude" | "codex") => ipcRenderer.invoke("work-fold:command-line:remove-skill", target),
+    skill: () => ipcRenderer.invoke("work-fold:command-line:skill"),
+  },
   menu: {
     setState: (state: unknown) => ipcRenderer.send("work-fold:menu:set-state", state),
     popup: (menuId: unknown, bounds: unknown) => ipcRenderer.invoke("work-fold:menu:popup", menuId, bounds),

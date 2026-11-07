@@ -296,7 +296,9 @@ collision handling require a later explicit design.
 The user should always be able to reveal a work-folder in the operating system, open its files with other applications, back it up normally, or synchronize it with a desktop sync tool. A Google Drive for desktop folder works because it is a local folder; that is not the same as direct Google Drive API integration.
 
 Settings uses one preferences window with **Appearance**, **AI Models**,
-**Automations**, **Recently deleted**, and **About** navigation,
+**Automations**, **Command Line** (2026-11-07: add the command to Terminal and
+the skill to Claude Code or Codex, so other AI agents can use work-fold),
+**Recently deleted**, and **About** navigation,
 plus an **Apps** page (2026-09-25) that lists installed work-folder apps by work-folder and
 owns their management. Automations also carries **Limits**, collapsed by default
 under a Limits disclosure and unchanged in meaning; **Closing the window**, where supported,

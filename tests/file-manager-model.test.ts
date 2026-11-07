@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   closedSidebarParents,
   fileKindLabel,
+  navigationSide,
   collapseCrumbs,
   fileManagerPathBar,
   fileManagerIcon,
@@ -196,5 +197,17 @@ test("sub work-folders sit under their parent behind a caret, shown only while t
   assert.deepEqual(closedSidebarParents(tile, all, []), ["home", "bath"]);
   assert.deepEqual(closedSidebarParents(tile, all, ["home"]), ["bath"]);
   assert.deepEqual(closedSidebarParents(trip, all, []), []);
+});
+
+test("a folder you go to comes in from the side you went", () => {
+  const at = (path: string, placeKey = "work-folder:home") => ({ placeKey, path });
+  assert.equal(navigationSide(at(""), at("Garden"), "push"), "right", "into a folder");
+  assert.equal(navigationSide(at("Garden"), at("Garden/Beds"), "push"), "right", "deeper");
+  assert.equal(navigationSide(at("Garden/Beds"), at("Garden"), "push"), "left", "up one");
+  assert.equal(navigationSide(at("Garden/Beds"), at(""), "push"), "left", "up to the top");
+  assert.equal(navigationSide(at("Garden"), at("Kitchen"), "push"), "none", "a sibling settles in place");
+  assert.equal(navigationSide(at("Garden"), at("", "standard:desktop"), "push"), "none", "another place settles in place");
+  assert.equal(navigationSide(at("Garden"), at("Kitchen"), "back"), "left");
+  assert.equal(navigationSide(at("Garden"), at("Kitchen"), "forward"), "right");
 });
 

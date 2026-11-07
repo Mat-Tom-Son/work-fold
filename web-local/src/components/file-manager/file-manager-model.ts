@@ -300,3 +300,16 @@ export function sidebarWorkFolderRows<T extends NestableFolder>(workFolders: rea
 export function closedSidebarParents(workFolder: NestableFolder, workFolders: readonly NestableFolder[], open: readonly string[]): string[] {
   return folderAncestors(workFolder, workFolders).map((item) => item.id).filter((id) => !open.includes(id));
 }
+
+/** Where a navigation starts or ends: a place (by its key) and a folder path inside it. */
+export interface NavigationStop { placeKey: string; path: string }
+
+/** Which side a folder you go to comes in from: deeper or forward from the right, up or back from the left. */
+export function navigationSide(from: NavigationStop, to: NavigationStop, history: "push" | "back" | "forward"): "left" | "right" | "none" {
+  if (history === "back") return "left";
+  if (history === "forward") return "right";
+  if (from.placeKey !== to.placeKey) return "none";
+  if (!from.path || to.path.startsWith(`${from.path}/`)) return to.path ? "right" : "none";
+  if (!to.path || from.path.startsWith(`${to.path}/`)) return "left";
+  return "none";
+}

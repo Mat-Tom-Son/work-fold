@@ -30,7 +30,7 @@ export const WorkFoldCliExitCode = {
 export type WorkFoldCliExitCode = typeof WorkFoldCliExitCode[keyof typeof WorkFoldCliExitCode];
 export type WorkFoldCliErrorCode = Exclude<keyof typeof WorkFoldCliExitCode, "success">;
 export type WorkFoldCliOutputMode = "human" | "json";
-export type WorkFoldCliCommandName = "help" | "version" | "context" | "work-folders.list" | "tasks.list" | "capabilities.list" | "checks.status";
+export type WorkFoldCliCommandName = "help" | "version" | "skill" | "context" | "work-folders.list" | "tasks.list" | "capabilities.list" | "checks.status";
 
 export type WorkFoldCliJson =
   | null

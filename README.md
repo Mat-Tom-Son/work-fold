@@ -70,6 +70,11 @@ for stop, expiry, and restart behavior, and the
 [collaboration experience](docs/collaboration-experience.md) for how progress,
 questions, and result files appear in Chats, the work-fold agent, and apps.
 
+Claude Code, Codex, and other AI agents can use work-fold too: **Settings →
+Command Line** adds the `work-fold` command to Terminal and adds a short skill
+that teaches an agent to hand work to your Workers, follow it, and run
+Automations. See [the CLI guide](docs/work-fold-agent-and-cli.md#other-ai-agents-settings--command-line).
+
 Long work runs in the background: a Worker or the work-fold agent starts an
 export, build, install, or server as a background job, keeps working or ends
 its turn, and is brought back to the same Chat once with the result when the

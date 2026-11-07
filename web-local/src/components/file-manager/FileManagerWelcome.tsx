@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Checkmark16Regular, ChevronRight16Regular, FolderAdd20Regular, FolderOpen20Regular, Globe20Regular, CursorClick20Regular } from "@fluentui/react-icons";
+import { useRef, useState } from "react";
+import { Checkmark16Regular, ChevronRight16Regular, FolderAdd20Regular, FolderOpen20Regular, Globe20Regular, CursorClick20Regular, WindowConsole20Regular } from "@fluentui/react-icons";
 
 import "./file-manager.css";
 import "./file-manager-dialogs.css";
@@ -9,6 +9,8 @@ import { ConnectAi, type ConnectedAi } from "../onboarding/ConnectAi";
 import { useMacTools, type MacTool } from "../onboarding/OnboardingFlow";
 import { IncludedChromeSetup } from "../panes/IncludedChromeSetup";
 import { IncludedComputerSetup } from "../panes/IncludedComputerSetup";
+import { CommandLinePane } from "../modals/CommandLinePane";
+import { productIdentity } from "../../../../src/shared/product-identity";
 import { StandardFolderGlyph } from "./file-manager-glyphs";
 import { useStandardFolders } from "./useFileManagerPlaces";
 
@@ -41,15 +43,20 @@ export function FileManagerWelcome({ agentConfigured, fixtureMode, onAiConnected
 }) {
   const [step, setStep] = useState<Step>("welcome");
   const [connected, setConnected] = useState<ConnectedAi | null>(null);
-  const [openTool, setOpenTool] = useState<MacTool | null>(null);
+  const [openTool, setOpenTool] = useState<MacTool | "command-line" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const macTools = useMacTools(fixtureMode);
   const standard = useStandardFolders(fixtureMode);
   const startable = ["downloads", "documents", "desktop", "pictures"]
     .map((id) => standard.folders.find((folder) => folder.id === id && !folder.workFolderId))
     .filter((folder): folder is NonNullable<typeof folder> => Boolean(folder));
-  const steps: Step[] = ["welcome", ...(agentConfigured && !connected ? [] : ["connect" as const]), ...(macTools.length ? ["tools" as const] : []), "folder"];
+  const steps: Step[] = ["welcome", ...(agentConfigured && !connected ? [] : ["connect" as const]), ...(macTools.length || fixtureMode || window.workFoldDesktop?.commandLine ? ["tools" as const] : []), "folder"];
   const index = steps.indexOf(step);
+  // Each step slides in from the side you went: Continue from the right, Back from the left.
+  // Kept until the step changes again, so an unrelated re-render never replays it.
+  const stepMotionRef = useRef<{ index: number; from: "left" | "right" | "none" }>({ index, from: "none" });
+  if (stepMotionRef.current.index !== index) stepMotionRef.current = { index, from: index > stepMotionRef.current.index ? "right" : "left" };
+  const stepFrom = stepMotionRef.current.from;
   const next = () => setStep(steps[Math.min(index + 1, steps.length - 1)]!);
   const back = () => setStep(steps[Math.max(index - 1, 0)]!);
 
@@ -87,6 +94,7 @@ export function FileManagerWelcome({ agentConfigured, fixtureMode, onAiConnected
             {steps.map((item, position) => <span key={item} className={`fm-welcome-dot${position === index ? " is-on" : position < index ? " is-done" : ""}`} />)}
           </div> : null}
 
+          <div key={step} className="fm-welcome-step" data-from={stepFrom}>
           {step === "welcome" ? <>
             <WorkFoldLockup className="fm-welcome-lockup" />
             <h2>Put your folders to work</h2>
@@ -108,7 +116,7 @@ export function FileManagerWelcome({ agentConfigured, fixtureMode, onAiConnected
 
           {step === "tools" ? <>
             <h2>Let Your Worker Use Your Mac</h2>
-            <p>Optional. When you ask, your Worker can browse with your own Chrome and use apps on your Mac. You can set these up later in Skills &amp; Extensions.</p>
+            <p>Optional. When you ask, your Worker can browse with your own Chrome and use apps on your Mac, and other AI agents can use {productIdentity.productName} too. You can set these up later in Skills &amp; Extensions and Settings → Command Line.</p>
             <div className="fm-welcome-list">
               {macTools.map((tool) => <div key={tool} className={`fm-welcome-tool${openTool === tool ? " is-open" : ""}`}>
                 <button type="button" className="fm-welcome-row" aria-expanded={openTool === tool} onClick={() => setOpenTool((current) => current === tool ? null : tool)}>
@@ -118,6 +126,15 @@ export function FileManagerWelcome({ agentConfigured, fixtureMode, onAiConnected
                 </button>
                 {openTool === tool ? <div className="fm-welcome-tool-body">{tool === "chrome" ? <IncludedChromeSetup enabled /> : <IncludedComputerSetup enabled />}</div> : null}
               </div>)}
+              {/* Other AI agents can use the app's command too (owner request, 2026-11-07). */}
+              <div className={`fm-welcome-tool${openTool === "command-line" ? " is-open" : ""}`}>
+                <button type="button" className="fm-welcome-row" aria-expanded={openTool === "command-line"} onClick={() => setOpenTool((current) => current === "command-line" ? null : "command-line")}>
+                  <span className="fm-welcome-row-icon"><WindowConsole20Regular /></span>
+                  <span className="fm-welcome-row-text"><strong>Other AI Agents</strong><span>Let Claude Code and Codex use {productIdentity.productName}</span></span>
+                  <ChevronRight16Regular className="fm-welcome-chev" aria-hidden="true" />
+                </button>
+                {openTool === "command-line" ? <div className="fm-welcome-tool-body"><CommandLinePane compact fixtureMode={fixtureMode} /></div> : null}
+              </div>
             </div>
           </> : null}
 
@@ -143,6 +160,8 @@ export function FileManagerWelcome({ agentConfigured, fixtureMode, onAiConnected
             </div>
             {!agentConfigured && !connected ? <p className="fm-welcome-note">No AI connected yet. Your Worker will offer to connect one when you need it.</p> : null}
           </> : null}
+
+          </div>
 
           <footer className="fm-welcome-footer">
             {index > 0 ? <button type="button" className="fm-btn fm-welcome-back" onClick={back}>Back</button> : null}

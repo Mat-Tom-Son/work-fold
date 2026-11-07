@@ -101,7 +101,7 @@ export function GoToFolderSheet({ initialPath, currentFolder, lookup, onGo, onCl
 
   return <>
     <div className="fm-goto-back" onMouseDown={onClose} />
-    <section className="fm-goto" role="dialog" aria-modal="true" aria-label="Go to Folder">
+    <section className="fm-goto" data-exit-motion="menu" role="dialog" aria-modal="true" aria-label="Go to Folder">
       <div className="fm-goto-field">
         <input
           ref={inputRef}

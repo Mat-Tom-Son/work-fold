@@ -183,7 +183,9 @@
   gap: 8px;
   width: 100%;
   height: calc(28px * var(--fm-scale) * var(--fm-density));
-  padding: 0 8px;
+  /* Every row keeps room left of its icon for a sub work-folders caret, as
+     Mail's and Notes' sidebars do, so icons line up whether a row has one. */
+  padding: 0 8px 0 var(--fm-sidebar-gutter, 21px);
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -852,7 +854,8 @@
 }
 
 /* History's Changes and Chats sections: the first starts at the top of the tab. */
-.fm-panel-scroll > .fm-sec:first-child {
+.fm-panel-scroll > .fm-sec:first-child,
+.fm-panel-scroll > .fm-pane > .fm-sec:first-child {
   margin-top: 4px;
 }
 
@@ -2645,7 +2648,8 @@
   text-align: center;
 }
 
-.fm-welcome-card > p {
+.fm-welcome-card > p,
+.fm-welcome-step > p {
   margin: 0 auto 18px;
   max-width: 420px;
   color: var(--fm-text2);
@@ -3305,26 +3309,31 @@
 }
 
 /* Sub work-folders (owner request, 2026-11-07): each sits under its parent,
-   indented, and a caret in the left gutter shows or hides them, as Finder
-   shows a folder's contents in list view. Top-level rows keep the same
-   alignment as Standard Folders. */
+   indented, and a caret inside the row, left of its icon, shows or hides
+   them (owner request, 2026-11-07: inside the highlight, as Mail and Notes
+   draw it). */
 .fm-sidebar-node {
   position: relative;
 }
 
 .fm-sidebar-node .fm-sidebar-item {
-  padding-left: calc(8px + var(--fm-depth, 0) * 16px);
+  padding-left: calc(var(--fm-sidebar-gutter, 21px) + var(--fm-depth, 0) * 16px);
+}
+
+/* The caret and its row are one target: hovering either lights the row. */
+.fm-sidebar-node:hover > .fm-sidebar-item:not(.is-current):not(.is-drop-target) {
+  background: var(--fm-hover);
 }
 
 .fm-sidebar-caret {
   position: absolute;
   top: 0;
-  /* In the scroll area's 10px gutter and the row's own left padding. */
-  left: calc(var(--fm-depth, 0) * 16px - 10px);
+  /* In the row's own space left of the folder icon, inside its highlight. */
+  left: calc(var(--fm-depth, 0) * 16px + 4px);
   z-index: 1;
   display: grid;
   place-items: center;
-  width: 14px;
+  width: 15px;
   height: 100%;
   padding: 0;
   border: 0;
@@ -3333,14 +3342,27 @@
   cursor: default;
 }
 
+.fm-sidebar-caret:hover,
+.fm-sidebar-node:has(> .fm-sidebar-item.is-current) > .fm-sidebar-caret {
+  color: var(--fm-text2);
+}
+
 .fm-sidebar-caret:hover {
   color: var(--fm-text);
 }
 
+.fm-sidebar-caret {
+  transition: color 120ms ease-out;
+}
+
 .fm-sidebar-caret svg {
-  width: 10px;
-  height: 10px;
-  transition: transform 120ms ease;
+  width: 11px;
+  height: 11px;
+  transition: transform 220ms var(--work-fold-ease-smooth);
+}
+
+.fm-sidebar-caret:active svg {
+  scale: 0.85;
 }
 
 .fm-sidebar-caret.is-open svg {
@@ -3357,4 +3379,221 @@
   .fm-sidebar-caret svg {
     transition: none;
   }
+}
+
+/* Sub work-folders grow in under their parent, one after another, and slide
+   down into place; closing collapses them (lib/motion.ts). */
+@keyframes fm-sidebar-row-open {
+  from { height: 0; opacity: 0; overflow: clip; }
+  to { overflow: clip; }
+}
+
+@keyframes fm-sidebar-row-drop {
+  from { translate: 0 -7px; }
+}
+
+.fm-sidebar-node.is-arriving {
+  interpolate-size: allow-keywords;
+  animation: fm-sidebar-row-open var(--work-fold-motion-base) var(--work-fold-ease-smooth) both;
+  animation-delay: calc(var(--fm-arrive-index, 0) * 28ms);
+}
+
+.fm-sidebar-node.is-arriving > .fm-sidebar-item {
+  animation: fm-sidebar-row-drop 240ms var(--work-fold-ease-smooth) both;
+  animation-delay: calc(var(--fm-arrive-index, 0) * 28ms);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion in the file manager (owner request, 2026-11-07): small touches that
+   say where something came from. Timings and easing are the app's motion
+   tokens (motion.css); both reduce-motion switches turn every one off.
+   --------------------------------------------------------------------------- */
+
+@keyframes fm-from-right {
+  from { opacity: 0; translate: 16px 0; }
+}
+
+@keyframes fm-from-left {
+  from { opacity: 0; translate: -16px 0; }
+}
+
+@keyframes fm-push-in {
+  from { opacity: 0; translate: 32px 0; }
+}
+
+@keyframes fm-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes fm-rise-in {
+  from { opacity: 0; translate: 0 6px; }
+}
+
+@keyframes fm-sheet-in {
+  from { opacity: 0; translate: 0 -10px; scale: 0.98; }
+}
+
+@keyframes fm-pop-in {
+  from { opacity: 0; scale: 0; }
+}
+
+/* Info and History: a thumb slides to the tab you choose, as a Mac segmented
+   control does, and the pane comes in from that side. */
+.fm-seg.has-thumb {
+  position: relative;
+}
+
+.fm-seg-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  border-radius: 6px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  transform: translateX(calc(var(--fm-seg-index, 0) * 100%));
+  transition: transform var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+.fm-seg.has-thumb .fm-seg-b {
+  position: relative;
+  z-index: 1;
+  transition: background-color 120ms ease-out;
+}
+
+.fm-seg.has-thumb .fm-seg-b.is-on {
+  background: transparent;
+  box-shadow: none;
+}
+
+.fm-panel-scroll {
+  overflow-x: clip;
+}
+
+.fm-pane[data-from="right"] {
+  animation: fm-from-right 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-pane[data-from="left"] {
+  animation: fm-from-left 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-pane[data-from="none"] {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* A Chat pushes in from the right, like the next screen of a Mac app; Back
+   brings the panel in from the left (the pane above). */
+.fm-panel {
+  overflow-x: clip;
+}
+
+.fm-panel.is-chat > .fm-chat:not([hidden]) {
+  animation: fm-push-in var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+.fm-panel.is-chat > .fm-ph {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* The panel slides in when it's shown. */
+.fm-panel.is-arriving {
+  animation: fm-from-right var(--work-fold-motion-slow) var(--work-fold-ease-smooth);
+}
+
+/* What arrives in Info: the Worker's receipt, then suggestions one by one. */
+.fm-receipt {
+  animation: fm-rise-in 240ms var(--work-fold-ease-smooth);
+}
+
+.fm-suggests .fm-suggest {
+  animation: fm-rise-in var(--work-fold-motion-base) var(--work-fold-ease-smooth) both;
+}
+
+.fm-suggests .fm-suggest:nth-child(2) { animation-delay: 40ms; }
+.fm-suggests .fm-suggest:nth-child(3) { animation-delay: 80ms; }
+.fm-suggests .fm-suggest:nth-child(4) { animation-delay: 120ms; }
+
+/* Activity and change dots pop in. */
+.fm-dot,
+.fm-changed-dot {
+  animation: fm-pop-in 240ms var(--work-fold-ease-pop) both;
+}
+
+.fm-dot.is-run {
+  animation: fm-pop-in 240ms var(--work-fold-ease-pop), fm-pulse 1.2s ease-in-out 240ms infinite;
+}
+
+/* Sheets and the search scope bar arrive instead of appearing. */
+.fm-goto {
+  animation: fm-sheet-in var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+.fm-scope {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out;
+}
+
+/* Rows, sidebar items, and buttons answer the pointer smoothly, and buttons
+   answer a press. */
+.fm-row,
+.fm-tile,
+.fm-sidebar-item,
+.fm-crow {
+  transition: background-color 110ms ease-out, color 110ms ease-out, box-shadow 110ms ease-out;
+}
+
+.fm-tool,
+.fm-btn,
+.fm-capbtn,
+.fm-heading-add {
+  transition: background-color 110ms ease-out, color 110ms ease-out, box-shadow 110ms ease-out, scale 160ms var(--work-fold-ease-smooth);
+}
+
+.fm-tool:active:not(:disabled),
+.fm-btn:active:not(:disabled),
+.fm-capbtn:active:not(:disabled),
+.fm-heading-add:active:not(:disabled) {
+  scale: 0.95;
+  transition-duration: 110ms, 110ms, 110ms, 70ms;
+}
+
+/* First run: each step slides in from the side you went; the step dots ease. */
+.fm-welcome-step {
+  display: contents;
+}
+
+.fm-welcome-step[data-from="right"] > *,
+.fm-welcome-step[data-from="left"] > *,
+.fm-welcome-step[data-from="none"] > * {
+  animation: fm-fade-in var(--work-fold-motion-base) ease-out both;
+}
+
+.fm-welcome-step[data-from="right"] > * {
+  animation: fm-from-right 240ms var(--work-fold-ease-smooth) both;
+}
+
+.fm-welcome-step[data-from="left"] > * {
+  animation: fm-from-left 240ms var(--work-fold-ease-smooth) both;
+}
+
+.fm-welcome-step > :nth-child(2) { animation-delay: 30ms; }
+.fm-welcome-step > :nth-child(3) { animation-delay: 60ms; }
+.fm-welcome-step > :nth-child(n + 4) { animation-delay: 90ms; }
+
+.fm-welcome-dot {
+  transition: background-color var(--work-fold-motion-base) var(--work-fold-ease-smooth), scale var(--work-fold-motion-base) var(--work-fold-ease-smooth);
+}
+
+.fm-welcome-dot.is-on {
+  scale: 1.25;
+}
+
+/* Highlights ease in: the message box's focus ring and every drop target. */
+.fm-field {
+  transition: border-color 140ms ease-out, box-shadow 160ms ease-out, background-color 140ms ease-out;
+}
+
+.fm-content {
+  transition: background-color 140ms ease-out, box-shadow 140ms ease-out;
 }

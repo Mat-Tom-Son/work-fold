@@ -176,6 +176,8 @@ A GUI launch (Dock, Finder, Spotlight, `open`) resolves the current user's login
 
 ## Local management surfaces
 
+**Other AI agents (Settings → Command Line).** Adding the command to Terminal runs one administrator shell command, after the standard macOS password prompt, that writes the app's own `Contents/bin` path to `/etc/paths.d/<command>`; every value in it is shell-quoted, and the action is offered only by an installed app running from its own place. Adding the skill writes a `SKILL.md` into `~/.claude/skills/<command>/` or `~/.codex/skills/<command>/`, and Remove deletes only a skill whose front matter names this one. All of it happens only on the person's click. An agent using the command has the same act lane as the CLI, with the same receipts and limits; the skill tells it never to handle secrets.
+
 Restricted apps can make named
 [Worker requests](docs/app-assistant-tasks.md). A request is journaled and
 dispatched at once as an ordinary full-trust work-folder Chat in the owning work-folder, not

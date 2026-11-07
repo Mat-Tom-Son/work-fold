@@ -14,6 +14,7 @@ import {
   Power20Regular,
   Sparkle20Regular,
   Subtract20Regular,
+  WindowConsole20Regular,
 } from "@fluentui/react-icons";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { errorText } from "../../lib/api";
@@ -32,10 +33,11 @@ import { IconCredits } from "./IconCredits";
 import type { RestrictedAppInstalled } from "../../types";
 import { AutomationsPane } from "./AutomationsPane";
 import { RecentlyDeletedPane } from "./RecentlyDeletedPane";
+import { CommandLinePane } from "./CommandLinePane";
 
-export type SettingsPage = "appearance" | "ai-models" | "automations" | "apps" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
+export type SettingsPage = "appearance" | "ai-models" | "automations" | "apps" | "command-line" | "recently-deleted" | "general" | "desktop" | "shortcuts" | "about";
 export type SettingsSection = "automations" | "deleted" | "limits";
-type SettingsTabId = "appearance" | "ai-models" | "automations" | "apps" | "recently-deleted" | "shortcuts" | "about";
+type SettingsTabId = "appearance" | "ai-models" | "automations" | "apps" | "command-line" | "recently-deleted" | "shortcuts" | "about";
 // AI Models edits nobody saved yet: closing Settings and opening it again finds them as left.
 const unsavedAiModelsEdits = new Map<string, AiModelsDraft>();
 
@@ -139,6 +141,7 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
     { id: "ai-models", label: "AI Models", icon: <Sparkle20Regular /> },
     { id: "automations", label: "Automations", icon: <Flash20Regular /> },
     { id: "apps", label: "Apps", icon: <LayoutPanelLeft size={20} strokeWidth={1.5} aria-hidden="true" /> },
+    { id: "command-line", label: "Command Line", icon: <WindowConsole20Regular /> },
     { id: "recently-deleted", label: "Recently Deleted", icon: <Delete20Regular /> },
     { id: "shortcuts", label: "Shortcut Keys", icon: <Keyboard20Regular /> },
     { id: "about", label: "About", icon: <Info20Regular /> },
@@ -213,6 +216,11 @@ export function DesktopSettingsModal({ appearance, onCustomizeWorkFolder, workFo
             {page === "apps" ? (
               <div className="settings-tab-panel" id="settings-panel-apps" role="tabpanel" aria-labelledby="settings-tab-apps">
                 <SettingsAppsPane workFolders={workFolders} apps={restrictedApps} fixtureMode={fixtureMode} onChangeApp={onChangeApp} onOpenBuildChat={onOpenAppBuildChat} onOpenResultFile={onOpenAppResultFile} onOpenAppStudio={onOpenAppStudio} />
+              </div>
+            ) : null}
+            {page === "command-line" ? (
+              <div className="settings-tab-panel" id="settings-panel-command-line" role="tabpanel" aria-labelledby="settings-tab-command-line">
+                <CommandLinePane fixtureMode={fixtureMode} />
               </div>
             ) : null}
             {page === "recently-deleted" ? (

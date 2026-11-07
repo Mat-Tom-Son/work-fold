@@ -1593,3 +1593,73 @@
   text-overflow: ellipsis;
 }
 
+
+/* Settings → Command Line (2026-11-07): the command in Terminal and the skill in other AI agents. */
+:root[data-theme] .app-shell.layout-file-manager .command-line-pane {
+  display: grid;
+  gap: 30px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-intro {
+  margin: 0 0 -8px;
+  color: var(--fm-text2);
+  font-size: calc(13px * var(--fm-scale));
+  line-height: 1.45;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-pane code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fm-cap);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.92em;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fm-text3);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-state.is-on {
+  color: var(--fm-text2);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-state svg {
+  color: var(--fm-green, #1e9e4a);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-skill {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+  color: var(--fm-text2);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: calc(11px * var(--fm-scale));
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .command-line-pane.is-compact {
+  gap: 26px;
+  padding-top: 18px;
+  text-align: left;
+}
+
+/* Here the list is each card's only content, so it starts at the card's top edge. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .command-line-pane .settings-section-heading + .settings-list {
+  margin-top: -12px;
+  border-top: 0;
+}
+
+/* Settings' sidebar: the selection eases between pages. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab {
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}

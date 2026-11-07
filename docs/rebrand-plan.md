@@ -1,14 +1,52 @@
 # Rebrand plan
 
 > **Status:** Plan, 2026-11-07. The owner wants a clean break from the name
-> "work-fold" and a new repository. The new name is not chosen yet. This plan
-> records everything the name touches, the decisions each part needs, what
-> must come along intact, and the order of work.
+> "work-fold" and a new repository. The names are decided (below): the
+> product is **AmpleFile** and a folder with its own Worker is a **Connected
+> Folder**. This plan records everything the names touch, the decisions each
+> part needs, what must come along intact, and the order of work.
+
+## Decided names (2026-11-07)
+
+| Today | New | Spellings |
+|---|---|---|
+| work-fold (the product) | **AmpleFile** | Display `AmpleFile`; code `ampleFile` / `AmpleFile`; one lowercase word everywhere else: `amplefile` (command, folders, ids, repos), `AMPLEFILE` (environment) |
+| work-folder | **Connected Folder** | Title Case in headings and buttons ("Connected Folders", "New Connected Folder…"), lowercase in sentences ("this connected folder's Worker"); code `connectedFolder` / `ConnectedFolder`; kebab `connected-folder` (routes, CLI family `connected-folders`, flag `--connected-folder`, files, CSS); `CONNECTED_FOLDER` |
+| work-fold agent | **AmpleFile agent** | Code `ampleFileAgent` / `AmpleFileAgent`; kebab `amplefile-agent` (routes, scope id); the CLI verb stays `agent` |
+| `WORKFOLD_` | **`AMPLEFILE_`** | Environment variables |
+| `wf-`, `--wf-*`, `/__work-fold/kit.css` | **`af-`**, **`--af-*`**, **`/__amplefile/kit.css`** | The app kit |
+| `workFoldDesktop`, `workFoldRestrictedApp`, `workFoldPage` | **`ampleFileDesktop`**, **`ampleFileRestrictedApp`**, **`ampleFilePage`** | Globals |
+| `.work-fold/work-folder.json` | **`.amplefile/connected-folder.json`** | The portable folder; the first time a folder that has `.work-fold/` is connected, copy it across so its Chats come along |
+
+The verbs follow the noun. "Use Existing Folder…" and "Put This Folder to
+Work" become **Connect Folder…** and **Connect This Folder**, "Create New
+work-folder…" becomes **New Connected Folder…**, and "Remove work-folder…"
+becomes **Disconnect…**, which says the files stay where they are. "Put your
+folders to work" can stay as a tagline. "Connect" also appears in **Connect
+Your AI** and in apps' service connections; those name accounts, so the copy
+never calls a provider or service a connected anything.
+
+Identity file values: `productName` `AmpleFile`, `packageName`
+`amplefile-desktop`, `productionAppId` `com.amplefile.desktop`,
+`developmentProductName` `AmpleFile Development`, `macSmokeProductName`
+`AmpleFile Local Smoke`, `macSmokeAppId` `com.amplefile.desktop.local-smoke`,
+`internalProtocol` `amplefile-desktop`, `updaterCacheDirectoryName`
+`amplefile-desktop-updater`, `cliCommand` `amplefile`,
+`portableMetadataDirectory` `.amplefile`, `managementScopeId`
+`amplefile-agent`, `sourceRepositoryName` `amplefile`,
+`macReleaseRepositoryName` `amplefile-mac-releases`.
+
+The renamer needs one rule the October codemod didn't: "work-fold" is two
+words and maps to camel `ampleFile` and Pascal `AmpleFile`, but to the single
+word `amplefile` in kebab, lowercase, and upper-case spellings (never
+`ample-file`).
+
+`amplefile.com` was registered on 2026-11-07; `amplefile.app` was free that day.
 
 ## The names that change
 
-Four names carry the brand. Each needs its own decision, because a new
-product name does not automatically decide the others.
+Four names carry the brand. Each needed its own decision, because a new
+product name does not automatically decide the others (decided above).
 
 | Today | What it names | Decision |
 |---|---|---|
@@ -123,18 +161,19 @@ The tests that hold it are `tests/work-fold-cli-*.test.ts`,
 `tests/work-fold-request-*.test.ts`; rename them with everything else and
 keep them passing.
 
-Two gaps worth closing in the new product, because they decide how easily
-"any agent can be handed it":
+Both gaps that decided how easily "any agent can be handed it" were closed
+on 2026-11-07 (Settings → Command Line, also offered in first run):
 
-1. **Put the command on the person's PATH.** On a Mac it lives in
-   `work-fold.app/Contents/bin` and is added to the PATH only for the app's
-   own Workers. Claude Code or Codex in Terminal cannot find it without manual
-   setup. Add an **Install Command Line Tool** action, as code editors do.
-2. **One file that teaches an outside agent.** The agent above every
-   work-folder learns the command from a Skill work-fold writes on every start
-   (`manage-work-folders`, from `src/local/work-fold-agent-instructions.ts`).
-   Generate the same guidance as a portable Skill or `AGENTS.md` section a
-   person can drop into any harness, so it is never a second copy that drifts.
+1. **The command on the person's PATH**: one line in `/etc/paths.d/<command>`
+   naming the app's own `Contents/bin`, after one macOS password prompt.
+2. **One file that teaches an outside agent**: a short `SKILL.md`
+   (`src/shared/outside-agent-skill.ts`, printed by `work-fold skill`) the app
+   adds to Claude Code or Codex on a click, with a test that checks every
+   command it cites against the CLI's help.
+
+Both take every name from the identity file. After the rename, the old app's
+`/etc/paths.d/work-fold` line and `work-fold` skill folders stay where an
+earlier install put them; the new app should offer to remove them once.
 
 ### The agent above every work-folder
 

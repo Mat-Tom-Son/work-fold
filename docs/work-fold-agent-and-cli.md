@@ -166,6 +166,15 @@ This contract belongs only to work-fold's new profile and `.work-fold/` data. Th
 
 The Windows installer places `work-fold.cmd`, an extensionless `work-fold` shim, and the private `work-fold-cli.ps1` helper in `<install>\bin`, then adds that directory to the current user's `PATH`. The Mac bundle places the extensionless shim and `work-fold-cli.jxa.js` under `work-fold.app/Contents/bin`; work-fold adds that directory to child-process `PATH` for Pi shell tools without editing a person's Terminal profile.
 
+### Other AI agents (Settings → Command Line)
+
+Claude Code, Codex, or any agent that runs shell commands can drive work-fold through this command (owner request, 2026-11-07). **Settings → Command Line**, also offered in first run, has two parts, and nothing changes until the person clicks:
+
+- **Add to Terminal** writes one line, the app's own `Contents/bin`, to `/etc/paths.d/<command>`, which every login shell reads, the way Postgres.app does it. macOS asks for the person's password once. The launcher finds the app from its own folder, so the PATH names that folder rather than a symlink. It is offered only by an installed Mac app running from its own place (not a translocated download copy); the row says when another copy's entry is there, and **Remove** deletes the line.
+- **AI Agents** writes the skill to `~/.claude/skills/<command>/SKILL.md` (Claude Code) or `~/.codex/skills/<command>/SKILL.md` (Codex), shows when an app update changed it, and removes only a skill whose front matter names this one. **Copy Skill** hands it to any other agent. `work-fold skill` prints the same file.
+
+The skill (`src/shared/outside-agent-skill.ts`) is short on purpose: the rules (`--json`, an explicit `--work-folder`, receipts over raw edits, no secrets, no polling), how to look around, handing work to a Worker and waiting for its result, asking the work-fold agent to work across work-folders, files and undo, and Automations, with `work-fold help <command>` for the rest. Its product name, command, and folder all come from `src/shared/product-identity.json`, and `tests/outside-agent-skill.test.ts` checks every command it cites against this help.
+
 ```powershell
 work-fold context --json
 work-fold work-folders list

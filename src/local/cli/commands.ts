@@ -17,6 +17,7 @@ import {
   type WorkFoldCliWorkFolderSummary,
   type WorkFoldCliTaskSummary,
 } from "./protocol.js";
+import { outsideAgentSkill } from "../../shared/outside-agent-skill.js";
 
 export interface WorkFoldCliExecutorOptions {
   version: string;
@@ -96,6 +97,10 @@ export function parseWorkFoldCliArgv(argv: readonly string[]): WorkFoldCliParsed
   if (positional[0] === "version") {
     if (positional.length !== 1 || workFolder !== undefined) throw usageError("version does not accept arguments or --work-folder.");
     return { name: "version", output };
+  }
+  if (positional[0] === "skill") {
+    if (positional.length !== 1 || workFolder !== undefined) throw usageError("skill does not accept arguments or --work-folder.");
+    return { name: "skill", output };
   }
 
   const matched = commandPatterns.find(({ tokens }) => tokens.length === positional.length && tokens.every((token, index) => positional[index] === token));
@@ -705,6 +710,7 @@ export function workFoldCliHelp(productName = "work-fold", topic?: string): stri
     "  capabilities list   List Skills & Extensions, everywhere and per work-folder",
     "  checks status       Show aggregate Check status for one work-folder",
     "  version             Show the installed work-fold version",
+    "  skill               Print the skill file that teaches another AI agent this command",
     "  help [command]      Show command help",
     "",
     "Act commands (need the work-fold app running; work-folder commands take --work-folder):",
@@ -781,6 +787,9 @@ async function runCommand(
           protocolVersion: WORKFOLD_CLI_PROTOCOL_VERSION,
         },
       };
+    case "skill":
+      // The SKILL.md another AI agent uses to drive this command (docs/work-fold-agent-and-cli.md).
+      return { command: command.name, data: { text: outsideAgentSkill() } };
     case "context":
       return { command: command.name, data: contextJson(await kernel.getContext(actor, { workFolder: command.workFolder })) };
     case "work-folders.list":
@@ -804,6 +813,8 @@ function humanOutput(result: WorkFoldCliCommandResult, options: WorkFoldCliExecu
       const data = result.data as { name: string; version: string };
       return `${terminalText(data.name)} ${terminalText(data.version)}\n`;
     }
+    case "skill":
+      return String((result.data as { text: string }).text);
     case "context":
       return humanContext(result.data as unknown as WorkFoldCliContextSnapshot);
     case "work-folders.list":

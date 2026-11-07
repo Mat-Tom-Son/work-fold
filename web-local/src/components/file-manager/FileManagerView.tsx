@@ -23,6 +23,7 @@ import { isMacOS, workFolderEntryNativePath } from "../../lib/platform";
 import { deleteLocalFileRequest, deleteLocalFilesRequest, type PendingDelete } from "../../lib/pending-deletes";
 import { readStoredJsonValue, writeStoredJsonValue } from "../../lib/storage";
 import { combineActivityStatuses } from "../../lib/folder-nesting";
+import { settleIn, slideIn } from "../../lib/motion";
 import { useWorkFolderCustomizations } from "../../hooks/useWorkFolderCustomizations";
 import { WorkFolderAppearanceModal, type WorkFolderAppearanceSection } from "../modals/WorkFolderAppearanceModal";
 import type { ModelScope } from "../panes/AiModelsPane";
@@ -38,6 +39,7 @@ import type { AgentStatus, ChatDraftRequest, ChatSendRequest, ConversationSummar
 import {
   closedSidebarParents,
   defaultFileManagerSort,
+  navigationSide,
   fileKindLabel,
   fileManagerIcon,
   collapseCrumbs,
@@ -146,6 +148,26 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   const [sidebarOpen, setSidebarOpenState] = useState<string[]>(() => readStoredJsonValue(sidebarOpenStorageKey, (value) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [], []));
   const setSidebarOpen = (next: string[]) => { setSidebarOpenState(next); writeStoredJsonValue(sidebarOpenStorageKey, next); };
   const toggleSidebarFolder = (id: string) => setSidebarOpen(sidebarOpen.includes(id) ? sidebarOpen.filter((item) => item !== id) : [...sidebarOpen, id]);
+  // Rows that just came into view (a parent opened, a work-folder was added)
+  // grow in, one after another; rows that leave collapse through the shared
+  // exit motion (lib/motion.ts). Arrival is decided while rendering so the
+  // first frame already has it, and kept briefly so a re-render can't cut it.
+  const sidebarRows = sidebarWorkFolderRows(workFolders, sidebarOpen);
+  const sidebarSeenRef = useRef<Set<string> | null>(null);
+  const sidebarArrivalsRef = useRef(new Map<string, { until: number; index: number }>());
+  {
+    const now = Date.now();
+    const arrivals = sidebarArrivalsRef.current;
+    for (const [id, arrival] of arrivals) if (arrival.until < now) arrivals.delete(id);
+    const seen = sidebarSeenRef.current;
+    if (seen) {
+      let index = 0;
+      for (const row of sidebarRows) {
+        if (!seen.has(row.workFolder.id) && !arrivals.has(row.workFolder.id)) arrivals.set(row.workFolder.id, { until: now + 700, index: index++ });
+      }
+    }
+  }
+  useEffect(() => { sidebarSeenRef.current = new Set(sidebarRows.map((row) => row.workFolder.id)); });
   // Going into a sub work-folder opens its parents, so where you are is always in view.
   useEffect(() => {
     if (!workFolder) return;
@@ -169,6 +191,12 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   const setView = (next: FileManagerViewMode) => { setViewState(next); writeStoredJsonValue(viewStorageKey, next); };
   const setSort = (next: FileManagerSort) => { setSortState(next); writeStoredJsonValue(sortStorageKey, next); };
   const [panelOpen, setPanelOpenState] = useState<boolean>(() => readStoredJsonValue(panelStorageKey, (value) => value !== false, true));
+  // The panel slides in when it's shown with the toolbar button, not at launch.
+  const panelSeenOpenRef = useRef(panelOpen);
+  const panelArrivalRef = useRef(0);
+  if (panelOpen && !panelSeenOpenRef.current) panelArrivalRef.current = Date.now() + 400;
+  const panelArriving = panelOpen && Date.now() < panelArrivalRef.current;
+  useEffect(() => { panelSeenOpenRef.current = panelOpen; }, [panelOpen]);
   const setPanelOpen = (next: boolean) => { setPanelOpenState(next); writeStoredJsonValue(panelStorageKey, next); };
   const folderAutomations = useFolderAutomations(workFolder?.id ?? activeWorkFolder.id, fixtureMode);
   const [query, setQuery] = useState("");
@@ -178,6 +206,21 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   const anchorRef = useRef<string | null>(null);
   const [hiddenPaths, setHiddenPaths] = useState<ReadonlySet<string>>(() => new Set());
   const contentRef = useRef<HTMLDivElement | null>(null);
+  // The folder you go to slides in once its items are here, from the side you went.
+  const navMotionRef = useRef<{ key: string; from: "left" | "right" | "none" } | null>(null);
+  useEffect(() => {
+    const pending = navMotionRef.current;
+    if (!pending || listing.status === "loading" || pending.key !== listing.key) return;
+    navMotionRef.current = null;
+    slideIn(contentRef.current, pending.from);
+  }, [listing.key, listing.status]);
+  // Switching between List and Icons settles the new layout in rather than cutting.
+  const viewMotionRef = useRef(view);
+  useEffect(() => {
+    if (viewMotionRef.current === view) return;
+    viewMotionRef.current = view;
+    settleIn([contentRef.current]);
+  }, [view]);
   const searchFieldRef = useRef<HTMLInputElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [sidebarWidth, setSidebarWidth] = usePaneWidth(sidebarWidthSpec);
@@ -265,6 +308,7 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   function navigate(next: FileManagerLocation, history: "push" | "back" | "forward" = "push", switchTo?: WorkFolderSummary) {
     setRecentsOpen(false);
     if (sameLocation(next, location)) return;
+    navMotionRef.current = { key: `${placeKey(next.place)}\0${next.path}`, from: navigationSide({ placeKey: placeKey(location.place), path: location.path }, { placeKey: placeKey(next.place), path: next.path }, history) };
     if (history === "push") { setBack((items) => [...items, location]); setForward([]); }
     setLocation(next);
     if (next.place.kind === "work-folder" && next.place.id !== activeWorkFolder.id) {
@@ -1382,6 +1426,13 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   const single = selected.size === 1 ? byPath.get([...selected][0]!) ?? null : null;
   // Search names and contents (the design's search): in the folder shown, or every work-folder.
   const searching = Boolean(query.trim());
+  // Recents and search results take the list's place by settling in.
+  const swapMotionRef = useRef({ recentsOpen, searching });
+  useEffect(() => {
+    const previous = swapMotionRef.current;
+    swapMotionRef.current = { recentsOpen, searching };
+    if (previous.recentsOpen !== recentsOpen || previous.searching !== searching) settleIn([contentRef.current]);
+  }, [recentsOpen, searching]);
   const searchMode = searching && (searchScope === "all" || place.kind === "work-folder");
   const search = useFileManagerSearch({ query, scope: searchScope, here: workFolder ? { workFolder, path: location.path } : null, workFolders, enabled: searchMode, fixture: fixture ? { trees: fixture.trees, fileContents: fixture.fileContents } : null });
   const searchChosen = searchMode && searchSelection ? search.results.find((result) => result.key === searchSelection) ?? null : null;
@@ -1462,16 +1513,24 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
         </> : null}
         <div className="fm-sidebar-heading"><span id="fm-work-folders-heading">work-folders</span><button type="button" className="fm-heading-add" aria-label="Add a work-folder" title="Add a work-folder" aria-haspopup="menu" onClick={openAddWorkFolderMenu}><Add16Regular /></button></div>
         <ul className="fm-sidebar-list" aria-labelledby="fm-work-folders-heading">
-          {sidebarWorkFolderRows(workFolders, sidebarOpen).map(({ workFolder: item, depth, inside, open }) => {
+          {sidebarRows.map(({ workFolder: item, depth, inside, open }) => {
             const look = folderLook(item);
             const current = isCurrent({ kind: "work-folder", id: item.id });
             // A closed parent shows its sub work-folders' activity on its own row.
             const status = inside.length && !open ? combineActivityStatuses([activity.folderStatuses[item.id], ...inside.map((child) => activity.folderStatuses[child.id])]) ?? undefined : activity.folderStatuses[item.id];
-            return <li key={item.id} className="fm-sidebar-node" style={{ "--fm-depth": depth } as CSSProperties}>
+            const arrival = sidebarArrivalsRef.current.get(item.id);
+            return <li key={item.id} className={`fm-sidebar-node${arrival ? " is-arriving" : ""}`} data-exit-motion={depth > 0 ? "collapse" : undefined} style={{ "--fm-depth": depth, ...(arrival ? { "--fm-arrive-index": arrival.index } : {}) } as CSSProperties}>
               {inside.length ? <button type="button" className={`fm-sidebar-caret${open ? " is-open" : ""}`} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} work-folders inside ${item.name}`} title={open ? "Hide work-folders inside" : "Show work-folders inside"} onClick={() => toggleSidebarFolder(item.id)}>
                 <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2l3.5 3-3.5 3z" fill="currentColor" /></svg>
               </button> : null}
-              <button type="button" className={`fm-sidebar-item${current ? " is-current" : ""}${sidebarDrop === placeKey({ kind: "work-folder", id: item.id }) ? " is-drop-target" : ""}`} aria-current={current ? "page" : undefined} onClick={() => navigate({ place: { kind: "work-folder", id: item.id }, path: "" })} onContextMenu={(event) => void openActionMenu(item, event)}
+              <button type="button" className={`fm-sidebar-item${current ? " is-current" : ""}${sidebarDrop === placeKey({ kind: "work-folder", id: item.id }) ? " is-drop-target" : ""}`} aria-current={current ? "page" : undefined} onClick={() => {
+                  // A parent opens on the first click and goes to its top; clicking
+                  // it again while there closes it (owner request, 2026-11-07).
+                  const atTop = current && !location.path;
+                  if (inside.length && atTop && open) { toggleSidebarFolder(item.id); return; }
+                  if (inside.length && !open) toggleSidebarFolder(item.id);
+                  if (!atTop) navigate({ place: { kind: "work-folder", id: item.id }, path: "" });
+                }} onContextMenu={(event) => void openActionMenu(item, event)}
                 onKeyDown={(event) => {
                   if (!inside.length) return;
                   if (event.key === "ArrowRight" && !open) { event.preventDefault(); toggleSidebarFolder(item.id); }
@@ -1698,6 +1757,7 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
 
     {panelOpen ? <PaneResizer spec={panelWidthSpec} side="right" width={panelWidth} label="Resize the panel" shellRef={shellRef} otherPaneWidth={sidebarWidth} onCommit={setPanelWidth} /> : null}
     {panelOpen ? <FileManagerPanel
+      arriving={panelArriving}
       place={place}
       workFolder={workFolder}
       placeName={placeName}
@@ -1874,7 +1934,7 @@ function WorkerReceipt({ changes, onShow, onUndo, onDone }: {
     ...changes.changed.map((path) => ({ path, verb: "Changed" })),
   ];
   const total = rows.length;
-  return <section className="fm-receipt" aria-label="What the Worker changed">
+  return <section className="fm-receipt" data-exit-motion="collapse" aria-label="What the Worker changed">
     <div className="fm-receipt-head">
       <span className="fm-dot is-done" aria-hidden="true" />
       <span className="fm-receipt-title">The Worker changed {total === 1 ? "1 item" : `${total} items`}</span>
@@ -1986,3 +2046,4 @@ function sameFolder(first: string, second: string): boolean {
   const normalize = (value: string) => value.replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
   return normalize(first) === normalize(second);
 }
+
