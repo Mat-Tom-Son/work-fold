@@ -12,20 +12,24 @@ const original = { ...backend }, scheduler = new ResourceScheduler();
 const runtime = createComputerUseRuntime({ scheduler, requireExplicitRoot: true, enableCdp: false, interactiveSetup: false });
 const context = { cwd: root, hasUI: false, sessionManager: { getBranch: () => [] } } as any;
 const window = { windowId: 1, pid: 101, title: "Test", kind: "window" as const, framePoints: { x: 0, y: 0, w: 400, h: 300 }, scaleFactor: 1, isOnscreen: true, isMain: true, isFocused: true };
-let mode = "ignored", waits = 0, dispatches = 0;
+let mode = "ignored", waits = 0, dispatches = 0, fieldValue = "unchanged";
 Object.assign(backend, {
   ensureReady: async (_ctx: unknown, state: object) => ({ ...state, lastPermissionCheckAt: Date.now() }),
   listApps: async () => [{ pid: 101, appName: "Fixture", isFrontmost: true }],
   listRoots: async () => [window],
   observe: async () => parseLookResponse({ lookId: crypto.randomUUID(), capturedAt: Date.now() / 1000, window,
-    outline: { ref: "window", role: "window", children: [{ ref: "text", role: "text", title: "Editor", value: "unchanged", valueReadable: true, canSetValue: true }] } }),
+    outline: { ref: "window", role: "window", children: [{ ref: "text", role: "text", title: "Editor", value: fieldValue, valueReadable: true, canSetValue: true }] } }),
   actBatch: async () => mode === "ignored"
     ? { outcome: "worked", performed: { actionCount: 1 }, steps: [{ outcome: "worked", evidence: { value: "requested" } }] }
     : { outcome: "unknown", stoppedAt: 0, performed: { actionCount: 1 }, steps: [{ outcome: "unknown", error: { code: "interrupted_unknown", message: "Effect uncertain" } }] },
-  waitFor: async () => { waits++; return mode === "incomplete" ? { found: false, complete: false } : { found: true }; },
+  waitFor: async () => {
+    waits++;
+    return mode === "incomplete" ? { found: false, complete: false } : mode === "failed" ? { found: false, timedOut: true, complete: true } : { found: true };
+  },
   act: async () => {
     dispatches++;
-    if (mode === "incomplete") return { outcome: "worked", performed: { delivery: "ax" } };
+    if (mode === "reformatted") fieldValue = "555-1234";
+    if (mode === "incomplete" || mode === "failed" || mode === "reformatted") return { outcome: "worked", performed: { delivery: "ax" } };
     throw Object.assign(new Error("Save may already have happened"), { code: "interrupted_unknown" });
   },
 });
@@ -68,6 +72,23 @@ try {
   assert.equal(incomplete.details.execution.outcome, "unknown", "even a matching text write cannot certify a different incomplete postcondition");
   assert.equal(incomplete.details.execution.verification.status, "unverified");
   assert.equal(incomplete.details.execution.error.code, "postcondition_unverified");
+  const unconfirmed = await runtime.executeWaitFor("unconfirmed-wait", { stateId: incomplete.details.capture.stateId, text: "Saved", gone: true, timeoutMs: 100 }, undefined, undefined, context);
+  assert.equal(unconfirmed.details.complete, false);
+  assert.match(unconfirmed.content[0].text, /^Could not confirm the condition/, "an incomplete scan is not reported as a timeout");
+  mode = "failed";
+  observed = await observe();
+  const failedRef = observed.details.outline.root.children[0].ref;
+  const failed = await runtime.executeAct("failed-check", { stateId: observed.details.capture.stateId,
+    actions: [{ action: "setText", ref: failedRef, text: "unchanged" }],
+    expect: { text: "Saved" } }, undefined, undefined, context);
+  assert.equal(failed.details.execution.outcome, "didnt", "a matching text write cannot certify a different failed postcondition");
+  assert.equal(failed.details.execution.error.code, "postcondition_failed");
+  mode = "reformatted";
+  observed = await observe();
+  const phoneRef = observed.details.outline.root.children[0].ref;
+  const reformatted = await runtime.executeAct("reformatted", { stateId: observed.details.capture.stateId,
+    actions: [{ action: "setText", ref: phoneRef, text: "5551234" }] }, undefined, undefined, context);
+  assert.equal(reformatted.details.execution.outcome, "worked", "an app reformatting accepted text is not a lost write");
   console.log("PASS computer successor values and uncertain delivery");
 } finally {
   await runtime.shutdownComputerUseSession();

@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "817f0ad4681735b8fb872ebdd85c767674d96febb7ac86978573d393a415f949",
+    "sha256": "1113a5db5faa0328ca02a92f04cd3644bc384d3df2d008b63b091a5f160ea6cc",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -80,7 +80,7 @@
       {
         "path": "native/macos/bridge.swift",
         "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
-        "after": "73f30bceae6e59d090a05f6a83fdf9f551148e82967e4e804b95f5ba18fc3013"
+        "after": "317b7ca3f24ca42e53749a62075d456f0054843d574f5bd044065a6a4d67bb7a"
       },
       {
         "path": "native/macos/request_lifecycle.swift",
@@ -120,12 +120,12 @@
       {
         "path": "src/actions.ts",
         "before": "1f6aaf9a1cc51ee9ac640f2cb2c31426c522f90cc8b338f5c9dde1ed462de0bb",
-        "after": "bbee0e7c094ecdc0484a74f074a4d6f84b923678679d87b3c761d22de0ac6c5d"
+        "after": "bd33eb4501d65744c32c40d2b65805e7ab28a6d12a7fb8aae0f4a6a374045052"
       },
       {
         "path": "src/bridge.ts",
         "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
-        "after": "a9ead75041f6a2245fc71f09c0dbf3536fb6c1c9acf483542d907c7b00740bef"
+        "after": "a446d6b1aa9a80335c9d11a6015946a8f8a963b6d57c8760ab78b50dac46fca8"
       },
       {
         "path": "src/config.ts",
@@ -180,12 +180,12 @@
       {
         "path": "native/macos/accessibility_contract.swift",
         "before": null,
-        "after": "cf4e101330add4bd5a42aee067bb293954bc5d50d997abf253101df76d6e20c5"
+        "after": "621e8ab92f2603f7939e79f4e72e27b2fe4af5db794669dcc6195a31057bc1fd"
       },
       {
         "path": "native/macos/accessibility_contract_tests.swift",
         "before": null,
-        "after": "0b9782393bdc996fc9c95e6a90f45cb609ff7a0fa0e3f9cbbca238e0bb3893de"
+        "after": "2f372585734037b763b65fd7b6ad4cfa16e97ee52ff77cb874acd0064a798858"
       },
       {
         "path": "src/outline.ts",

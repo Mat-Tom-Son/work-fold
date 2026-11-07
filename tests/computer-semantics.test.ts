@@ -5,11 +5,21 @@ import test from "node:test";
 import { outcomeAfterObservedValues } from "@injaneity/pi-computer-use/src/actions.ts";
 import { graftScopedOutline, parseLookResponse } from "@injaneity/pi-computer-use/src/outline.ts";
 
-test("successor text checks distinguish contradictions, unreadable values and repeated writes", () => {
+test("successor text checks distinguish lost writes, reformatting, unreadable values and repeated writes", () => {
   const actions = [{ action: "setText" as const, ref: "@e1", text: "old" }, { action: "setText" as const, ref: "@e1", text: "new" }];
-  assert.equal(outcomeAfterObservedValues("worked", actions, () => "unchanged"), "didnt");
-  assert.equal(outcomeAfterObservedValues("unknown", actions, () => "new"), "worked");
-  assert.equal(outcomeAfterObservedValues("worked", actions, () => undefined), "unknown");
+  const observed = () => "unchanged";
+  // A field still holding a value from before its last write lost that write.
+  assert.equal(outcomeAfterObservedValues("worked", actions, () => "unchanged", observed), "didnt");
+  assert.equal(outcomeAfterObservedValues("worked", actions, () => "old", observed), "didnt");
+  // The last write decides a repeated field.
+  assert.equal(outcomeAfterObservedValues("unknown", actions, () => "new", observed), "worked");
+  // An app that reformats what it was given (a phone number, a date) proves
+  // nothing against the helper's own reading; neither does an unreadable value.
+  const phone = [{ action: "setText" as const, ref: "@e2", text: "5551234" }];
+  assert.equal(outcomeAfterObservedValues("worked", phone, () => "555-1234", () => ""), "worked");
+  assert.equal(outcomeAfterObservedValues("worked", actions, () => undefined, observed), "worked");
+  assert.equal(outcomeAfterObservedValues("unknown", actions, () => undefined, observed), "unknown");
+  assert.equal(outcomeAfterObservedValues("worked", actions, () => "unchanged"), "worked", "without an observed value there is no contradiction");
 });
 
 test("a scoped outline retains native incompleteness and unreadable-value evidence", () => {
