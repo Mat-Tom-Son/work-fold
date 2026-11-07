@@ -229,6 +229,11 @@ work is done.
 
 Interactive terminals (`interactive`, `job_input`) and services (`service`)
 are now supported by the same job service; see [Worker tools](worker-tools.md).
+On POSIX hosts, Expect allocates the terminal and relays bytes with Tcl's binary
+translation mode, compatible with Tcl 8 and 9. UTF-8 decoding belongs to the job
+output reader; the relay does not transcode input or output. Terminal tests cover
+Unicode input, output split across byte boundaries, and draining the terminal's
+process group on Stop.
 
 ## Not in this version
 

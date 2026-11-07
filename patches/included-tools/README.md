@@ -22,6 +22,35 @@ browser/CLI development falls back to Pi's ordinary private profile files.
 See [the integration trace](../../docs/archive/pi-1.1-integration.md) and the pinned
 [SDK example](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
+## Computer 0.5.1: macOS action reliability
+
+The shared outcome and outline corrections from Linux 0.15.2 also apply to
+macOS: readable successor text overrides a claimed write success, unreadable
+values remain unknown, scoped observations retain truncation, and interrupted
+delivery cannot be cleared by an already-satisfied postcondition. Single-action
+errors preserve the completed batch prefix and stop further dispatch.
+
+The Swift helper retains the actual control, its application process instance
+and parent chain. It checks those identities again at input time and refuses
+changed or unreadable targets rather than finding a nearby, similarly labelled
+replacement. Accessibility mutations dispatch once. Unsupported actions can
+choose another mechanism; ambiguous IPC errors return `interrupted_unknown`
+and stop without replay or physical fallback. Accepted text writes and delayed
+raw typing are not automatically repeated. Password values remain unreadable
+and do not enter action evidence.
+
+Bounded traversal now distinguishes complete absence from depth/node cuts and
+failed child or predicate reads. A disappearance condition requires a complete
+observation. The existing protocol 7 and Pi tool names remain unchanged;
+`valueReadable` and wait completeness are additive evidence fields.
+
+`tests/computer-accessibility-contract.test.ts` compiles the helper's native
+dispatch, retained-identity and traversal code against a controlled responder;
+the responder changes its state before returning an error to catch duplicate
+effects. `tests/computer-semantics.test.ts` exercises the real Pi result path,
+including single-action interruption and scoped outlines. These fixtures need
+no desktop permission and do not certify live third-party applications.
+
 ## Pi AI 1.1.0 identity retention
 
 The native direct ChatGPT OAuth flow now verifies the returned ID token against

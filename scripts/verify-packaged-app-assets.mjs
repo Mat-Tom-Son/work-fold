@@ -75,7 +75,7 @@ if (packagedPlatform === "win32") {
       || source.protocolVersion !== 7 || source.target !== "arm64-apple-macosx14.0") {
       failures.push("Computer helper provenance does not match the reviewed integration source.");
     }
-    const paths = ["scripts/build-native.mjs", "native/macos/request_lifecycle.swift", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/bridge.swift"];
+    const paths = ["scripts/build-native.mjs", "native/macos/request_lifecycle.swift", "native/macos/accessibility_contract.swift", "native/macos/agent_cursor.swift", "native/macos/agent_cursor_motion.swift", "native/macos/bridge.swift"];
     if (!Array.isArray(source.sources) || source.sources.length !== paths.length || paths.some((path) =>
       source.sources.find((item) => item.path === path)?.sha256 !== expected.files.find((item) => item.path === path)?.after)) {
       failures.push("Computer helper build inputs do not match the reviewed source hashes.");

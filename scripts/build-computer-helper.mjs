@@ -20,7 +20,7 @@ async function build() {
   if (!entry) throw new Error("Missing reviewed computer integration source manifest.");
   const upstream = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   if (upstream.version !== entry.version) throw new Error("Review the new computer helper source before building it.");
-  const sourcePaths = ["scripts/build-native.mjs", ...["request_lifecycle.swift", "agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"].map((name) => `native/macos/${name}`)];
+  const sourcePaths = ["scripts/build-native.mjs", ...["request_lifecycle.swift", "accessibility_contract.swift", "agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"].map((name) => `native/macos/${name}`)];
   const sources = [];
   for (const path of sourcePaths) {
     const actual = sha256(await readFile(join(packageRoot, path)));
