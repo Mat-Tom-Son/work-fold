@@ -57,7 +57,7 @@ index eec9992..5580d00 100644
  	});
  }
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
-index 0642385..696940d 100644
+index 0642385..45f8814 100644
 --- a/native/macos/bridge.swift
 +++ b/native/macos/bridge.swift
 @@ -6,18 +6,11 @@ import Vision
@@ -407,7 +407,7 @@ index 0642385..696940d 100644
  		var payload = node.payload()
  		payload["children"] = []
  		return payload
-@@ -1818,30 +1853,77 @@ final class Bridge {
+@@ -1818,30 +1853,75 @@ final class Bridge {
  		return ids
  	}
  
@@ -473,11 +473,9 @@ index 0642385..696940d 100644
 +
 +    private func controlIdentity(_ element: AXUIElement, role: AXTextRead, subrole: AXTextRead,
 +        identifier: AXTextRead, title: AXTextRead, description: AXTextRead) -> AXControlIdentity? {
-+        guard let pid = pidForElement(element), let role = role.text, !role.isEmpty,
-+              let subrole = subrole.text, let identifier = identifier.text,
-+              let title = title.text, let description = description.text else { return nil }
-+        return AXControlIdentity(pid: pid, processInstance: processInstance(pid), role: role, subrole: subrole,
-+            identifier: identifier, title: title, description: description)
++        let pid = pidForElement(element)
++        return captureAXControlIdentity(pid: pid, processInstance: pid.flatMap { processInstance($0) },
++            role: role, subrole: subrole, identifier: identifier, title: title, description: description)
 +    }
 +
 +    /// The live AXParent chain up to the application. A remote view (such as a
@@ -509,7 +507,7 @@ index 0642385..696940d 100644
  
  	private func hitTest(_ request: [String: Any]) throws -> [String: Any] {
  		let lookId = try stringArg(request, "lookId")
-@@ -1856,11 +1938,19 @@ final class Bridge {
+@@ -1856,11 +1936,19 @@ final class Bridge {
  	}
  
  	private func act(_ request: [String: Any]) throws -> [String: Any] {
@@ -529,7 +527,7 @@ index 0642385..696940d 100644
  		let action = try stringArg(request, "action")
  		let target = request["target"] as? [String: Any] ?? [:]
  		let params = request["params"] as? [String: Any] ?? [:]
-@@ -1894,26 +1984,16 @@ final class Bridge {
+@@ -1894,26 +1982,16 @@ final class Bridge {
  		}
  
  		if let ref = target["ref"] as? String {
@@ -562,7 +560,7 @@ index 0642385..696940d 100644
  			guard record.hasImage else {
  				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
  			}
-@@ -1924,6 +2004,33 @@ final class Bridge {
+@@ -1924,6 +2002,33 @@ final class Bridge {
  			throw BridgeFailure(message: "act target must include ref or x/y", code: "invalid_args")
  		}
  
@@ -596,7 +594,7 @@ index 0642385..696940d 100644
  		func coordinatePoint() throws -> CGPoint {
  			if let element, let frame = frameForElement(element) {
  				return CGPoint(x: frame.midX, y: frame.midY)
-@@ -1942,17 +2049,91 @@ final class Bridge {
+@@ -1942,17 +2047,91 @@ final class Bridge {
  			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
  		}
  
@@ -697,7 +695,7 @@ index 0642385..696940d 100644
  		}
  
  		func preflight(_ point: CGPoint) throws {
-@@ -1963,7 +2144,7 @@ final class Bridge {
+@@ -1963,7 +2142,7 @@ final class Bridge {
  				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
  				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
  				if delivery == "hid" && attempt < 3 {
@@ -706,7 +704,7 @@ index 0642385..696940d 100644
  					usleep(20_000)
  					continue
  				}
-@@ -1972,14 +2153,19 @@ final class Bridge {
+@@ -1972,14 +2151,19 @@ final class Bridge {
  		}
  
  		func executeCoordinates(_ point: CGPoint) throws {
@@ -727,7 +725,7 @@ index 0642385..696940d 100644
  			switch action {
  			case "press", "click":
  				animateCursor(at: point)
-@@ -2007,14 +2193,6 @@ final class Bridge {
+@@ -2007,14 +2191,6 @@ final class Bridge {
  			}
  		}
  
@@ -742,7 +740,7 @@ index 0642385..696940d 100644
  
  		if let element, action == "press" || action == "click" {
  			let elementRole = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
-@@ -2028,11 +2206,10 @@ final class Bridge {
+@@ -2028,11 +2204,10 @@ final class Bridge {
  				}
  			} else if supportsAction(element, action: kAXPressAction as CFString) {
  				let cursorPoint = try? coordinatePoint()
@@ -758,7 +756,7 @@ index 0642385..696940d 100644
  					performed["grounding"] = "description"
  					performed["delivery"] = "ax"
  					if let cursorPoint { animateCursor(at: cursorPoint) }
-@@ -2045,66 +2222,105 @@ final class Bridge {
+@@ -2045,66 +2220,105 @@ final class Bridge {
  		} else if let element, action == "setText" {
  			let text = params["text"] as? String ?? ""
  			if hasAncestorRole(element, role: "AXWebArea") {
@@ -896,7 +894,7 @@ index 0642385..696940d 100644
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-@@ -2114,21 +2330,22 @@ final class Bridge {
+@@ -2114,21 +2328,22 @@ final class Bridge {
  					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
  				{
  					var range = CFRange(location: 0, length: (value as NSString).length)
@@ -924,7 +922,7 @@ index 0642385..696940d 100644
  			if (result["scrolled"] as? Bool) == true {
  				performed["grounding"] = "description"
  				performed["delivery"] = "ax"
-@@ -2186,6 +2403,7 @@ final class Bridge {
+@@ -2186,6 +2401,7 @@ final class Bridge {
  		var steps: [[String: Any]] = []
  		var stoppedAt: Int?
  		for (index, action) in actions.enumerated() {
@@ -932,7 +930,7 @@ index 0642385..696940d 100644
  			var deferred = action
  			deferred["deferRootDelta"] = true
  			do {
-@@ -2193,13 +2411,14 @@ final class Bridge {
+@@ -2193,13 +2409,14 @@ final class Bridge {
  				steps.append(step)
  				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
  			} catch let failure as BridgeFailure {
@@ -949,7 +947,7 @@ index 0642385..696940d 100644
  		var response: [String: Any] = ["outcome": outcome, "performed": ["transaction": true, "actionCount": steps.count], "steps": steps]
  		if let stoppedAt { response["stoppedAt"] = stoppedAt }
  		return attachRootDelta(to: response, before: beforeRootSnapshot, beforeFrontmostPid: beforeFrontmostPid, pid: pid, eventsLive: eventsLive, eventCursor: eventCursor, beforeCgSignature: beforeCgSignature)
-@@ -2324,7 +2543,7 @@ final class Bridge {
+@@ -2324,7 +2541,7 @@ final class Bridge {
  		}
  		let rootElement: AXUIElement
  		if let scopeRef = optionalStringArg(request, "scopeRef") {
@@ -958,7 +956,7 @@ index 0642385..696940d 100644
  				throw BridgeFailure(message: "Condition scope ref is stale or outside the target root", code: "element_ref_invalid")
  			}
  			rootElement = scoped
-@@ -2333,32 +2552,31 @@ final class Bridge {
+@@ -2333,32 +2550,31 @@ final class Bridge {
  		}
  		_ = ensureRootObserver(pid: pid)
  
@@ -1013,7 +1011,7 @@ index 0642385..696940d 100644
  				if waitForGone {
  					waitForRootChange(pid: pid, since: changeGeneration, until: deadline)
  					continue
-@@ -2377,12 +2595,23 @@ final class Bridge {
+@@ -2377,12 +2593,23 @@ final class Bridge {
  				]
  			}
  			if waitForGone {
@@ -1039,7 +1037,7 @@ index 0642385..696940d 100644
  	}
  
  	private func hitTestElement(at point: CGPoint) -> AXUIElement? {
-@@ -2412,6 +2641,8 @@ final class Bridge {
+@@ -2412,6 +2639,8 @@ final class Bridge {
  		return actions.contains(axScrollDownAction as String) || actions.contains(axScrollUpAction as String) || actions.contains(axScrollLeftAction as String) || actions.contains(axScrollRightAction as String)
  	}
  
@@ -1048,7 +1046,7 @@ index 0642385..696940d 100644
  	private func performScrollActionOrAncestor(startingAt element: AXUIElement, targetPid: Int32, scrollX: Int, scrollY: Int, steps: Int) -> [String: Any] {
  		let actions = scrollActionNames(scrollX: scrollX, scrollY: scrollY)
  		guard !actions.isEmpty else { return ["scrolled": false, "reason": "zero_delta"] }
-@@ -2425,8 +2656,7 @@ final class Bridge {
+@@ -2425,8 +2654,7 @@ final class Bridge {
  			var didScroll = false
  			for _ in 0..<steps {
  				for action in actions where supportsAction(candidate, action: action) {
@@ -1058,7 +1056,7 @@ index 0642385..696940d 100644
  				}
  			}
  			if didScroll { return ["scrolled": true] }
-@@ -2437,7 +2667,7 @@ final class Bridge {
+@@ -2437,7 +2665,7 @@ final class Bridge {
  		return ["scrolled": false, "reason": "no_scroll_action"]
  	}
  
@@ -1067,7 +1065,7 @@ index 0642385..696940d 100644
  		var current: AXUIElement? = element
  		var depth = 0
  
-@@ -2447,8 +2677,7 @@ final class Bridge {
+@@ -2447,8 +2675,7 @@ final class Bridge {
  			}
  
  			if supportsAction(candidate, action: action) {
@@ -1077,7 +1075,7 @@ index 0642385..696940d 100644
  					return ["performed": true]
  				}
  			}
-@@ -2523,32 +2752,39 @@ final class Bridge {
+@@ -2523,32 +2750,39 @@ final class Bridge {
  		collectDescendantsWithContext(startingAt: root, maxDepth: maxDepth, maxNodes: maxNodes).map(\.element)
  	}
  
@@ -1143,7 +1141,7 @@ index 0642385..696940d 100644
  
  	private func visibleAXChildren(_ element: AXUIElement) -> [AXUIElement]? {
  		let attributes: [CFString] = [
-@@ -2605,7 +2841,7 @@ final class Bridge {
+@@ -2605,7 +2839,7 @@ final class Bridge {
  		]
  		var payload: [String: Any] = [
  			key: true,
@@ -1152,7 +1150,7 @@ index 0642385..696940d 100644
  			"role": role,
  			"subrole": subrole,
  			"title": title,
-@@ -2731,7 +2967,7 @@ final class Bridge {
+@@ -2731,7 +2965,7 @@ final class Bridge {
  		]
  
  		let isTextInput = textRoles.contains(role) || canSetValue
@@ -1161,7 +1159,7 @@ index 0642385..696940d 100644
  
  		return [
  			"exists": true,
-@@ -2803,7 +3039,7 @@ final class Bridge {
+@@ -2803,7 +3037,7 @@ final class Bridge {
  	// Secure fields can expose plaintext through AX value in non-native apps,
  	// and serialized values flow into the model conversation. Never emit them.
  	private func isSecureTextElement(role: String, subrole: String) -> Bool {
@@ -1170,7 +1168,7 @@ index 0642385..696940d 100644
  	}
  
  	private func displayValue(_ element: AXUIElement, role: String, subrole: String) -> String {
-@@ -3123,6 +3359,7 @@ final class Bridge {
+@@ -3123,6 +3357,7 @@ final class Bridge {
  	}
  
  	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
@@ -1178,7 +1176,7 @@ index 0642385..696940d 100644
  		if #available(macOS 14.0, *) {
  			let semaphore = DispatchSemaphore(value: 0)
  			let capturedImage = Box<CGImage?>(nil)
-@@ -3155,7 +3392,13 @@ final class Bridge {
+@@ -3155,7 +3390,13 @@ final class Bridge {
  				}
  			}
  
@@ -1193,7 +1191,7 @@ index 0642385..696940d 100644
  				task.cancel()
  				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
  					return payload
-@@ -3308,23 +3551,17 @@ final class Bridge {
+@@ -3308,23 +3549,17 @@ final class Bridge {
  		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
  	}
  
@@ -1224,7 +1222,7 @@ index 0642385..696940d 100644
  		event.post(tap: .cghidEventTap)
  	}
  
-@@ -3334,7 +3571,7 @@ final class Bridge {
+@@ -3334,7 +3569,7 @@ final class Bridge {
  		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
  		}
@@ -1233,7 +1231,7 @@ index 0642385..696940d 100644
  	}
  
  	private func mouseButton(_ name: String) -> CGMouseButton {
-@@ -3393,9 +3630,9 @@ final class Bridge {
+@@ -3393,9 +3628,9 @@ final class Bridge {
  			}
  			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
  			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
@@ -1245,7 +1243,7 @@ index 0642385..696940d 100644
  			if index < clickCount {
  				usleep(70_000)
  			}
-@@ -3412,14 +3649,20 @@ final class Bridge {
+@@ -3412,14 +3647,20 @@ final class Bridge {
  		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
  		}
@@ -1268,7 +1266,7 @@ index 0642385..696940d 100644
  			usleep(8_000)
  		}
  
-@@ -3428,7 +3671,8 @@ final class Bridge {
+@@ -3428,7 +3669,8 @@ final class Bridge {
  		else {
  			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
  		}
@@ -1278,7 +1276,7 @@ index 0642385..696940d 100644
  	}
  
  	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
-@@ -3446,7 +3690,7 @@ final class Bridge {
+@@ -3446,7 +3688,7 @@ final class Bridge {
  			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
  		}
  		event.location = point
@@ -1287,7 +1285,7 @@ index 0642385..696940d 100644
  	}
  
  	private func modifierFlag(_ key: String) -> CGEventFlags? {
-@@ -3536,8 +3780,8 @@ final class Bridge {
+@@ -3536,8 +3778,8 @@ final class Bridge {
  		}
  		down.flags = flags
  		up.flags = flags
@@ -1298,7 +1296,7 @@ index 0642385..696940d 100644
  		usleep(8_000)
  	}
  
-@@ -3557,8 +3801,8 @@ final class Bridge {
+@@ -3557,8 +3799,8 @@ final class Bridge {
  			}
  			setUnicodeString(event: down, text: char)
  			setUnicodeString(event: up, text: char)
@@ -1309,7 +1307,7 @@ index 0642385..696940d 100644
  			usleep(8_000)
  		}
  	}
-@@ -3571,9 +3815,9 @@ final class Bridge {
+@@ -3571,9 +3813,9 @@ final class Bridge {
  		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
  		setUnicodeString(event: down, text: text)
  		setUnicodeString(event: up, text: text)
@@ -3230,10 +3228,10 @@ index 0000000..46c24a2
 +export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
 diff --git a/native/macos/accessibility_contract.swift b/native/macos/accessibility_contract.swift
 new file mode 100644
-index 0000000..1baf14e
+index 0000000..dd6ae9b
 --- /dev/null
 +++ b/native/macos/accessibility_contract.swift
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,208 @@
 +import Foundation
 +import ApplicationServices
 +
@@ -3354,17 +3352,33 @@ index 0000000..1baf14e
 +    let pid: Int32
 +    let processInstance: String?
 +    let role: String
-+    let subrole: String
-+    let identifier: String
-+    let title: String
-+    let description: String
++    let subrole: String?
++    let identifier: String?
++    let title: String?
++    let description: String?
 +
 +    func matches(_ live: AXControlIdentity) -> Bool {
-+        guard pid == live.pid, processInstance == live.processInstance,
-+              role == live.role, subrole == live.subrole, identifier == live.identifier else { return false }
-+        // Labels are the identity evidence only when there is no native id.
-+        return !identifier.isEmpty || (title == live.title && description == live.description)
++        func unchanged<T: Equatable>(_ saved: T?, _ actual: T?) -> Bool {
++            saved.map { $0 == actual } ?? true
++        }
++        guard pid == live.pid, role == live.role,
++              unchanged(processInstance, live.processInstance), unchanged(subrole, live.subrole),
++              unchanged(identifier, live.identifier) else { return false }
++        // Unknown optional attributes are not empty strings. Recheck every
++        // readable identity field, without requiring a field the app never supplied.
++        if let identifier, !identifier.isEmpty { return true }
++        return unchanged(title, live.title) && unchanged(description, live.description)
 +    }
++}
++
++/// Keep failed optional reads separate from known empty attributes. A live
++/// process and readable role identify the retained object; optional evidence
++/// is compared only when it was actually captured.
++func captureAXControlIdentity(pid: Int32?, processInstance: String?, role: AXTextRead,
++    subrole: AXTextRead, identifier: AXTextRead, title: AXTextRead, description: AXTextRead) -> AXControlIdentity? {
++    guard let pid, let role = role.text, !role.isEmpty else { return nil }
++    return AXControlIdentity(pid: pid, processInstance: processInstance, role: role,
++        subrole: subrole.text, identifier: identifier.text, title: title.text, description: description.text)
 +}
 +
 +/// Retain the actual object and parent chain. Never search for a replacement
@@ -3428,10 +3442,10 @@ index 0000000..1baf14e
 +}
 diff --git a/native/macos/accessibility_contract_tests.swift b/native/macos/accessibility_contract_tests.swift
 new file mode 100644
-index 0000000..2c5ff23
+index 0000000..7de8548
 --- /dev/null
 +++ b/native/macos/accessibility_contract_tests.swift
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,199 @@
 +import Foundation
 +import ApplicationServices
 +
@@ -3583,6 +3597,27 @@ index 0000000..2c5ff23
 +        precondition(matches(nil, identity()), "An identity unreadable at observation falls back to the retained object")
 +        precondition(matches(identity(), identity(), savedParents: nil, parents: nil), "A chain unreadable at observation is not required later")
 +        precondition(matches(identity(instance: nil), identity(instance: nil)))
++        // TextEdit's AXTextArea exposes its role/id and parent chain but some
++        // optional attributes fail consistently. Such a retained object is
++        // usable; require each field only when observation actually read it.
++        let partial = AXControlIdentity(pid: 7, processInstance: nil, role: "AXTextArea",
++            subrole: nil, identifier: "First Text View", title: nil, description: nil)
++        let recovered = AXControlIdentity(pid: 7, processInstance: "original", role: "AXTextArea",
++            subrole: "", identifier: "First Text View", title: "", description: "Text")
++        precondition(matches(partial, partial))
++        precondition(matches(partial, recovered), "Recovered optional reads do not make the original object stale")
++        precondition(!matches(recovered, partial), "A recorded field must remain readable at action time")
++        precondition(!matches(partial, AXControlIdentity(pid: 8, processInstance: nil, role: "AXTextArea",
++            subrole: nil, identifier: "First Text View", title: nil, description: nil)))
++        precondition(!matches(partial, AXControlIdentity(pid: 7, processInstance: nil, role: "AXTextArea",
++            subrole: nil, identifier: "Other Text View", title: nil, description: nil)))
++        precondition(!matches(partial, partial, parents: ["other-window", "app"]))
++        let captured = captureAXControlIdentity(pid: 7, processInstance: nil, role: .string("AXTextArea"),
++            subrole: .unknown, identifier: .string("First Text View"), title: .unknown, description: .unknown)
++        precondition(captured != nil && matches(captured, recovered), "Failed optional AX reads retain the usable identity")
++        precondition(captureAXControlIdentity(pid: 7, processInstance: nil, role: .unknown,
++            subrole: .empty, identifier: .empty, title: .empty, description: .empty) == nil,
++            "An unreadable role cannot establish a live control")
 +        // A remote view's chain crosses into the host app and still reaches the root.
 +        precondition(matches(identity(), identity(), savedParents: ["panel-service-group", "window", "app"],
 +            parents: ["panel-service-group", "window", "app"]))
