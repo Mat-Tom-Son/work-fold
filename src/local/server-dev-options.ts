@@ -2,8 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
-import { createPagesBridgeClient, type WorkFoldPagesBridge } from "./pages/page-bridge-client.js";
-
 const developmentStateDirectoryName = "work-fold Development";
 const productionStateDirectoryName = "work-fold";
 
@@ -37,27 +35,6 @@ export function createLocalDevelopmentApiOptions(
     port: Number.isFinite(configuredPort) && configuredPort >= 0 ? configuredPort : 4327,
     stateBase: localDevelopmentStateRoot(input),
   };
-}
-
-/**
- * Publishing pages without Electron (docs/development.md, "Publishing pages
- * in development"): with `WORKFOLD_DEV_BRIDGE_URL` and
- * `WORKFOLD_DEV_DEVICE_TOKEN` both set, `npm run local:dev` reaches the
- * bridge's device page routes with the same client the desktop builds over
- * its Web Access settings. Without them there is no client, and publishing
- * says Web Access isn't set up.
- */
-export function createDevelopmentPagesBridge(
-  environment: Environment = process.env,
-  fetchFn?: typeof fetch,
-): WorkFoldPagesBridge | null {
-  const bridgeUrl = environment.WORKFOLD_DEV_BRIDGE_URL?.trim();
-  const deviceToken = environment.WORKFOLD_DEV_DEVICE_TOKEN?.trim();
-  if (!bridgeUrl || !deviceToken) return null;
-  return createPagesBridgeClient({
-    ...(fetchFn ? { fetchFn } : {}),
-    getConnection: async () => ({ bridgeUrl, deviceToken }),
-  });
 }
 
 export function loadLocalEnvironmentFile(

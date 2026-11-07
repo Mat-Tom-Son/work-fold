@@ -157,7 +157,7 @@ Native Pi session evidence and work-fold's portable Chat are distinct. The
 existing compact tool trail is a presentation projection, not the source of
 the model's tool results. Future inline artifact previews require explicit
 owning Chat/task/version references and content-serving policy, rather than
-copying all raw tool results into the transcript or paired-web relay. The same
+copying all raw tool results into the transcript. The same
 selected evidence can have different presentation detail for person and model.
 
 Consult Pi's model capability metadata and native `blockImages` preference
@@ -248,9 +248,8 @@ bounds remain in force and never constrain what Pi sends to the model.
 Inspection is a trusted local diagnostic operation. Optional request filters
 use exact scope and Chat identity; detail reads enforce the same filter.
 No raw context enters portable Chat files, activity events, SSE replay, CLI
-read snapshots, paired-browser operations or ordinary logs. Reconnect reads
-existing captures. No new remote or restricted-app observation authority is
-introduced.
+read snapshots or ordinary logs. Reconnect reads existing captures. No new
+restricted-app observation authority is introduced.
 
 ## Implemented path and verification
 

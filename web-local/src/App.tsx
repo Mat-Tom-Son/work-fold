@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Settings24Regular } from "@fluentui/react-icons";
 import { AlertTriangle, CirclePlus, Download, Loader2, Search, X } from "./components/chrome/icons";
-import {
-  accentIdentityFromHex,
-  normalizeWorkFolderAppearanceCustomization,
-  upgradeWorkFolderAppearanceCustomization,
-  type WorkFolderAppearanceState,
-} from "../../src/shared/work-folder-appearance";
+import type { WorkFolderAppearanceState } from "../../src/shared/work-folder-appearance";
 
-import { workFolderCustomizationStorageKey, workFolderPathDragType, workFolderPathsDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
+import { workFolderPathDragType, workFolderPathsDragType, sidebarCollapsedStorageKey, agentPanelStorageKey } from "./constants";
 import { copyToClipboard } from "./lib/clipboard";
 import { deleteFolderConfirm, deleteSelectionConfirm } from "./ui-contract";
 import { fileSelectionLabel } from "../../src/shared/file-selection";
@@ -30,6 +25,7 @@ import { TextInputModal } from "./components/modals/TextInputModal";
 import { NewFolderModal, type NewFolderTarget } from "./components/modals/NewFolderModal";
 import { subscribeControlEvents } from "./lib/control-events";
 import { OnboardingFlow } from "./components/onboarding/OnboardingFlow";
+import { FileManagerWelcome } from "./components/file-manager/FileManagerWelcome";
 import { onConnectAiRequested, requestConnectAi } from "./lib/connect-ai";
 import { settleIn } from "./lib/motion";
 import { FileDetailsPane } from "./components/panes/FileDetailsPane";
@@ -44,10 +40,14 @@ import { WorkFolderModeRail, WorkFolderPaneHeader } from "./components/panes/wor
 import { FileContentSearch } from "./components/panes/FileContentSearch";
 import { ChatsPane, HistoryPane, WorkFoldersPane, restorePointTitle, type ModelScope } from "./components/panes/workFolderPanes";
 import { FileContextMenu } from "./components/tree/FileContextMenu";
+import { FileManagerView } from "./components/file-manager/FileManagerView";
+import { useAppLayout } from "./lib/app-layout";
 import { restrictedAppAttentionKey, useRestrictedAppAttention } from "./hooks/useRestrictedAppAttention";
 import { FileTree, FileTreeLoadingState } from "./components/tree/FileTree";
 import type { WorkFolderUiFixture } from "./fixtures/work-folder-fixture";
 import { useApplicationAppearance } from "./hooks/useApplicationAppearance";
+import { useWorkFolderCustomizations } from "./hooks/useWorkFolderCustomizations";
+import { collectDroppedUploadFiles, type DroppedUploadFile } from "./lib/dropped-files";
 import { WorkFolderAppearanceProvider, useWorkFolderIdentityResolver } from "./lib/work-folder-appearance-context";
 import { usePaneResize } from "./hooks/usePaneResize";
 import { useModelConfigurationRevision } from "./hooks/useModelConfigurationRevision";
@@ -81,21 +81,17 @@ import { getLocalAppStudio, getLocalAppWorkFolderRemovalImpact, prepareRestricte
 import { collectLoadedFileEntries, findTreeEntry, isInsideFolder, moveTreeEntry, parentFolderPath, removeTreeEntries } from "./lib/tree";
 import { outermostTreePaths, selectableTreePaths, treeEntriesByPath, visibleTreePaths } from "./lib/tree-selection";
 import { deleteLocalFileRequest, deleteLocalFilesRequest, pendingDeleteGroups, pendingDeleteKey, settledPendingDeletes, type PendingDelete } from "./lib/pending-deletes";
-import { normalizeWorkFolderCustomizations } from "./lib/work-folder-customization";
 import { workFolderIdentityFor, workFolderIdentityStyle } from "./lib/work-folder-identity";
 import { childFolderPaths, combineActivityStatuses, descendantFolders, folderAncestors, folderTreeRows } from "./lib/folder-nesting";
 import type { MentionFolderOption } from "./components/chat/FolderMentionMenu";
 import { mentionNames } from "./lib/folder-mentions";
 import { removeWorkFolderConfirmText, surfacePanelDomId, surfaceTabDomId, workFolderHeaderSourceBadgeLabel } from "./lib/work-folder-ui";
-import type { AgentCatalog, AgentExtensionSurface, AgentStatus, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderCustomization, WorkFolderCustomizationMap, WorkFolderCustomizationPatch, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
+import type { AgentCatalog, AgentExtensionSurface, AgentStatus, AppThemePreference, SkillsExtensionsView, BootstrapResponse, ChatActionsState, ChatContextPathRequest, ChatDraftRequest, ConversationSummary, DesktopUpdateStatus, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderPane, WorkFolderRailMode, WorkFolderSummary } from "./types";
 import { ConfirmDialogHost, requestConfirm, showToast, ToastHost } from "./ui/feedback";
-import { workFolderIconOptions } from "./work-folder-icons";
 
 const fixtureRequested = new URLSearchParams(window.location.search).get("fixture") === "work-folder";
-const supportedWorkFolderIconNames = new Set(workFolderIconOptions.flatMap((option) => [option.name, ...(option.aliases ?? [])]));
 
-interface DroppedUploadFile { file: File; relativePath: string }
-type DesktopActionCommand = "toggle-sidebar" | "toggle-agent-panel" | "new-chat" | "reload-work-folder-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-work-folder" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio" | "open-page";
+type DesktopActionCommand = "toggle-sidebar" | "toggle-agent-panel" | "new-chat" | "reload-work-folder-state" | "open-capabilities" | "open-skills" | "open-extensions" | "open-command-palette" | "close-tab" | "customize-work-folder" | "app-change-chat" | "open-app-build-chat" | "open-app-result-file" | "open-app-studio";
 /** A cross-cutting request handled by the open work-folder view; app navigation from Settings carries the app or Chat it names. */
 type DesktopAction = { id: number; command: DesktopActionCommand | "open-checks"; workFolderId?: string; app?: RestrictedAppInstalled; conversationId?: string; runtimeInstanceId?: string; path?: string; title?: string };
 interface MoveLocalEntriesResult {
@@ -115,6 +111,7 @@ export function App() {
   const theme = appearance.theme;
   const themePreference = appearance.preferences.mode;
   const setThemePreference = useCallback((mode: AppThemePreference) => appearance.store.update({ mode }), [appearance.store]);
+  const layout = useAppLayout();
   const [fixture, setFixture] = useState<WorkFolderUiFixture | null>(null);
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
   const [activeWorkFolderId, setActiveWorkFolderId] = useState(() => localStorage.getItem("work-fold.work-folder.active") ?? "");
@@ -206,7 +203,11 @@ export function App() {
   useEffect(() => {
     if (fixtureRequested) {
       void import("./fixtures/work-folder-fixture").then(({ buildWorkFolderFixture }) => {
-        const next = buildWorkFolderFixture(); setFixture(next); setBoot({ workFolders: next.workFolders, agent: next.agent }); setActiveWorkFolderId(next.activeWorkFolderId);
+        const next = buildWorkFolderFixture(); setFixture(next);
+        // `&firstRun=1` previews first run: no work-folders yet and no AI connected.
+        const firstRun = new URLSearchParams(window.location.search).get("firstRun") === "1";
+        setBoot({ workFolders: firstRun ? [] : next.workFolders, agent: firstRun ? { ...next.agent, configured: false } : next.agent });
+        setActiveWorkFolderId(firstRun ? "" : next.activeWorkFolderId);
       }).catch((caught) => setError(errorText(caught)));
       return;
     }
@@ -334,6 +335,18 @@ export function App() {
   }
 
   /** A provider was connected from first run or the Connect AI dialog. */
+  /** First run's one-click start: a Standard Folder (Downloads, say) becomes the first work-folder. Nothing moves. */
+  async function putStandardFolderToWork(standardFolderId: string) {
+    if (fixture) { showToast({ text: "Making work-folders is disabled in the preview", tone: "info" }); return; }
+    try {
+      const { workFolder } = await api<{ workFolder: WorkFolderSummary }>(`/api/standard-folders/${encodeURIComponent(standardFolderId)}/work-folders`, { method: "POST", body: { path: "" } });
+      await refreshBootstrap();
+      setActiveWorkFolderId(workFolder.id);
+    } catch (caught) {
+      setError(errorText(caught));
+    }
+  }
+
   function aiConnected(agent: AgentStatus) {
     setBoot((current) => current ? { ...current, agent } : current);
     modelConfigurationChanged();
@@ -352,15 +365,26 @@ export function App() {
     } catch (caught) { setError(errorText(caught)); }
   }
 
+  // In the file manager an error is a notice like the others (owner request, 2026-11-07): one card style, stacked, never a bar over the window.
+  const errorsAsNotices = layout === "file-manager" && Boolean(activeWorkFolder);
+  useEffect(() => {
+    if (!errorsAsNotices || !error) return;
+    showToast({ text: error, tone: "error" });
+    setError(null);
+  }, [error, errorsAsNotices]);
   if (!boot || (fixtureRequested && !fixture)) return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>{showDesktopTitleBar ? <DesktopTitleBar /> : null}<WorkFoldLoadingState message={error ?? "Loading your work-folders and Workers."} action={error ? <button className="ui-control" type="button" onClick={() => { setError(null); void refreshBootstrap(); }}>Try Again</button> : undefined} /></div>;
 
-  return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}`} data-theme={theme}>
+  const fileManagerLayout = layout === "file-manager" && Boolean(activeWorkFolder);
+  // First run in the file manager wears its look too, before there is a work-folder to show.
+  const fileManagerShell = layout === "file-manager";
+  return <div className={`app-shell${showDesktopTitleBar ? " desktop-chrome-shell" : ""}${fileManagerShell ? " layout-file-manager" : ""}`} data-theme={theme}>
     {showDesktopTitleBar ? <DesktopTitleBar /> : null}
-    {activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} setUpOffered={setUpOffers.includes(activeWorkFolder.id)} onCloseSetUpOffer={() => changeSetUpOffers((current) => current.filter((id) => id !== activeWorkFolder.id))} /></WorkFolderAppearanceProvider> : <OnboardingFlow agentConfigured={Boolean(boot.agent?.configured)} onAiConnected={aiConnected} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={() => openSettings("ai-models", "agent", true)} fixtureMode={Boolean(fixture)} />}
-    {error ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
+    {activeWorkFolder && fileManagerLayout ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><FileManagerView workFolder={activeWorkFolder} workFolders={boot.workFolders} appearance={boot.appearance} agent={boot.agent} desktopAction={desktopAction} fixture={fixture} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onOpenSettings={openSettings} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onError={setError} /></WorkFolderAppearanceProvider>
+    : activeWorkFolder ? <WorkFolderAppearanceProvider palette={appearance.preferences.palette}><WorkFolderView workFolder={activeWorkFolder} workFolders={boot.workFolders} restrictedAppsStore={restrictedAppsState} agent={boot.agent} modelConfigurationRevision={modelConfigurationRevision} appearance={boot.appearance} fixture={fixture} desktopAction={desktopAction} updateStatus={updateStatus} themePreference={themePreference} onThemePreferenceChange={setThemePreference} onUpdateAction={() => void runUpdateAction()} onSwitchWorkFolder={(workFolder) => setActiveWorkFolderId(workFolder.id)} onRefreshBootstrap={refreshBootstrap} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onChecksControlChange={updateActiveChecksControl} onOpenSettings={openSettings} onOpenShortcuts={openKeyboardShortcuts} onError={setError} setUpOffered={setUpOffers.includes(activeWorkFolder.id)} onCloseSetUpOffer={() => changeSetUpOffers((current) => current.filter((id) => id !== activeWorkFolder.id))} /></WorkFolderAppearanceProvider> : fileManagerShell ? <FileManagerWelcome agentConfigured={Boolean(boot.agent?.configured)} fixtureMode={Boolean(fixture)} onAiConnected={aiConnected} onPutToWork={putStandardFolderToWork} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={() => openSettings("ai-models", "agent", true)} /> : <OnboardingFlow agentConfigured={Boolean(boot.agent?.configured)} onAiConnected={aiConnected} onCreateWorkFolder={() => setCreateWorkFolderOpen(true)} onOpenFolder={() => void openFolder()} onOpenSettings={() => openSettings("ai-models", "agent", true)} fixtureMode={Boolean(fixture)} />}
+    {error && !fileManagerLayout ? <div className="global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div> : null}
     {createWorkFolderOpen ? <CreateWorkFolderModal onClose={() => setCreateWorkFolderOpen(false)} onCreate={createWorkFolder} /> : null}
     {connectAiOpen ? <ConnectAiDialog fixtureMode={Boolean(fixture)} onClose={() => { afterConnectAi.current = undefined; setConnectAiOpen(false); }} onConnected={(connected) => { aiConnected(connected.status); const then = afterConnectAi.current; afterConnectAi.current = undefined; then?.(); }} onOpenSettings={() => { setConnectAiOpen(false); openSettings("ai-models", "agent", true); }} /> : null}
-    {settingsOpen ? <DesktopSettingsModal appearance={appearance} onCustomizeWorkFolder={(workFolderId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-work-folder", workFolderId }); }} workFolder={settingsWorkerWorkFolderId ? boot.workFolders.find((item) => item.id === settingsWorkerWorkFolderId) ?? null : activeWorkFolder} workFolders={boot.workFolders} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", workFolderId: app.sourceWorkFolderId, app }); }} onOpenAppBuildChat={(workFolderId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", workFolderId, conversationId }); }} onOpenAppResultFile={(workFolderId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", workFolderId, path }); }} onOpenAppStudio={(workFolderId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", workFolderId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} onOpenPage={(workFolderId, path, title) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-page", workFolderId, path, title }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialModelScope={settingsModelScope} focusAiModel={settingsFocusAiModel} focusWorkerInstructions={settingsFocusWorkerInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onModelChanged={modelConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
+    {settingsOpen ? <DesktopSettingsModal layout={fileManagerLayout ? "file-manager" : "classic"} appearance={appearance} onCustomizeWorkFolder={(workFolderId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "customize-work-folder", workFolderId }); }} workFolder={settingsWorkerWorkFolderId ? boot.workFolders.find((item) => item.id === settingsWorkerWorkFolderId) ?? null : activeWorkFolder} workFolders={boot.workFolders} restrictedApps={restrictedAppsState} onChangeApp={(app) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "app-change-chat", workFolderId: app.sourceWorkFolderId, app }); }} onOpenAppBuildChat={(workFolderId, conversationId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-build-chat", workFolderId, conversationId }); }} onOpenAppResultFile={(workFolderId, path) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-result-file", workFolderId, path }); }} onOpenAppStudio={(workFolderId, runtimeInstanceId) => { setSettingsOpen(false); setDesktopAction({ id: Date.now(), command: "open-app-studio", workFolderId, ...(runtimeInstanceId ? { runtimeInstanceId } : {}) }); }} agentStatus={boot.agent} fixtureMode={Boolean(fixture)} initialPage={settingsInitialPage} initialModelScope={settingsModelScope} focusAiModel={settingsFocusAiModel} focusWorkerInstructions={settingsFocusWorkerInstructions} onAgentConfigured={(agent) => setBoot((current) => current ? { ...current, agent } : current)} onModelChanged={modelConfigurationChanged} updateStatus={updateStatus} onUpdateAction={() => void runUpdateAction()} onBackToCustomization={settingsBackAction ? () => { setSettingsOpen(false); setSettingsBackAction(null); settingsBackAction(); } : undefined} onClose={closeSettings} /> : null}
     <ConfirmDialogHost /><ToastHost />
   </div>;
 }
@@ -395,49 +419,12 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   // Where a notification click opened an app's left-pane view. The rail
   // button, or leaving that app, returns it to its home ("/").
   const [restrictedAppNavigatorTarget, setRestrictedAppNavigatorTarget] = useState<RestrictedAppNavigatorTarget | null>(null);
-  const legacyCustomizationsRef = useRef<WorkFolderCustomizationMap>(fixture ? {} : readStoredJsonValue(
-    workFolderCustomizationStorageKey,
-    (value) => normalizeWorkFolderCustomizations(value, undefined, supportedWorkFolderIconNames),
-    {},
-  ));
-  const [customizations, setCustomizations] = useState<WorkFolderCustomizationMap>(() => fixture
-    ? fixture.customizations
-    : normalizeWorkFolderCustomizations(
-      { ...legacyCustomizationsRef.current, ...(appearance?.customizations ?? {}) },
-      undefined,
-      supportedWorkFolderIconNames,
-    ));
-  const customizationsRef = useRef(customizations);
-  const appearanceStorageWarningShownRef = useRef(false);
-  const appearanceWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const appearanceHistoryRef = useRef(new Map<string, WorkFolderCustomization[]>());
-  const [, setAppearanceHistoryVersion] = useState(0);
-  customizationsRef.current = customizations;
-  useEffect(() => {
-    if (fixture || !Object.keys(legacyCustomizationsRef.current).length) return;
-    let cancelled = false;
-    appearanceWriteQueueRef.current = appearanceWriteQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const result = await api<{ appearance: WorkFolderAppearanceState }>("/api/appearance/migrate", {
-          method: "POST",
-          body: { customizations: legacyCustomizationsRef.current },
-        });
-        legacyCustomizationsRef.current = {};
-        localStorage.removeItem(workFolderCustomizationStorageKey);
-        if (!cancelled) {
-          customizationsRef.current = result.appearance.customizations;
-          setCustomizations(result.appearance.customizations);
-        }
-      })
-      .catch((caught) => {
-        if (!cancelled && !appearanceStorageWarningShownRef.current) {
-          appearanceStorageWarningShownRef.current = true;
-          showToast({ text: `work-fold could not migrate the saved work-folder appearance. ${errorText(caught)}`, tone: "info" });
-        }
-      });
-    return () => { cancelled = true; };
-  }, [fixture]);
+  const workFolderCustomizations = useWorkFolderCustomizations({
+    fixtureCustomizations: fixture ? fixture.customizations : null,
+    appearance,
+    workFolderIds: workFolders.map((item) => item.id).join("|"),
+  });
+  const { customizations } = workFolderCustomizations;
   const [conversationGroups, setConversationGroups] = useState<Record<string, ConversationSummary[]>>(() => fixture ? fixtureConversationGroups(fixture) : {});
   const [surfaceCatalogs, setSurfaceCatalogs] = useState<Record<string, AgentExtensionSurface[]>>(() => fixture ? fixture.surfaces : {});
   const surfaceCatalogRequestRef = useRef(0);
@@ -787,27 +774,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
   useEffect(() => {
     if (restrictedAppNavigatorTarget && restrictedAppNavigatorTarget.mode !== activeMode) setRestrictedAppNavigatorTarget(null);
   }, [activeMode, restrictedAppNavigatorTarget]);
-  useEffect(() => {
-    // A temporarily missing or moved folder is not the same thing as an
-    // explicit work-folder removal. Keep appearance keyed by the portable work-folder id
-    // so relinking that folder restores its identity on this computer.
-    const next = normalizeWorkFolderCustomizations(customizationsRef.current, undefined, supportedWorkFolderIconNames);
-    if (JSON.stringify(next) !== JSON.stringify(customizationsRef.current)) {
-      customizationsRef.current = next;
-      setCustomizations(next);
-    }
-  }, [workFolders.map((item) => item.id).join("|")]);
-  useEffect(() => {
-    // A work-folder created after this window loaded may arrive with a saved
-    // starting color. Only work-folders this window has no appearance for
-    // take the saved one, so nothing here is overwritten.
-    const saved = appearance?.customizations ?? {};
-    const arriving = Object.entries(saved).filter(([id]) => !customizationsRef.current[id]);
-    if (!arriving.length) return;
-    const next = normalizeWorkFolderCustomizations({ ...customizationsRef.current, ...Object.fromEntries(arriving) }, undefined, supportedWorkFolderIconNames);
-    customizationsRef.current = next;
-    setCustomizations(next);
-  }, [appearance?.revision]);
   // A restore from Settings → Recently Deleted can bring back a Chat transcript
   // or a file; the pane cannot reach this state, so it announces the restore.
   useEffect(() => {
@@ -860,12 +826,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       else onError("The result's work-folder is unavailable.");
     }
     else if (desktopAction.command === "open-app-studio" && desktopAction.workFolderId) openAppStudio(desktopAction.workFolderId, desktopAction.runtimeInstanceId);
-    // Settings → Published: the page's tab, in its own work-folder.
-    else if (desktopAction.command === "open-page" && desktopAction.workFolderId && desktopAction.path) {
-      const target = workFolders.find((item) => item.id === desktopAction.workFolderId);
-      if (target) tabs.openPageSurfaceTab(target, desktopAction.path, desktopAction.title);
-      else onError("The page's work-folder is unavailable.");
-    }
     else if (desktopAction.command === "open-command-palette") openCommandPalette();
     else if (desktopAction.command === "toggle-sidebar") setSidebarHidden(!sidebarCollapsedRef.current);
     else if (desktopAction.command === "toggle-agent-panel") toggleAgentPanel();
@@ -991,91 +951,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
     window.requestAnimationFrame(() => { if (returnFocus?.isConnected && !returnFocus.inert) returnFocus.focus(); });
   }
 
-  function rememberWorkFolderAppearance(workFolderId: string) {
-    const history = appearanceHistoryRef.current.get(workFolderId) ?? [];
-    history.push(structuredClone(customizationsRef.current[workFolderId] ?? {}));
-    if (history.length > 20) history.shift();
-    appearanceHistoryRef.current.set(workFolderId, history);
-    setAppearanceHistoryVersion((current) => current + 1);
-  }
-
-  function persistWorkFolderCustomization(
-    workFolderId: string,
-    customization: WorkFolderCustomization | undefined,
-    options: { remember?: boolean } = {},
-  ) {
-    if (options.remember !== false) rememberWorkFolderAppearance(workFolderId);
-    const next = { ...customizationsRef.current };
-    if (customization && Object.keys(customization).length) next[workFolderId] = customization;
-    else delete next[workFolderId];
-    customizationsRef.current = next;
-    setCustomizations(next);
-    if (fixture) return;
-    appearanceWriteQueueRef.current = appearanceWriteQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        if (customization && Object.keys(customization).length) {
-          await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, {
-            method: "PUT",
-            body: { customization },
-          });
-        } else {
-          await api<{ appearance: WorkFolderAppearanceState }>(`/api/work-folders/${workFolderId}/appearance`, { method: "DELETE" });
-        }
-      })
-      .catch((caught) => {
-        if (appearanceStorageWarningShownRef.current) return;
-        appearanceStorageWarningShownRef.current = true;
-        showToast({ text: `This appearance works for this session, but work-fold could not save it on this computer. ${errorText(caught)}`, tone: "info" });
-      });
-  }
-
-  function customizeWorkFolder(workFolderId: string, patch: WorkFolderCustomizationPatch) {
-    const current = upgradeWorkFolderAppearanceCustomization(customizationsRef.current[workFolderId] ?? {});
-    const merged: WorkFolderCustomization = { ...current, ...patch, schema: 2 };
-    if (Object.prototype.hasOwnProperty.call(patch, "color")) {
-      delete merged.color;
-      if (patch.color) merged.primary = accentIdentityFromHex(patch.color);
-      else delete merged.primary;
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, "color2")) {
-      delete merged.color2;
-      if (patch.color2) merged.secondary = accentIdentityFromHex(patch.color2);
-      else delete merged.secondary;
-    }
-    const normalized = normalizeWorkFolderCustomizations(
-      { [workFolderId]: normalizeWorkFolderAppearanceCustomization(merged) },
-      new Set([workFolderId]),
-      supportedWorkFolderIconNames,
-    )[workFolderId];
-    persistWorkFolderCustomization(workFolderId, normalized);
-  }
-
-  function replaceWorkFolderCustomization(workFolderId: string, customization: WorkFolderCustomization) {
-    const normalized = normalizeWorkFolderCustomizations(
-      { [workFolderId]: upgradeWorkFolderAppearanceCustomization(customization) },
-      new Set([workFolderId]),
-      supportedWorkFolderIconNames,
-    )[workFolderId];
-    persistWorkFolderCustomization(workFolderId, normalized);
-    showToast({ text: "Appearance proposal applied to this work-folder.", tone: "success" });
-  }
-
-  function undoWorkFolderCustomization(workFolderId: string) {
-    const history = appearanceHistoryRef.current.get(workFolderId) ?? [];
-    const previous = history.pop();
-    appearanceHistoryRef.current.set(workFolderId, history);
-    setAppearanceHistoryVersion((current) => current + 1);
-    if (!previous) return;
-    persistWorkFolderCustomization(workFolderId, Object.keys(previous).length ? previous : undefined, { remember: false });
-    showToast({ text: "Undid the last appearance change.", tone: "success" });
-  }
-
-  function resetWorkFolderCustomization(workFolderId: string) {
-    persistWorkFolderCustomization(workFolderId, undefined);
-    showToast({ text: "work-folder appearance reset to defaults.", tone: "success" });
-  }
-
   async function renameWorkFolder(target: WorkFolderSummary, name: string) {
     if (fixture) { showToast({ text: "work-folder rename is disabled in the preview", tone: "info" }); return; }
     await checks.suspend();
@@ -1120,10 +995,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         recentlyDeleted?: { entryId: string; restoreBy: string } | null;
       }>(`/api/work-folders/${target.id}`, { method: "DELETE" });
       removed = true;
-      const nextCustomizations = { ...customizationsRef.current };
-      delete nextCustomizations[target.id];
-      customizationsRef.current = nextCustomizations;
-      setCustomizations(nextCustomizations);
+      workFolderCustomizations.forget(target.id);
       tabs.removeWorkFolderSurfaceTabs(target.id);
       await onRefreshBootstrap();
       showToast({
@@ -2009,7 +1881,7 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
         >
           {uploadingFiles ? <div className="file-upload-progress" aria-live="polite"><Loader2 className="spin" size={14} />Adding Files</div> : null}
           {tree.status === "refreshing" ? <div className="file-tree-refresh-progress" aria-live="polite"><span className="file-tree-refresh-pill delayed-loading"><Loader2 className="spin" size={13} />Updating Files</span></div> : null}
-      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} pageFolders={pageFolders} onOpenPage={(path) => { tree.setSelectedPath(path); tabs.openPageSurfaceTab(workFolder, path, pageFolders.get(path)?.title); }} onOpenPageData={(pagePath, path) => { tree.setSelectedPath(path); tabs.openPageSurfaceTab(workFolder, pagePath, pageFolders.get(pagePath)?.title, "data"); }} />}
+      {tree.status === "loading" ? <FileTreeLoadingState /> : tree.status === "error" ? <div className="empty-inline file-tree-error"><span>Couldn't load this folder.</span><button className="ui-control ui-control--quiet" type="button" onClick={() => void tree.refresh(false)}>Try Again</button></div> : <FileTree key={workFolder.id} entries={sortedFileEntries} collapsedPaths={fileTreeCollapsedPaths} loadingFolderPaths={tree.loadingFolderPaths} selectedPath={tree.selectedPath} selectedPaths={tree.selectedPaths} movingTreePaths={tree.movingTreePaths} dropTargetFolderPath={tree.dropTargetFolderPath} checkAttentionPaths={checks.attentionPaths} searchQuery={tree.query} emptyText={tree.query ? "No file or folder names match." : undefined} onToggleFolder={tree.toggleFolder} onSelectFile={(path) => { tree.setSelectedPath(path); tabs.openFileSurfaceTab(workFolder, path); }} onFocusEntry={tree.setSelectedPath} onToggleSelected={tree.toggleSelectedPath} onSelectRange={(path, additive) => tree.selectPathRange(path, shownTreePaths, additive)} onSelectAll={() => tree.selectPaths(shownTreePaths, tree.selectedPath)} onPreviewFile={isMacOS() ? previewLocalFile : undefined} onOpenFile={(path) => void openLocalPath(path, "open")} onOpenContextMenu={openContextMenu} onRenameEntry={renameEntry} onDeleteEntry={(path) => void deleteEntries(filesSelectionFor(path))} onUpdateDropTarget={updateDropTarget} onDropOnTarget={dropOnTarget} onNativeDragStartFile={startNativeFileDrag} onDragStartEntry={startTreeDrag} onDragEndEntry={endTreeDrag} nestedFolders={nestedFolderViews} onOpenNestedFolder={onSwitchWorkFolder} pageFolders={pageFolders} onOpenPage={(path) => { tree.setSelectedPath(path); tabs.openPageSurfaceTab(workFolder, path, pageFolders.get(path)?.title); }} />}
         </div>
         {fixture ? null : (
           <FileContentSearch
@@ -2067,7 +1939,6 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
                 fixtureMode={Boolean(fixture)}
                 onViewChange={(view) => tabs.updatePageSurfaceTab(tab.id, { view })}
                 onTitleChange={(title) => tabs.updatePageSurfaceTab(tab.id, { title })}
-                onOpenWebAccessSettings={() => onOpenSettings("web-access")}
               />
             ) : tab.kind === "file" && tab.path ? (
               <FileDetailsPane workFolder={targetWorkFolder} active={active} path={tab.path} entry={targetWorkFolder.id === workFolder.id ? findTreeEntry(tree.tree, tab.path) : null} fixtureMode={Boolean(fixture)} fixtureText={fixture?.fileContents[targetWorkFolder.id]?.[tab.path]} onOpenLocal={(path, action) => openLocalPath(path, action, targetWorkFolder)} onAddToChatContext={attachToChat} onShowVersionHistory={(path) => openVersionHistory(targetWorkFolder, path)} onRename={targetWorkFolder.id === workFolder.id ? renameEntry : undefined} canOpenWith={canOpenWith} />
@@ -2150,12 +2021,12 @@ function WorkFolderView({ workFolder, workFolders, restrictedAppsStore, agent, m
       initialSection={appearanceInitialSection}
       identity={workFolderIdentityFor(appearanceWorkFolder, customizations)}
       customization={customizations[appearanceWorkFolder.id]}
-      canUndo={(appearanceHistoryRef.current.get(appearanceWorkFolder.id)?.length ?? 0) > 0}
+      canUndo={workFolderCustomizations.canUndo(appearanceWorkFolder.id)}
       onRenameWorkFolder={renameWorkFolder}
-      onCustomizeWorkFolder={customizeWorkFolder}
-      onReplaceWorkFolder={replaceWorkFolderCustomization}
-      onUndoWorkFolder={undoWorkFolderCustomization}
-      onResetWorkFolder={resetWorkFolderCustomization}
+      onCustomizeWorkFolder={workFolderCustomizations.customize}
+      onReplaceWorkFolder={workFolderCustomizations.replace}
+      onUndoWorkFolder={workFolderCustomizations.undo}
+      onResetWorkFolder={workFolderCustomizations.reset}
       onOpenWorkerSettings={(section, returnSection) => {
         setAppearanceWorkFolderId(null);
         onOpenSettings("ai-models", "work-folder", section === "model", appearanceWorkFolder.id, section === "instructions", () => {
@@ -2274,57 +2145,6 @@ function setSelectionDragImage(event: React.DragEvent<HTMLElement>, label: strin
   document.body.append(image);
   event.dataTransfer.setDragImage(image, -10, -10);
   window.setTimeout(() => image.remove(), 0);
-}
-
-async function collectDroppedUploadFiles(dataTransfer: DataTransfer): Promise<DroppedUploadFile[]> {
-  const entries = Array.from(dataTransfer.items)
-    .filter((item) => item.kind === "file")
-    .map((item) => item.webkitGetAsEntry?.() ?? null)
-    .filter((entry): entry is FileSystemEntry => entry !== null);
-  if (entries.length) {
-    const files: DroppedUploadFile[] = [];
-    for (const entry of entries) await collectDroppedEntryFiles(entry, "", files);
-    return files;
-  }
-  return Array.from(dataTransfer.files).map((file) => ({ file, relativePath: file.webkitRelativePath || file.name }));
-}
-
-async function collectDroppedEntryFiles(entry: FileSystemEntry, parentPath: string, output: DroppedUploadFile[]): Promise<void> {
-  if (isDroppedFileEntry(entry)) {
-    const file = await droppedFileFromEntry(entry);
-    output.push({ file, relativePath: joinDropPath(parentPath, entry.name || file.name) });
-    return;
-  }
-  if (!isDroppedDirectoryEntry(entry)) return;
-  const directoryPath = joinDropPath(parentPath, entry.name);
-  for (const child of await readDroppedDirectoryEntries(entry)) await collectDroppedEntryFiles(child, directoryPath, output);
-}
-
-function isDroppedFileEntry(entry: FileSystemEntry): entry is FileSystemFileEntry {
-  return entry.isFile && typeof (entry as Partial<FileSystemFileEntry>).file === "function";
-}
-
-function isDroppedDirectoryEntry(entry: FileSystemEntry): entry is FileSystemDirectoryEntry {
-  return entry.isDirectory && typeof (entry as Partial<FileSystemDirectoryEntry>).createReader === "function";
-}
-
-function droppedFileFromEntry(entry: FileSystemFileEntry): Promise<File> {
-  return new Promise((resolvePromise, reject) => { entry.file(resolvePromise, reject); });
-}
-
-async function readDroppedDirectoryEntries(entry: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
-  const reader = entry.createReader();
-  const entries: FileSystemEntry[] = [];
-  for (;;) {
-    const batch = await new Promise<FileSystemEntry[]>((resolvePromise, reject) => { reader.readEntries(resolvePromise, reject); });
-    if (!batch.length) break;
-    entries.push(...batch);
-  }
-  return entries;
-}
-
-function joinDropPath(...segments: string[]) {
-  return segments.map((segment) => segment.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "")).filter(Boolean).join("/");
 }
 
 function fixtureConversationGroups(fixture: WorkFolderUiFixture): Record<string, ConversationSummary[]> { return Object.fromEntries(Object.entries(fixture.conversations).map(([id, conversations]) => [id, conversations.map(({ messages: _messages, ...summary }) => summary)])); }

@@ -405,7 +405,6 @@ test("work-folder customization is visible, compact, and separate from structura
   const settingsIconsSource = desktopSettingsSource.replace('import { LayoutPanelLeft } from "lucide-react";', "");
   assert.doesNotMatch(settingsIconsSource, /from\s+["']lucide-react["']/, "Settings keeps its icon exceptions limited to the requested controls");
   assert.match(desktopSettingsSource, /id: "apps", label: "Apps", icon: <LayoutPanelLeft size=\{20\} strokeWidth=\{1\.5\} aria-hidden="true" \/>/);
-  assert.match(desktopSettingsSource, /id: "web-access", label: "Web Access", icon: <GlobeCode size=\{20\} strokeWidth=\{1\.5\} aria-hidden="true" \/>/);
   assert.match(desktopSettingsSource, /from\s+["']@fluentui\/react-icons["']/);
 });
 

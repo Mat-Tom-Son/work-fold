@@ -8,7 +8,6 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { readRestrictedAppWebView, RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES } from "./restricted-app-viewer.js";
 import {
   normalizeRestrictedAppCredential,
   RestrictedAppError,
@@ -1825,57 +1824,6 @@ export class RestrictedAppService {
       }
       return operation(structuredClone(app.manifest.assistantActions ?? []), { title: app.manifest.title });
     });
-  }
-
-  /** Approved-browser reads pin the exact installation and authority across the read. */
-  async readBrowserView(scope: RestrictedAppTaskScope, call: unknown) {
-    const result = await this.#mutate(async () => {
-      const app = this.#installed(scope.workFolderId, scope.appId, scope.digest, scope.featureInstallationId);
-      if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) {
-        throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
-      }
-      await assertRestrictedAppStagingRoot(this.#stagingPath);
-      const missingStorage = async (): Promise<never> => { throw new Error("App data requires the desktop storage host."); };
-      const result = await readRestrictedAppWebView({ ...app, stagedRoot: this.#digestRoot(app.digest) }, call, this.#storage ?? { get: missingStorage, keys: missingStorage }, RESTRICTED_APP_VIEWER_MAX_ASSET_BYTES);
-      this.#assertInstalledAuthority(app);
-      return result;
-    });
-    await this.#queue.catch(() => undefined);
-    const current = this.#installed(scope.workFolderId, scope.appId, scope.digest, scope.featureInstallationId);
-    if (restrictedAppTaskAuthorityDigest(current.authority) !== scope.authorityDigest) {
-      throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
-    }
-    return result;
-  }
-
-  /** Browser action review uses only named worker tools from the exact installed web app. */
-  async withBrowserActionApp<T>(scope: RestrictedAppTaskScope, operation: (app: import("./restricted-app-browser-actions.js").BrowserAppActionApp) => Promise<T>): Promise<T> {
-    const result = await this.#mutate(async () => {
-      const app = this.#browserActionApp(scope);
-      const { tenantId, runtimeInstanceId, runtimeInstanceKind, dataNamespaceId, principalId, authority, artifactDigest } = app;
-      return operation(structuredClone({ actions: app.manifest.tools,
-        provenance: { tenantId, runtimeInstanceId, runtimeInstanceKind, dataNamespaceId, principalId, authority, artifactDigest } }));
-    });
-    await this.#queue.catch(() => undefined);
-    this.#browserActionApp(scope);
-    return result;
-  }
-
-  async invokeBrowserAction(scope: RestrictedAppTaskScope, action: string, input: unknown, execution: RestrictedAppActionExecution): Promise<unknown> {
-    this.#assertOpen();
-    await this.#queue.catch(() => undefined);
-    if (!this.#runtimeHost) throw new RestrictedAppError("APP_UNAVAILABLE", "App actions require the desktop host.");
-    const app = this.#browserActionApp(scope);
-    const assertCurrent = () => { execution.assertCurrent(); this.#assertInstalledAuthority(app); };
-    assertCurrent();
-    return this.#runtimeHost.invoke({ ...app, stagedRoot: this.#digestRoot(app.digest) }, action, input, { ...execution, assertCurrent });
-  }
-
-  #browserActionApp(scope: RestrictedAppTaskScope): RestrictedAppInstalled {
-    const app = this.#installed(scope.workFolderId, scope.appId, scope.digest, scope.featureInstallationId);
-    if (restrictedAppTaskAuthorityDigest(app.authority) !== scope.authorityDigest) throw new RestrictedAppError("REVISION_CHANGED", "This app changed. Open it again.");
-    if (!app.manifest.viewer || !app.manifest.runtime.worker) throw new RestrictedAppError("APP_UNAVAILABLE", "This app does not expose browser actions.");
-    return app;
   }
 
   async snapshotForChange(workFolderId: string, appId: string, expectedDigest: string, featureInstallationId?: string) {

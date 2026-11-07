@@ -7,15 +7,13 @@ import test from "node:test";
 import { fauxAssistantMessage, fauxProvider, type AssistantMessage, type Message } from "@earendil-works/pi-ai";
 import { FileCredentialStore, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 
-import type { WorkFoldRemotePrincipal } from "../src/local/remote-work-fold-agent.js";
 import { startLocalApi, type LocalApiHandle } from "../src/local/server.js";
 
 /**
  * Queue and steer from every window (2026-10-27): a Chat's queued message is
  * held by the app, so every window shows it and it is sent when the turn ends
  * (never after a Stop); and the work-fold agent's running turn takes a
- * steering message from the menu-bar panel and from the paired browser that
- * started it.
+ * steering message from the menu-bar panel.
  */
 
 interface Harness {
@@ -168,7 +166,7 @@ test("a queued message keeps the Workers it addresses with @", { timeout: 60_000
   assert.ok(JSON.stringify(h.requests[1]).includes(research.id), "the addressed Worker's id reaches the model with the message");
 });
 
-test("the work-fold agent's running turn takes a steering message from the panel and from the browser that started it", { timeout: 60_000 }, async (t) => {
+test("the work-fold agent's running turn takes a steering message from the panel", { timeout: 60_000 }, async (t) => {
   const h = await startHarness(t);
   h.reply("Working on it.", { held: true });
   h.reply("Adjusted.");
@@ -189,24 +187,6 @@ test("the work-fold agent's running turn takes a steering message from the panel
   h.release();
   await waitFor(() => h.requests.length === 2, "the steered step");
   assert.match(JSON.stringify(h.requests[1]), /Leave Friday free\./, "the message reached the running turn");
-
-  // A paired browser steers only work it started (the same rule as Stop).
-  const owner: WorkFoldRemotePrincipal = { browserId: "browser-owner", grantId: "grant-owner", requestId: "send-1" };
-  const stranger: WorkFoldRemotePrincipal = { browserId: "browser-other", grantId: "grant-other", requestId: "steer-x" };
-  await waitFor(async () => (await h.api.remoteFacade.execute("management.summary", {}, owner) as { state: string }).state === "idle", "the agent to be idle");
-  h.reply("Remote work.", { held: true });
-  h.reply("Remote adjusted.");
-  const remote = await h.api.remoteFacade.execute("management.send", { content: "Tidy my notes.", newConversation: true }, owner) as { conversationId: string };
-  await waitFor(() => h.requests.length === 3, "the browser's held turn");
-  await assert.rejects(
-    () => h.api.remoteFacade.execute("management.send", { content: "Mine now.", conversationId: remote.conversationId, delivery: "steer" }, stranger),
-    /another surface/,
-  );
-  const fromBrowser = await h.api.remoteFacade.execute("management.send", { content: "Skip the archive.", conversationId: remote.conversationId, delivery: "steer" }, { ...owner, requestId: "steer-1" }) as { delivery: string };
-  assert.equal(fromBrowser.delivery, "steer");
-  h.release();
-  await waitFor(() => h.requests.length === 4, "the browser-steered step");
-  assert.match(JSON.stringify(h.requests[3]), /Skip the archive\./);
 });
 
 test("two simultaneous retries of one steer reach the turn once", { timeout: 60_000 }, async (t) => {

@@ -60,6 +60,8 @@ export function useApplicationAppearance({ fixtureMode = false, store: suppliedS
     root.dataset.workFoldFont = resolved.font;
     root.dataset.workFoldTextSize = preferences.textSize;
     root.dataset.appearancePalette = preferences.palette;
+    // The file manager keeps its own blue for the device accent and takes a chosen one.
+    root.dataset.appearanceAccent = preferences.accent === "system" ? "system" : "custom";
     root.dataset.appearanceDensity = preferences.density;
     root.dataset.appearanceMessages = preferences.messages;
     root.dataset.appearanceChatSteps = preferences.chatSteps;

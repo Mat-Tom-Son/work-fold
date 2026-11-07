@@ -266,9 +266,6 @@ test("work-fold agent requests carry attachments, record lineage, and expose hon
     await setWorkFolderIgnoreState(changedWorkFolderRoot, ["comparison.md"], true);
     assert.equal((await facade.agentTurnStatus({ taskId: send.taskId })).request!.children[0]!.files, undefined, "result projection rechecks current visibility");
     await setWorkFolderIgnoreState(changedWorkFolderRoot, ["comparison.md"], false);
-    const remoteView = await api.remoteFacade.execute("management.summary", { conversationId: send.conversationId },
-      { browserId: "different-browser", grantId: "different-grant", requestId: "read-summary" }) as { latestRequest: { children: Array<{ files?: string[] }> } };
-    assert.equal(remoteView.latestRequest.children[0]!.files, undefined, "another browser's summary cannot acquire task result references");
 
     // The same truth over HTTP for the popover.
     const summary = await getJson(api.origin, "/api/work-fold-agent/summary");
@@ -511,9 +508,9 @@ test("renderer overview routes serve the digest without management readiness and
     const afterSeen = await getJson(api.origin, "/api/work-fold-agent/overview");
     assert.deepEqual((afterSeen.overview as { seen: Record<string, string> }).seen, { popover: overview.cursor });
 
-    // The renderer lane advances only the two desktop surfaces: remote
-    // markers move exclusively through the paired browser's signed
-    // envelope, and malformed cursors are refused.
+    // The renderer lane advances only the two desktop surfaces: any other
+    // surface id (including an older build's paired-browser marker) and
+    // malformed cursors are refused.
     for (const surface of ["remote:grant-1", "cli", 42]) {
       const refused = await postJson(api.origin, "/api/work-fold-agent/overview/seen", {
         surface: surface as never,

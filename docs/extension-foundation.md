@@ -36,7 +36,7 @@ work-folder apps remain separate: they may request agent work through
 | Pi | Packages, Skills, Extensions, tool definitions, commands, session events, model conversion and native cancellation signals |
 | work-fold host | Chat/request identity, supported UI, setup, capability mutation fences, resource lifecycle and diagnostics |
 | Integration | Domain operations, valid observations, connection/helper protocol, readiness checks, bounded results and cleanup |
-| Desktop and paired web | Presentation and input for the exact owning Chat; desktop-only identity, secret and OS setup |
+| Desktop | Presentation and input for the exact owning Chat; identity, secret and OS setup |
 
 Included resources live in `resources/included-tools` as ordinary native
 Extensions and a standard document-work `SKILL.md`. Pi evaluates the same
@@ -69,8 +69,7 @@ without borrowing a newer turn's task. Session-start and reload callbacks also
 retain session ownership. Stop cancels pending questions and rejects callbacks
 while that native prompt drains. Once it drains, a surviving transport may ask
 a new Chat-owned question; session disposal permanently cancels its UI access.
-Unattributed questions remain local to their Chat: paired web input
-requires the exact browser-owned work-fold agent task and live browser grant.
+Unattributed questions remain local to their Chat.
 Legacy MCP stdio elicitation does not identify its originating `tools/call`;
 the host must not guess its task from whichever turn is currently running.
 
@@ -78,7 +77,7 @@ The UI adapter bounds pending questions and text, scopes editor state by root
 and conversation, and keeps live values outside the portable transcript and
 replay journal. Native Extensions may themselves record their inputs. Standard
 Pi input has no secret classification, so credentials and OAuth codes belong
-in trusted setup, never ordinary Chat questions or paired-web answers.
+in trusted setup, never ordinary Chat questions.
 Unsupported terminal component factories are diagnosed; arbitrary TUI or HTML
 is not rendered as a desktop component.
 

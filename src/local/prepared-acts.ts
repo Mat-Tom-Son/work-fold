@@ -146,14 +146,6 @@ const KIND_DESCRIPTORS = {
     parameters: { workFolderId: req("string") },
     pins: { workFolderId: req("string"), workFolderRoot: req("string") },
   },
-  // Publishing a page (docs/pages.md, "Publishing (stage 2)"): the folder's
-  // assembled bytes become reachable by anyone with the link. The pin is the
-  // content digest of the assembled document plus page.json; the page id is
-  // never a field, because it grants access to the page.
-  "page.publish": {
-    parameters: { workFolderId: req("string"), pagePath: req("string") },
-    pins: { workFolderId: req("string"), pagePath: req("string"), contentDigest: req("string") },
-  },
   "app.data.purge": {
     parameters: {
       workFolderId: req("string"),

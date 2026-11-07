@@ -19,9 +19,8 @@ only when useful. This adds no navigation destination or approval ceremony.
 resetting a draft; disclosure opens with native keyboard behavior; new replies
 follow the existing scroll pin instead of pulling someone away from reading.
 Respect reduced motion and retain input through reconnects and failed sends.
-Question drafts stay in session storage for the current renderer/browser tab;
-acceptance clears them, and paired-browser sign-out or grant removal clears all
-question drafts. Typing alone never sends an answer to the host or model.
+Question drafts stay in session storage for the current renderer;
+acceptance clears them. Typing alone never sends an answer to the host or model.
 When the agent keeps a checklist for the work, the work view lists it under
 the status line, with done, current, and remaining steps, and it updates as
 the agent works.
@@ -62,17 +61,14 @@ answer.
 work-folder Chats, the trusted Settings → Apps page, and the work-fold agent popover share the same React
 work presentation. Each work-folder tab retains its identity.
 
-The paired browser uses the same host projection through its encrypted remote
-lane. Detailed work, answers, continuation, and Stop remain limited to the
-browser's own work-fold agent requests and their descendants. Other overview items
-remain summaries and direct the person to the desktop. Sandboxed App bridges
-gain no request-graph or question access.
+Sandboxed App bridges gain no request-graph or question access. There is no
+paired browser surface: Web Access was removed from the desktop on 2026-11-07.
 
 ## Acceptance
 
 Exercise delegation, a person question, answer, continuation, selected files,
 partial completion, and Stop from the originating surface. Also cover a
-question in a delegated work-folder, repeated/stale answers, another browser grant,
+question in a delegated work-folder, repeated/stale answers,
 restart with a saved answer, failure/reconnect with a draft, and keyboard/mobile
 interaction. Host integration tests verify authority and exact-once delivery;
 browser journeys verify visible state, controls, focus, and rendering.
@@ -80,11 +76,8 @@ browser journeys verify visible state, controls, focus, and rendering.
 ## Implementation and verification
 
 The host projection is `src/shared/request-presentation.ts`, served by the
-local and remote adapters in `src/local/server.ts`. Desktop surfaces share
-`web-local/src/components/chat/WorkRequest.tsx`; the paired browser uses
-`services/bridge/public/work-request.js`. Both use the same scoped stylesheet
-and session-draft helper. The browser's existing inert fixture lane accepts
-`work=question`, `saved-answer`, `partial`, or `interrupted` for layout review.
+local adapter in `src/local/server.ts`. Desktop surfaces share
+`web-local/src/components/chat/WorkRequest.tsx`.
 
 `tests/work-fold-collaboration-journeys.test.ts` exercises actual host admission,
 question ownership, repeat answers, request-wide Stop, restart, selected files,
@@ -103,14 +96,3 @@ background refresh never switches the selection. New chat opens a clean draft
 without a success alert or confirmation. Text and attachment drafts remain with
 their conversation while this renderer lives. A compact return link keeps
 background work reachable, including its Stop action.
-
-The paired web client focuses on New chat and saved Chats, with no separate
-**Needs you** destination, activity-receipt feed, or Files/work-folder browser.
-Questions and saved-answer recovery stay inside the owning Chat. Its sidebar
-uses plain saved-chat titles, with questions and live progress shown only inside
-the selected Chat. Result files and apps remain available through a collapsed
-disclosure. This does not grant access to another browser’s request. The current
-web client neither reads nor acknowledges the overview; host operations remain
-compatible with older clients. Old Files/work-folder links return to New chat.
-Chat result previews retain their bounded inert file broker and exact app
-installation fences.

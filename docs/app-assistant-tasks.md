@@ -72,10 +72,7 @@ The request envelope has exactly those four fields. JSON input is at most
 4 MiB; a larger input is refused with a message naming the bound. New
 requests carry a canonical UTC timestamp as part of their idempotency record.
 A replayed envelope returns the same record; changing its input conflicts. The
-app cannot choose another work-folder or read arbitrary task or Chat ids. Remote
-app views have no `assistant` bridge. Private browser worker
-actions use their separate action lane, which runs a request on acceptance
-(see [work-folder apps in paired browsers](browser-apps.md#actions)).
+app cannot choose another work-folder or read arbitrary task or Chat ids.
 
 Task states are `dispatching`, `running`, `waiting`, `succeeded`, `failed`, `cancelled`
 and `interrupted`; every task carries `startedAt`, its dispatch time. A
@@ -109,7 +106,7 @@ Waiting requests show the exact person question and its origin using the shared
 [work presentation](collaboration-experience.md). The trusted detail response
 includes the original accepted `taskId` so questions and recovery stay attached
 to that request, even if another request later uses the same Chat. This adds no
-question access to sandboxed or remote App views. **Open Chat** and request-wide
+question access to sandboxed App views. **Open Chat** and request-wide
 **Stop** remain available in the trusted screen.
 
 ## The result
@@ -256,8 +253,8 @@ refused with `INFER_INPUT_TOO_LARGE` only when that estimate leaves no room for
 at least a 1,024-token answer.
 
 An active app view or the app's worker holding a tool action or an automation
-run may call it. An inactive view, a worker between operations, and a remote
-app view all get `INFER_UNAVAILABLE`. The installation, revision, and
+run may call it. An inactive view and a worker between operations get
+`INFER_UNAVAILABLE`. The installation, revision, and
 authority are pinned before the call and rechecked before the result is
 delivered.
 
@@ -321,8 +318,7 @@ Its title is the app's name, shortened to 24 characters, then the action's
 title — `Inbox · Compare quotes` — within the usual 80-character Chat title,
 so two apps that both offer "Compare quotes" stay apart in the Chat list. The
 dispatched message is saved in the portable Chat log with `source: "app"`,
-the app's manifest `appId`, and its `appTitle` when it asked, the same way a
-message sent from a paired browser carries `source: "remote_web"`. The Chat
+the app's manifest `appId`, and its `appTitle` when it asked. The Chat
 draws it with a small **From Inbox** label and a quiet surface instead of the
 person's own message bubble. A log written before the marker, or a marker
 without a usable title (one plain line, at most 80 characters), loads as an
@@ -335,7 +331,7 @@ owning work-folder. App data backup and restore do not restore requests.
 
 Each request is a receipt in the journal, not a grant: the app was installed,
 so it may ask; the person sees what it asked for and what came back. The CLI
-and the remote `management.*` facade gain no generic Worker endpoint from this. The
+gains no generic Worker endpoint from this. The
 app bridge gets only request, list, get and cancel; the authenticated renderer
 owns Details, Open Chat and Stop.
 

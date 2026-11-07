@@ -77,8 +77,8 @@ function isActCommand(argumentsList) {
   const group = positional[0] || "";
   const actGroups = ["chat", "chats", "files", "agent", "history", "search", "tools", "apps", "automations", "recently-deleted", "requests", "jobs", "worktrees"];
   if (actGroups.includes(group)) return true;
-  // Page folders (docs/pages.md): check, publish, unpublish, and list.
-  if (group === "pages") return ["validate", "publish", "unpublish", "list"].includes(positional[1]);
+  // Page folders (docs/pages.md): check one.
+  if (group === "pages") return ["validate"].includes(positional[1]);
   if (group === "checks") return positional[1] !== "status";
   return group === "work-folders" && positional[1] !== "list";
 }

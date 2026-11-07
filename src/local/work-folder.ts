@@ -587,7 +587,7 @@ export async function writeWorkFolderTextFile(workFolderRoot: string, relativePa
   return { path: normalizeRelative(relative(ensureSafeWorkFolderRoot(workFolderRoot), path)), text };
 }
 
-export async function getWorkFolderEntryInfo(workFolderRoot: string, relativePath: string): Promise<WorkFolderEntryInfo> {
+export async function getWorkFolderEntryInfo(workFolderRoot: string, relativePath: string, options: { hash?: boolean } = {}): Promise<WorkFolderEntryInfo> {
   const root = ensureSafeWorkFolderRoot(workFolderRoot);
   const path = resolveWorkFolderPath(root, relativePath);
   const info = await stat(path).catch(() => null);
@@ -603,7 +603,7 @@ export async function getWorkFolderEntryInfo(workFolderRoot: string, relativePat
     modifiedAt: info.mtime.toISOString(),
     extension,
     mimeType: info.isDirectory() ? "inode/directory" : contentTypeForExtension(extension),
-    hashSha256: info.isFile() ? await sha256File(path) : null,
+    hashSha256: info.isFile() && options.hash !== false ? await sha256File(path) : null,
     officeDocument,
     openInOffice: officeDocument ? await officeDocumentLockPresent(path) : false,
   };

@@ -274,7 +274,9 @@ test("desktop main wires one settle seam, one receipts ledger, and automation sl
   assert.ok(signalProperty && ts.isShorthandPropertyAssignment(signalProperty), "the returned host retains the same settleSignal binding shared by Checks and apps");
 
   const apiStart = main.indexOf("function ensureInteractiveLocalApi");
-  const apiBody = main.slice(apiStart, main.indexOf("\nasync function ensureRemoteAccessClient", apiStart));
+  const apiEnd = main.indexOf("\nasync function createMainWindow", apiStart);
+  assert.ok(apiStart !== -1 && apiEnd !== -1, "the interactive local API setup is found");
+  const apiBody = main.slice(apiStart, apiEnd);
   assert.match(apiBody, /settleSignal: host\.settleSignal,/, "the local API consumes the host's exact signal instance");
   assert.match(apiBody, /actReceipts: host\.cli\.receipts,/, "Settings acts and CLI acts share the CLI host's one ledger");
   assert.doesNotMatch(apiBody, /publication/i, "the local API no longer takes publication keys or a bridge slot lane");
@@ -292,10 +294,8 @@ test("desktop main wires one settle seam, one receipts ledger, and automation sl
   assert.match(resumeBody, /automationPowerLifecycle\?\.resume\(\)\.catch\(\(error\) =>/);
   assert.match(resumeBody, /could not resume Automations after wake/);
 
-  // The remote client serves paired browsers only: no viewer-page provider.
-  const remoteStart = main.indexOf("async function ensureRemoteAccessClient");
-  const remoteBody = main.slice(remoteStart, main.indexOf("\nasync function promptRemoteBrowserPairing", remoteStart));
-  assert.doesNotMatch(remoteBody, /viewerPages|publications/);
+  // Web Access is gone: no paired-browser client or bridge in the desktop host.
+  assert.doesNotMatch(main, /ensureRemoteAccessClient|WORKFOLD_REMOTE_BRIDGE_URL/);
 });
 
 function fixtureKernel(): WorkFoldCliKernel {

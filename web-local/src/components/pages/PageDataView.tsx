@@ -18,63 +18,12 @@ import {
   type GridEntry,
   type GridSort,
 } from "../../lib/page-data-grid";
-import { announcePageDataChange, pageTimeAgo, saveSpreadsheet, type DeclaredTable, type PageEntriesClient, type PageEntriesSource, type PagePublication, type PageRow, type PageTableSummary } from "../../lib/pages";
+import { announcePageDataChange, saveSpreadsheet, type DeclaredTable, type PageEntriesClient, type PageRow, type PageTableSummary } from "../../lib/pages";
 import { readStoredJsonValue, writeStoredJsonValue } from "../../lib/storage";
 import { isNewEntry, newEntryCount, type PageTablesHandle, type PageTableState } from "../../hooks/usePageTables";
 import { showToast } from "../../ui/feedback";
-import { pagePublishing } from "../../ui-contract";
 
-export const testEntriesNote = "Test entries — only you can see these. They're never published.";
-
-/** What the Online Entries label says: where the entries come from, and when work-fold last checked in. */
-export function onlineEntriesNote(publication: PagePublication | null, now = Date.now()): string {
-  const where = publication?.status === "unpublished" ? pagePublishing.offlineNote : pagePublishing.onlineNote;
-  const when = publication?.lastCheckIn ? pageTimeAgo(publication.lastCheckIn, now) : "";
-  return `${where} ${when ? pagePublishing.lastCheckedIn(when) : pagePublishing.notCheckedIn}`;
-}
-
-/**
- * Above the Data view of a page that is online (or was): which entries to
- * show, what they are, and, for online entries, when work-fold last checked
- * in, with Check Now.
- */
-export function PageEntriesSourceBar({
-  source,
-  publication,
-  checking,
-  onSourceChange,
-  onCheckNow,
-}: {
-  source: PageEntriesSource;
-  publication: PagePublication | null;
-  checking: boolean;
-  onSourceChange: (source: PageEntriesSource) => void;
-  onCheckNow: () => void;
-}) {
-  const ids = useId();
-  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const next: PageEntriesSource = event.key === "Home" ? "online" : event.key === "End" ? "test" : source === "online" ? "test" : "online";
-    onSourceChange(next);
-    document.getElementById(`${ids}-${next}`)?.focus();
-  }
-  return (
-    <div className="page-data-source">
-      <div className="page-segmented" role="radiogroup" aria-label={pagePublishing.entriesLabel}>
-        <button id={`${ids}-online`} type="button" role="radio" aria-checked={source === "online"} tabIndex={source === "online" ? 0 : -1} onKeyDown={handleKeyDown} onClick={() => onSourceChange("online")}>{pagePublishing.onlineEntries}</button>
-        <button id={`${ids}-test`} type="button" role="radio" aria-checked={source === "test"} tabIndex={source === "test" ? 0 : -1} onKeyDown={handleKeyDown} onClick={() => onSourceChange("test")}>{pagePublishing.testEntries}</button>
-      </div>
-      <p className="page-data-note" aria-live="polite">{source === "online" ? onlineEntriesNote(publication) : testEntriesNote}</p>
-      {source === "online" ? (
-        <button className="ui-control page-data-check-now" type="button" disabled={checking} aria-busy={checking} onClick={onCheckNow}>
-          {checking ? <Loader2 className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
-          {checking ? pagePublishing.checking : pagePublishing.checkNow}
-        </button>
-      ) : null}
-    </div>
-  );
-}
+export const testEntriesNote = "Entries made in Preview. Only you can see them.";
 
 const rowHeight = 32;
 const overscanRows = 12;
@@ -89,8 +38,8 @@ interface TableChoice {
 }
 
 /**
- * The Data view (docs/pages.md, "The Data view"): the page's test entries or
- * its online entries, table by table, where the owner sorts, searches,
+ * The Data view (docs/pages.md, "The Data view"): the entries the page saved
+ * in Preview, table by table, where the owner sorts, searches,
  * filters, reads one entry, fixes a value, and deletes or restores entries.
  * Rows are windowed, so a table of a few thousand entries scrolls and filters
  * without strain.
@@ -105,8 +54,6 @@ export function PageDataView({
   data,
   visiting,
   viewId,
-  source = "test",
-  sourceBar,
   onTryInPreview,
 }: {
   workFolderId: string;
@@ -119,10 +66,6 @@ export function PageDataView({
   /** The Data view is on screen: marks what's new and records that it was seen. */
   visiting: boolean;
   viewId: string;
-  /** Which entries `client` and `data` hold. */
-  source?: PageEntriesSource;
-  /** Shown in place of the test-entries label once the page has online entries. */
-  sourceBar?: React.ReactNode;
   onTryInPreview: () => void;
 }) {
   const tableKey = `work-fold.page.data-table:${workFolderId}:${path}`;
@@ -168,7 +111,7 @@ export function PageDataView({
     // Seen again whenever the entries change while the person is looking.
   }, [visiting, tableName, liveRows]);
 
-  const note = sourceBar ?? <p className="page-data-note">{testEntriesNote}</p>;
+  const note = <p className="page-data-note">{testEntriesNote}</p>;
   if (!ready) return <div className="page-data">{note}<p className="page-data-loading delayed-loading" role="status"><Loader2 className="spin" size={14} />Loading Entries</p></div>;
 
   return (
@@ -209,7 +152,6 @@ export function PageDataView({
               markSince={table.name in markSince ? markSince[table.name] : undefined}
               client={client}
               viewId={viewId}
-              entriesSource={source}
               onOpenDeleted={() => data.open(table.name, { deleted: true })}
               onReload={() => data.reload(table.name)}
               onTryInPreview={onTryInPreview}
@@ -241,7 +183,6 @@ function PageTableGrid({
   markSince,
   client,
   viewId,
-  entriesSource,
   onOpenDeleted,
   onReload,
   onTryInPreview,
@@ -256,7 +197,6 @@ function PageTableGrid({
   markSince: string | null | undefined;
   client: PageEntriesClient;
   viewId: string;
-  entriesSource: PageEntriesSource;
   onOpenDeleted: () => void;
   onReload: () => void;
   onTryInPreview: () => void;
@@ -290,8 +230,8 @@ function PageTableGrid({
   const since = markSince === undefined ? state?.live?.lastSeen : markSince;
   const newCount = showDeleted ? 0 : state?.live ? newEntryCount(state.live, since) : table.summary?.newCount ?? 0;
   const activeFilters = Object.entries(filters).filter(([key, value]) => value.trim() && shownColumns.some((column) => column.key === key)).length;
-  // Test entries tell the page in Preview; online entries reach visitors through work-fold checking in.
-  const announce = () => { if (entriesSource === "test") announcePageDataChange({ workFolderId, page: path, table: tableName, source: viewId }); };
+  // A change made here reaches the page in Preview.
+  const announce = () => announcePageDataChange({ workFolderId, page: path, table: tableName, source: viewId });
 
   // Selections only hold entries that are still here.
   useEffect(() => {
@@ -434,10 +374,8 @@ function PageTableGrid({
               <><h3>Nothing Deleted</h3><p>Deleted entries wait here for 30 days, and can be restored.</p></>
             ) : table.retired ? (
               <><h3>No Entries</h3><p>This page no longer collects {humanizeName(tableName)}.</p></>
-            ) : entriesSource === "online" ? (
-              <><h3>{pagePublishing.noOnlineEntriesHeading}</h3><p>{pagePublishing.noOnlineEntries}</p></>
             ) : (
-              <><h3>No Test Entries Yet</h3><p>Try the page in Preview; what it saves shows up here.</p><button className="ui-control" type="button" onClick={onTryInPreview}>Open Preview</button></>
+              <><h3>No Entries Yet</h3><p>Try the page in Preview; what it saves shows up here.</p><button className="ui-control" type="button" onClick={onTryInPreview}>Open Preview</button></>
             )}
           </div>
         ) : (

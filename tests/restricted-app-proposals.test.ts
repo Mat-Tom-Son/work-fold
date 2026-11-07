@@ -55,7 +55,8 @@ test("propose_space_app exposes only a work-folder-relative path and reports wha
   assert.doesNotMatch(guidance, /includes runId, automationId/);
   assert.match(guidance, /tabs\.open\(\{tabId,title,route,state\}\) works only from the left-pane view, inside a handler for the person's click or key press/);
   assert.match(guidance, /Inline <script> blocks, inline event handlers such as onclick=, eval, new Function, and WebAssembly are blocked/);
-  assert.match(guidance, /declare viewer \{entry:'viewer\.html', readable:/);
+  // Web Access was removed (2026-11-07): the guide no longer teaches the paired-browser viewer.
+  assert.doesNotMatch(guidance, /declare viewer/);
   assert.match(guidance, /context\.get\(\)\.theme/);
   // A notification names where a click opens the app, never its copy, and
   // the left pane renders from the route it is opened at.

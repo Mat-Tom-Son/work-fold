@@ -133,14 +133,12 @@ Ordinary Pi selection, confirmation, text input, and editor requests appear
 inline in their owning work-folder Chat or work-fold agent Chat. Multiple questions remain
 separate; switching Chats and reconnecting restores the current pending set.
 Typed responses are validated before the callback settles. A failed send keeps
-the field available for retry. The paired web client can see and answer only
-non-secret requests from its own exact work-fold agent turn and browser grant.
+the field available for retry.
 Async context carries the originating task identity while that turn is live.
 A later question from an ended turn or a reused connection belongs to the Chat
 without borrowing a newer turn's task identity. Session-start and reload
 callbacks likewise keep session ownership: their desktop questions can outlive
-an ordinary turn. These unattributed questions are not relayed to a paired
-browser, which requires an exact browser-owned task. Stop cancels pending
+an ordinary turn. Stop cancels pending
 callbacks and questions during native prompt draining. After draining, a
 surviving connection may ask a new Chat-owned question; session disposal
 permanently cancels that session's UI access.

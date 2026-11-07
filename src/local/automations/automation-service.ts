@@ -1823,11 +1823,11 @@ function causeSummary(cause: WorkFoldAutomationRunCause, declaration: WorkFoldAu
       if (cause.catchUp) {
         const { count, reason } = cause.catchUp;
         const more = cause.changedCount - count;
-        return `Caught up on ${count} ${count === 1 ? "file" : "files"} under "${watched}" in work-folder ${cause.workFolderId}`
+        return `Caught up on ${count} ${count === 1 ? "file" : "files"} ${watched ? `under "${watched}"` : "at the top level"} in work-folder ${cause.workFolderId}`
           + ` that changed ${automationCatchUpGap(reason)}.`
           + (more > 0 ? ` ${more} more ${more === 1 ? "file" : "files"} changed after that.` : "");
       }
-      return `${cause.changedCount} file(s) changed under "${watched}" in work-folder ${cause.workFolderId}.`;
+      return `${cause.changedCount} file(s) changed ${watched ? `under "${watched}"` : "at the top level"} in work-folder ${cause.workFolderId}.`;
     }
     default:
       return cause.source.kind === "check-run"

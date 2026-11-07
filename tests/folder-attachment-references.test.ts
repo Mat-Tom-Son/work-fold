@@ -39,7 +39,13 @@ test("staging rejects unavailable files and unsafe paths; a later deletion remai
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "Notes"));
   await assert.rejects(previewConversationContextReference(root, { path: "missing.txt" }), /File not found/);
-  await assert.rejects(previewConversationContextReference(root, { path: "Notes" }), /Only files/);
+  // A folder is a path-only reference (the file manager's "Work on this folder", 2026-11-06).
+  const folder = await previewConversationContextReference(root, { path: "Notes" });
+  assert.equal(folder.sourceKind, "folder");
+  assert.equal(folder.mode, "path_only_reference");
+  const [folderLoaded] = await loadConversationContextReferencesForTurn(root, ["Notes"]);
+  assert.equal(folderLoaded!.sourceKind, "folder");
+  assert.match(buildTurnContextMessage({ contextAttachments: [folderLoaded!] }), /person attached this folder path: "Notes"/);
   await assert.rejects(previewConversationContextReference(root, { path: "../outside.txt" }));
   await assert.rejects(previewConversationContextReference(root, { path: ".pi/config.json" }));
   await writeFile(join(root, "notes.txt"), "Original");

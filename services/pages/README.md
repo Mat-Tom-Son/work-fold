@@ -1,8 +1,8 @@
 # work-fold page service
 
 Serves published pages to visitors and keeps each page's entries. The contract
-is [Pages: Page service](../../docs/pages.md#page-service); the background is
-the [Online pages plan](../../docs/online-pages-plan.md).
+is [Pages: Page service](../../docs/archive/online-pages-plan.md#page-service); the background is
+the [Online pages plan](../../docs/archive/online-pages-plan.md).
 
 - **Public port** (`PORT`): the trusted shell at `/p/<pageId>`, the page's
   document, page calls for the visitor, the sandbox intermediary

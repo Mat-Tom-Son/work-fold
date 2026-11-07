@@ -173,20 +173,6 @@ test("desktop agent shells inherit the exact running profile in development and 
   assert.match(main, /desktopHostPromise = \(async \(\) => \{\s+await ensureLoginShellEnvironment\(\);/);
 });
 
-test("packaged Remote access enrollment carries no shared client credential", async () => {
-  const main = await read("desktop/src/main.ts");
-  const start = main.indexOf("async function configureRemoteAccess");
-  const end = main.indexOf("\n}\n\nasync function setRemoteAccessEnabled", start);
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const enrollment = main.slice(start, end);
-
-  assert.match(enrollment, /remoteBridgeRequest[\s\S]*?\(bridgeUrl, "\/api\/device\/enroll", \{/);
-  assert.match(enrollment, /deviceSigningPublicJwk/);
-  assert.match(enrollment, /deviceEncryptionPublicJwk/);
-  assert.doesNotMatch(main, /WORKFOLD_REMOTE_ENROLLMENT_SECRET|x-work-fold-enrollment/);
-});
-
 /**
  * Shared act-lane contract both platform shims must keep: automation that never
  * lets a content-bearing act command fall through to protocol v1 — every

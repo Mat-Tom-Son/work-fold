@@ -1,5 +1,7 @@
 # File previews in paired browsers
 
+> **Archived 2026-11-07:** the desktop no longer has Web Access or Publish; kept as history.
+
 A paired browser can open a file from a copied-file receipt or a completed
 child task in the current work-fold agent request. The dialog shows the
 work-folder and relative path, with Close and Refresh. Links come from host

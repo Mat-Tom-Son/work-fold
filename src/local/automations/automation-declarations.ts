@@ -23,8 +23,13 @@ import { workFoldCheckDigest } from "../checks/check-integrity.js";
  */
 export const workFoldAutomationProposalKind = "work-fold.automation-proposal" as const;
 export const workFoldAutomationDeclarationKind = "work-fold.automation" as const;
-export const workFoldAutomationContractVersion = 5 as const;
-export const workFoldAutomationSupportedContractVersions = [1, 2, 3, 4, workFoldAutomationContractVersion] as const;
+export const workFoldAutomationContractVersion = 6 as const;
+/**
+ * Version 6 (2026-11-07) lets a folder-change trigger watch the work-folder's
+ * own top level, `"path": ""` without recursion, for the file manager's
+ * ready-made Automations (Organize New Files, docs/automations.md).
+ */
+export const workFoldAutomationSupportedContractVersions = [1, 2, 3, 4, 5, workFoldAutomationContractVersion] as const;
 export type WorkFoldAutomationContractVersion = (typeof workFoldAutomationSupportedContractVersions)[number];
 
 /** Filename convention for inert automation proposals in the work-fold agent's working folder. */
@@ -587,7 +592,7 @@ function normalizeTrigger(value: unknown, version: WorkFoldAutomationContractVer
         throw new Error('folder-change trigger ifMissed must be "run" or "skip".');
       }
     }
-    const watch = normalizeFilesSource(record.watch, "Watched folder");
+    const watch = normalizeWatchedFolder(record.watch, version);
     if (watch.kind !== "tree") throw new Error("A folder-change trigger requires one bounded folder selector.");
     return { kind: "files-changed", workFolder: workFolderId(record.workFolder, "Watched work-folder"), watch,
       debounceSeconds: boundedInteger(record.debounceSeconds, "folder-change debounce seconds", 1, 3_600),
@@ -685,6 +690,22 @@ function stepModel(value: unknown, label: string): WorkFoldAutomationStepModel {
     return raw.trim();
   };
   return { provider: part(record.provider, "provider"), id: part(record.id, "id") };
+}
+
+/**
+ * The folder a folder-change trigger watches. Version 6 adds the work-folder's
+ * own top level (`"path": ""`), only without recursion: the files directly in
+ * it, never a subfolder, so a nested work-folder is never read.
+ */
+function normalizeWatchedFolder(value: unknown, version: WorkFoldAutomationContractVersion): WorkFoldAutomationFilesSource {
+  const record = objectRecord(value, "Watched folder source must be a JSON object.");
+  if (record.kind === "tree" && record.path === "") {
+    if (version < 6) throw new Error("Watching a work-folder's top level requires contract version 6.");
+    assertKeys(record, ["kind", "path", "recursive", "extensions"], [], "Watched folder source");
+    if (record.recursive !== false) throw new Error("A work-folder's top level can be watched only without recursion.");
+    return { kind: "tree", path: "", recursive: false, extensions: normalizeExtensions(record.extensions, "Watched folder source") };
+  }
+  return normalizeFilesSource(value, "Watched folder");
 }
 
 function normalizeFilesSource(value: unknown, stepLabel: string): WorkFoldAutomationFilesSource {

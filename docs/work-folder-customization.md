@@ -34,7 +34,7 @@ The editor keeps the common path direct:
 - undo the latest edits, reset the work-folder, or import/export a code-free appearance proposal.
 
 The four original image presets ship as local WebP assets with separate picker thumbnails; they
-work offline in the desktop and paired web renderer. They were generated for work-fold with the
+work offline in the desktop. They were generated for work-fold with the
 built-in image generation tool from coastal, warm color-field, layered-paper, and dusk concepts.
 Image framing opens in a popover and does not resize the preview or move the controls. Color choices
 show the actual color with a centered selection mark; the accent applies to rail, tab, and Chat identity

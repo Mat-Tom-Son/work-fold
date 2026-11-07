@@ -11,7 +11,7 @@ import { WorkFoldLockup } from "../brand/WorkFoldBrand";
 import { ConnectAi, type ConnectedAi } from "./ConnectAi";
 
 type OnboardingStep = "welcome" | "connect" | "tools" | "folder";
-type MacTool = "chrome" | "computer";
+export type MacTool = "chrome" | "computer";
 
 /**
  * First run (2026-10-11): what work-fold is, connecting an AI provider, then
@@ -130,7 +130,7 @@ export function OnboardingFlow({ agentConfigured, onAiConnected, onCreateWorkFol
  * available, and Computer Control on a Mac that supports it. None outside the
  * desktop app, where the tools are not included.
  */
-function useMacTools(fixtureMode: boolean): MacTool[] {
+export function useMacTools(fixtureMode: boolean): MacTool[] {
   const [tools, setTools] = useState<MacTool[]>([]);
   useEffect(() => {
     if (fixtureMode) return;

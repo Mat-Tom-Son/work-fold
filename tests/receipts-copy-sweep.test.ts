@@ -55,7 +55,7 @@ test("public documents promise receipts and undo instead of gates", async () => 
   assert.match(security, /\*\*Receipts, not gates\.\*\*/);
   assert.match(security, /Destruction is reversible\./);
   assert.match(security, /`work-fold recently-deleted list\|restore`/);
-  assert.match(security, /The only human-only surfaces establish identity or secrets/);
+  assert.match(security, /The only human-only surface establishes secrets/);
 
   const privacy = await read("PRIVACY.md");
   assert.match(privacy, /Recently deleted items under the application-data `recently-deleted\/` directory/);

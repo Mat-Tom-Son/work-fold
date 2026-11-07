@@ -37,21 +37,21 @@ export interface WorkFoldCliActReceiptV1 {
 
 /**
  * Closed surface vocabulary for act receipts: the authenticated surface that
- * initiated an act — the act CLI, the menu-bar popover, the main window's
- * Settings acts, or a paired remote browser. `remote_web` matches the
- * provenance spelling already durable in conversation logs.
+ * initiated an act — the act CLI, the menu-bar popover, or the main window's
+ * Settings acts.
  */
-export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window", "remote_web"] as const;
+export const WORKFOLD_CLI_ACT_SURFACES = ["cli", "popover", "main-window"] as const;
 
 export type WorkFoldCliActSurface = (typeof WORKFOLD_CLI_ACT_SURFACES)[number];
 
 /**
- * Surfaces older builds wrote on decision receipts (a standing policy or the
- * Unrestricted authority mode satisfying a gated act). Nothing writes them
- * any more; readers of durable records accept them so those lines stay
- * readable history and still gate replays.
+ * Surfaces older builds wrote: on decision receipts (a standing policy or the
+ * Unrestricted authority mode satisfying a gated act), and `remote_web` for
+ * acts from a paired browser before Web Access was removed (2026-11-07).
+ * Nothing writes them any more; readers of durable records accept them so
+ * those lines stay readable history and still gate replays.
  */
-export const WORKFOLD_CLI_ACT_LEGACY_SURFACES = ["policy", "unrestricted"] as const;
+export const WORKFOLD_CLI_ACT_LEGACY_SURFACES = ["policy", "unrestricted", "remote_web"] as const;
 
 export type WorkFoldCliActLegacySurface = (typeof WORKFOLD_CLI_ACT_LEGACY_SURFACES)[number];
 
@@ -82,8 +82,8 @@ export interface WorkFoldCliActReceiptV2 extends Omit<WorkFoldCliActReceiptV1, "
 
 export interface WorkFoldCliActReceiptV3 extends Omit<WorkFoldCliActReceiptV1, "v"> {
   v: 3;
-  surface?: WorkFoldCliActSurface;
-  /** Approved remote browser identity, when the act arrived through remote access. */
+  surface?: WorkFoldCliActSurface | WorkFoldCliActLegacySurface;
+  /** Read only: the paired browser older builds stamped on acts that came through Web Access. */
   browserId?: string;
   grantId?: string;
   undoRef?: WorkFoldCliActUndoRef;

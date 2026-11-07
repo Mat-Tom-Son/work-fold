@@ -103,12 +103,17 @@ module.exports = {
     entitlements: path.join(root, "desktop", "entitlements.plist"),
     entitlementsInherit: path.join(root, "desktop", "entitlements.plist"),
     // What macOS shows when a site in the built-in browser asks for these
-    // (docs/built-in-browser.md). The browser asks the person first.
+    // (docs/built-in-browser.md; the browser asks the person first), and when
+    // the file manager first opens a standard folder.
     extendInfo: {
       NSCameraUsageDescription: "A website open in work-fold's browser wants to use your camera.",
       NSMicrophoneUsageDescription: "A website open in work-fold's browser wants to use your microphone.",
       NSLocationUsageDescription: "A website open in work-fold's browser wants to know your location.",
       NSLocationWhenInUseUsageDescription: "A website open in work-fold's browser wants to know your location.",
+      // The File Manager's Standard Folders (docs/product-model.md, 2026-11-06).
+      NSDesktopFolderUsageDescription: "work-fold shows your Desktop in its file manager.",
+      NSDocumentsFolderUsageDescription: "work-fold shows your Documents folder in its file manager.",
+      NSDownloadsFolderUsageDescription: "work-fold shows your Downloads folder in its file manager.",
     },
   },
   dmg: {

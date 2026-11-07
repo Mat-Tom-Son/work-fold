@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
-import { CirclePlus, Loader2 } from "../chrome/icons";
+import { CirclePlus, Loader2, X } from "../chrome/icons";
 import { errorText } from "../../lib/api";
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { Banner } from "../chrome/common";
@@ -20,8 +20,8 @@ export function CreateWorkFolderModal({ onClose, onCreate }: { onClose: () => vo
   return <div className="modal-backdrop" role="presentation" onMouseDown={creating ? undefined : onClose}>
     <section ref={dialogRef} tabIndex={-1} className="create-work-folder-modal" role="dialog" aria-modal="true" aria-labelledby="create-work-folder-title" onMouseDown={(event) => event.stopPropagation()}>
       <form className="create-work-folder-form" onSubmit={(event) => void submit(event)}>
-        <div className="modal-title"><div><h2 id="create-work-folder-title">Create a work-folder</h2></div><button className="ui-control ui-control--quiet" type="button" onClick={onClose} disabled={creating}>Close</button></div>
-        <div className="create-work-folder-content"><label className="settings-field" htmlFor="create-work-folder-name">work-folder Name<input ref={inputRef} id="create-work-folder-name" value={name} maxLength={80} autoComplete="off" placeholder="Plan a trip, manage a move…" onChange={(event) => { setName(event.currentTarget.value); setError(null); }} disabled={creating} /></label>{error ? <Banner tone="error" text={error} /> : null}</div>
+        <div className="modal-title"><div><h2 id="create-work-folder-title">Create a work-folder</h2></div><button className="ui-control ui-control--icon" type="button" onClick={onClose} disabled={creating} aria-label="Close"><X size={16} /></button></div>
+        <div className="create-work-folder-content"><label className="settings-field" htmlFor="create-work-folder-name">Name<input ref={inputRef} id="create-work-folder-name" value={name} maxLength={80} autoComplete="off" placeholder="Plan a trip, manage a move…" onChange={(event) => { setName(event.currentTarget.value); setError(null); }} disabled={creating} /></label>{error ? <Banner tone="error" text={error} /> : null}</div>
         <div className="create-work-folder-footer"><button className="ui-control" type="button" onClick={onClose} disabled={creating}>Cancel</button><button className="ui-control ui-control--primary" type="submit" disabled={creating || !name.trim()} aria-busy={creating ? "true" : undefined}>{creating ? <Loader2 className="spin" size={16} /> : <CirclePlus size={16} />}Create Folder</button></div>
       </form>
     </section>

@@ -85,19 +85,18 @@ Host continuations appear as quiet activity, never as messages typed by the pers
 Refresh and reconnect preserve drafts and focus. Unsent question answers use
 session storage for the current renderer or browser tab, clear after acceptance,
 and never enter model context before sending. A saved but undelivered answer has
-an explicit recovery action. The paired browser has these controls only for its
-own browser-grant request family; other Needs you items direct it to the desktop.
+an explicit recovery action.
 
 ### Management layer and CLI
 
 - The read-only work-fold agent layer is additive infrastructure; it must not replace or weaken work-folder-bound tabs, background continuity, native menus, or the visible trust and capability-management surfaces.
-- The paired web client focuses on New chat and saved Chats. It removes Files/work-folder browsing and uses the same neutral hover surface throughout. Desktop Files remains first-class.
+- There is no paired web client: Web Access was removed from the desktop on 2026-11-07. Desktop Files remains first-class.
 - The installed `work-fold` command resolves the terminal's current folder to the same work-folder model as the renderer, can report live agent/compaction tasks, and exposes compact capability metadata through stable JSON.
 - A headless CLI request must coexist with the running single-instance desktop app, return bounded stdout/stderr/exit status, and avoid opening or stealing focus from the interactive window.
 - Installer PATH integration must be reversible and must not modify shell profile files.
-- Settings uses Appearance, AI Models, Web access, Automations, Recently deleted, and About, plus an Apps page (2026-09-25) that lists installed work-folder apps by work-folder and owns their management. Automations also carries Limits, collapsed by default under a Limits disclosure; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
+- Settings uses Appearance, AI Models, Automations, Recently deleted, and About, plus an Apps page (2026-09-25) that lists installed work-folder apps by work-folder and owns their management. Automations also carries Limits, collapsed by default under a Limits disclosure; Recently deleted carries the entry list, Restore, Save a copy, Delete now, and the retention window; Updates lives in About; no authority selector or standing-rules section exists on any surface.
 - On macOS the work-folder header's right-click menu is native, like tabs and Files (2026-11-05): New Chat, Customize work-folder, Set Up for Me, Just the Look, Show in Finder, and Manage work-folders. Elsewhere the in-app menu appears above pane dividers. An outside press dismisses it without starting a resize or activating an underlying control; Escape also dismisses it and returns focus to the header. Pane resizing resumes normally after dismissal.
-- **Needs you** shows only agent questions and due snoozes — never an action waiting for approval. On the desktop, questions appear inside their owning Chats and due snoozes return to the Chats list. The paired web client shows questions inside their owning Chats and plain titles in the chat list; it has no separate Needs you screen or receipt feed. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the overview. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
+- **Needs you** shows only agent questions and due snoozes — never an action waiting for approval. On the desktop, questions appear inside their owning Chats and due snoozes return to the Chats list. The popover stays focused on its always-visible, incrementally streaming conversation, one expanding composer whose action becomes **Stop** during active work, a clickable actual-model label, and a text-only supported reasoning selector; it neither fetches nor acknowledges the overview. None of these adds a rail destination, tab, or notification; the main window may carry at most a questions-only indicator that opens those items — never an approval control — and with nothing to show, no control appears.
 
 ### Restricted work-folder apps
 

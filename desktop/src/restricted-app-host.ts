@@ -1416,8 +1416,7 @@ export class RestrictedAppHost implements RestrictedAppRuntimeHost {
 
   async #handleAssistantInference(event: IpcMainInvokeEvent, value: unknown): Promise<unknown> {
     // Same admission as a Worker request: an active view, or a worker
-    // while it holds a tool action or an automation run. Viewers and remote
-    // app views never reach this channel at all.
+    // while it holds a tool action or an automation run.
     const instance = this.#ownedPowerInstance(event.sender, ipcFromMainFrame(event));
     if (!instance || !this.#assistantInference) {
       return hostError("INFER_UNAVAILABLE", "Inference needs an active app view or a running worker operation.");

@@ -614,6 +614,9 @@ const restorePointTitles: Record<string, string> = {
 /** A restore point's name in the words the rest of the app uses. */
 export function restorePointTitle(item: Pick<WorkFolderCheckpoint, "label" | "reason">): string {
   const label = item.label?.trim() || item.reason;
+  // The host names the safety point taken before a restore after the restore
+  // point's id ("Before restoring cp-20261107013801-1a2b3c4d"); the id means nothing to a person.
+  if (/^Before restoring cp-\d{14}-[0-9a-f]{8}$/u.test(label)) return "Before restoring";
   return restorePointTitles[label] ?? label;
 }
 

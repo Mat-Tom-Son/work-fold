@@ -1,0 +1,1595 @@
+/*
+ * Settings, Skills & Extensions, Connect AI, and the other dialogs over the
+ * file manager (docs/product-model.md, 2026-11-06 file manager layout) wear
+ * its palette: the shared --ui-* tokens are pointed at the file manager's
+ * colors inside each dialog, so every Settings page follows without its own
+ * copy, and the Settings window takes the macOS System Settings shape.
+ */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop {
+  /* The file manager's own tokens (file-manager.css), so Settings → Appearance restyles the dialogs with it. */
+  --ui-canvas: var(--fm-panel);
+  --ui-surface: var(--fm-card);
+  --ui-surface-subtle: var(--fm-panel);
+  --ui-surface-hover: var(--fm-hover);
+  --ui-text: var(--fm-text);
+  --ui-text-muted: var(--fm-text2);
+  --ui-text-subtle: var(--fm-text3);
+  --ui-border: var(--fm-line);
+  --ui-border-strong: var(--fm-field-line);
+  --ui-accent: var(--fm-link);
+  --ui-accent-solid: var(--fm-accent);
+  --ui-accent-hover: color-mix(in srgb, var(--fm-accent) 88%, #000);
+  --ui-accent-soft: var(--fm-accent-soft);
+  --ui-accent-text-ui: var(--fm-link);
+  --ui-accent-contrast: var(--fm-on-accent);
+  --ui-on-accent: var(--fm-on-accent);
+  --ui-primary-hover: color-mix(in srgb, var(--fm-accent) 88%, #000);
+  --ui-primary-pressed: color-mix(in srgb, var(--fm-accent) 76%, #000);
+  --ui-focus: color-mix(in srgb, var(--fm-accent) 55%, transparent);
+  --ui-button-fill: var(--fm-btn);
+  --ui-button-edge: var(--fm-field-line);
+  --ui-control-hover: var(--fm-btn-hover);
+  --ui-control-pressed: color-mix(in srgb, var(--fm-btn-hover) 88%, var(--fm-text));
+  --ui-control-foreground: var(--fm-text);
+  --ui-danger: #d70015;
+  --ui-success: #1e9e4a;
+  --ui-attention: #c26a00;
+  --ui-attention-soft: rgba(255, 149, 0, 0.14);
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 10px;
+  --ui-radius-xl: 12px;
+  --ui-shadow-menu: 0 12px 34px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --ui-shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.26), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+  --work-folder-accent-solid: var(--fm-accent);
+  --work-folder-selection-accent: var(--fm-accent);
+  --surface-tab-accent: var(--fm-accent);
+  --fmd-side: var(--fm-side-solid);
+  --fmd-card: var(--fm-card);
+  --fmd-line: var(--fm-line);
+  background: rgba(0, 0, 0, 0.18);
+  font-family: var(--fm-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] .app-shell.layout-file-manager .modal-backdrop {
+  --ui-danger: #ff453a;
+  --ui-success: #34c262;
+  --ui-attention: #ffb340;
+  --ui-attention-soft: rgba(255, 159, 10, 0.18);
+  background: rgba(0, 0, 0, 0.36);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(h1, h2, h3, h4, p, span, label, button, input, select, textarea) {
+  font-family: inherit;
+}
+
+/*
+ * The Settings window in the file manager's own style (owner request,
+ * 2026-11-07: "make them match our new styling"): its sidebar is the file
+ * manager's sidebar (line icons in the accent, a gray pill for the page
+ * shown), the page's name sits in a toolbar the way a folder's name does, and
+ * each page is the right panel's grouped white cards on gray, with the file
+ * manager's buttons, pop-up buttons, fields, switches, and segmented controls.
+ */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - 48px));
+  height: min(640px, calc(100vh - 48px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fm-panel);
+  box-shadow: var(--ui-shadow-lg);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+/* No title band: the page's name is the toolbar, and Close sits at its far end. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-title {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 0;
+  width: 56px;
+  height: 52px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-title h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/*
+ * Placed by offset, not a centering transform: the app's control hover rules
+ * reset transforms, which dropped the button by half its height on hover.
+ */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-close-button {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fm-cap);
+  box-shadow: none;
+  color: var(--fm-text2);
+  transform: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-close-button:hover {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-close-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Settings opens with focus on the close button: no ring for a pointer, a round one for the keyboard. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-close-button:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-close-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ui-focus);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-form {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 0;
+  height: 100%;
+}
+
+/* The sidebar, as the file manager's: a "Settings" heading, then the pages. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  padding: 10px 10px 12px;
+  overflow: auto;
+  border: 0;
+  border-right: 0.5px solid var(--fm-line);
+  border-radius: 0;
+  background: var(--fm-side-solid);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tabs::before {
+  display: block;
+  padding: 6px 8px 6px;
+  color: var(--fm-text3);
+  content: "Settings";
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 600;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: calc(28px * var(--fm-scale) * var(--fm-density));
+  min-height: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab:hover:not(.active) {
+  background: var(--fm-hover);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab.active {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-nav-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  background: none;
+  color: var(--fm-link);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-nav-icon svg {
+  width: 16px;
+  height: 16px;
+  color: var(--fm-link);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-content {
+  display: block;
+  min-height: 0;
+  padding: 0 24px 28px;
+  overflow: auto;
+  background: var(--fm-panel);
+}
+
+/* The page's name is its toolbar: it stays put while the page scrolls. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-page-title {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  align-items: center;
+  height: 52px;
+  margin: 0 -24px 6px;
+  padding: 0 64px 0 24px;
+  background: var(--fm-panel);
+  font-size: calc(15px * var(--fm-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel {
+  display: grid;
+  gap: 18px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel[hidden] {
+  display: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.assistant-settings-panel, .appearance-settings, .automation-inspector) {
+  display: grid;
+  gap: 18px;
+}
+
+/* A card's own heading sits above it, as the right panel's "Automations" does. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section:has(> :is(h3, h4, h5, .settings-section-heading, .ai-models-section-heading):first-child):not(.keyboard-shortcuts-group):not(.appearance-settings-section),
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section:has(> .ai-models-connection-panel:first-child) {
+  margin-top: 22px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section:not(.keyboard-shortcuts-group):not(.appearance-settings-section) > :is(h3, h4, h5, .settings-section-heading, .ai-models-section-heading):first-child,
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section > .ai-models-connection-panel:first-child > .ai-models-section-heading:first-child {
+  position: absolute;
+  top: -21px;
+  left: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+/* Groups: a heading over a white card, as the right panel's Automations card. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(section, details.settings-section) {
+  position: relative;
+  isolation: isolate;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(h3, h4, h5, legend),
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is([class$="-heading"], [class*="-heading "]) > :is(h3, h4, h5) {
+  margin: 0;
+  padding: 0;
+  color: var(--fm-text);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section > :is(h3, h4, h5, [class$="-heading"]):first-child {
+  margin: 0 4px 6px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(p, small, .settings-help, [class$="-description"]) {
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  line-height: 1.45;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(strong, b) {
+  color: var(--fm-text);
+  font-weight: 600;
+}
+
+/* Rows: label on the left, control on the right, divided by hairlines. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is([class$="-settings-row"], [class*="-settings-row "]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: calc(40px * var(--fm-density));
+  margin: 0;
+  padding: 6px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  background: var(--fm-card);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(h3, h4, [class$="-heading"]) + :is([class$="-settings-row"], [class*="-settings-row "]),
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section > :is([class$="-settings-row"], [class*="-settings-row "]):first-child {
+  border-top: 0;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is([class$="-settings-row"], [class*="-settings-row "]):last-child,
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is([class$="-settings-row"], [class*="-settings-row "]):not(:has(+ :is([class$="-settings-row"], [class*="-settings-row "]))) {
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+/* A section built from its own fields rather than rows is one white card, its heading the first line. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section:not(:has(> :is([class$="-settings-row"], [class*="-settings-row "]))):not(:has(section)):not(.keyboard-shortcuts-group):not(.appearance-settings-section) {
+  padding: 12px 14px 14px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+/* Inside a card, its heading reads as the card's first line. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel section:not(:has(> :is([class$="-settings-row"], [class*="-settings-row "]))):not(:has(section)) > :is(h3, h4, h5, [class$="-heading"]):first-child {
+  margin: 0 0 8px;
+}
+
+/* Buttons, as the file manager's. */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control:hover:not(:disabled) {
+  background: var(--fm-btn-hover);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control:disabled {
+  opacity: 0.5;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control svg {
+  width: 14px;
+  height: 14px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--primary {
+  background: var(--fm-accent);
+  box-shadow: none;
+  color: var(--fm-on-accent);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fm-accent) 88%, #000);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control.danger {
+  color: var(--ui-danger);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--icon,
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--quiet {
+  padding: 0 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--icon:hover:not(:disabled),
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .ui-control--quiet:hover:not(:disabled) {
+  background: var(--fm-hover);
+}
+
+/* Pop-up buttons: every menu choice in Settings looks like the Mac's. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel :is(select, .model-catalog-trigger) {
+  height: 26px;
+  min-height: 26px;
+  max-width: 100%;
+  padding: 0 28px 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--fm-btn);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14'%3E%3Cpath d='M2 5.5 5 2.5l3 3M2 8.5l3 3 3-3' fill='none' stroke='%238e8e93' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel .model-catalog-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel .model-catalog-trigger > svg:last-child {
+  display: none;
+}
+
+/* Fields, as the file manager's message box: a filled field that rings in the accent while typing. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel :is(input[type="text"], input[type="search"], input[type="number"], input[type="url"], input[type="password"], input[type="email"], input:not([type]), textarea) {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 7px;
+  background: var(--fm-field);
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel :is(input, textarea):focus-visible {
+  border-color: var(--fm-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--fm-accent-soft);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel textarea {
+  padding: 8px 10px;
+  line-height: 1.45;
+}
+
+/* Switches for every on/off choice, as the Automations card's. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel input[type="checkbox"] {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fm-cap2);
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background 0.2s;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel input[type="checkbox"]::before {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  content: "";
+  transition: transform 0.2s;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel input[type="checkbox"]:checked {
+  background: var(--fm-accent);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel.settings-tab-panel.settings-tab-panel input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+}
+
+/* Segmented controls, as the panel's Info and History. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.theme-segmented-control, .ai-models-scope-control, .capabilities-type-chips, .work-folder-segmented) {
+  display: flex;
+  gap: 0;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fm-cap);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.theme-segmented-control, .capabilities-type-chips, .work-folder-segmented) > button,
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.theme-segmented-control, .capabilities-type-chips, .work-folder-segmented) > button:is(.active, [aria-checked="true"], [aria-pressed="true"]),
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label.active {
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.theme-segmented-control, .capabilities-type-chips, .work-folder-segmented) > button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* AI Models: the scope is a segmented control under its heading ("This Worker · Home projects"). */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control {
+  position: relative;
+  width: 100%;
+  margin-top: 22px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > legend {
+  position: absolute;
+  top: -20px;
+  left: 4px;
+  float: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label small {
+  display: inline;
+  color: var(--fm-text2);
+  font-size: inherit;
+  font-weight: 400;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label small::before {
+  content: "· ";
+}
+
+/* Lists inside a card: each item a row, as History's. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.settings-list, .automation-run-list) {
+  overflow: hidden;
+  margin: 8px -14px 10px;
+  border-top: 0.5px solid var(--fm-card-line);
+  border-bottom: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.settings-list, .automation-run-list):last-child {
+  margin-bottom: -14px;
+  border-bottom: 0;
+}
+
+/* A field's name: small and quiet above the field, as the Mac's forms label them. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.settings-field > span:first-child, .professional-field-label, .settings-field-label) {
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .ai-models-scope-control > label span {
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel :is(.settings-list-row) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 0.5px solid var(--fm-card-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-list-row:last-child {
+  border-bottom: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-list-row > div:first-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-list-row :is(strong, small) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-list-row strong {
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .settings-list-row small {
+  font-size: calc(11px * var(--fm-scale));
+}
+
+/* Facts (About, Limits): name on the left, value on the right, one row each. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel dl.context-meta-grid {
+  display: block;
+  margin: 8px -14px -14px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel dl.context-meta-grid > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: calc(36px * var(--fm-density));
+  margin: 0;
+  padding: 6px 14px;
+  border-top: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel dl.context-meta-grid :is(dt, dd) {
+  margin: 0;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel dl.context-meta-grid dt {
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel dl.context-meta-grid dd {
+  overflow: hidden;
+  color: var(--fm-text2);
+  text-overflow: ellipsis;
+}
+
+/* Disclosures (Limits, Icon Credits): a row with a chevron that turns. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  list-style: none;
+  cursor: default;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details > summary::-webkit-details-marker {
+  display: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details > summary::before {
+  width: 10px;
+  color: var(--fm-text3);
+  content: "›";
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details.settings-limits {
+  padding: 10px 14px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel details.icon-credits {
+  margin: 8px -14px -14px;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Shortcut Keys: each group a card of rows, its keys as small keycaps. */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .keyboard-shortcuts-pane {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .keyboard-shortcuts-grid {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .keyboard-shortcuts-group {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .keyboard-shortcuts-group > h3 {
+  margin: 0 4px 6px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel .keyboard-shortcuts-list {
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+/* As the Mac's menus list them: what the keys do on the left, the keys on the right. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .keyboard-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: calc(32px * var(--fm-density));
+  margin: 0;
+  padding: 4px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .keyboard-shortcut-row:first-child {
+  border-top: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .keyboard-shortcut-row > span:last-child {
+  order: -1;
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .keyboard-shortcut-keys {
+  display: flex;
+  justify-content: flex-end;
+  gap: 3px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-window .settings-tab-panel kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--fm-cap);
+  box-shadow: none;
+  color: var(--fm-text);
+  font-family: var(--fm-font);
+  font-size: calc(11px * var(--fm-scale));
+  font-weight: 500;
+}
+
+/* Automations: the list is a card of rows like the sidebar's; the inspector is cards under headings. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automations-workbench {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list {
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-row {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  margin: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  text-align: left;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-row:hover:not(.selected) {
+  background: var(--fm-hover);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-row.selected {
+  background: var(--fm-cap2);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-row :is(.automation-list-heading, small) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-list-row small {
+  font-size: calc(11px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 0 4px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-header > div:first-child {
+  display: grid;
+  grid-template: none;
+  gap: 2px;
+  min-width: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-header > div:first-child > * {
+  grid-area: auto;
+  margin: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-header h4 {
+  overflow: hidden;
+  font-size: calc(14px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-header > div:first-child > span {
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-inspector-actions {
+  display: flex;
+  flex: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-health {
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 600;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-health.enabled {
+  color: var(--fm-green);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel dl.automation-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel dl.automation-facts > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel dl.automation-facts > div + div {
+  border-left: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel dl.automation-facts dt {
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel dl.automation-facts dd {
+  margin: 0;
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-proposals ul {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-proposal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-proposal > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-run {
+  padding: 8px 14px;
+  border-bottom: 0.5px solid var(--fm-card-line);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-run:last-child {
+  border-bottom: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-run > summary {
+  gap: 8px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .automation-run > summary > span:last-child {
+  margin-left: auto;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+}
+
+/* About: the mark centered over the facts, as a Mac app's About window shows it. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .about-work-fold-brand {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 14px;
+}
+
+/* Appearance: Preview and Presets share one card, with Presets as its second heading. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .appearance-settings-section:first-child {
+  padding: 12px 14px 14px;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .appearance-settings-section:first-child > .appearance-settings-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 10px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .appearance-settings-presets-heading {
+  margin: 16px 0 8px;
+}
+
+/* The preview's own text keeps its colors over the page's quieter paragraph style. */
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .fmp p.fmp-you {
+  color: var(--fm-on-accent);
+  font-size: inherit;
+}
+
+:root[data-appearance-messages="quiet"] :root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .fmp p.fmp-you {
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .settings-modal.settings-window .settings-tab-panel .fmp p.fmp-answer {
+  color: var(--fm-text);
+  font-size: inherit;
+}
+
+/*
+ * Skills & Extensions in the same style: the gray panel, a toolbar-sized
+ * title, Installed and Discover as the panel's segmented control, and white
+ * cards for the tools, the two scopes, and the package lists.
+ */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal {
+  border: 0;
+  border-radius: 12px;
+  background: var(--fm-panel);
+  box-shadow: var(--ui-shadow-lg);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal .skills-extensions-header h1 {
+  margin: 0;
+  font-size: calc(15px * var(--fm-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal .skills-extensions-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--fm-cap);
+  color: var(--fm-text2);
+  transform: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal .skills-extensions-close:hover {
+  background: var(--fm-cap2);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal :is(.capabilities-view-tabs, .capabilities-filter-row) {
+  display: inline-flex;
+  gap: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fm-cap);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal :is(.capabilities-view-tabs, .capabilities-filter-row) > button {
+  height: 24px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal :is(.capabilities-view-tabs, .capabilities-filter-row) > button:is(.active, [aria-pressed="true"], [aria-selected="true"]) {
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal .capabilities-search {
+  border: 1px solid var(--fm-field-line);
+  border-radius: 7px;
+  background: var(--fm-field);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal :is(.capabilities-included-grid > *, .capabilities-panel) {
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-card);
+  box-shadow: none;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .skills-extensions-modal :is(.capabilities-scope-heading, .capabilities-supporting-heading) :is(h2, h3, h4) {
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 600;
+}
+
+/*
+ * Settings → Appearance's preview in the file manager layout: a small file
+ * manager window drawn from the same tokens as the real one.
+ */
+:root[data-theme] .app-shell.layout-file-manager .settings-window .appearance-settings-preview.fmp {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) 150px;
+  height: 168px;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-line);
+  border-radius: 10px;
+  background: var(--fm-window);
+  color: var(--fm-text);
+  font-family: var(--fm-font);
+  font-size: calc(11px * var(--fm-scale));
+}
+
+.fmp .fm-ic {
+  font-size: calc(13px * var(--fm-scale));
+}
+
+.fmp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 5px 0 5px 5px;
+  padding: 8px 6px;
+  border: 0.5px solid var(--fm-side-line);
+  border-radius: 8px;
+  background: var(--fm-side);
+}
+
+.fmp-head {
+  margin: 0 4px 4px;
+  color: var(--fm-text3);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.fmp-item,
+.fmp-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fmp-item {
+  height: calc(22px * var(--fm-scale) * var(--fm-density));
+  padding: 0 6px;
+  border-radius: 5px;
+}
+
+.fmp-item.is-current {
+  background: var(--fm-cap2);
+}
+
+.fmp-main {
+  min-width: 0;
+  padding: 6px 6px 0;
+}
+
+.fmp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  height: calc(21px * var(--fm-scale) * var(--fm-density));
+  padding: 0 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.fmp-row > span:last-child {
+  overflow: hidden;
+  color: var(--fm-text2);
+  text-overflow: ellipsis;
+}
+
+.fmp-cols {
+  height: 20px;
+  margin-bottom: 2px;
+  border-bottom: 0.5px solid var(--fm-line);
+  border-radius: 0;
+  color: var(--fm-text2);
+  font-size: 0.9em;
+}
+
+.fmp-row.is-odd {
+  background: var(--fm-stripe);
+}
+
+.fmp-row.is-selected {
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+.fmp-row.is-selected > span:last-child {
+  color: color-mix(in srgb, var(--fm-on-accent) 88%, transparent);
+}
+
+.fmp-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border-left: 0.5px solid var(--fm-line);
+  background: var(--fm-panel);
+  font-family: var(--work-fold-reading-font, var(--fm-font));
+}
+
+.fmp-panel p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.fmp-you {
+  align-self: flex-end;
+  max-width: 92%;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--fm-accent);
+  color: var(--fm-on-accent);
+}
+
+:root[data-appearance-messages="quiet"] .fmp-you {
+  background: var(--fm-card);
+  box-shadow: 0 0 0 0.5px var(--fm-card-line);
+  color: var(--fm-text);
+}
+
+.fmp-answer {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.fmp-field {
+  margin-top: auto;
+  padding: 4px 9px;
+  border: 0.5px solid var(--fm-field-line);
+  border-radius: 999px;
+  background: var(--fm-field);
+  color: var(--fm-text3);
+  white-space: nowrap;
+}
+
+/*
+ * The small dialogs (Create work-folder, Rename, New Folder, and every
+ * confirmation) as Mac sheets: a white card, a semibold title with a round
+ * close button, a quiet field label, and buttons sized to their words at the
+ * bottom right, the default one in the accent.
+ */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) {
+  width: min(420px, calc(100vw - 48px));
+  max-width: none;
+  margin: 0;
+  padding: 18px 20px 20px;
+  border: 0.5px solid var(--fm-line);
+  border-radius: 12px;
+  background: var(--fm-card);
+  box-shadow: var(--ui-shadow-lg);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(form, .text-input-modal-form, .create-work-folder-form) {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .modal-title :is(h2, h3) {
+  margin: 0;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .modal-title .ui-control--icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--fm-cap);
+  color: var(--fm-text2);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .modal-title .ui-control--icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(p, .confirm-dialog-body) {
+  margin: 0 0 4px;
+  color: var(--fm-text2);
+  font-size: calc(13px * var(--fm-scale));
+  line-height: 1.45;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .settings-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .settings-field :is(input, textarea) {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--fm-field-line);
+  border-radius: 7px;
+  background: var(--fm-field);
+  box-shadow: none;
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 400;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) .settings-field :is(input, textarea):focus-visible {
+  border-color: var(--fm-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--fm-accent-soft);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(.create-work-folder-footer, .text-input-modal-footer, .confirm-dialog-footer) {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(.create-work-folder-footer, .text-input-modal-footer, .confirm-dialog-footer) > .ui-control {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 84px;
+  height: 28px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(.create-work-folder-footer, .text-input-modal-footer, .confirm-dialog-footer) > .ui-control.danger {
+  background: var(--ui-danger);
+  box-shadow: none;
+  color: #ffffff;
+}
+
+/*
+ * Notices (owner request, 2026-11-07: "a better toast template"): one card for
+ * everything the window tells you, errors included, stacked at the bottom
+ * center. An icon says what kind it is (done, worth knowing, went wrong),
+ * then the words, the one action, and a close button. Errors stay longer and
+ * carry a red edge.
+ */
+:root[data-theme] .app-shell.layout-file-manager .toast-stack {
+  gap: 8px;
+  width: min(560px, calc(100vw - var(--fm-notice-left, 228px) - var(--fm-notice-right, 320px) - 32px));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 8px 8px 8px 12px;
+  border: 0.5px solid var(--fm-line);
+  border-left-width: 0.5px;
+  border-radius: 12px;
+  background: var(--fm-card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  color: var(--fm-text);
+  font-family: var(--fm-font);
+  font-size: calc(13px * var(--fm-scale));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--fm-link);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast.toast-success .toast-icon {
+  color: var(--fm-green);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast.toast-error {
+  border-color: color-mix(in srgb, var(--ui-danger) 45%, transparent);
+  box-shadow: inset 3px 0 0 var(--ui-danger), 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast.toast-error .toast-icon {
+  color: var(--ui-danger);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-text {
+  min-width: 0;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-action {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--fm-btn);
+  box-shadow: var(--fm-btn-shadow);
+  color: var(--fm-text);
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-dismiss {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fm-text3);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .toast .toast-dismiss:hover {
+  background: var(--fm-hover);
+  color: var(--fm-text);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(.create-work-folder-content, .text-input-modal-content) {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+/* Dialog buttons carry their words only, as the Mac's do; a busy one keeps its spinner. */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop :is(.create-work-folder-modal, .text-input-modal, .confirm-dialog, .connect-ai-dialog) :is(.create-work-folder-footer, .text-input-modal-footer, .confirm-dialog-footer) > .ui-control svg:not(.spin) {
+  display: none;
+}
+
+/* Connect AI: a wider sheet, its providers one card of rows, each with a chevron. */
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog {
+  width: min(480px, calc(100vw - 48px));
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin: 14px 0 0;
+  overflow: hidden;
+  border: 0.5px solid var(--fm-card-line);
+  border-radius: 10px;
+  background: var(--fm-panel);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  min-height: 0;
+  margin: 0;
+  padding: 9px 34px 9px 14px;
+  border: 0;
+  border-top: 0.5px solid var(--fm-card-line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--fm-text);
+  text-align: left;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card:first-child {
+  border-top: 0;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card:hover {
+  background: var(--fm-hover);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card::after {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  color: var(--fm-text3);
+  content: "›";
+  font-size: 17px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(13px * var(--fm-scale));
+  font-weight: 500;
+}
+
+:root[data-theme] .app-shell.layout-file-manager .modal-backdrop .connect-ai-dialog .connect-ai-card span {
+  overflow: hidden;
+  color: var(--fm-text2);
+  font-size: calc(12px * var(--fm-scale));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+

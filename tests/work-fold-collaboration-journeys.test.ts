@@ -795,30 +795,6 @@ test("person-facing work follows delegation, routes exact answers, exposes saved
   } finally { await j.close(); }
 });
 
-test("paired work views admit only the browser's work-fold agent request and its descendants", async () => {
-  const j = await startJourney("work-ui-remote");
-  try {
-    const workFolder = (await j.api.actFacade.createWorkFolder({ name: "Research" })).workFolder;
-    j.held.add(workFoldAgentScopeId); j.held.add(workFolder.id);
-    const principal = { browserId: "browser-one", grantId: "grant-one", requestId: "remote-origin" };
-    const root = await j.api.remoteFacade.execute("management.send", { content: "/hold", newConversation: true }, principal) as any;
-    const child = await j.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold", parentTaskId: root.taskId });
-    const question = await j.api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: child.taskId, question: "Which region?", respondent: "person" });
-    await j.release(child.taskId); await j.settled(workFolder.id, child.taskId);
-    const work = await j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, principal) as any;
-    assert.equal(work.work.questions[0].id, question.question.questionId);
-    await assert.rejects(j.api.remoteFacade.execute("management.work", { taskId: child.taskId }, { ...principal, grantId: "another-grant" }), /another surface/);
-    await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, { ...principal, browserId: "other-browser" }), /another surface/);
-    await j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: question.question.questionId, answer: "/hold" }, principal);
-    assert.equal(j.api.requests.byTaskId(child.taskId)!.turns.length, 2);
-    const local = await j.api.actFacade.sendMessage({ workFolder: workFolder.id, newConversation: true, content: "/hold" });
-    const localQuestion = await j.api.actFacade.chatAsk({ workFolder: workFolder.id, taskId: local.taskId, question: "Private question", respondent: "person" });
-    await assert.rejects(j.api.remoteFacade.execute("management.answer", { taskId: root.taskId, questionId: localQuestion.question.questionId, answer: "/hold" }, principal), /does not belong/);
-    const overview = await j.api.remoteFacade.execute("management.glance", {}, principal) as any;
-    assert.equal(overview.overview.needsYou.find((item: any) => item.ref.questionId === localQuestion.question.questionId).canOpenWork, false);
-  } finally { await j.close(); }
-});
-
 test("saved delegated files are usable and an explicit follow-up carries those results once", async () => {
   const j = await startJourney("work-ui-results");
   try {

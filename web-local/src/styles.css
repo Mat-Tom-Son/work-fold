@@ -8592,7 +8592,7 @@ to {
   margin-right: auto;
 }
 
-.remote-access-overview p,
+
 .settings-section > p {
   margin: 0;
   color: var(--ui-text-muted, #5c6460);
@@ -8600,83 +8600,19 @@ to {
   line-height: 1.5;
 }
 
-.remote-access-state.connected {
-  color: #0f5b46;
-}
 
-.remote-access-state.connecting {
-  color: #7a4b08;
-}
-
-.remote-access-state.error {
-  color: #9f1f1f;
-  border-color: #f2c7c7;
-  background: #fff7f7;
-}
-
-.remote-access-url {
-  width: fit-content;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 7px 9px;
-  font-size: var(--work-fold-type-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remote-access-actions,
-.remote-access-danger-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.remote-access-actions .ui-control,
-.remote-access-danger-actions .ui-control,
-.remote-browser-row .ui-control {
+.settings-list-row .ui-control {
   width: auto;
 }
 
-.remote-access-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
-}
-
-.remote-slug-field {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.remote-slug-field input {
-  min-width: 0;
-  border-radius: 8px 0 0 8px;
-}
-
-.remote-slug-field > span {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  border: 1px solid #d8e0e8;
-  border-left: 0;
-  border-radius: 0 8px 8px 0;
-  padding: 0 9px;
-  color: var(--ui-text-muted, #5c6460);
-  background: #f6f8fb;
-  font-size: var(--work-fold-type-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.remote-browser-list {
+.settings-list {
   display: grid;
   overflow: hidden;
   border: 1px solid #d8e0e8;
   border-radius: 8px;
 }
 
-.remote-browser-row {
+.settings-list-row {
   min-width: 0;
   display: flex;
   align-items: center;
@@ -8685,17 +8621,17 @@ to {
   padding: 9px 10px;
 }
 
-.remote-browser-row + .remote-browser-row {
+.settings-list-row + .settings-list-row {
   border-top: 1px solid #e4e9ef;
 }
 
-.remote-browser-row > div {
+.settings-list-row > div {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 
-.remote-browser-row strong {
+.settings-list-row strong {
   overflow: hidden;
   color: var(--ui-text, #24324a);
   font-size: var(--work-fold-type-sm);
@@ -8703,17 +8639,9 @@ to {
   white-space: nowrap;
 }
 
-.remote-browser-row small,
-.remote-browser-empty {
+.settings-list-row small {
   color: var(--ui-text-muted, #5c6460);
   font-size: var(--work-fold-type-xs);
-}
-
-.remote-browser-empty {
-  border: 1px dashed #d8e0e8;
-  border-radius: 8px;
-  padding: 12px;
-  text-align: center;
 }
 
 .recently-deleted-pane {
@@ -8767,7 +8695,7 @@ to {
 
 /* One line of actions per item: putting it back leads; Delete Now (always
    last) is a quiet red text button, so the two never read as equals. */
-.app-shell .settings-window .remote-browser-row .recently-deleted-row-actions {
+.app-shell .settings-window .settings-list-row .recently-deleted-row-actions {
   display: flex;
   width: auto;
   flex: 0 0 auto;
@@ -8777,12 +8705,12 @@ to {
   gap: 4px;
 }
 
-.app-shell .settings-window .remote-browser-row .recently-deleted-row-actions .ui-control {
+.app-shell .settings-window .settings-list-row .recently-deleted-row-actions .ui-control {
   flex: 0 0 auto;
   min-width: 0;
 }
 
-.remote-browser-row:has(.recently-deleted-row-actions) {
+.settings-list-row:has(.recently-deleted-row-actions) {
   align-items: flex-start;
   padding-block: 12px;
 }
@@ -8833,20 +8761,11 @@ to {
   min-width: 0;
 }
 
-.remote-access-fields {
-  grid-template-columns: minmax(0, 1fr);
 }
 
-.remote-access-actions .ui-control,
-.remote-access-danger-actions .ui-control {
-  width: 100%;
-}
-}
 
-.app-shell[data-theme="dark"] .remote-access-overview p,
 .app-shell[data-theme="dark"] .settings-section > p,
-.app-shell[data-theme="dark"] .remote-browser-row small,
-.app-shell[data-theme="dark"] .remote-browser-empty {
+.app-shell[data-theme="dark"] .settings-list-row small {
   color: #94a3b8;
 }
 
@@ -8883,41 +8802,16 @@ to {
 }
 }
 
-.app-shell[data-theme="dark"] .remote-slug-field > span {
-  color: #cbd5e1;
-  border-color: #3c4655;
-  background: #202733;
-}
-
-.app-shell[data-theme="dark"] .remote-access-state {
-  color: #cbd5e1;
-}
-
-.app-shell[data-theme="dark"] .remote-browser-list,
-.app-shell[data-theme="dark"] .remote-browser-empty {
+.app-shell[data-theme="dark"] .settings-list {
   border-color: #3c4655;
 }
 
-.app-shell[data-theme="dark"] .remote-browser-row + .remote-browser-row {
+.app-shell[data-theme="dark"] .settings-list-row + .settings-list-row {
   border-color: #303a48;
 }
 
-.app-shell[data-theme="dark"] .remote-browser-row strong {
+.app-shell[data-theme="dark"] .settings-list-row strong {
   color: #e5edf7;
-}
-
-.app-shell[data-theme="dark"] .remote-access-state.connected {
-  color: #8fe0c0;
-}
-
-.app-shell[data-theme="dark"] .remote-access-state.connecting {
-  color: #f0cb7a;
-}
-
-.app-shell[data-theme="dark"] .remote-access-state.error {
-  color: #f4a0a0;
-  border-color: #6b3838;
-  background: #351d1d;
 }
 
 .app-shell[data-theme="dark"] .settings-save-status {
@@ -13552,8 +13446,7 @@ textarea:focus-visible,
   padding: 3px 0 0;
 }
 
-@container space-pane (max-width: 900px) {
-}
+
 
 @container space-pane (max-width: 620px) {
 
@@ -18040,15 +17933,6 @@ to {
   font-size: var(--work-fold-type-sm);
 }
 
-.app-shell .settings-window .remote-access-fields {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.app-shell .settings-window .remote-access-fields > .settings-field:first-child {
-  grid-column: 1 / -1;
-}
-
 .app-shell .settings-window :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--ui-accent);
   outline-offset: 2px;
@@ -18103,10 +17987,6 @@ to {
 }
 
 @media (max-width: 420px) {
-
-.app-shell .settings-window .remote-access-fields {
-  grid-template-columns: 1fr;
-}
 
 .app-shell .settings-window .settings-nav-icon {
   display: none;
@@ -19336,22 +19216,14 @@ to {
   padding-top: 24px;
 }
 
-:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.remote-browser-list,.remote-browser-row) {
+:root[data-theme] .app-shell .settings-window :is(.context-meta-grid > div,.ai-models-settings-section,.ai-models-connection-panel,.ai-models-scope-control,.settings-list,.settings-list-row) {
   border: 0;
   background: transparent;
   box-shadow: none;
 }
 
-:root[data-theme] .app-shell .settings-window .remote-browser-row {
+:root[data-theme] .app-shell .settings-window .settings-list-row {
   padding: 14px 0;
-}
-
-:root[data-theme] .app-shell .settings-window .remote-access-url {
-  border: 0;
-  background: var(--ui-surface-subtle);
-  border-radius: 5px;
-  padding: 10px 12px;
-  color: var(--ui-text);
 }
 
 :root[data-theme] .app-shell .ai-models-scope-control label {
@@ -19494,13 +19366,6 @@ to {
   border: 0;
   background: var(--ui-surface-subtle);
   border-radius: 6px;
-}
-
-.remote-access-state {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  font-size: var(--work-fold-type-xs);
 }
 
 .automations-workbench {
@@ -21730,16 +21595,10 @@ to {
   min-height: var(--work-fold-control-md);
 }
 
-:root[data-theme] .app-shell .settings-window :is(select, .model-catalog-trigger, .remote-slug-field, .settings-field > input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"])) {
+:root[data-theme] .app-shell .settings-window :is(select, .model-catalog-trigger, .settings-field > input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"])) {
   height: var(--work-fold-control-lg);
   min-height: var(--work-fold-control-lg);
 }
-
-:root[data-theme] .app-shell .settings-window .remote-slug-field input {
-  height: 100%;
-  min-height: 0;
-}
-
 
 /* Banner layouts (docs/work-folder-customization.md, 2026-11-04). Card is the
    original centered banner; Compact and Band are shorter and lead with the
@@ -22788,4 +22647,9 @@ to {
 
 :root[data-theme] .app-shell .composer-capability-bar .composer-model-chip .composer-model-reasoning {
   font-weight: 500;
+}
+
+/* A notice's kind icon belongs to the file manager's notices; the classic layout keeps its colored edge. */
+.toast-icon {
+  display: none;
 }

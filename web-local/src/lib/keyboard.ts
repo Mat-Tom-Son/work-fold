@@ -13,6 +13,9 @@ const macKeyGlyphs: Record<string, string> = {
   Esc: "⎋",
   "Arrow left": "←",
   "Arrow right": "→",
+  "Arrow up": "↑",
+  "Arrow down": "↓",
+  Backspace: "⌫",
 };
 
 function desktopShortcutKeyLabel(key: string, platform: DesktopPlatform = desktopPlatform()): string {

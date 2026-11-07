@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { lstat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstat, readdir } from "node:fs/promises";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAlwaysHiddenWorkFolderEntry } from "../work-folder-ignore.js";
 import type { AutomationCatchUpReason } from "../../shared/automation-presentation.js";
 import { listWorkFolders, resolveWorkFolderPath } from "../work-folder.js";
 import { resolveWorkFoldCheckTargets } from "../checks/target-resolver.js";
@@ -29,6 +30,7 @@ export const observeWorkFoldAutomationFiles: WorkFoldAutomationFileObserver = as
   const workFolders = await listWorkFolders();
   const workFolder = workFolders.find((item) => item.id === trigger.workFolder);
   if (!workFolder) throw new Error("The watched work-folder is no longer registered.");
+  if (!trigger.watch.path) return observeTopLevel(workFolder.workFolderRoot, trigger.watch.extensions);
   const watched = resolveWorkFolderPath(workFolder.workFolderRoot, trigger.watch.path);
   for (const child of workFolders) {
     if (child.id === workFolder.id) continue;
@@ -55,6 +57,33 @@ export const observeWorkFoldAutomationFiles: WorkFoldAutomationFileObserver = as
   const digest = createHash("sha256").update(JSON.stringify({ folder: [folderAfter.dev, folderAfter.ino], entries: Object.entries(entries).sort(([a], [b]) => a.localeCompare(b)) })).digest("hex");
   return { digest, entries };
 };
+
+/**
+ * A work-folder's own top level (declaration version 6): the ordinary files
+ * directly in it with a watched extension. Subfolders are never entered, so
+ * a nested work-folder is never read, and hidden work-fold, Pi, and Office
+ * lock files are left out as everywhere else.
+ */
+async function observeTopLevel(workFolderRoot: string, extensions: readonly string[]): Promise<WorkFoldAutomationFileSnapshot> {
+  const root = resolve(workFolderRoot);
+  const folderBefore = await lstat(root);
+  if (!folderBefore.isDirectory() || folderBefore.isSymbolicLink()) throw new Error("The watched folder must be an ordinary directory.");
+  const wanted = new Set(extensions.map((extension) => extension.toLocaleLowerCase("en-US")));
+  const entries: Record<string, string> = Object.create(null);
+  let count = 0;
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.name.startsWith(".") || isAlwaysHiddenWorkFolderEntry(entry.name)) continue;
+    if (!wanted.has(extname(entry.name).toLocaleLowerCase("en-US"))) continue;
+    if (++count > workFoldAutomationFileObserverBounds.maxFiles) throw new Error(`The watched folder holds more than ${workFoldAutomationFileObserverBounds.maxFiles} matching files.`);
+    const info = await lstat(resolveWorkFolderPath(root, entry.name), { bigint: true }).catch(() => null);
+    if (!info?.isFile()) continue;
+    entries[entry.name] = [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+  }
+  const folderAfter = await lstat(root);
+  if (folderAfter.dev !== folderBefore.dev || folderAfter.ino !== folderBefore.ino) throw new Error("The watched folder moved during observation.");
+  const digest = createHash("sha256").update(JSON.stringify({ folder: [folderAfter.dev, folderAfter.ino], entries: Object.entries(entries).sort(([a], [b]) => a.localeCompare(b)) })).digest("hex");
+  return { digest, entries };
+}
 
 /**
  * Files a catch-up owes one run: added or changed while work-fold could not

@@ -174,11 +174,10 @@ test("the worker bridge can request agent work while it holds an operation lease
   assert.match(desktopMain, /listChecks,/);
 });
 
-test("bounded inference reaches app views and workers over its own channel, and viewers never see it", async () => {
-  const [smoke, piClient, viewer] = await Promise.all([
+test("bounded inference reaches app views and workers over its own channel", async () => {
+  const [smoke, piClient] = await Promise.all([
     read("scripts/restricted-app-electron-smoke.mjs"),
     read("src/local/agent/pi-client.ts"),
-    read("src/local/agent/restricted-app-viewer.ts"),
   ]);
   // One channel, registered and removed with the others, admitted through the
   // same owned-power rule as an Worker request.
@@ -208,9 +207,9 @@ test("bounded inference reaches app views and workers over its own channel, and 
     assert.match(receipts, field, "every disclosed receipt field reaches the reader");
   }
 
-  // Viewers and the app-builder guide keep the boundary the record draws.
-  assert.match(viewer, /Worker actions are mutations executed with the person's runtime; they are not viewer-reachable\./);
-  assert.doesNotMatch(viewer, /assistant\.infer|INFER_/);
+  // The app-builder guide teaches inference, and no longer teaches a
+  // paired-browser viewer page.
+  assert.doesNotMatch(piClient, /declare viewer|workFoldViewerApp|workFoldBrowserApp/);
   assert.match(piClient, /assistant\.infer\(\{ instructions, input, outputSchema\?, maxOutputBytes\? \}\)/);
   assert.match(piClient, /from an app view or from the app's worker module/);
   assert.match(piClient, /INFER_BUSY/);

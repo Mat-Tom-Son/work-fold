@@ -5,7 +5,7 @@ rung 2 pages (including inert HTML pages and the sleep copy), rung 3 apps at
 your address, Settings → Shared Pages, the paired web client's Shared pages
 popup, and the `pages` act verbs — was removed, and the bridge's
 `pages-<slug>` hosts now serve nothing. Superseded by
-[Online pages plan](../online-pages-plan.md). The record below is kept as
+[Online pages plan](online-pages-plan.md). The record below is kept as
 written.
 
 **Status: shipped contract reference.** The publishing ladder shipped with
@@ -386,7 +386,7 @@ ciphertext characters; a message with uploads may use 12 MiB × 1.4) and about
 3.15 MiB per desktop response (3 MiB × 1.4). The desktop checks each response
 first and answers a larger one with a typed `RESPONSE_TOO_LARGE` refusal
 instead of sending it. See
-[transport limits](../browser-apps.md#transport-limits).
+[transport limits](browser-apps.md#transport-limits).
 
 ### The mutation ledger
 

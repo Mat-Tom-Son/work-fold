@@ -572,7 +572,7 @@ export function AutomationsPane({ fixtureMode = false }: { fixtureMode?: boolean
 
                 {detail.trigger.kind === "files-changed" ? <section className="automation-detail-section">
                   <h5>Watched Folder</h5>
-                  <p>{detail.trigger.watch.path}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
+                  <p>{detail.trigger.watch.path || "Top level of the work-folder"}{detail.trigger.watch.recursive ? " and subfolders" : ""} · {detail.trigger.watch.extensions.join(", ")}</p>
                   <p>{watchStateLabel(detail.fileWatch?.state)}{detail.fileWatch?.detail ? ` · ${detail.fileWatch.detail}` : ""}</p>
                   {detail.trigger.ifMissed === "run" ? <>
                     <p className="automation-catch-up">

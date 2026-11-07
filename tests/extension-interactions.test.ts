@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RoutedPiExtensionUiBridge, createExtensionUiContext, extensionUiLimits, type PiExtensionUiRequest } from "../src/local/agent/extension-ui.js";
 import { startLocalApi } from "../src/local/server.js";
-import type { WorkFoldRemotePrincipal } from "../src/local/remote-work-fold-agent.js";
 
 const scope = { workFolderRoot: "/work-folder", conversationId: "chat" };
 const question = (id: string): PiExtensionUiRequest => ({ ...scope, id, method: "select", title: "Which one?", options: ["A", "B"] });
@@ -113,7 +112,7 @@ test("native session-start timers and helper callbacks remain usable across turn
   assert.ok((await readFile(resultsPath, "utf8")).trim().split("\n").every((line) => JSON.parse(line).answer === true));
 });
 
-test("real Pi Extensions ask in fold and work-folder Chats; reconnect, exact-owner web answers and Stop share the same callbacks", async (t) => {
+test("real Pi Extensions ask in fold and work-folder Chats; reconnect, answers and Stop share the same callbacks", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-extension-interaction-"));
   const agentDir = join(root, "pi");
   const resultsPath = join(root, "results.jsonl");
@@ -190,28 +189,6 @@ test("real Pi Extensions ask in fold and work-folder Chats; reconnect, exact-own
   const results = (await readFile(resultsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
   assert.ok(results.some((item) => item[0] === "Blue" && item[1] === false));
   assert.ok(results.some((item) => item[0] === "Green" && item[1] === true));
-
-  const owner: WorkFoldRemotePrincipal = { browserId: "browser-a", grantId: "grant-a", requestId: "remote-one" };
-  const other = { ...owner, grantId: "other-grant" };
-  const remote = await api.remoteFacade.execute("management.send", { content: "/choose", newConversation: true }, owner) as { taskId: string; conversationId: string };
-  await until(() => [...pending.values()].filter((item) => item.conversationId === remote.conversationId).length === 2);
-  const summary = async (principal = owner) => api.remoteFacade.execute("management.summary", { conversationId: remote.conversationId }, principal) as Promise<any>;
-  assert.equal((await summary()).extensionRequests.length, 2);
-  assert.equal((await summary(other)).extensionRequests.length, 0);
-  const remoteQuestion = (await summary()).extensionRequests[0];
-  const answer = { taskId: remote.taskId, id: remoteQuestion.id, value: "Blue" };
-  await assert.rejects(api.remoteFacade.execute("management.extensionAnswer", answer, other), /browser grant/);
-  await assert.rejects(api.remoteFacade.execute("management.extensionAnswer", answer, owner, { assertCurrent() { throw new Error("Revoked"); } }), /Revoked/);
-  assert.ok(pending.has(remoteQuestion.id));
-  const remoteScope = [...pending.values()].find((item) => item.conversationId === remote.conversationId)!;
-  const secret = bridge.request({ ...remoteScope, id: "setup-secret", method: "input", title: "Setup", secret: true });
-  assert.equal((await summary()).extensionRequests.length, 2, "setup secrets stay on the desktop");
-  await assert.rejects(api.remoteFacade.execute("management.extensionAnswer", { ...answer, id: "setup-secret" }, owner), /desktop/);
-  bridge.cancel("setup-secret"); await secret;
-  assert.deepEqual(await api.remoteFacade.execute("management.extensionAnswer", answer, owner), { accepted: true });
-  await api.remoteFacade.execute("management.stop", { taskId: remote.taskId }, owner);
-  await until(() => ![...pending.values()].some((item) => item.conversationId === remote.conversationId));
-  assert.deepEqual((await summary()).extensionRequests, []);
 
   const stop = await api.actFacade.agentSend({ content: "/cancel-question", newConversation: true });
   await until(() => [...pending.values()].some((item) => item.conversationId === stop.conversationId));

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { ArrowRight, ChevronRight, Loader2, PageDataIcon, PageIcon } from "../chrome/icons";
+import { ArrowRight, ChevronRight, Loader2, PageIcon } from "../chrome/icons";
 import { fileTreeFileIcon, fileTreeFolderIcon, type FileTreeIconSpec } from "../../file-tree-icons";
 import { FileIconFrame } from "./FileIconFrame";
 import { hasNativeFiles, hasWorkFolderPathDrag } from "../../lib/file-actions";
@@ -56,14 +56,11 @@ export function FileTree({
   onOpenNestedFolder,
   pageFolders,
   onOpenPage,
-  onOpenPageData,
 }: {
   entries: TreeEntry[];
   /** Page folders keyed by their path; a plain click or Enter opens the page, the arrow opens the folder. */
   pageFolders?: ReadonlyMap<string, PageFolderView>;
   onOpenPage?: (path: string) => void;
-  /** A page folder's data.sqlite shows as Data and opens that page's Data view, never the raw file. */
-  onOpenPageData?: (pagePath: string, path: string) => void;
   /** Child work-folders keyed by their path here; each row opens that work-folder instead of expanding. */
   nestedFolders?: ReadonlyMap<string, NestedFolderView>;
   onOpenNestedFolder?: (workFolder: WorkFolderSummary) => void;
@@ -119,22 +116,13 @@ export function FileTree({
     const toggle = isSelectionToggleKey(event, mac);
     if (event.shiftKey && onSelectRange) { onSelectRange(entry.path, toggle); return; }
     if (toggle && onToggleSelected) { onToggleSelected(entry.path); return; }
-    const dataPage = pageDataOf(entry);
-    if (dataPage !== null) onOpenPageData!(dataPage, entry.path);
-    else if (entry.kind === "file") onSelectFile(entry.path);
+    if (entry.kind === "file") onSelectFile(entry.path);
     else if (isPage(entry) && !(event.target as Element).closest?.(".folder-chevron")) onOpenPage!(entry.path);
     else if (!searching) toggleFolder(entry.path, folderCollapsed);
   }
 
   function isPage(entry: TreeEntry): boolean {
     return entry.kind === "folder" && Boolean(onOpenPage && pageFolders?.has(entry.path));
-  }
-
-  /** The page whose online entries this file holds, when it is a page folder's data.sqlite. */
-  function pageDataOf(entry: TreeEntry): string | null {
-    if (entry.kind !== "file" || !onOpenPageData || !pageFolders) return null;
-    const folder = parentFolderPath(entry.path);
-    return folder && pageFolders.has(folder) && /^data\.sqlite$/i.test(entry.name) ? folder : null;
   }
 
   function toggleFolder(path: string, collapsed: boolean) {
@@ -238,11 +226,7 @@ export function FileTree({
       }
       return;
     }
-    const dataPage = pageDataOf(entry);
-    if (dataPage !== null && (event.key === "Enter" || event.key === " ")) {
-      event.preventDefault();
-      onOpenPageData!(dataPage, entry.path);
-    } else if (event.key === "ArrowLeft") {
+    if (event.key === "ArrowLeft") {
       event.preventDefault();
       focusParentTreeRow(event.currentTarget, entry.path);
       reportFocusedTreeRow();
@@ -307,9 +291,7 @@ export function FileTree({
         const checkAttention = exactCheckAttention || descendantCheckAttention;
         const checkAttentionLabel = entry.kind === "folder" ? "contains a designated file that needs attention" : "needs attention";
         const page = isPage(entry) ? pageFolders!.get(entry.path)! : null;
-        const dataPage = pageDataOf(entry);
-        const dataPageTitle = dataPage !== null ? pageFolders!.get(dataPage)!.title : null;
-        const rowName = page ? `${entry.name}, page` : dataPageTitle !== null ? `Data, entries for ${dataPageTitle}` : entry.name;
+        const rowName = page ? `${entry.name}, page` : entry.name;
         const rowLabel = checkAttention ? `${rowName}, ${checkAttentionLabel}` : rowName;
         const selected = isSelected(entry.path);
         return (
@@ -333,14 +315,13 @@ export function FileTree({
               aria-expanded={entry.kind === "folder" ? !folderCollapsed : undefined}
               aria-selected={entry.kind === "file" || selected ? selected : undefined}
               aria-label={rowLabel}
-              title={`${dataPageTitle !== null ? `Entries visitors made online for ${dataPageTitle}. Opens the page's Data view.` : entry.kind === "file" ? desktopFileDragHint(entry.path) : page ? `Page: ${page.title}` : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
+              title={`${entry.kind === "file" ? desktopFileDragHint(entry.path) : page ? `Page: ${page.title}` : entry.path}${checkAttention ? ` · ${checkAttentionLabel}` : ""}`}
               data-page-folder={page ? "true" : undefined}
-              data-page-data={dataPage !== null ? "true" : undefined}
               data-tree-row="true"
               data-tree-path={entry.path}
               draggable
               onClick={(event) => handleRowClick(event, entry, folderCollapsed)}
-              onDoubleClick={(event) => entry.kind === "file" && dataPage === null && !event.shiftKey && !isSelectionToggleKey(event, mac) && onOpenFile(entry.path)}
+              onDoubleClick={(event) => entry.kind === "file" && !event.shiftKey && !isSelectionToggleKey(event, mac) && onOpenFile(entry.path)}
               onKeyDown={(event) => handleTreeRowKeyDown(event, entry)}
               onContextMenu={(event) => onOpenContextMenu(entry, event)}
               onDragStart={(event) => {
@@ -369,8 +350,6 @@ export function FileTree({
                   {page ? <span className="file-icon glyph-file-icon page-folder-icon" aria-hidden="true"><PageIcon size={16} /></span> : <FolderTypeIcon name={entry.name} expanded={!folderCollapsed} />}
                   <HighlightedFileName name={entry.name} query={searchQuery} />
                 </>
-              ) : dataPage !== null ? (
-                <><span className="file-icon glyph-file-icon page-data-file-icon" aria-hidden="true"><PageDataIcon size={16} /></span><HighlightedFileName name="Data" query={searchQuery} /></>
               ) : (
                 <><FileTypeIcon path={entry.path} /><HighlightedFileName name={entry.name} query={searchQuery} file /></>
               )}
@@ -410,7 +389,6 @@ export function FileTree({
                   onOpenNestedFolder={onOpenNestedFolder}
                   pageFolders={pageFolders}
                   onOpenPage={onOpenPage}
-                  onOpenPageData={onOpenPageData}
                 />
               </div>
             ) : entry.kind === "folder" && folderLoading ? <FolderLoadingRow /> : null}

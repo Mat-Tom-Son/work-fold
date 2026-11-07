@@ -64,10 +64,10 @@ test("Settings navigation preserves agent edits, isolates tab groups and restore
 
   const content = document.querySelector<HTMLElement>(".settings-content")!;
   content.scrollTop = 250;
-  await click("settings-tab-web-access");
+  await click("settings-tab-shortcuts");
   assert.equal(content.scrollTop, 0, "a newly selected settings page starts at its heading");
-  assert.equal(document.getElementById("settings-tab-web-access")?.getAttribute("aria-selected"), "true");
-  assert.equal(document.getElementById("settings-panel-web-access")?.getAttribute("aria-labelledby"), "settings-tab-web-access");
+  assert.equal(document.getElementById("settings-tab-shortcuts")?.getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("settings-panel-shortcuts")?.getAttribute("aria-labelledby"), "settings-tab-shortcuts");
 
   await dom.press("Escape");
   await dom.settle();
@@ -151,28 +151,4 @@ test("Settings exposes Customize work-folder back navigation only for that entry
   assert.equal(returns, 1);
   await dom.render(createElement(DesktopSettingsModal, props));
   assert.equal(document.querySelector('[aria-label="Back to Customize work-folder"]'), null, "a later ordinary Settings entry has no back button");
-});
-
-test("Settings → Published sits beside Apps and opens a published page's tab", async (t) => {
-  const dom = await createDomHarness();
-  t.after(() => dom.cleanup());
-  HTMLElement.prototype.scrollIntoView = () => {};
-  window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
-  const opened: string[][] = [];
-  await dom.render(createElement(DesktopSettingsModal, {
-    workFolder, agentStatus: status, fixtureMode: true, initialPage: "published", updateStatus: null,
-    onAgentConfigured: () => {}, onClose: () => {},
-    onOpenPage: (workFolderId: string, path: string, title: string) => opened.push([workFolderId, path, title]),
-  }));
-  const tabs = [...document.querySelectorAll('[aria-label="Settings sections"] [role="tab"]')].map((tab) => tab.id.replace("settings-tab-", ""));
-  assert.deepEqual(tabs.slice(tabs.indexOf("apps"), tabs.indexOf("apps") + 3), ["apps", "published", "recently-deleted"]);
-  assert.equal(document.getElementById("settings-tab-published")?.getAttribute("aria-selected"), "true");
-  assert.equal(document.querySelector(".settings-page-title")?.textContent, "Published");
-  // The browser preview lists its published page from the same in-memory page the page tab uses.
-  await dom.waitFor(() => Boolean(document.querySelector(".published-page-row")), 3_000);
-  const row = document.querySelector<HTMLElement>(".published-page-row")!;
-  assert.equal(row.querySelector("strong")?.textContent, "Garden Party RSVP");
-  assert.equal(document.querySelector(".published-pages-work-folder")?.textContent, "Home projects");
-  await dom.act(() => [...row.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Open Page")!.click());
-  assert.deepEqual(opened, [["fixture-home", "Garden Party RSVP", "Garden Party RSVP"]]);
 });

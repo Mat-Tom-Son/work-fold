@@ -1,9 +1,8 @@
 import { pageCallErrorOf, pageCallOps, type PageCall, type PageCallError } from "./pages";
 
 /**
- * The host side of the page sandbox (docs/pages.md, "How a page runs"),
- * following the paired-browser app view's intermediary pattern
- * (services/bridge/public/browser-app.js). It embeds the intermediary served
+ * The host side of the page sandbox (docs/pages.md, "How a page runs"). It
+ * embeds the intermediary served
  * at /page-frame.html with `sandbox="allow-scripts allow-forms"` and never
  * `allow-same-origin`, hands it the assembled page over a fresh per-view
  * channel, and accepts messages only from that exact intermediary window

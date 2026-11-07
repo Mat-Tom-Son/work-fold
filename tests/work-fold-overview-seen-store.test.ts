@@ -4,11 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import {
-  WorkFoldOverviewSeenStore,
-  isWorkFoldOverviewSurfaceId,
-  workFoldOverviewRemoteSurfaceId,
-} from "../src/local/overview-seen-store.js";
+import { WorkFoldOverviewSeenStore, isWorkFoldOverviewSurfaceId } from "../src/local/overview-seen-store.js";
 
 const cursorAt = (at: string, id = "act-receipts:req-1"): string => `${at}/${id}`;
 
@@ -36,12 +32,11 @@ test("seen markers advance monotonically and persist atomically", async () => {
     const tie = await store.advance("popover", cursorAt("2026-08-10T10:00:00.000Z", "act-receipts:req-2"));
     assert.equal(tie.advanced, true);
 
-    // Surfaces are independent: two phones must not clear each other.
-    const remote = workFoldOverviewRemoteSurfaceId("grant-1");
-    await store.advance(remote, cursorAt("2026-08-10T08:00:00.000Z"));
+    // Surfaces are independent: the main window must not clear the popover.
+    await store.advance("main-window", cursorAt("2026-08-10T08:00:00.000Z"));
     assert.deepEqual(await store.seenCursors(), {
+      "main-window": cursorAt("2026-08-10T08:00:00.000Z"),
       popover: cursorAt("2026-08-10T10:00:00.000Z", "act-receipts:req-2"),
-      "remote:grant-1": cursorAt("2026-08-10T08:00:00.000Z"),
     });
 
     // A second instance reads the same persisted state.
@@ -61,7 +56,7 @@ test("invalid surfaces and cursors are refused without effect", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-overview-seen-"));
   try {
     const store = new WorkFoldOverviewSeenStore({ path: join(sandbox, "overview-seen.json") });
-    for (const surface of ["phone", "remote:", "remote:bad grant", "", "POPOVER"]) {
+    for (const surface of ["phone", "remote:", "remote:grant-1", "remote:bad grant", "", "POPOVER"]) {
       assert.deepEqual(
         await store.advance(surface, cursorAt("2026-08-10T10:00:00.000Z")),
         { advanced: false, seenThrough: null },
@@ -79,10 +74,9 @@ test("invalid surfaces and cursors are refused without effect", async () => {
 
     assert.equal(isWorkFoldOverviewSurfaceId("popover"), true);
     assert.equal(isWorkFoldOverviewSurfaceId("main-window"), true);
-    assert.equal(isWorkFoldOverviewSurfaceId("remote:grant-1"), true);
+    assert.equal(isWorkFoldOverviewSurfaceId("remote:grant-1"), false, "paired-browser surfaces are gone");
     assert.equal(isWorkFoldOverviewSurfaceId("remote:"), false);
     assert.equal(isWorkFoldOverviewSurfaceId("tray"), false);
-    assert.throws(() => workFoldOverviewRemoteSurfaceId("bad grant"), /valid remote grant id/);
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
@@ -109,7 +103,7 @@ test("a damaged or future-versioned store resets markers, which only over-report
       version: 1,
       surfaces: {
         popover: { seenThrough: cursorAt("2026-08-10T11:00:00.000Z"), updatedAt: "2026-08-10T11:00:00.000Z" },
-        "remote:grant-1": { seenThrough: "not-a-cursor" },
+        "main-window": { seenThrough: "not-a-cursor" },
         tray: { seenThrough: cursorAt("2026-08-10T11:00:00.000Z"), updatedAt: "2026-08-10T11:00:00.000Z" },
       },
     }), "utf8");
@@ -123,20 +117,40 @@ test("a damaged or future-versioned store resets markers, which only over-report
   }
 });
 
-test("revoking a grant purges exactly that surface's marker", async () => {
+test("paired-browser markers an older build kept are skipped on read and dropped on the next write", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "workspace-overview-seen-"));
+  try {
+    const path = join(sandbox, "overview-seen.json");
+    await writeFile(path, JSON.stringify({
+      version: 1,
+      surfaces: {
+        popover: { seenThrough: cursorAt("2026-08-10T11:00:00.000Z"), updatedAt: "2026-08-10T11:00:00.000Z" },
+        "remote:grant-1": { seenThrough: cursorAt("2026-08-10T11:30:00.000Z"), updatedAt: "2026-08-10T11:30:00.000Z" },
+      },
+    }), "utf8");
+    const store = new WorkFoldOverviewSeenStore({ path, now: () => new Date("2026-08-10T12:00:00.000Z") });
+    assert.deepEqual(await store.seenCursors(), { popover: cursorAt("2026-08-10T11:00:00.000Z") });
+
+    assert.equal((await store.advance("main-window", cursorAt("2026-08-10T11:45:00.000Z"))).advanced, true);
+    const persisted = JSON.parse(await readFile(path, "utf8")) as { surfaces: Record<string, unknown> };
+    assert.deepEqual(Object.keys(persisted.surfaces).sort(), ["main-window", "popover"]);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("removing a surface purges exactly that surface's marker", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-overview-seen-"));
   try {
     const store = new WorkFoldOverviewSeenStore({ path: join(sandbox, "overview-seen.json") });
     await store.advance("popover", cursorAt("2026-08-10T10:00:00.000Z"));
-    await store.advance(workFoldOverviewRemoteSurfaceId("grant-1"), cursorAt("2026-08-10T10:05:00.000Z"));
-    await store.advance(workFoldOverviewRemoteSurfaceId("grant-2"), cursorAt("2026-08-10T10:06:00.000Z"));
+    await store.advance("main-window", cursorAt("2026-08-10T10:05:00.000Z"));
 
-    assert.equal(await store.removeSurface("remote:grant-1"), true);
+    assert.equal(await store.removeSurface("main-window"), true);
     assert.deepEqual(await store.seenCursors(), {
       popover: cursorAt("2026-08-10T10:00:00.000Z"),
-      "remote:grant-2": cursorAt("2026-08-10T10:06:00.000Z"),
     });
-    assert.equal(await store.removeSurface("remote:grant-1"), false, "a purged marker stays purged");
+    assert.equal(await store.removeSurface("main-window"), false, "a purged marker stays purged");
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
@@ -145,11 +159,10 @@ test("revoking a grant purges exactly that surface's marker", async () => {
 test("the surface cap refuses new markers but never blocks existing ones", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "workspace-overview-seen-"));
   try {
-    const store = new WorkFoldOverviewSeenStore({ path: join(sandbox, "overview-seen.json"), maxSurfaces: 2 });
+    const store = new WorkFoldOverviewSeenStore({ path: join(sandbox, "overview-seen.json"), maxSurfaces: 1 });
     await store.advance("popover", cursorAt("2026-08-10T10:00:00.000Z"));
-    await store.advance("main-window", cursorAt("2026-08-10T10:01:00.000Z"));
     assert.deepEqual(
-      await store.advance("remote:grant-1", cursorAt("2026-08-10T10:02:00.000Z")),
+      await store.advance("main-window", cursorAt("2026-08-10T10:02:00.000Z")),
       { advanced: false, seenThrough: null },
       "refusing a new surface at the cap only over-reports newness there",
     );

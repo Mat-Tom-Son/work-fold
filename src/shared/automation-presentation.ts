@@ -56,7 +56,7 @@ export function automationCatchUpSentence(count: number, reason: AutomationCatch
 export function automationTriggerSummary(trigger: AutomationTriggerView): string {
   if (trigger.summary) return trigger.summary;
   if (trigger.kind === "files-changed") {
-    return `When ${trigger.watch.path} changes · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`
+    return `When ${trigger.watch.path || "files arrive at the top level"}${trigger.watch.path ? " changes" : ""} · wait ${trigger.debounceSeconds}s · ${trigger.cooldownMinutes} minute cooldown`
       + (trigger.ifMissed === "run" ? " · catches up after work-fold was closed" : "");
   }
   if (trigger.kind === "manual") return "Manual only";

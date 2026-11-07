@@ -14,7 +14,7 @@ import { ModelContextInspector } from "../src/local/agent/model-context-inspecto
 import { workFoldAgentScopeId } from "../src/local/state-paths.js";
 import type { ModelContextInspection, ModelContextInspectionState } from "../src/shared/model-context-inspection.js";
 
-test("context diagnostics are authenticated, read-only to Pi, exactly scoped and absent from portable and remote Chat projections", { timeout: 20_000 }, async (t) => {
+test("context diagnostics are authenticated, read-only to Pi, exactly scoped and absent from portable Chat projections", { timeout: 20_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "work-fold-context-api-"));
   const agentDir = join(root, "pi");
   const marker = "PAYLOAD-ONLY-CONTEXT-INSPECTION-MARKER";
@@ -176,8 +176,6 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   for (const name of await readdir(portableRoot)) {
     if (name.endsWith(".jsonl") || name.endsWith(".json")) assertPrivateProjection(await readFile(join(portableRoot, name), "utf8"));
   }
-  const principal = { browserId: "context-browser", grantId: "context-grant", requestId: "context-summary" };
-  assertPrivateProjection(await api.remoteFacade.execute("management.summary", { conversationId: fold.conversationId }, principal));
 
   const cleared = await json<ModelContextInspectionState>("/api/model-context", "POST", { clear: true });
   assert.equal(cleared.enabled, true); assert.deepEqual(cleared.records, []);
@@ -193,7 +191,6 @@ test("context diagnostics are authenticated, read-only to Pi, exactly scoped and
   await until(async () => (await api.actFacade.turnStatus({ workFolder: workFolder.id, taskId: next.taskId })).task.state === "succeeded");
   assert.deepEqual((await inspect()).records, [], "disabled recording stays empty during real model work");
   assertPrivateProjection(await json(`/api/work-folders/${workFolder.id}/conversations/${chat.id}`));
-  assertPrivateProjection(await api.remoteFacade.execute("management.summary", { conversationId: fold.conversationId }, principal));
 
   await json("/api/model-context", "POST", { enabled: true });
   const last = await api.actFacade.sendMessage({ workFolder: workFolder.id, conversationId: chat.id, content: "Create a capture before restart." });

@@ -50,7 +50,7 @@ test("in-tree dialogs are wired to the shared dialog contract", () => {
   }
 });
 
-test("Settings preserves save feedback and explicit remote setup", async () => {
+test("Settings preserves save feedback", async () => {
   const settings = desktopDialogs[0] ?? "";
   // Credential visibility, removal, saves and stale responses are exercised
   // against the real form in ai-models-settings-ui.test.ts.
@@ -59,8 +59,6 @@ test("Settings preserves save feedback and explicit remote setup", async () => {
   assert.doesNotMatch(appearance, /appearance-settings-status-row|appearance\.notice/);
   assert.match(settings, /settings-close-button/);
   assert.match(settings, /setCloseToTrayNotice\("Saved"\)/);
-  assert.match(settings, /Private address created/);
-  assert.match(settings, /!remoteSettingsChanged/);
 });
 
 test("Settings keeps older page ids landing on the tab that now holds their content", async () => {
@@ -82,8 +80,7 @@ test("Settings keeps older page ids landing on the tab that now holds their cont
   assert.equal(settingsTabForPage("desktop", "limits"), "automations");
   assert.equal(settingsTabForPage("desktop", "deleted"), "recently-deleted");
   assert.equal(settingsTabForPage("general", "deleted"), "recently-deleted");
-  assert.equal(settingsTabForPage("remote"), "web-access");
-  for (const page of ["appearance", "ai-models", "web-access", "automations", "published", "recently-deleted", "shortcuts", "about"] as const) {
+  for (const page of ["appearance", "ai-models", "automations", "apps", "recently-deleted", "shortcuts", "about"] as const) {
     assert.equal(settingsTabForPage(page), page);
   }
   const settings = desktopDialogs[0] ?? "";
@@ -98,7 +95,6 @@ test("no surface offers an authority mode, a policy, or a decision card", () => 
   // no needs-you rail control; questions live inside their owning Chat.
   const settings = desktopDialogs[0] ?? "";
   assert.doesNotMatch(settings, /fold-authority|fold-policies|FoldAuthorityPane|FoldPoliciesPane|PolicyMatcherFields|"authority"/);
-  assert.match(settings, /remoteAccessSettings\.pairedBrowserTrust/);
   assert.doesNotMatch(app, /NeedsYouRailControl|useNeedsYouDecisions|needsYouControl|\/api\/work-fold-agent\/decisions/);
   assert.match(app, /accountControl=\{<button className="work-folder-rail-account-button"/);
 });
@@ -261,7 +257,8 @@ test("the work-folder-owned Automations rail entry sits after History, shows onl
 
  test("Keyboard Shortcuts shares Settings navigation and the rail has no shortcuts button", () => {
   assert.match(desktopDialogs[0] ?? "", /id: "shortcuts", label: "Shortcut Keys"/);
-  assert.match(desktopDialogs[0] ?? "", /<KeyboardShortcutsPane \/>/);
+  // Settings passes the window's layout, so the file manager lists its own keys.
+  assert.match(desktopDialogs[0] ?? "", /<KeyboardShortcutsPane layout=\{layout\} \/>/);
   assert.match(app, /openKeyboardShortcuts = useCallback\(\(\) => openSettings\("shortcuts"\)/);
   assert.doesNotMatch(workFolderChrome, /onOpenKeyboardShortcuts|<span>Shortcuts<\/span>/);
  });

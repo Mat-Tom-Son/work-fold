@@ -49,7 +49,7 @@ message with uploads, 2 MiB × 1.4 for every other browser request, and
 3 MiB × 1.4 for each desktop response. The desktop and the web client check
 these first, so an oversized result arrives as a typed `RESPONSE_TOO_LARGE`
 refusal rather than a device protocol error; see
-[transport limits](../../docs/browser-apps.md#transport-limits).
+[transport limits](../../docs/archive/browser-apps.md#transport-limits).
 
 The browser can open and rename bounded saved work-fold agent Chats, invoke that one
 canonical management agent, and attach at most six files (6 MB each, 8 MB
@@ -72,7 +72,7 @@ becomes a focus-trapped drawer.
 ## Online pages
 
 The bridge is the front door to the page service for publishers
-([Pages, "Publishing (stage 2)"](../../docs/pages.md#bridge)). The desktop
+([Pages, "Publishing (stage 2)"](../../docs/archive/online-pages-plan.md#bridge)). The desktop
 publishes, unpublishes, checks in, and changes online entries under
 `/api/device/pages` with its device token. The owner's browser reads pages and
 entries, exports a spreadsheet, and unpublishes under `/api/pages` with the

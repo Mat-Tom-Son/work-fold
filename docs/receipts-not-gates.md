@@ -11,7 +11,13 @@
 > **Retired 2026-11-05 (owner decision):** desktop-served sharing — the
 > `pages` share verbs this record made direct, Settings → Shared pages, and
 > the viewers they served — was removed, so no outward exposure exists today.
-> The [Online pages plan](online-pages-plan.md) proposes its replacement.
+> The [Online pages plan](archive/online-pages-plan.md) proposed its replacement.
+>
+> **Removed 2026-11-07 (owner decision):** Web Access and Publish left the
+> desktop. The paired web client, browser pairing, remote address enrollment,
+> the remote operations, and the browser-requested app actions described below
+> no longer exist, and online pages went with them. Entering a secret is the
+> remaining human-only setup surface.
 
 ## The principle
 

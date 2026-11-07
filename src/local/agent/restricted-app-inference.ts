@@ -33,7 +33,7 @@ import { RestrictedAppTaskError, type RestrictedAppTaskScope } from "./restricte
 /** The same installation, revision, and authority pin an Worker request carries. */
 export type RestrictedAppInferenceScope = RestrictedAppTaskScope;
 
-/** Where the call came from; viewers and remote app views never reach this lane. */
+/** Where the call came from: an app view, or the app's worker module. */
 export type RestrictedAppInferenceSurface = "view" | "worker";
 
 /** Which receipts a reader may see: the calling revision, or the whole installation for Settings → Apps. */

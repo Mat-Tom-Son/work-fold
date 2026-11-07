@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { applicationPalettes, builtInAppearancePresets, defaultApplicationAppearance, type ApplicationAppearance, type AppearancePreset } from "../../../../src/shared/application-appearance.js";
 import type { ApplicationAppearanceController } from "../../hooks/useApplicationAppearance";
 import { maximumAppearanceImportBytes } from "../../lib/application-appearance-store";
+import { useAppLayout, writeAppLayout, type AppLayout } from "../../lib/app-layout";
 import { typographyFontOptionsForPlatform } from "../../constants";
 import { desktopPlatform } from "../../lib/platform";
 import type { WorkFolderSummary } from "../../types";
@@ -15,6 +16,7 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
   interfaceExtra?: ReactNode;
 }) {
   const { preferences: p, store } = appearance;
+  const layout = useAppLayout();
   const [presetName, setPresetName] = useState("");
   const [presetError, setPresetError] = useState<string | null>(null);
   const [presetBusy, setPresetBusy] = useState(false);
@@ -55,17 +57,20 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
     <section className="appearance-settings-section" aria-labelledby="appearance-preview-title">
       <div className="appearance-settings-section-heading"><h3 id="appearance-preview-title">Preview</h3><div className="appearance-settings-actions"><button type="button" disabled={!appearance.canUndo} onClick={store.undo}>Undo</button><button type="button" disabled={atDefaults} onClick={store.reset}>Reset</button></div></div>
       {appearance.error ? <p className="appearance-settings-error" role="alert">{appearance.error}</p> : null}
-      <div className="appearance-settings-preview" aria-label="Appearance preview">
+      {layout === "file-manager" ? <FileManagerPreview /> : <div className="appearance-settings-preview" aria-label="Appearance preview">
         <div className="appearance-preview-files"><span>Workshop</span><div>Notes.md</div><div>Next steps.pdf</div></div>
         <div className="appearance-preview-chat"><p className="appearance-preview-user">Plan a workshop for 12 people.</p><div className="appearance-preview-answer"><p>Your plan is ready. The workshop starts at 10 AM, with a break at noon.</p><code>workshop-plan.md</code></div></div>
-      </div>
+      </div>}
       <h3 className="appearance-settings-presets-heading" id="appearance-presets-title">Presets</h3>
       <div className="appearance-settings-presets" role="group" aria-labelledby="appearance-presets-title">
         {builtInAppearancePresets.map(({ name, ...patch }) => {
-          const grounds = applicationPalettes[patch.palette][appearance.theme];
+          // In the file manager, Original is the design's own Finder colors.
+          const fileManagerOriginal = layout === "file-manager" && patch.palette === "original";
+          const grounds = fileManagerOriginal ? fileManagerOriginalGrounds[appearance.theme] : applicationPalettes[patch.palette][appearance.theme];
+          const accent = fileManagerOriginal ? fileManagerBlue : applicationPalettes[patch.palette].accent;
           const active = p.palette === patch.palette;
           return <button type="button" key={name} className={active ? "appearance-preset active" : "appearance-preset"} aria-label={`${name} Preset`} aria-pressed={active} onClick={() => store.applyPreset({ ...p, ...patch })}>
-            <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": applicationPalettes[patch.palette].accent } as CSSProperties}><span><i /><b /><b /></span></span><span>{name}</span>
+            <span aria-hidden="true" className="appearance-preset-swatch" style={{ "--preset-canvas": grounds.canvas, "--preset-surface": grounds.surface, "--preset-text": grounds.text, "--preset-accent": accent } as CSSProperties}><span><i /><b /><b /></span></span><span>{name}</span>
           </button>;
         })}
       </div>
@@ -82,6 +87,7 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
     </section>
     <section className="appearance-settings-section" aria-labelledby="appearance-interface-title">
       <h3 id="appearance-interface-title">Interface</h3>
+      <Choice<AppLayout> label="Layout" value={layout} onChange={writeAppLayout} options={[["classic", "Classic"], ["file-manager", "File Manager"]]} />
       <Choice label="App Font" value={p.font === "stable" && !fontOptions.some((option) => option.value === "stable") ? "default" : p.font} onChange={(font) => update({ font })} options={fontOptions.map((option) => [option.value, option.label])} />
       <Choice label="Text Size" value={p.textSize} onChange={(textSize) => update({ textSize })} options={[["compact", "Compact · 14 px"], ["standard", "Standard · 15 px"], ["comfortable", "Comfortable · 16 px"], ["large", "Large · 18 px"]]} />
       <Choice label="List Density" value={p.density} onChange={(density) => update({ density })} options={[["compact", "Compact"], ["standard", "Standard"], ["spacious", "Spacious"]]} />
@@ -118,4 +124,37 @@ export function AppearanceSettingsPane({ appearance, workFolder, onCustomizeWork
 
 function Choice<T extends string>({ label, value, options, onChange, detail }: { label: string; value: T; options: readonly (readonly [T, string])[]; onChange: (value: T) => void; detail?: ReactNode }) {
   return <label className="appearance-settings-row"><span><span className="appearance-settings-label">{label}</span>{detail ? <small>{detail}</small> : null}</span><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as T)}>{options.map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select></label>;
+}
+
+/** The file manager's Original colors (file-manager.css), for its preset swatch. */
+const fileManagerOriginalGrounds = {
+  light: { canvas: "#f1f1f4", surface: "#ffffff", text: "#1d1d1f" },
+  dark: { canvas: "#19191c", surface: "#28282c", text: "#f1f1f4" },
+} as const;
+const fileManagerBlue = "#0a64d6";
+
+/**
+ * The preview in the file manager layout: a small file manager window drawn
+ * from the same tokens, so every choice on this page shows here as it will
+ * look: palette, accent, font, text size, density, contrast, and the Chat.
+ */
+function FileManagerPreview() {
+  return <div className="appearance-settings-preview fmp" aria-label="Appearance preview">
+    <div className="fmp-side">
+      <span className="fmp-head">work-folders</span>
+      <div className="fmp-item is-current"><span className="fm-ic fm-ic-folder is-tinted" style={{ "--fold-base": "#8e5bd8" } as CSSProperties} aria-hidden="true" /><span>Workshop</span></div>
+      <div className="fmp-item"><span className="fm-ic fm-ic-folder is-tinted" style={{ "--fold-base": "#30a46c" } as CSSProperties} aria-hidden="true" /><span>Garden</span></div>
+    </div>
+    <div className="fmp-main">
+      <div className="fmp-row fmp-cols"><span>Name</span><span>Date Modified</span></div>
+      <div className="fmp-row"><span><span className="fm-ic fm-ic-doc" aria-hidden="true" />Notes.md</span><span>Today at 9:41 AM</span></div>
+      <div className="fmp-row is-selected"><span><span className="fm-ic fm-ic-doc" aria-hidden="true" />Next steps.pdf</span><span>Yesterday</span></div>
+      <div className="fmp-row is-odd"><span><span className="fm-ic fm-ic-folder" aria-hidden="true" />Quotes</span><span>Monday</span></div>
+    </div>
+    <div className="fmp-panel">
+      <p className="fmp-you">Plan a workshop for 12 people.</p>
+      <p className="fmp-answer">Your plan is ready. The workshop starts at 10 AM, with a break at noon.</p>
+      <div className="fmp-field">Reply</div>
+    </div>
+  </div>;
 }

@@ -1,5 +1,7 @@
 # work-folder apps in paired browsers
 
+> **Archived 2026-11-07:** the desktop no longer has Web Access or Publish; kept as history.
+
 A paired browser supports private app views. An app named in a Chat's
 results opens from its result link and shows its reviewed web view, the
 work-folder and version, Close and Refresh. An app without a reviewed web
@@ -175,7 +177,7 @@ action call over 2 MiB with `REQUEST_TOO_LARGE` before sending anything.
 ## Verification
 
 The repeatable isolation probe is
-[`scripts/probes/browser-app.probe.js`](../scripts/probes/browser-app.probe.js).
+[`scripts/probes/browser-app.probe.js`](../../scripts/probes/browser-app.probe.js).
 With the local bridge on port 4319 and Playwright CLI opened to
 `http://127.0.0.1:4319/?fixture=work-folders`, run it with
 `playwright-cli run-code --filename=scripts/probes/browser-app.probe.js`.
@@ -192,22 +194,22 @@ encrypted transport and real Electron worker are tested separately.
 
 Three more probes run the same way, each refusing any page but its own:
 
-- [`scripts/probes/agent-result-links.probe.js`](../scripts/probes/agent-result-links.probe.js)
+- [`scripts/probes/agent-result-links.probe.js`](../../scripts/probes/agent-result-links.probe.js)
   uses the inert `?fixture=chat` page. It opens a reported deliverable and an
   app result link from a Chat at phone width, checks that each names its own
   work-folder and that the app discloses an updated installation, and checks
   that focus returns after each dialog closes.
-- [`scripts/probes/paired-app-result.probe.js`](../scripts/probes/paired-app-result.probe.js)
+- [`scripts/probes/paired-app-result.probe.js`](../../scripts/probes/paired-app-result.probe.js)
   needs a paired local QA browser (`?slug=paired-apps-qa`) with one
   already-reviewed order. It reads the real desktop worker's result, retries the
   same request to show one effect under an unchanged request id, and checks the
   app stays inside its phone-width dialog.
-- [`scripts/probes/paired-offline.probe.js`](../scripts/probes/paired-offline.probe.js)
+- [`scripts/probes/paired-offline.probe.js`](../../scripts/probes/paired-offline.probe.js)
   uses the same paired browser. Start it, then quit the QA desktop normally: it
   checks that the app reports the desktop offline, clears its frame, and sends
   no new operations during the offline window.
 
-[`scripts/probes/browser-session-recovery.probe.js`](../scripts/probes/browser-session-recovery.probe.js)
+[`scripts/probes/browser-session-recovery.probe.js`](../../scripts/probes/browser-session-recovery.probe.js)
 covers sign-in recovery rather than apps: against any local bridge page it
 stubs inconsistent authentication responses and checks the browser returns to
 **Sign in** once instead of looping.
@@ -216,6 +218,6 @@ Paired desktop/browser acceptance verified an actual worker write, exact
 review, same-request retry, native data parity, restart recovery and offline
 containment. The real-model multi-work-folder journey independently verified native
 Worker requests, Check failure/repair, and attributed file handoff. See the
-[integration evidence](archive/apps-fold-workflows.md) for exact records and the
+[integration evidence](apps-fold-workflows.md) for exact records and the
 [Mac feed](https://github.com/Mat-Tom-Son/work-fold-mac-releases/releases/latest)
 for publication status.

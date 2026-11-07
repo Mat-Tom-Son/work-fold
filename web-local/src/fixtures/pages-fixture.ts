@@ -1,12 +1,11 @@
 import { ApiError } from "../lib/api";
-import type { PageCall, PageCallError, PageDataColumn, PageEntriesClient, PageInspection, PagePublication, PageRow, PagesClient, PageTableData, PageTableSummary, PageViewer } from "../lib/pages";
+import type { PageCall, PageCallError, PageDataColumn, PageEntriesClient, PageInspection, PageRow, PagesClient, PageTableData, PageTableSummary, PageViewer } from "../lib/pages";
 
 /**
  * The browser preview's page (`?fixture=work-folder`): one RSVP page in
  * "Home projects", kept in memory so the page tab can be tried without the
- * local API. It is published, with entries real visitors made online next to
- * the test entries made in Preview, and Settings → Published lists it. The
- * rules here are a small stand-in for the real engine.
+ * local API, with entries made in Preview. The rules here are a small
+ * stand-in for the real engine.
  */
 
 export const fixturePagePath = "Garden Party RSVP";
@@ -68,15 +67,13 @@ interface StoredRow extends PageRow {
   _deleted: string | null;
 }
 
-/** One set of entries: the test entries from Preview, or the ones visitors made online. */
+/** The entries made in Preview. */
 interface EntryStore {
   rows: StoredRow[];
   lastSeen: string | null;
 }
 
 const fixtureWorkFolderId = "fixture-home";
-const fixtureWorkFolderName = "Home projects";
-const fixturePageUrl = "https://pages.work-fold.com/p/pg_rhjvpnlqbuw5qowjscvk72pvha";
 const fixturePageFiles = [
   { path: "index.html", bytes: 2_410 },
   { path: "page.json", bytes: 602 },
@@ -97,28 +94,12 @@ export function createFixturePagesClient(): PagesClient {
     ["Lena Fischer", "lena@example.com", 0, "Dessert", 45],
     ["Tom Abiola", "tom@example.com", 2, "Drinks", 12],
   ];
-  const visitors = ["v_9a1b5211479cdd66e1058937c9151402", "v_06fd8d1915f638ff221e24a3077b76d1", "v_1507575bc1c458d4b1103572ce98f459", "v_3947c1c7cdeab6e7a5b158ec25329c22"];
-  const replies: Array<[string, string, number, string | null, number]> = [
-    ["Grace Okafor", "grace.okafor@example.org", 1, "Salad", 60 * 50],
-    ["Daniel Reyes", "dreyes@example.net", 3, "Drinks", 60 * 47],
-    ["Hannah Weiss", "hannah.w@example.com", 0, null, 60 * 40],
-    ["Kenji Watanabe", "kenji@example.jp", 2, "Dessert", 60 * 31],
-    ["Amara Singh", "amara.singh@example.com", 1, "Drinks", 60 * 22],
-    ["Lucas Moreau", "lucas.moreau@example.fr", 0, "Salad", 60 * 9],
-    ["Beatriz Costa", "bia.costa@example.com", 4, "Dessert", 60 * 3],
-    ["Noah Fitzgerald", "noahfitz@example.com", 1, null, 70],
-    ["Ines Haddad", "ines.h@example.com", 2, "Drinks", 18],
-  ];
   const test: EntryStore = { rows: tryouts.map((person, index) => entry(`fixture-row-${index + 1}`, `visitor-${(index % 4) + 1}`, person)), lastSeen: at(60 * 4) };
-  const online: EntryStore = { rows: replies.map((person, index) => entry(`fixture-online-${index + 1}`, visitors[index % visitors.length]!, person)), lastSeen: at(60 * 5) };
   let currentVisitor = "visitor-1";
   let visitorCount = 4;
   let nextRow = test.rows.length + 1;
   const requests = new Map<string, string>();
   const columns: PageDataColumn[] = Object.entries(declaration.rsvps.columns).map(([name, column]) => ({ name, retired: false, ...column } as PageDataColumn));
-  let publication: PagePublication = {
-    url: fixturePageUrl, status: "online", revision: 3, publishedAt: at(60 * 52), changesAvailable: true, lastCheckIn: at(0.5), dataRevision: 17,
-  };
 
   const fail = (failure: PageCallError): never => { throw Object.assign(new Error(failure.message), { failure, name: "PageCallFailure" }); };
   const publicRow = (row: StoredRow, owner: boolean): PageRow => {
@@ -146,13 +127,8 @@ export function createFixturePagesClient(): PagesClient {
     return clean;
   }
   const delay = <T,>(value: T, ms = 120) => new Promise<T>((resolve) => window.setTimeout(() => resolve(value), ms));
-  // work-fold checks in every minute while it runs.
-  const checkedIn = () => {
-    if (publication.lastCheckIn && Date.now() - Date.parse(publication.lastCheckIn) > 60_000) publication = { ...publication, lastCheckIn: new Date().toISOString() };
-    return publication;
-  };
 
-  function entries(store: EntryStore, changed: () => void = () => undefined): PageEntriesClient {
+  function entries(store: EntryStore): PageEntriesClient {
     return {
       async tables(): Promise<PageTableSummary[]> {
         const current = live(store);
@@ -170,18 +146,15 @@ export function createFixturePagesClient(): PagesClient {
         for (const [key, value] of Object.entries(values)) if (value === "" || value === null) delete (row as Record<string, unknown>)[key];
         const next = { ...row, ...clean, updatedAt: new Date().toISOString() };
         store.rows = store.rows.map((item) => item.id === id ? next : item);
-        changed();
         return delay(publicRow(next, true));
       },
       async remove(_workFolderId, _page, _table, ids) {
         const stamp = new Date().toISOString();
         store.rows = store.rows.map((row) => ids.includes(row.id) && !row._deleted ? { ...row, _deleted: stamp } : row);
-        changed();
         return delay(ids.length);
       },
       async restore(_workFolderId, _page, _table, ids) {
         store.rows = store.rows.map((row) => ids.includes(row.id) ? { ...row, _deleted: null } : row);
-        changed();
         return delay(ids.length);
       },
       async seen() {
@@ -254,34 +227,6 @@ export function createFixturePagesClient(): PagesClient {
       }
     },
     ...entries(test),
-    // A change to an online entry goes online, then work-fold checks in.
-    online: entries(online, () => { publication = { ...publication, dataRevision: (publication.dataRevision ?? 0) + 1, lastCheckIn: new Date().toISOString() }; }),
-    async publication(_workFolderId, page) {
-      known(page);
-      return delay({ available: true, unavailableReason: null, publication: checkedIn() });
-    },
-    async publish(_workFolderId, page) {
-      known(page);
-      const stamp = new Date().toISOString();
-      publication = { ...publication, status: "online", revision: (publication.revision ?? 0) + 1, publishedAt: stamp, changesAvailable: false, lastCheckIn: stamp };
-      return delay({ publication, uploaded: { files: fixturePageFiles.map((file) => ({ ...file })), count: fixturePageFiles.length, bytes: fixturePageFiles.reduce((sum, file) => sum + file.bytes, 0) } }, 900);
-    },
-    async unpublish(_workFolderId, page) {
-      known(page);
-      publication = { ...publication, status: "unpublished" };
-      return delay(publication, 300);
-    },
-    async checkIn(_workFolderId, page) {
-      known(page);
-      publication = { ...publication, lastCheckIn: new Date().toISOString() };
-      return delay(publication, 500);
-    },
-    async published() {
-      return delay([{
-        workFolderId: fixtureWorkFolderId, workFolderName: fixtureWorkFolderName, path: fixturePagePath, title: "Garden Party RSVP",
-        url: publication.url, status: publication.status, publishedAt: publication.publishedAt, changesAvailable: publication.changesAvailable,
-      }]);
-    },
   };
   return client;
 }

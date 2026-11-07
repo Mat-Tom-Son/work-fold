@@ -50,10 +50,11 @@ The folder that holds app-managed work-folders keeps its name (`spaces/` in
 app state), as does the work-fold agent's working folder (`management/`), and
 path-derived storage keys keep their old fallback segment: moving or
 re-keying them would move user content and detach History, per-folder state,
-and Pi chat sessions from existing folders. The paired-web wire operations
-(`management.*`) and the restricted-app bridge API (`assistant.request`,
-`assistant.infer`, `assistantActions`) also keep their names; "worker" already
-means an app's background runtime there.
+and Pi chat sessions from existing folders. The restricted-app bridge API
+(`assistant.request`, `assistant.infer`, `assistantActions`) also keeps its
+names; "worker" already means an app's background runtime there. (The
+paired-web `management.*` wire operations were the other exception until Web
+Access was removed from the desktop on 2026-11-07.)
 
 ## Existing data
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check } from "../chrome/icons";
+import { Check, X } from "../chrome/icons";
 
 import { useModalDialog } from "../../hooks/useModalDialog";
 import { ConnectAi, type ConnectedAi } from "../onboarding/ConnectAi";
@@ -18,7 +18,7 @@ export function ConnectAiDialog({ onClose, onConnected, onOpenSettings, fixtureM
       <section ref={dialogRef} tabIndex={-1} className="connect-ai-dialog" role="dialog" aria-modal="true" aria-labelledby="connect-ai-title" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-title">
           <div><h2 id="connect-ai-title">Connect Your AI</h2></div>
-          <button className="ui-control ui-control--quiet" type="button" onClick={onClose}>Close</button>
+          <button className="ui-control ui-control--icon" type="button" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
         {connected ? (
           <div className="connect-ai-dialog-done">

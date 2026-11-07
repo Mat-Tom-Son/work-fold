@@ -1,4 +1,4 @@
-import { accentIdentityFromHex, resolveAccent } from "./work-folder-appearance.js";
+import { accentIdentityFromHex, resolveAccent, wcagContrast } from "./work-folder-appearance.js";
 
 export const applicationAppearanceKey = "work-fold.application-appearance.v1";
 export const applicationPresetsKey = "work-fold.appearance-presets.v1";
@@ -112,6 +112,9 @@ export function applicationAppearanceVariables(p: ApplicationAppearance, mode: "
     "--ui-text": g.text, "--ui-text-muted": contrast ? g.text : g.muted, "--ui-text-subtle": g.muted,
     "--ui-accent": a.textUi, "--ui-accent-hover": a.textBody, "--ui-accent-soft": a.softFill,
     "--ui-accent-solid": a.solid, "--ui-on-accent": a.onSolid, "--ui-focus": a.borderState,
+    // The chosen color itself, in both themes, with whichever of white or near-black reads on it:
+    // the file manager fills selection and buttons with it the way Finder does with the system accent.
+    "--ui-accent-chosen": color, "--ui-on-accent-chosen": wcagContrast("#ffffff", color) >= wcagContrast("#1d1d1f", color) ? "#ffffff" : "#1d1d1f",
     "--work-fold-font-family": font, "--work-fold-ui-font": font,
     "--work-fold-font-size": `${{ compact: 14, standard: 15, comfortable: 16, large: 18 }[p.textSize]}px`,
     "--work-fold-reading-font": p.readingFont === "serif" ? 'Georgia, "Times New Roman", serif' : p.readingFont === "system" ? 'system-ui, sans-serif' : font,
