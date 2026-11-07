@@ -226,6 +226,20 @@ external input or submission may already have occurred. A failed observation
 is not proof the preceding effect failed, and disconnect never authorizes an
 automatic duplicate send or submission.
 
+On macOS, Computer Control retains the original accessibility control, process
+instance and parent chain and rechecks what it could read at input time.
+Changed targets require a new observation; the helper never substitutes a nearby
+matching control. Ambiguous accessibility dispatch errors stop the transaction
+with an uncertain outcome, without replay or physical fallback; a write the app
+refuses before acting is reported as not applied. Text results wait out a short
+settle window, and a field that still lacks its text stops the batch. Readable
+successor values that show a lost or reverted write override a claimed success;
+password values are never read into evidence. Incomplete trees and failed reads
+remain incomplete through scoped observations and cannot establish that a
+condition disappeared, while number-valued controls no longer count as failed
+reads. The shared Pi tools and helper protocol continue to own observations and
+effects.
+
 Selected observations can remain in Pi's machine-local session history. The
 compact portable Chat trail does not replace that evidence and must not absorb
 unrelated desktop captures. Document outputs use explicit normal file paths.

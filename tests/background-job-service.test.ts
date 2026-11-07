@@ -235,6 +235,40 @@ test("interactive jobs receive terminal input and keep a real TTY", { skip: proc
   await assert.rejects(h.service.input(job.jobId, "again"), /running interactive/);
 });
 
+test("interactive terminals relay UTF-8 bytes without transcoding in either direction", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
+  const h = await harness(t);
+  const payload = "café / cafe\u0301 / 漢字 / 👩🏽‍💻";
+  const output = "OUTPUT:Grüße / 日本語 / 🚀\n";
+  const script = `
+const fs = require('node:fs');
+process.stdin.setRawMode(true);
+const chunks = [];
+let received = 0;
+process.stdin.on('data', async chunk => {
+  chunks.push(chunk);
+  received += chunk.length;
+  if (received < ${Buffer.byteLength(payload)}) return;
+  process.stdin.removeAllListeners('data');
+  fs.writeFileSync('terminal-input.bin', Buffer.concat(chunks));
+  for (const byte of Buffer.from(${JSON.stringify(output)})) {
+    await new Promise(resolve => process.stdout.write(Buffer.from([byte]), resolve));
+    await new Promise(resolve => setTimeout(resolve, 1));
+  }
+  process.exit(0);
+});
+process.stdout.write('RAW_READY\\n');
+`;
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  const job = await h.service.start({ owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa",
+    command: `${quote(process.execPath)} -e ${quote(script)}`, cwd: h.folder, surface: "tool", interactive: true });
+  assert.equal((await h.service.wait(job.jobId, { seconds: 5, until: /RAW_READY/ })).outcome, "matched");
+  await h.service.input(job.jobId, payload.slice(0, 7));
+  await h.service.input(job.jobId, payload.slice(7));
+  assert.equal((await h.service.wait(job.jobId, { seconds: 5 })).outcome, "ended");
+  assert.deepEqual(await readFile(join(h.folder, "terminal-input.bin")), Buffer.from(payload));
+  assert.ok((await h.service.read(job.jobId)).output.text.includes(output.trimEnd()), "byte-at-a-time UTF-8 output must decode once");
+});
+
 test("Stop drains a terminal's independently grouped children", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
   const h = await harness(t, { stopGraceMs: 100 });
   const job = await h.service.start({ owner: { conversationId: "chat-1" }, taskId: "turn-1", requestId: "req-20261018000000-aaaaaaaa", command: "sleep 60 & echo $! > terminal-child.pid; wait", cwd: h.folder, surface: "tool", interactive: true });

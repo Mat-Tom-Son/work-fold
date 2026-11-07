@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "4c970c6b60972e7a840c3c6ef14447da4a0ceca1c023d9fa70f3fa4918c04503",
+    "sha256": "1113a5db5faa0328ca02a92f04cd3644bc384d3df2d008b63b091a5f160ea6cc",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -80,7 +80,7 @@
       {
         "path": "native/macos/bridge.swift",
         "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
-        "after": "1aaf538a02f073b5f86cf7ebd5e770dc2748e061a654c7b485e4ae2fb2890f9f"
+        "after": "317b7ca3f24ca42e53749a62075d456f0054843d574f5bd044065a6a4d67bb7a"
       },
       {
         "path": "native/macos/request_lifecycle.swift",
@@ -100,7 +100,7 @@
       {
         "path": "scripts/build-native.mjs",
         "before": "990ebcfb0ecef1e4718ae2e2187a314c2580b5fdd638d974c2651dd067bbc66e",
-        "after": "9d83a3fa384a79ddce1016c702a8f77e40cf6fb0733c4b6bf7cea75fddb20b91"
+        "after": "272399c4836f2ff802f9dad47c71c805afcfe62c0b04643058b8a84cabf763a7"
       },
       {
         "path": "scripts/check-embedded.mjs",
@@ -120,12 +120,12 @@
       {
         "path": "src/actions.ts",
         "before": "1f6aaf9a1cc51ee9ac640f2cb2c31426c522f90cc8b338f5c9dde1ed462de0bb",
-        "after": "37d883fd1e2ab32a43b08e8c4c790de25761cff2a950e9e896593ff42cae5745"
+        "after": "bd33eb4501d65744c32c40d2b65805e7ab28a6d12a7fb8aae0f4a6a374045052"
       },
       {
         "path": "src/bridge.ts",
         "before": "4a206d8e714e910e00f83746524f8ffefaa72219966da89c3dde5af48213f34b",
-        "after": "8d6b3127ecb650de601c63a0925baa75db0d100103b8712a665fb5e09b6ce826"
+        "after": "a446d6b1aa9a80335c9d11a6015946a8f8a963b6d57c8760ab78b50dac46fca8"
       },
       {
         "path": "src/config.ts",
@@ -176,6 +176,26 @@
         "path": "src/platform/macos/helper-identity.d.mts",
         "before": null,
         "after": "16cbedd529e87d714a17bd13659fef510a8bb66d8bf5ceb79929237fa7cb67e2"
+      },
+      {
+        "path": "native/macos/accessibility_contract.swift",
+        "before": null,
+        "after": "621e8ab92f2603f7939e79f4e72e27b2fe4af5db794669dcc6195a31057bc1fd"
+      },
+      {
+        "path": "native/macos/accessibility_contract_tests.swift",
+        "before": null,
+        "after": "2f372585734037b763b65fd7b6ad4cfa16e97ee52ff77cb874acd0064a798858"
+      },
+      {
+        "path": "src/outline.ts",
+        "before": "4fbed9a94390b894a959b3bdf97aedca5d4a8d5b0b2fed8b0f77fb86eddf6367",
+        "after": "7e64f59de33b2e338d0d43ad95f752172db2bd3882c312397aa4df96155552cc"
+      },
+      {
+        "path": "src/platform/types.ts",
+        "before": "37676ae89be612d49a66885f003586d59e61e474d0c568d2761752b1a3c11ed4",
+        "after": "b7f087b854a66b5fa810a63401499e0f971a96f4402c544002217b9d686b02be"
       }
     ]
   },

@@ -22,6 +22,66 @@ browser/CLI development falls back to Pi's ordinary private profile files.
 See [the integration trace](../../docs/archive/pi-1.1-integration.md) and the pinned
 [SDK example](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
+## Computer 0.5.1: macOS action reliability
+
+The shared outcome and outline corrections from Linux 0.15.2 also apply to
+macOS: scoped observations retain truncation, and interrupted delivery cannot be
+cleared by an already-satisfied postcondition. Single-action errors preserve the
+completed batch prefix and stop further dispatch. Readable successor text
+decides a text write when it is conclusive: every field holding its text means
+the writes worked, and a field still holding a value from before its last write
+(its observed value or an earlier write in the batch) means the write was lost
+or reverted, overriding a claimed success. A field the app reformatted, or one
+with no readable value, leaves the helper's own reading in place. A matching
+text write never upgrades a different postcondition that failed or could not be
+verified.
+
+The Swift helper retains the actual control, its application process instance
+and the AXParent chain up to the application, recorded during observation with
+the same walk the action-time check uses (one extra read per node; a remote
+view such as a sandboxed app's Open/Save panel may cross processes). It checks
+whatever it could read again at input time and refuses changed targets rather
+than finding a nearby, similarly labelled replacement; an identity or chain the
+observation could not read is not required later, leaving the retained object
+as the evidence, as before. The observed root is checked directly instead of
+being re-paired with a window by geometry. Each node's attributes are read once
+and shared by the outline and its identity.
+
+Accessibility actions dispatch once. Unsupported actions can choose another
+mechanism; ambiguous IPC errors return `interrupted_unknown` and stop without
+replay or physical fallback. A value write that the app refuses before acting
+(`attributeUnsupported` or a rejected value) is certain and returns
+`value_not_settable`, suggesting typeText. When a value write's reply is lost
+but the field then holds exactly the requested text, the write is settled as
+worked without writing again. Text results read the field through a short
+settle window (about 300 ms) so a late value is not mistaken for a missing one.
+A readable field that still lacks the text is `didnt`, which stops the batch;
+for raw typing that also allows the existing single foreground retry, now only
+after the settle window. Password and unreadable fields stay `unknown` and are
+never retyped. Password values are never read or placed in action evidence.
+Scrolling keeps its earlier fallback, since repeating a scroll changes no data.
+
+Waits read number-valued controls (scroll bars, checkboxes, sliders) as holding
+no text, as they always did; only a failed read is unknown, and a destroyed
+element no longer matches. The wait scan matches the observation outline (no
+depth cut short of the 2,000-node limit) and skips visibility reads it never
+used. Bounded traversal distinguishes complete absence from node-limit cuts and
+failed reads. A disappearance condition requires a complete scan: a node-limit
+cut answers unconfirmed at once, and failed reads are retried every 250 ms until
+the timeout. `wait_for` reports an unconfirmed result as such rather than as a
+timeout. The existing protocol 7 and Pi tool names remain unchanged;
+`valueReadable`, wait completeness and `value_not_settable` are additive.
+
+`tests/computer-accessibility-contract.test.ts` compiles the helper's native
+dispatch, value-write, attribute-read, wait-condition, settle, retained-identity
+and traversal code against controlled responders; the responder changes its
+state before returning an error to catch duplicate effects, and a fake window
+with number-valued controls checks that a disappearance can still be verified.
+`tests/computer-semantics.test.ts` exercises the real Pi result path, including
+single-action interruption, scoped outlines, failed and unverified
+postconditions, reformatted values and the `wait_for` message. These fixtures
+need no desktop permission and do not certify live third-party applications.
+
 ## Pi AI 1.1.0 identity retention
 
 The native direct ChatGPT OAuth flow now verifies the returned ID token against

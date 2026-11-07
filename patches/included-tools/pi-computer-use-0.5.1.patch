@@ -57,10 +57,58 @@ index eec9992..5580d00 100644
  	});
  }
 diff --git a/native/macos/bridge.swift b/native/macos/bridge.swift
-index 0642385..69da3de 100644
+index 0642385..696940d 100644
 --- a/native/macos/bridge.swift
 +++ b/native/macos/bridge.swift
-@@ -369,10 +369,12 @@ final class InputSuppressionGuard {
+@@ -6,18 +6,11 @@ import Vision
+ import ImageIO
+ import ScreenCaptureKit
+ 
+-struct BridgeFailure: Error {
+-	let message: String
+-	let code: String
+-}
+-
+ final class AXRefStore {
+ 	struct Snapshot {
+-		let role: String
+-		let identifier: String
+-		let label: String
+-		let rect: CGRect
+-	}
++        let identity: AXControlIdentity?
++        let parents: [AXUIElement]?
++    }
+ 
+ 	private var nextId: UInt64 = 0
+ 	private var windows: [String: AXUIElement] = [:]
+@@ -103,6 +96,9 @@ private struct CapturedWindowImage {
+ 
+ private struct LookRecord {
+ 	let lookId: String
++    let pid: Int32
++    let processInstance: String?
++    let root: AXUIElement?
+ 	let windowId: UInt32
+ 	let windowFrame: CGRect
+ 	let imageWidth: Int
+@@ -147,6 +143,7 @@ final class LookNode {
+ 	let title: String
+ 	let description: String
+ 	let value: String
++    var valueReadable = false
+ 	let actions: [String]
+ 	let canPress: Bool
+ 	let canFocus: Bool
+@@ -199,6 +196,7 @@ final class LookNode {
+ 			"title": title,
+ 			"description": description,
+ 			"value": value,
++            "valueReadable": valueReadable,
+ 			"actions": actions,
+ 			"canPress": canPress,
+ 			"canFocus": canFocus,
+@@ -369,10 +367,12 @@ final class InputSuppressionGuard {
  }
  
  final class Bridge {
@@ -74,7 +122,7 @@ index 0642385..69da3de 100644
  	private let supportsAgentCursor = CommandLine.arguments.contains("serve")
  	private let browserBundleIds: Set<String> = [
  		"com.apple.Safari", "com.google.Chrome", "org.chromium.Chromium", "company.thebrowser.Browser", "com.brave.Browser", "com.microsoft.edgemac", "com.vivaldi.Vivaldi", "net.imput.helium", "org.mozilla.firefox",
-@@ -388,8 +390,6 @@ final class Bridge {
+@@ -388,8 +388,6 @@ final class Bridge {
  	private let rootObserverLock = NSLock()
  	private var rootObservers: [Int32: RootAXObserverState] = [:]
  	private let maxRootObservers = 4
@@ -83,7 +131,7 @@ index 0642385..69da3de 100644
  	private let completedRequestLock = NSLock()
  	private var recentCompletedRequestIds: [String] = []
  
-@@ -440,7 +440,8 @@ final class Bridge {
+@@ -440,7 +438,8 @@ final class Bridge {
  		var address = sockaddr_un()
  		address.sun_family = sa_family_t(AF_UNIX)
  		let sunPathCapacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -93,7 +141,7 @@ index 0642385..69da3de 100644
  		withUnsafeMutablePointer(to: &address.sun_path) { pointer in
  			pointer.withMemoryRebound(to: CChar.self, capacity: sunPathCapacity) { dest in
  				for (index, byte) in bytes.enumerated() { dest[index] = CChar(bitPattern: byte) }
-@@ -450,6 +451,7 @@ final class Bridge {
+@@ -450,6 +449,7 @@ final class Bridge {
  			pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(server, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
  		}
  		if bindStatus != 0 || listen(server, 8) != 0 { close(server); close(lockFile); exit(1) }
@@ -101,7 +149,7 @@ index 0642385..69da3de 100644
  		while true {
  			let client = accept(server, nil, nil)
  			if client < 0 { continue }
-@@ -508,6 +510,13 @@ final class Bridge {
+@@ -508,6 +508,13 @@ final class Bridge {
  			completionId = id
  
  			do {
@@ -115,7 +163,7 @@ index 0642385..69da3de 100644
  				let result = try handleRequest(object)
  				send([
  					"id": id,
-@@ -594,7 +603,11 @@ final class Bridge {
+@@ -594,7 +601,11 @@ final class Bridge {
  		return recentCompletedRequestIds
  	}
  
@@ -128,7 +176,7 @@ index 0642385..69da3de 100644
  		let cmd = try stringArg(request, "cmd")
  
  		switch cmd {
-@@ -812,6 +825,8 @@ final class Bridge {
+@@ -812,6 +823,8 @@ final class Bridge {
  			"parentPid": Int(parentPid),
  			"executablePath": executable,
  			"macOS": ProcessInfo.processInfo.operatingSystemVersionString,
@@ -137,7 +185,7 @@ index 0642385..69da3de 100644
  		]
  		if let parentPath = processPath(pid: parentPid) {
  			source["parentPath"] = parentPath
-@@ -820,7 +835,8 @@ final class Bridge {
+@@ -820,7 +833,8 @@ final class Bridge {
  			source["parentBundleId"] = parentBundleId
  		}
  		let attribution: String
@@ -147,7 +195,7 @@ index 0642385..69da3de 100644
  			// Non-spoofable signals only: installed-bundle executable path +
  			// launchd parent (`open` handed us to LaunchServices). A dev
  			// binary or a directly-spawned copy fails closed to "caller".
-@@ -833,12 +849,6 @@ final class Bridge {
+@@ -833,12 +847,6 @@ final class Bridge {
  	}
  
  	private func checkPermissions() -> [String: Any] {
@@ -160,7 +208,7 @@ index 0642385..69da3de 100644
  		let accessibility = AXIsProcessTrusted()
  		let screenRecordingPreflight: Bool
  		if #available(macOS 10.15, *) {
-@@ -846,7 +856,9 @@ final class Bridge {
+@@ -846,7 +854,9 @@ final class Bridge {
  		} else {
  			screenRecordingPreflight = true
  		}
@@ -171,7 +219,7 @@ index 0642385..69da3de 100644
  		let result: [String: Any] = [
  			"accessibility": accessibility,
  			// The live probe is authoritative; the preflight boolean is kept
-@@ -857,15 +869,7 @@ final class Bridge {
+@@ -857,15 +867,7 @@ final class Bridge {
  			"screenRecordingCapturable": capturable,
  			"source": permissionSource(),
  		]
@@ -188,7 +236,7 @@ index 0642385..69da3de 100644
  		return result
  	}
  
-@@ -1089,6 +1093,7 @@ final class Bridge {
+@@ -1089,6 +1091,7 @@ final class Bridge {
  	}
  
  	private func focusWindow(_ request: [String: Any]) throws -> [String: Any] {
@@ -196,7 +244,272 @@ index 0642385..69da3de 100644
  		let pid = Int32(try intArg(request, "pid"))
  		let windowId = optionalIntArg(request, "windowId").map { UInt32($0) }
  		let windowRef = optionalStringArg(request, "windowRef")
-@@ -1856,11 +1861,15 @@ final class Bridge {
+@@ -1334,11 +1337,12 @@ final class Bridge {
+ 		} else {
+ 			throw BridgeFailure(message: "Root is not owned by a running app", code: "root_not_found")
+ 		}
++        let observedProcess = processInstance(pid)
+ 		ensureEnhancedAccessibility(pid: pid)
+ 		if let windowRef, windowRef.hasPrefix("cgmenu:"), refStore.window(for: windowRef) == nil {
+ 			let frame = windowId.flatMap { windowInfo(windowId: $0)?.bounds } ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+ 			let lookId = freshLookId()
+-			storeLookRecord(LookRecord(lookId: lookId, windowId: windowId ?? 0, windowFrame: frame, imageWidth: max(1, Int(frame.width)), imageHeight: max(1, Int(frame.height)), hasImage: false))
++			storeLookRecord(LookRecord(lookId: lookId, pid: pid, processInstance: observedProcess, root: nil, windowId: windowId ?? 0, windowFrame: frame, imageWidth: max(1, Int(frame.width)), imageHeight: max(1, Int(frame.height)), hasImage: false))
+ 			let outline = LookNode(element: nil, ref: windowRef, role: "AXMenu", subrole: "", identifier: "", title: "Menu", description: "", value: "", actions: [], canPress: false, canFocus: false, canSetValue: false, canScroll: false, canIncrement: false, canDecrement: false, isTextInput: false, rect: CGRect(x: 0, y: 0, width: max(1, frame.width), height: max(1, frame.height)), pictureOnly: true)
+ 			return [
+ 				"lookId": lookId,
+@@ -1353,7 +1357,7 @@ final class Bridge {
+ 		}
+ 		let rootElement: AXUIElement
+ 		if let scopeRef = optionalStringArg(request, "scopeRef") {
+-			guard let scoped = refStore.element(for: scopeRef), isElement(scoped, descendantOf: window) else {
++			guard let scoped = pinnedControl(scopeRef, root: window) else {
+ 				throw BridgeFailure(message: "Scope ref is stale or outside the target root", code: "element_ref_invalid")
+ 			}
+ 			rootElement = scoped
+@@ -1399,10 +1403,21 @@ final class Bridge {
+ 			readTextMs = elapsedMs(textStart)
+ 		}
+ 
++        guard processInstanceUnchanged(observedProcess, pid: pid) else {
++            throw BridgeFailure(message: "The observed process changed during capture. Observe again.", code: "stale_look")
++        }
+ 		let lookId = freshLookId()
+ 		let baseRecord = baseLookId.flatMap { lookRecord(for: $0) }
++        if baseLookId != nil {
++            guard let baseRecord, baseRecord.pid == pid,
++                  processInstanceUnchanged(baseRecord.processInstance, pid: pid),
++                  let baseRoot = baseRecord.root, sameElement(baseRoot, window) else {
++                throw BridgeFailure(message: "The base observation belongs to a different or stale root. Observe again.", code: "stale_look")
++            }
++        }
+ 		storeLookRecord(LookRecord(
+ 			lookId: lookId,
++            pid: pid, processInstance: observedProcess, root: window,
+ 			windowId: windowId ?? baseRecord?.windowId ?? 0,
+ 			windowFrame: baseRecord?.windowFrame ?? capture?.frame ?? rootFrame,
+ 			imageWidth: baseRecord?.imageWidth ?? imageWidth,
+@@ -1487,7 +1502,8 @@ final class Bridge {
+ 	}
+ 
+ 	private func buildLookOutline(root: AXUIElement, transform: @escaping (CGRect) -> CGRect) -> LookNode {
+-		let rootNode = lookNode(element: root, transform: transform, offscreen: false)
++		let rootParents = controlParents(root)
++        let rootNode = lookNode(element: root, transform: transform, offscreen: false, parents: rootParents)
+ 		let nodeLimit = 2000
+ 		// Apps with slow AX servers (e.g. Outlook) can take >30s to describe; the
+ 		// client aborts at 33s, so stop walking well before that and return a
+@@ -1495,13 +1511,15 @@ final class Bridge {
+ 		let deadline = Date().addingTimeInterval(20.0)
+ 		var walked = 1
+ 		var seen = Set<ObjectIdentifier>([ObjectIdentifier(root)])
+-		var queue: [(AXUIElement, LookNode)] = [(root, rootNode)]
++		var queue: [(AXUIElement, LookNode, [AXUIElement]?)] = [(root, rootNode, rootParents)]
+ 		var index = 0
+ 		while index < queue.count {
+-			let (element, node) = queue[index]
++			let (element, node, parents) = queue[index]
+ 			index += 1
+-			let children = axElementArray(element, attribute: kAXChildrenAttribute as CFString)
+-			if children.isEmpty { continue }
++            let read = readAXChildren(element)
++            let children = read.nodes
++            if !read.complete { node.truncated = true }
++            if children.isEmpty { continue }
+ 			if walked >= nodeLimit || Date() >= deadline {
+ 				node.truncated = true
+ 				continue
+@@ -1517,39 +1535,53 @@ final class Bridge {
+ 				seen.insert(identity)
+ 				let role = stringAttribute(child, attribute: kAXRoleAttribute as CFString) ?? ""
+ 				let offscreen = childOffscreen(child, role: role, visibleByKind: visibleByKind)
+-				let childNode = lookNode(element: child, transform: transform, offscreen: offscreen)
++				// Record the same AXParent chain the action-time check walks. One
++				// read confirms the usual case; a child whose parent is reported
++				// elsewhere (or in another process) gets its own walk.
++				let childParents: [AXUIElement]?
++				if let parents, let reported = parentElement(child), sameElement(reported, element) {
++					childParents = [element] + parents
++				} else {
++					childParents = controlParents(child)
++				}
++                let childNode = lookNode(element: child, transform: transform, offscreen: offscreen, parents: childParents)
+ 				node.children.append(childNode)
+-				queue.append((child, childNode))
++				queue.append((child, childNode, childParents))
+ 				walked += 1
+ 			}
+ 		}
+ 		return rootNode
+ 	}
+ 
+-	private func lookNode(element: AXUIElement, transform: (CGRect) -> CGRect, offscreen: Bool) -> LookNode {
+-		let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+-		let subrole = stringAttribute(element, attribute: kAXSubroleAttribute as CFString) ?? ""
++	private func lookNode(element: AXUIElement, transform: (CGRect) -> CGRect, offscreen: Bool, parents: [AXUIElement]?) -> LookNode {
++		// Each attribute is read once; the same reads describe the node and
++		// record its identity, so observing costs no extra round trips.
++		let roleRead = readText(element, kAXRoleAttribute as CFString)
++		let subroleRead = readText(element, kAXSubroleAttribute as CFString)
++		let titleRead = readText(element, kAXTitleAttribute as CFString)
++		let descriptionRead = readText(element, kAXDescriptionAttribute as CFString)
++		let identifierRead = readText(element, "AXIdentifier" as CFString)
++		let role = roleRead.text ?? ""
++		let subrole = subroleRead.text ?? ""
+ 		let actions = actionNames(element)
+ 		var valueSettable = DarwinBoolean(false)
+ 		let valueStatus = AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &valueSettable)
+ 		var focusedSettable = DarwinBoolean(false)
+ 		let focusedStatus = AXUIElementIsAttributeSettable(element, kAXFocusedAttribute as CFString, &focusedSettable)
+ 		let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXTextView", "AXSearchField", "AXComboBox", "AXEditableText", "AXSecureTextField"]
+-		let title = stringAttribute(element, attribute: kAXTitleAttribute as CFString) ?? ""
+-		let description = stringAttribute(element, attribute: kAXDescriptionAttribute as CFString) ?? ""
+-		let value = displayValue(element, role: role, subrole: subrole)
++		let title = titleRead.text ?? ""
++		let description = descriptionRead.text ?? ""
++		// Password values are never read.
++		let valueRead: AXTextRead? = isSecureTextElement(role: role, subrole: subrole) ? nil : readText(element, kAXValueAttribute as CFString)
++		let value = valueRead?.text ?? ""
+ 		let screenRect = frameForElement(element) ?? .zero
++		let identity = controlIdentity(element, role: roleRead, subrole: subroleRead, identifier: identifierRead, title: titleRead, description: descriptionRead)
+ 		let node = LookNode(
+ 			element: element,
+-			ref: refStore.storeElement(element, snapshot: AXRefStore.Snapshot(
+-				role: role,
+-				identifier: stringAttribute(element, attribute: "AXIdentifier" as CFString) ?? "",
+-				label: normalizedLabel([title, description, value].joined(separator: " ")),
+-				rect: screenRect
+-			)),
++            ref: refStore.storeElement(element, snapshot: AXRefStore.Snapshot(identity: identity, parents: parents)),
+ 			role: role,
+ 			subrole: subrole,
+-			identifier: stringAttribute(element, attribute: "AXIdentifier" as CFString) ?? "",
++			identifier: identifierRead.text ?? "",
+ 			title: title,
+ 			description: description,
+ 			value: value,
+@@ -1565,6 +1597,9 @@ final class Bridge {
+ 			focused: boolAttribute(element, attribute: kAXFocusedAttribute as CFString) == true,
+ 			offscreen: offscreen
+ 		)
++        if case .string? = valueRead { node.valueReadable = true }
++        // A node whose role could not be read is incomplete evidence.
++        if roleRead.text == nil { node.truncated = true }
+ 		if node.canScroll {
+ 			let rows = axElementArray(element, attribute: kAXRowsAttribute as CFString)
+ 			let visibleRows = axElementArrayIfPresent(element, attribute: kAXVisibleRowsAttribute as CFString)
+@@ -1678,7 +1713,7 @@ final class Bridge {
+ 	}
+ 
+ 	private func payloadNode(element: AXUIElement) -> [String: Any] {
+-		let node = lookNode(element: element, transform: { $0 }, offscreen: false)
++		let node = lookNode(element: element, transform: { $0 }, offscreen: false, parents: controlParents(element))
+ 		var payload = node.payload()
+ 		payload["children"] = []
+ 		return payload
+@@ -1818,30 +1853,77 @@ final class Bridge {
+ 		return ids
+ 	}
+ 
+-	private func refindElement(ref: String, pid: Int32, windowId: UInt32) -> AXUIElement? {
+-		guard let snapshot = refStore.snapshot(for: ref),
+-			let window = windowElement(pid: pid, windowId: windowId)
+-		else { return nil }
+-		let targetCenter = CGPoint(x: snapshot.rect.midX, y: snapshot.rect.midY)
+-		let candidates = collectDescendants(startingAt: window, maxDepth: 8).filter { candidate in
+-			let role = stringAttribute(candidate, attribute: kAXRoleAttribute as CFString) ?? ""
+-			guard role == snapshot.role else { return false }
+-			let identifier = stringAttribute(candidate, attribute: "AXIdentifier" as CFString) ?? ""
+-			if !snapshot.identifier.isEmpty { return identifier == snapshot.identifier }
+-			let subrole = stringAttribute(candidate, attribute: kAXSubroleAttribute as CFString) ?? ""
+-			let title = stringAttribute(candidate, attribute: kAXTitleAttribute as CFString) ?? ""
+-			let description = stringAttribute(candidate, attribute: kAXDescriptionAttribute as CFString) ?? ""
+-			let value = displayValue(candidate, role: role, subrole: subrole)
+-			return normalizedLabel([title, description, value].joined(separator: " ")) == snapshot.label
+-		}
+-		return candidates.min { left, right in
+-			let leftFrame = frameForElement(left) ?? .zero
+-			let rightFrame = frameForElement(right) ?? .zero
+-			let leftDistance = hypot(leftFrame.midX - targetCenter.x, leftFrame.midY - targetCenter.y)
+-			let rightDistance = hypot(rightFrame.midX - targetCenter.x, rightFrame.midY - targetCenter.y)
+-			return leftDistance < rightDistance
+-		}
+-	}
++    /// The process start time distinguishes a reused pid. Any user's process
++    /// can be read; nil means the start time itself could not be read.
++    private func processInstance(_ pid: Int32) -> String? {
++        var info = proc_bsdinfo()
++        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
++        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
++              info.pbi_pid == UInt32(pid) else { return nil }
++        return "\(info.pbi_start_tvsec):\(info.pbi_start_tvusec)"
++    }
++
++    /// A process recorded at observation must still be the same instance. When
++    /// the observation could not read the start time there is nothing to compare.
++    private func processInstanceUnchanged(_ saved: String?, pid: Int32) -> Bool {
++        guard let saved else { return true }
++        return processInstance(pid) == saved
++    }
++
++    private func readText(_ element: AXUIElement, _ attribute: CFString) -> AXTextRead {
++        var value: CFTypeRef?
++        let status = AXUIElementCopyAttributeValue(element, attribute, &value)
++        return AXTextRead(status: status, value: value)
++    }
++
++    /// Only a destroyed element counts as gone; a busy app is not proof of change.
++    private func axElementIsGone(_ element: AXUIElement) -> Bool {
++        readText(element, kAXRoleAttribute as CFString) == .gone
++    }
++
++    private func controlIdentity(_ element: AXUIElement) -> AXControlIdentity? {
++        controlIdentity(element, role: readText(element, kAXRoleAttribute as CFString),
++            subrole: readText(element, kAXSubroleAttribute as CFString),
++            identifier: readText(element, "AXIdentifier" as CFString),
++            title: readText(element, kAXTitleAttribute as CFString),
++            description: readText(element, kAXDescriptionAttribute as CFString))
++    }
++
++    private func controlIdentity(_ element: AXUIElement, role: AXTextRead, subrole: AXTextRead,
++        identifier: AXTextRead, title: AXTextRead, description: AXTextRead) -> AXControlIdentity? {
++        guard let pid = pidForElement(element), let role = role.text, !role.isEmpty,
++              let subrole = subrole.text, let identifier = identifier.text,
++              let title = title.text, let description = description.text else { return nil }
++        return AXControlIdentity(pid: pid, processInstance: processInstance(pid), role: role, subrole: subrole,
++            identifier: identifier, title: title, description: description)
++    }
++
++    /// The live AXParent chain up to the application. A remote view (such as a
++    /// sandboxed app's Open/Save panel) is served by another process, so the
++    /// chain may cross processes. nil when the chain cannot be read to the end.
++    private func controlParents(_ element: AXUIElement) -> [AXUIElement]? {
++        var current = element, parents: [AXUIElement] = []
++        for _ in 0..<64 {
++            if stringAttribute(current, attribute: kAXRoleAttribute as CFString) == "AXApplication" { return parents }
++            guard let parent = parentElement(current),
++                  !sameElement(parent, element), !parents.contains(where: { sameElement($0, parent) }) else { return nil }
++            parents.append(parent)
++            current = parent
++        }
++        return nil
++    }
++
++    private func rememberElement(_ element: AXUIElement) -> String {
++        refStore.storeElement(element, snapshot: AXRefStore.Snapshot(identity: controlIdentity(element), parents: controlParents(element)))
++    }
++
++    private func pinnedControl(_ ref: String, root: AXUIElement?) -> AXUIElement? {
++        guard let element = refStore.element(for: ref), let snapshot = refStore.snapshot(for: ref),
++              pinnedAXTargetMatches(saved: snapshot.identity, live: controlIdentity(element),
++                  savedParents: snapshot.parents, liveParents: controlParents(element), target: element,
++                  root: root, same: sameElement) else { return nil }
++        return element
++    }
+ 
+ 	private func hitTest(_ request: [String: Any]) throws -> [String: Any] {
+ 		let lookId = try stringArg(request, "lookId")
+@@ -1856,11 +1938,19 @@ final class Bridge {
  	}
  
  	private func act(_ request: [String: Any]) throws -> [String: Any] {
@@ -209,10 +522,37 @@ index 0642385..69da3de 100644
 +        if record.windowId > 0, pidForWindowId(record.windowId) != pid {
 +            throw BridgeFailure(message: "Observed window no longer belongs to the requested application. Observe again.", code: "stale_target")
 +        }
++        guard record.pid == pid, processInstanceUnchanged(record.processInstance, pid: pid),
++              let root = record.root, pidForElement(root) == pid, !axElementIsGone(root) else {
++            throw BridgeFailure(message: "The observed application or root changed. Observe again.", code: "stale_target")
++        }
  		let action = try stringArg(request, "action")
  		let target = request["target"] as? [String: Any] ?? [:]
  		let params = request["params"] as? [String: Any] ?? [:]
-@@ -1914,6 +1923,9 @@ final class Bridge {
+@@ -1894,26 +1984,16 @@ final class Bridge {
+ 		}
+ 
+ 		if let ref = target["ref"] as? String {
+-			var refound = false
+-			let cached = refStore.element(for: ref)
+-			let cachedIsLive = cached.map {
+-				stringAttribute($0, attribute: kAXRoleAttribute as CFString) != nil && frameForElement($0) != nil
+-			} ?? false
+-			let resolved: AXUIElement?
+-			if cachedIsLive {
+-				resolved = cached
+-			} else {
+-				refound = true
+-				resolved = refindElement(ref: ref, pid: pid, windowId: record.windowId)
+-			}
+-			guard let stored = resolved else {
+-				throw BridgeFailure(message: "Element reference is stale", code: "stale_ref")
+-			}
+-			if refound { performed["refound"] = true }
++            guard let stored = pinnedControl(ref, root: record.root) else {
++                throw BridgeFailure(message: "The observed control or its parent chain changed. Observe again.", code: "stale_ref")
++            }
+ 			element = stored
  			beforeValue = stringAttribute(stored, attribute: kAXValueAttribute as CFString)
  			beforeSelected = stringAttribute(stored, attribute: kAXSelectedTextAttribute as CFString)
  		} else if let xNumber = target["x"] as? NSNumber, let yNumber = target["y"] as? NSNumber {
@@ -222,7 +562,41 @@ index 0642385..69da3de 100644
  			guard record.hasImage else {
  				throw BridgeFailure(message: "Coordinate targeting is unavailable for this outline-only root", code: "coordinate_unavailable_for_root")
  			}
-@@ -1942,17 +1954,91 @@ final class Bridge {
+@@ -1924,6 +2004,33 @@ final class Bridge {
+ 			throw BridgeFailure(message: "act target must include ref or x/y", code: "invalid_args")
+ 		}
+ 
++        // The observed root is the retained element itself (a window, sheet,
++        // dialog or menu), so it is checked directly rather than re-paired with
++        // a window by geometry, which can pick a different window or a sheet's parent.
++        func recheckTarget() throws {
++            try checkRequestActive()
++            guard processInstanceUnchanged(record.processInstance, pid: pid), !axElementIsGone(root) else {
++                throw BridgeFailure(message: "The observed application or root changed. Observe again.", code: "stale_target")
++            }
++            if record.windowId > 0, pidForWindowId(record.windowId) != pid {
++                throw BridgeFailure(message: "The observed window closed or changed owner. Observe again.", code: "stale_target")
++            }
++            if let ref = target["ref"] as? String, pinnedControl(ref, root: root) == nil {
++                throw BridgeFailure(message: "The observed control changed. Observe again.", code: "stale_ref")
++            }
++            if rawPoint != nil, let current = currentWindowBounds(windowId: record.windowId), current != record.windowFrame {
++                throw BridgeFailure(message: "Window geometry changed. Observe again.", code: "stale_geometry")
++            }
++        }
++
++        func settledTextValue(_ target: AXUIElement, done: (String) -> Bool) throws -> String? {
++            let role = stringAttribute(target, attribute: kAXRoleAttribute as CFString) ?? ""
++            let subrole = stringAttribute(target, attribute: kAXSubroleAttribute as CFString) ?? ""
++            if isSecureTextElement(role: role, subrole: subrole) { return nil }
++            return try axSettledRead(attempts: 9, read: { stringAttribute(target, attribute: kAXValueAttribute as CFString) },
++                done: done, pause: { usleep(30_000); try checkRequestActive() })
++        }
++
+ 		func coordinatePoint() throws -> CGPoint {
+ 			if let element, let frame = frameForElement(element) {
+ 				return CGPoint(x: frame.midX, y: frame.midY)
+@@ -1942,17 +2049,91 @@ final class Bridge {
  			Task { @MainActor in AgentCursor.shared.animate(to: point, above: record.windowId) }
  		}
  
@@ -323,7 +697,7 @@ index 0642385..69da3de 100644
  		}
  
  		func preflight(_ point: CGPoint) throws {
-@@ -1963,7 +2049,7 @@ final class Bridge {
+@@ -1963,7 +2144,7 @@ final class Bridge {
  				let role = stringAttribute(hit, attribute: kAXRoleAttribute as CFString) ?? ""
  				if role == "AXWindow" || role == "AXApplication" { preflightCapsUnknown = true; return }
  				if delivery == "hid" && attempt < 3 {
@@ -332,7 +706,7 @@ index 0642385..69da3de 100644
  					usleep(20_000)
  					continue
  				}
-@@ -1972,13 +2058,17 @@ final class Bridge {
+@@ -1972,14 +2153,19 @@ final class Bridge {
  		}
  
  		func executeCoordinates(_ point: CGPoint) throws {
@@ -349,20 +723,42 @@ index 0642385..69da3de 100644
 +            try checkRequestActive()
 +			try focusTargetForPhysicalInput()
  			if delivery == "hid" { try preflight(point) }
++            try recheckTarget()
  			switch action {
  			case "press", "click":
-@@ -2028,8 +2118,10 @@ final class Bridge {
+ 				animateCursor(at: point)
+@@ -2007,14 +2193,6 @@ final class Bridge {
+ 			}
+ 		}
+ 
+-		func refreshElement() -> AXUIElement? {
+-			guard let ref = target["ref"] as? String,
+-				let refreshed = refindElement(ref: ref, pid: pid, windowId: record.windowId)
+-			else { return nil }
+-			element = refreshed
+-			performed["refound"] = true
+-			return refreshed
+-		}
+ 
+ 		if let element, action == "press" || action == "click" {
+ 			let elementRole = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+@@ -2028,11 +2206,10 @@ final class Bridge {
  				}
  			} else if supportsAction(element, action: kAXPressAction as CFString) {
  				let cursorPoint = try? coordinatePoint()
+-				var status = AXUIElementPerformAction(element, kAXPressAction as CFString)
+-				if status != .success, let refreshed = refreshElement(), supportsAction(refreshed, action: kAXPressAction as CFString) {
+-					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
+-				}
+-				if status == .success {
 +				try checkRequestActive()
- 				var status = AXUIElementPerformAction(element, kAXPressAction as CFString)
- 				if status != .success, let refreshed = refreshElement(), supportsAction(refreshed, action: kAXPressAction as CFString) {
-+					try checkRequestActive()
- 					status = AXUIElementPerformAction(refreshed, kAXPressAction as CFString)
- 				}
- 				if status == .success {
-@@ -2045,13 +2137,18 @@ final class Bridge {
++                try recheckTarget()
++                let delivered = try dispatchAXMutation("AXPress") { AXUIElementPerformAction(element, kAXPressAction as CFString) }
++                if delivered {
+ 					performed["grounding"] = "description"
+ 					performed["delivery"] = "ax"
+ 					if let cursorPoint { animateCursor(at: cursorPoint) }
+@@ -2045,66 +2222,105 @@ final class Bridge {
  		} else if let element, action == "setText" {
  			let text = params["text"] as? String ?? ""
  			if hasAncestorRole(element, role: "AXWebArea") {
@@ -384,21 +780,66 @@ index 0642385..69da3de 100644
  				} ?? false
  				if !selected {
  					try postKeyPress(keys: ["cmd", "a"], pid: pid, delivery: delivery)
-@@ -2067,9 +2164,11 @@ final class Bridge {
- 				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
- 			}
- 			var targetElement = element
-+			try checkRequestActive()
- 			var status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
- 			if status != .success, let refreshed = refreshElement() {
- 				targetElement = refreshed
-+				try checkRequestActive()
- 				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
- 			}
- 			if status == .success {
-@@ -2083,13 +2182,18 @@ final class Bridge {
- 			}
- 			try executeCoordinates(coordinatePoint())
+ 					usleep(20_000)
+ 				}
+-				try postAtomicUnicodeText(text, pid: pid, delivery: delivery)
++				try recheckTarget()
++                try postAtomicUnicodeText(text, pid: pid, delivery: delivery)
+ 				usleep(40_000)
+-				let verificationElement = refreshElement() ?? element
+-				let value = stringAttribute(verificationElement, attribute: kAXValueAttribute as CFString) ?? ""
++				// Late keystrokes get a settle window. A readable field that still
++				// differs did not take the text, and stops the rest of the batch.
++				let value = try settledTextValue(element) { $0 == text }
+ 				performed["grounding"] = "keyboard-events"
+ 				performed["delivery"] = delivery
+ 				performed["selectionGrounding"] = selected ? "ax" : "keyboard"
+-				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
+-			}
+-			var targetElement = element
+-			var status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
+-			if status != .success, let refreshed = refreshElement() {
+-				targetElement = refreshed
+-				status = AXUIElementSetAttributeValue(targetElement, kAXValueAttribute as CFString, text as CFTypeRef)
+-			}
+-			if status == .success {
+-				performed["grounding"] = "description"
+-				performed["delivery"] = "ax"
+-				let value = stringAttribute(targetElement, attribute: kAXValueAttribute as CFString) ?? ""
+-				if value != text && policy != "foreground" {
+-					throw BridgeFailure(message: "The background accessibility value write was accepted but did not take effect", code: "foreground_required")
+-				}
+-				return finish(["outcome": value == text ? "worked" : "didnt", "performed": performed, "evidence": ["value": value]])
+-			}
+-			try executeCoordinates(coordinatePoint())
++				return finish(["outcome": value.map { $0 == text ? "worked" : "didnt" } ?? "unknown", "performed": performed, "evidence": value.map { ["value": $0] } ?? [:]])
++			}
++            try checkRequestActive()
++            try recheckTarget()
++            let delivered: Bool
++            do {
++                delivered = try dispatchAXValueWrite("AXValue") { AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef) }
++            } catch let failure as BridgeFailure where failure.code == "interrupted_unknown" {
++                // The reply was lost, not necessarily the write. A field that now
++                // holds exactly the requested text settles it without writing again.
++                guard let value = try settledTextValue(element, done: { $0 == text }), value == text else { throw failure }
++                performed["grounding"] = "description"
++                performed["delivery"] = "ax"
++                performed["replyLost"] = true
++                return finish(["outcome": "worked", "performed": performed, "evidence": ["value": value]])
++            }
++            guard delivered else {
++                // Coordinate input has no text-replacement form, so there is no
++                // other mechanism here; nothing was written.
++                throw BridgeFailure(message: "This control's value cannot be set directly, and nothing was changed. Use typeText to enter the text instead.", code: "value_not_settable")
++            }
++            performed["grounding"] = "description"
++            performed["delivery"] = "ax"
++            // Accepted writes are never replayed through physical input. Some apps
++            // apply the value a moment later, so read it through a settle window.
++            let value = try settledTextValue(element) { $0 == text }
++            return finish(["outcome": value.map { $0 == text ? "worked" : "didnt" } ?? "unknown", "performed": performed,
++                "evidence": value.map { ["value": $0] } ?? [:]])
  		} else if action == "typeText" {
 +			guard policy != "ax_only" else {
 +				throw BridgeFailure(message: "Text entry requires raw input, which strict headless mode does not allow.", code: "background_input_unsupported")
@@ -416,10 +857,27 @@ index 0642385..69da3de 100644
 -			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
  			let text = params["text"] as? String ?? ""
- 			try postUnicodeText(text, pid: pid, delivery: delivery)
+-			try postUnicodeText(text, pid: pid, delivery: delivery)
++			try recheckTarget()
++            try postUnicodeText(text, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
-@@ -2100,11 +2204,18 @@ final class Bridge {
- 				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed]])
+ 			if let element, !text.isEmpty {
+ 				usleep(30_000)
+-				let afterValue = stringAttribute(element, attribute: kAXValueAttribute as CFString) ?? ""
+-				let changed = afterValue != (beforeValue ?? "")
+-				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed, "evidence": ["value": afterValue, "valueChanged": changed]])
++				// Typing can land late, so wait out a settle window before calling
++				// it unchanged. Only a readable field that is still unchanged
++				// counts as didnt, which stops the batch and is the one case that
++				// may retry in the foreground. Password or unreadable fields stay
++				// unknown and are never retyped.
++				let original = beforeValue ?? ""
++				guard let afterValue = try settledTextValue(element, done: { $0 != original }) else {
++					return finish(["outcome": "unknown", "performed": performed])
++				}
++				let changed = afterValue != original
++				return finish(["outcome": changed ? "worked" : "didnt", "performed": performed,
++					"evidence": ["value": afterValue, "valueChanged": changed]])
  			}
  		} else if action == "keypress" {
 +			guard policy != "ax_only" else {
@@ -438,7 +896,7 @@ index 0642385..69da3de 100644
  				let focused = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
  				if focused == .success { performed["focused"] = true }
  				let normalizedKeys = keys.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-@@ -2114,15 +2225,14 @@ final class Bridge {
+@@ -2114,21 +2330,22 @@ final class Bridge {
  					let value = stringAttribute(element, attribute: kAXValueAttribute as CFString)
  				{
  					var range = CFRange(location: 0, length: (value as NSString).length)
@@ -453,10 +911,20 @@ index 0642385..69da3de 100644
  			}
 -			acquirePhysicalInputIfNeeded()
 -			if delivery == "hid" && !preserveFocus { focusTargetForPhysicalInput() }
- 			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
+-			try postKeyPress(keys: keys, pid: pid, delivery: delivery)
++			try recheckTarget()
++            try postKeyPress(keys: keys, pid: pid, delivery: delivery)
  			performed["grounding"] = "coordinates"
  		} else if let element, action == "scroll" {
-@@ -2186,6 +2296,7 @@ final class Bridge {
+ 			let cursorPoint = try? coordinatePoint()
+ 			let before = scrollPositionSignature(element)
+-			let result = performScrollActionOrAncestor(startingAt: element, targetPid: pid, scrollX: (params["scrollX"] as? NSNumber)?.intValue ?? 0, scrollY: (params["scrollY"] as? NSNumber)?.intValue ?? 0, steps: 1)
++			try recheckTarget()
++            let result = performScrollActionOrAncestor(startingAt: element, targetPid: pid, scrollX: (params["scrollX"] as? NSNumber)?.intValue ?? 0, scrollY: (params["scrollY"] as? NSNumber)?.intValue ?? 0, steps: 1)
+ 			if (result["scrolled"] as? Bool) == true {
+ 				performed["grounding"] = "description"
+ 				performed["delivery"] = "ax"
+@@ -2186,6 +2403,7 @@ final class Bridge {
  		var steps: [[String: Any]] = []
  		var stoppedAt: Int?
  		for (index, action) in actions.enumerated() {
@@ -464,15 +932,245 @@ index 0642385..69da3de 100644
  			var deferred = action
  			deferred["deferRootDelta"] = true
  			do {
-@@ -2193,6 +2304,7 @@ final class Bridge {
+@@ -2193,13 +2411,14 @@ final class Bridge {
  				steps.append(step)
  				if (step["outcome"] as? String) == "didnt" { stoppedAt = index; break }
  			} catch let failure as BridgeFailure {
+-				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
 +                if failure.code == "request_cancelled" || failure.code == "human_takeover" { throw failure }
- 				steps.append(["outcome": "didnt", "error": ["code": failure.code, "message": failure.message]])
++				steps.append(["outcome": failure.code == "interrupted_unknown" ? "unknown" : "didnt", "error": ["code": failure.code, "message": failure.message]])
  				stoppedAt = index
  				break
-@@ -3123,6 +3235,7 @@ final class Bridge {
+ 			}
+ 		}
+ 		let outcomes = steps.compactMap { $0["outcome"] as? String }
+-		let outcome = outcomes.contains("didnt") ? "didnt" : (outcomes.contains("unknown") ? "unknown" : "worked")
++		let outcome = axBatchOutcome(outcomes)
+ 		var response: [String: Any] = ["outcome": outcome, "performed": ["transaction": true, "actionCount": steps.count], "steps": steps]
+ 		if let stoppedAt { response["stoppedAt"] = stoppedAt }
+ 		return attachRootDelta(to: response, before: beforeRootSnapshot, beforeFrontmostPid: beforeFrontmostPid, pid: pid, eventsLive: eventsLive, eventCursor: eventCursor, beforeCgSignature: beforeCgSignature)
+@@ -2324,7 +2543,7 @@ final class Bridge {
+ 		}
+ 		let rootElement: AXUIElement
+ 		if let scopeRef = optionalStringArg(request, "scopeRef") {
+-			guard let scoped = refStore.element(for: scopeRef), isElement(scoped, descendantOf: window) else {
++			guard let scoped = pinnedControl(scopeRef, root: window) else {
+ 				throw BridgeFailure(message: "Condition scope ref is stale or outside the target root", code: "element_ref_invalid")
+ 			}
+ 			rootElement = scoped
+@@ -2333,32 +2552,31 @@ final class Bridge {
+ 		}
+ 		_ = ensureRootObserver(pid: pid)
+ 
+-		func matches(_ element: AXUIElement) -> Bool {
+-			let candidateRole = self.stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+-			if let role, !role.isEmpty, candidateRole != role { return false }
+-			if let text, !text.isEmpty {
+-				let subrole = self.stringAttribute(element, attribute: kAXSubroleAttribute as CFString) ?? ""
+-				let haystack = [
+-					self.stringAttribute(element, attribute: kAXTitleAttribute as CFString) ?? "",
+-					self.stringAttribute(element, attribute: kAXDescriptionAttribute as CFString) ?? "",
+-					self.displayValue(element, role: candidateRole, subrole: subrole),
+-				].joined(separator: "\n").lowercased()
+-				if !haystack.contains(text) { return false }
+-			}
+-			if let expectedValue, !expectedValue.isEmpty {
+-				let subrole = self.stringAttribute(element, attribute: kAXSubroleAttribute as CFString) ?? ""
+-				if self.displayValue(element, role: candidateRole, subrole: subrole).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != expectedValue { return false }
+-			}
+-			return true
+-		}
++        // Non-text values (the numbers on scroll bars, checkboxes and sliders)
++        // read as no text, as they always did; only a failed read is unknown.
++        func matches(_ element: AXUIElement) -> Bool? {
++            axConditionMatch(role: role, text: text, value: expectedValue) { readText(element, $0) }
++        }
+ 
+-		var lastCount = 0
++		var lastCount = 0, lastComplete = false
+ 		repeat {
+ 			let changeGeneration = rootChangeGeneration(pid: pid)
+-			let collected = collectDescendantsWithContext(startingAt: rootElement, maxDepth: 12, maxNodes: 2000)
+-			let descendants = scopeExact ? Array(collected.prefix(1)) : collected
+-			lastCount = descendants.count
+-			if let match = descendants.first(where: { matches($0.element) }) {
++            // The scan matches the observation outline: no depth cut short of
++            // the node limit, and no visibility reads, which the check never uses.
++            let collected = scopeExact
++                ? AXTreeTraversal(nodes: [AXDescendant(element: rootElement, depth: 0,
++                    insideWebArea: stringAttribute(rootElement, attribute: kAXRoleAttribute as CFString) == "AXWebArea", axVisible: true)], cut: false, readFailed: false)
++                : collectDescendantsWithStatus(startingAt: rootElement, maxDepth: 64, maxNodes: 2000, includeVisibility: false)
++            let descendants = collected.nodes
++            lastCount = descendants.count
++            var readFailed = collected.readFailed
++            var match: AXDescendant?
++            for candidate in descendants {
++                guard let result = matches(candidate.element) else { readFailed = true; continue }
++                if result { match = candidate; break }
++            }
++            lastComplete = !collected.cut && !readFailed
++            if let match {
+ 				if waitForGone {
+ 					waitForRootChange(pid: pid, since: changeGeneration, until: deadline)
+ 					continue
+@@ -2377,12 +2595,23 @@ final class Bridge {
+ 				]
+ 			}
+ 			if waitForGone {
+-				return ["found": true, "gone": true, "nodeCount": lastCount]
++				if axGoneIsVerified(matchFound: false, complete: lastComplete) {
++					return ["found": true, "gone": true, "nodeCount": lastCount, "complete": true]
++				}
++				if !readFailed {
++					// Only the node limit hid part of the root. Scanning again cannot
++					// see further, so answer now rather than wait out the timeout.
++					return ["found": false, "nodeCount": lastCount, "complete": false, "reason": "scan_limit"]
++				}
++				// A failed read (often an app busy right after the action) can
++				// clear up: look again shortly instead of waiting for a change.
++				waitForRootChange(pid: pid, since: changeGeneration, until: min(deadline, Date().addingTimeInterval(0.25)))
++				continue
+ 			}
+ 			waitForRootChange(pid: pid, since: changeGeneration, until: deadline)
+ 		} while Date() < deadline
+ 
+-		return ["found": false, "timedOut": true, "nodeCount": lastCount]
++		return ["found": false, "timedOut": true, "nodeCount": lastCount, "complete": lastComplete]
+ 	}
+ 
+ 	private func hitTestElement(at point: CGPoint) -> AXUIElement? {
+@@ -2412,6 +2641,8 @@ final class Bridge {
+ 		return actions.contains(axScrollDownAction as String) || actions.contains(axScrollUpAction as String) || actions.contains(axScrollLeftAction as String) || actions.contains(axScrollRightAction as String)
+ 	}
+ 
++	// Scrolling keeps its earlier fallback: an unanswered scroll may try the
++	// next scroll action or the wheel, since repeating a scroll changes no data.
+ 	private func performScrollActionOrAncestor(startingAt element: AXUIElement, targetPid: Int32, scrollX: Int, scrollY: Int, steps: Int) -> [String: Any] {
+ 		let actions = scrollActionNames(scrollX: scrollX, scrollY: scrollY)
+ 		guard !actions.isEmpty else { return ["scrolled": false, "reason": "zero_delta"] }
+@@ -2425,8 +2656,7 @@ final class Bridge {
+ 			var didScroll = false
+ 			for _ in 0..<steps {
+ 				for action in actions where supportsAction(candidate, action: action) {
+-					let status = AXUIElementPerformAction(candidate, action)
+-					if status == .success { didScroll = true }
++					if AXUIElementPerformAction(candidate, action) == .success { didScroll = true }
+ 				}
+ 			}
+ 			if didScroll { return ["scrolled": true] }
+@@ -2437,7 +2667,7 @@ final class Bridge {
+ 		return ["scrolled": false, "reason": "no_scroll_action"]
+ 	}
+ 
+-	private func performActionOrAncestor(startingAt element: AXUIElement, action: CFString, targetPid: Int32) -> [String: Any] {
++	private func performActionOrAncestor(startingAt element: AXUIElement, action: CFString, targetPid: Int32) throws -> [String: Any] {
+ 		var current: AXUIElement? = element
+ 		var depth = 0
+ 
+@@ -2447,8 +2677,7 @@ final class Bridge {
+ 			}
+ 
+ 			if supportsAction(candidate, action: action) {
+-				let actionStatus = AXUIElementPerformAction(candidate, action)
+-				if actionStatus == .success {
++                if try dispatchAXMutation(action as String, dispatch: { AXUIElementPerformAction(candidate, action) }) {
+ 					return ["performed": true]
+ 				}
+ 			}
+@@ -2523,32 +2752,39 @@ final class Bridge {
+ 		collectDescendantsWithContext(startingAt: root, maxDepth: maxDepth, maxNodes: maxNodes).map(\.element)
+ 	}
+ 
+-	private func collectDescendantsWithContext(startingAt root: AXUIElement, maxDepth: Int, maxNodes: Int = 5000) -> [AXDescendant] {
+-		let nodeLimit = max(1, maxNodes)
+-		var queue: [(AXUIElement, Int, Bool, Bool)] = [(root, 0, false, true)]
+-		var seen = Set<ObjectIdentifier>()
+-		var index = 0
+-		var output: [AXDescendant] = []
+-		while index < queue.count && output.count < nodeLimit {
+-			let (element, depth, parentInsideWebArea, inheritedVisible) = queue[index]
+-			index += 1
+-			let identity = ObjectIdentifier(element)
+-			if seen.contains(identity) { continue }
+-			seen.insert(identity)
+-			let role = stringAttribute(element, attribute: kAXRoleAttribute as CFString) ?? ""
+-			let insideWebArea = parentInsideWebArea || role == "AXWebArea"
+-			output.append(AXDescendant(element: element, depth: depth, insideWebArea: insideWebArea, axVisible: inheritedVisible))
+-			if depth >= maxDepth { continue }
+-			let children = axElementArray(element, attribute: kAXChildrenAttribute as CFString)
+-			let visibleChildren = visibleAXChildren(element)
+-			for child in children {
+-				if queue.count >= nodeLimit { break }
+-				let childVisible = inheritedVisible && (visibleChildren.map { set in set.contains { self.sameElement($0, child) } } ?? true)
+-				queue.append((child, depth + 1, insideWebArea, childVisible))
+-			}
+-		}
+-		return output
+-	}
++    private func readAXChildren(_ element: AXUIElement) -> (nodes: [AXUIElement], complete: Bool) {
++        var value: CFTypeRef?
++        switch AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) {
++        // No children attribute, or an element destroyed during the walk, has
++        // no children; only a failed read leaves the subtree unknown.
++        case .attributeUnsupported, .noValue, .notImplemented, .invalidUIElement: return ([], true)
++        case .success:
++            guard let values = value as? [AnyObject] else { return ([], false) }
++            let elements = values.compactMap(asAXElement)
++            return (elements, elements.count == values.count)
++        default: return ([], false)
++        }
++    }
++
++    private func collectDescendantsWithContext(startingAt root: AXUIElement, maxDepth: Int, maxNodes: Int = 5000) -> [AXDescendant] {
++        collectDescendantsWithStatus(startingAt: root, maxDepth: maxDepth, maxNodes: maxNodes).nodes
++    }
++
++    private func collectDescendantsWithStatus(startingAt root: AXUIElement, maxDepth: Int, maxNodes: Int, includeVisibility: Bool = true) -> AXTreeTraversal<AXDescendant> {
++        let rootNode = AXDescendant(element: root, depth: 0,
++            insideWebArea: stringAttribute(root, attribute: kAXRoleAttribute as CFString) == "AXWebArea", axVisible: true)
++        return boundedAXTree(root: rootNode, maxDepth: maxDepth, maxNodes: maxNodes,
++            identity: { ObjectIdentifier($0.element) }, children: { node in
++                let read = self.readAXChildren(node.element)
++                let visible = includeVisibility ? self.visibleAXChildren(node.element) : nil
++                let children = read.nodes.map { child in
++                    AXDescendant(element: child, depth: node.depth + 1,
++                        insideWebArea: node.insideWebArea || self.stringAttribute(child, attribute: kAXRoleAttribute as CFString) == "AXWebArea",
++                        axVisible: node.axVisible && (visible.map { set in set.contains { self.sameElement($0, child) } } ?? true))
++                }
++                return (children, read.complete)
++            })
++    }
+ 
+ 	private func visibleAXChildren(_ element: AXUIElement) -> [AXUIElement]? {
+ 		let attributes: [CFString] = [
+@@ -2605,7 +2841,7 @@ final class Bridge {
+ 		]
+ 		var payload: [String: Any] = [
+ 			key: true,
+-			"elementRef": refStore.storeElement(element),
++			"elementRef": rememberElement(element),
+ 			"role": role,
+ 			"subrole": subrole,
+ 			"title": title,
+@@ -2731,7 +2967,7 @@ final class Bridge {
+ 		]
+ 
+ 		let isTextInput = textRoles.contains(role) || canSetValue
+-		let elementRef = refStore.storeElement(element)
++		let elementRef = rememberElement(element)
+ 
+ 		return [
+ 			"exists": true,
+@@ -2803,7 +3039,7 @@ final class Bridge {
+ 	// Secure fields can expose plaintext through AX value in non-native apps,
+ 	// and serialized values flow into the model conversation. Never emit them.
+ 	private func isSecureTextElement(role: String, subrole: String) -> Bool {
+-		role == "AXSecureTextField" || subrole == "AXSecureTextField"
++		axIsSecureText(role: role, subrole: subrole)
+ 	}
+ 
+ 	private func displayValue(_ element: AXUIElement, role: String, subrole: String) -> String {
+@@ -3123,6 +3359,7 @@ final class Bridge {
  	}
  
  	private func captureWindow(windowId: UInt32) throws -> CapturedWindowImage {
@@ -480,7 +1178,7 @@ index 0642385..69da3de 100644
  		if #available(macOS 14.0, *) {
  			let semaphore = DispatchSemaphore(value: 0)
  			let capturedImage = Box<CGImage?>(nil)
-@@ -3155,7 +3268,13 @@ final class Bridge {
+@@ -3155,7 +3392,13 @@ final class Bridge {
  				}
  			}
  
@@ -495,7 +1193,7 @@ index 0642385..69da3de 100644
  				task.cancel()
  				if let payload = try cgWindowScreenshotFallback(windowId: windowId) {
  					return payload
-@@ -3308,23 +3427,17 @@ final class Bridge {
+@@ -3308,23 +3551,17 @@ final class Bridge {
  		optionalStringArg(request, "delivery") == "pid" ? "pid" : "hid"
  	}
  
@@ -526,7 +1224,7 @@ index 0642385..69da3de 100644
  		event.post(tap: .cghidEventTap)
  	}
  
-@@ -3334,7 +3447,7 @@ final class Bridge {
+@@ -3334,7 +3571,7 @@ final class Bridge {
  		guard let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse move event", code: "input_failed")
  		}
@@ -535,7 +1233,7 @@ index 0642385..69da3de 100644
  	}
  
  	private func mouseButton(_ name: String) -> CGMouseButton {
-@@ -3393,9 +3506,9 @@ final class Bridge {
+@@ -3393,9 +3630,9 @@ final class Bridge {
  			}
  			down.setIntegerValueField(.mouseEventClickState, value: Int64(index))
  			up.setIntegerValueField(.mouseEventClickState, value: Int64(index))
@@ -547,7 +1245,7 @@ index 0642385..69da3de 100644
  			if index < clickCount {
  				usleep(70_000)
  			}
-@@ -3412,14 +3525,20 @@ final class Bridge {
+@@ -3412,14 +3649,20 @@ final class Bridge {
  		guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: first, mouseButton: .left) else {
  			throw BridgeFailure(message: "Failed to create mouse down event", code: "input_failed")
  		}
@@ -570,7 +1268,7 @@ index 0642385..69da3de 100644
  			usleep(8_000)
  		}
  
-@@ -3428,7 +3547,8 @@ final class Bridge {
+@@ -3428,7 +3671,8 @@ final class Bridge {
  		else {
  			throw BridgeFailure(message: "Failed to create mouse up event", code: "input_failed")
  		}
@@ -580,7 +1278,7 @@ index 0642385..69da3de 100644
  	}
  
  	private func postScrollWheel(at point: CGPoint, deltaX: Int, deltaY: Int, pid: Int32, delivery: String = "hid") throws {
-@@ -3446,7 +3566,7 @@ final class Bridge {
+@@ -3446,7 +3690,7 @@ final class Bridge {
  			throw BridgeFailure(message: "Failed to create scroll event", code: "input_failed")
  		}
  		event.location = point
@@ -589,7 +1287,7 @@ index 0642385..69da3de 100644
  	}
  
  	private func modifierFlag(_ key: String) -> CGEventFlags? {
-@@ -3536,8 +3656,8 @@ final class Bridge {
+@@ -3536,8 +3780,8 @@ final class Bridge {
  		}
  		down.flags = flags
  		up.flags = flags
@@ -600,7 +1298,7 @@ index 0642385..69da3de 100644
  		usleep(8_000)
  	}
  
-@@ -3557,8 +3677,8 @@ final class Bridge {
+@@ -3557,8 +3801,8 @@ final class Bridge {
  			}
  			setUnicodeString(event: down, text: char)
  			setUnicodeString(event: up, text: char)
@@ -611,7 +1309,7 @@ index 0642385..69da3de 100644
  			usleep(8_000)
  		}
  	}
-@@ -3571,9 +3691,9 @@ final class Bridge {
+@@ -3571,9 +3815,9 @@ final class Bridge {
  		else { throw BridgeFailure(message: "Failed to create unicode text event", code: "input_failed") }
  		setUnicodeString(event: down, text: text)
  		setUnicodeString(event: up, text: text)
@@ -860,7 +1558,7 @@ index 030db98..79ffa45 100644
  	"pi": {
  		"extensions": [
 diff --git a/scripts/build-native.mjs b/scripts/build-native.mjs
-index b9657a4..c442dd4 100755
+index b9657a4..c179822 100755
 --- a/scripts/build-native.mjs
 +++ b/scripts/build-native.mjs
 @@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
@@ -868,7 +1566,7 @@ index b9657a4..c442dd4 100755
  const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  const macosSourcePaths = [
 -	"agent_cursor.swift",
-+	"request_lifecycle.swift", "agent_cursor.swift",
++	"request_lifecycle.swift", "accessibility_contract.swift", "agent_cursor.swift",
  	"agent_cursor_motion.swift",
  	"bridge.swift",
  ].map((file) => path.join(rootDir, "native", "macos", file));
@@ -1023,7 +1721,7 @@ index 12524b1..a248e6a 100755
  const packageJsonPath = path.join(rootDir, "package.json");
  const releaseRepo = "injaneity/pi-computer-use";
 diff --git a/src/actions.ts b/src/actions.ts
-index 27decd0..66bed7c 100644
+index 27decd0..79250d1 100644
 --- a/src/actions.ts
 +++ b/src/actions.ts
 @@ -8,7 +8,7 @@ export type PreparedAction =
@@ -1056,8 +1754,53 @@ index 27decd0..66bed7c 100644
  		case "scroll": return { action: operation, target, params: { scrollX: scrollDelta(action.scrollX), scrollY: scrollDelta(action.scrollY) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
  		case "drag": return { action: operation, target, params: { path: path(action.path, env) }, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
  		case "moveMouse": return { action: operation, target, params: {}, establishesFocus: false, usesCurrentFocus: false, needsForeground: false };
+@@ -113,18 +116,41 @@ export function canRetryInForeground(action: PreparedAction, outcome: "worked" |
+ 	return !headless && outcome === "didnt" && (action.action === "typeText" || action.action === "keypress");
+ }
+ 
+-export function outcomeAfterCheck(current: "worked" | "didnt" | "unknown", check: "verified" | "preexisting" | "failed"): "worked" | "didnt" | "unknown" {
++export function outcomeAfterCheck(current: "worked" | "didnt" | "unknown", check: "verified" | "preexisting" | "failed" | "unverified"): "worked" | "didnt" | "unknown" {
++	if (check === "unverified") return "unknown";
+ 	if (check === "verified") return "worked";
+ 	if (check === "failed") return "didnt";
+ 	return current;
+ }
+ 
++/**
++ * Successor values settle text writes. Each field is judged by its last write.
++ * Every field holding exactly its text means the writes worked. A field that
++ * still holds a value it had before that write (its observed value, or an
++ * earlier write in the same batch) lost or reverted the write, which
++ * contradicts any claimed success. A field the app reformatted (for example a
++ * date or phone number), or one with no readable value, proves nothing either
++ * way, so the helper's own reading at write time stands.
++ */
+ export function outcomeAfterObservedValues(
+ 	current: "worked" | "didnt" | "unknown",
+ 	actions: UiAction[],
+ 	valueForRef: (ref: string) => string | undefined,
++	observedValueForRef: (ref: string) => string | undefined = () => undefined,
+ ): "worked" | "didnt" | "unknown" {
+ 	if (actions.length === 0 || actions.some((action) => action.action !== "setText" || !action.ref)) return current;
+-	const matches = actions.every((action) => valueForRef(action.ref!) === (action.text ?? ""));
+-	return matches ? "worked" : current;
++	const writes = new Map<string, string[]>();
++	for (const action of actions) writes.set(action.ref!, [...(writes.get(action.ref!) ?? []), action.text ?? ""]);
++	let allMatch = true;
++	for (const [ref, texts] of writes) {
++		const expected = texts[texts.length - 1];
++		const actual = valueForRef(ref);
++		if (actual === expected) continue;
++		allMatch = false;
++		if (actual === undefined) continue;
++		const observed = observedValueForRef(ref);
++		const earlier = [...(observed === undefined ? [] : [observed]), ...texts.slice(0, -1)];
++		if (earlier.includes(actual)) return "didnt";
++	}
++	return allMatch ? "worked" : current;
+ }
 diff --git a/src/bridge.ts b/src/bridge.ts
-index a1f3a86..d40776e 100644
+index a1f3a86..2d98720 100644
 --- a/src/bridge.ts
 +++ b/src/bridge.ts
 @@ -8,10 +8,10 @@ import path from "node:path";
@@ -1073,7 +1816,25 @@ index a1f3a86..d40776e 100644
  import { AGENT_TOOL_NAMES, type ActParams, type EvaluateBrowserParams, type ExpandUiParams, type ImageMode, type InspectUiParams, type LaunchBrowserParams, type FindParams, type NavigateBrowserParams, type ObserveParams, type ObserveTargetParams, type ReadTextParams, type RootSelector, type SearchUiParams, type UiAction, type WaitForParams } from "./contract.ts";
  import { toFiniteNumber } from "./platform/coerce.ts";
  import { currentPlatformBackend } from "./platform/index.ts";
-@@ -297,6 +297,23 @@ const AUTO_IMAGE_MAX_DIMENSION = 900;
+@@ -59,7 +59,7 @@ interface ExecutionTrace {
+ 	escalationReason?: string;
+ 	backgroundAttempt?: { outcome: "foreground_required" | "didnt"; reason: string };
+ 	verification?: {
+-		status: "verified" | "preexisting" | "failed";
++		status: "verified" | "preexisting" | "failed" | "unverified";
+ 		text?: string;
+ 		role?: string;
+ 		value?: string;
+@@ -218,6 +218,8 @@ interface WaitForDetails {
+ 	found: boolean;
+ 	gone?: boolean;
+ 	timedOut?: boolean;
++	/** False when part of the root could not be read, so absence is unconfirmed. */
++	complete?: false;
+ 	target?: SerializedOutlineSearchMatch;
+ 	nodeCount?: number;
+ 	text?: string;
+@@ -297,6 +299,23 @@ const AUTO_IMAGE_MAX_DIMENSION = 900;
  const EXPLICIT_IMAGE_MAX_DIMENSION = 1_600;
  const BROWSER_TRANSACTION_ACTIONS = new Set<UiAction["action"]>(["press", "click", "setText", "typeText", "keypress", "scroll", "drag", "moveMouse"]);
  
@@ -1097,7 +1858,7 @@ index a1f3a86..d40776e 100644
  const runtimeState: RuntimeState = {
  	lastPermissionCheckAt: 0,
  	windowRefs: new Map(),
-@@ -307,7 +324,7 @@ const runtimeState: RuntimeState = {
+@@ -307,7 +326,7 @@ const runtimeState: RuntimeState = {
  };
  
  const savedStates = new SavedStates();
@@ -1106,7 +1867,7 @@ index a1f3a86..d40776e 100644
  
  function operationState(): OperationState {
  	return savedStates.current();
-@@ -325,10 +342,13 @@ function persistOperation(state: OperationState): void {
+@@ -325,10 +344,13 @@ function persistOperation(state: OperationState): void {
  }
  
  /** Release handles and state owned by the current Pi session. */
@@ -1124,7 +1885,7 @@ index a1f3a86..d40776e 100644
  
  	const managedBrowser = runtimeState.managedBrowser;
  	runtimeState.managedBrowser = undefined;
-@@ -551,7 +571,7 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
+@@ -551,7 +573,7 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
  
  	throwIfAborted(signal);
  	const ready = await currentPlatformBackend.ensureReady(
@@ -1133,7 +1894,7 @@ index a1f3a86..d40776e 100644
  		{
  			permissionStatus: runtimeState.permissionStatus,
  			lastPermissionCheckAt: runtimeState.lastPermissionCheckAt,
-@@ -559,12 +579,19 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
+@@ -559,12 +581,19 @@ async function ensureReady(ctx: ExtensionContext, signal?: AbortSignal): Promise
  		},
  		signal,
  	);
@@ -1154,7 +1915,7 @@ index a1f3a86..d40776e 100644
  	await ensureReady(ctx, signal);
  }
  
-@@ -1067,7 +1094,7 @@ async function buildToolResult(
+@@ -1067,7 +1096,7 @@ async function buildToolResult(
  	// Console piggyback: when a CDP connection is active for this browser
  	// window, surface console output collected since the last tool result.
  	let consoleText = "";
@@ -1163,7 +1924,7 @@ index a1f3a86..d40776e 100644
  		const tab = await cdpTabForWindow(result.target.windowTitle, result.target.framePoints);
  		const entries = tab?.drainConsole() ?? [];
  		if (entries.length > 0) {
-@@ -1170,16 +1197,18 @@ async function helperAct(
+@@ -1170,16 +1199,18 @@ async function helperAct(
  	};
  	const textTimeout = "text" in action.params ? action.params.text.length * 25 + 4_000 : COMMAND_TIMEOUT_MS;
  	const timeoutMs = Math.max(COMMAND_TIMEOUT_MS, textTimeout);
@@ -1185,7 +1946,7 @@ index a1f3a86..d40776e 100644
  			const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
  			const trace = executionTraceFromAct(foreground, "foreground");
  			trace.backgroundFirst = true;
-@@ -1188,12 +1217,12 @@ async function helperAct(
+@@ -1188,12 +1219,12 @@ async function helperAct(
  			trace.backgroundAttempt = { outcome: "didnt", reason: "Background input produced no observable value change; a foreground retry was safe." };
  			return trace;
  		}
@@ -1201,7 +1962,7 @@ index a1f3a86..d40776e 100644
  		const foreground = checked(await currentPlatformBackend.act(helperActRequest(target, action, "foreground"), { signal, timeoutMs }));
  		const trace = executionTraceFromAct(foreground, "foreground");
  		trace.backgroundFirst = true;
-@@ -1302,7 +1331,7 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
+@@ -1302,7 +1333,7 @@ async function performListWindows(params: FindParams, signal?: AbortSignal): Pro
  	const config = getComputerUseConfig();
  	const desktopForest = await windowDetailsForFind(query, config, signal);
  	const includeBrowserPages = !query.pid && !query.bundleId && (!query.app || normalizeText(query.app) === "browser") && config.browser_use;
@@ -1210,7 +1971,65 @@ index a1f3a86..d40776e 100644
  		.map((page) => ({
  			app: "Browser",
  			pid: 0,
-@@ -1825,7 +1854,7 @@ function aggregateExecutions(steps: ExecutionTrace[]): ExecutionTrace {
+@@ -1581,6 +1612,7 @@ async function performWaitFor(params: WaitForParams, signal?: AbortSignal): Prom
+ 		found: raw.found,
+ 		gone: raw.gone || undefined,
+ 		timedOut: raw.timedOut || undefined,
++		complete: !raw.found && raw.complete === false ? false : undefined,
+ 		target: foundTarget ? serializeOutlineSearchMatch(foundTarget) : undefined,
+ 		nodeCount: Number.isFinite(raw.nodeCount) ? Number(raw.nodeCount) : refreshed.outline.nodes.length,
+ 		text,
+@@ -1590,7 +1622,9 @@ async function performWaitFor(params: WaitForParams, signal?: AbortSignal): Prom
+ 		outline: serializeOutline(refreshed.outline),
+ 		renderedOutline: foldToBudget(refreshed.outline).text,
+ 	};
+-	const message = details.found ? (details.gone ? "Condition disappeared." : "Condition appeared.") : `Timed out after ${timeoutMs}ms waiting for condition.`;
++	const message = details.found ? (details.gone ? "Condition disappeared." : "Condition appeared.")
++		: details.complete === false ? "Could not confirm the condition: part of the window could not be read, or it is larger than the scan limit. Check the observation below."
++		: `Timed out after ${timeoutMs}ms waiting for condition.`;
+ 	const viewText = useDiff ? `${renderChanges(transition.changes) || "(no element changes)"}\nUse stateId ${refreshed.capture.stateId} for subsequent actions and queries.` : details.renderedOutline;
+ 	return { content: [{ type: "text", text: `${message}\n${viewText}` }], details };
+ }
+@@ -1781,7 +1815,17 @@ async function dispatchUiAction(action: UiAction, target: ResolvedTarget, look:
+ 		await sleep(prepared.params.ms, signal);
+ 		return executionTrace("wait", "stealth", { outcome: "worked" });
+ 	}
+-	const trace = await helperAct(target, prepared, headless, signal);
++	let trace: ExecutionTrace;
++	try {
++		trace = await helperAct(target, prepared, headless, signal);
++	} catch (error) {
++		if (signal?.aborted || (error as { code?: string })?.code !== "interrupted_unknown") throw error;
++		// Preserve the uncertain step and the completed prefix. It must stop the
++		// transaction and get a successor observation without another dispatch.
++		return executionTrace("act", "default", { outcome: "unknown", error: {
++			code: "interrupted_unknown", message: error instanceof Error ? error.message : String(error),
++		} });
++	}
+ 	if (!headless && (prepared.establishesFocus || (prepared.action === "click" && "x" in prepared.target))) {
+ 		state.currentFocus = true;
+ 	}
+@@ -1811,21 +1855,24 @@ async function dispatchUiTransaction(actions: UiAction[], target: ResolvedTarget
+ 	for (const action of actions) {
+ 		const step = await dispatchUiAction(action, target, look, headless, actionState, signal);
+ 		steps.push(step);
+-		if (step.outcome === "didnt") break;
++		if (step.outcome === "didnt" || step.error) break;
+ 	}
+-	return aggregateExecutions(steps);
++	const execution = aggregateExecutions(steps);
++	const stoppedAt = steps.findIndex(step => step.outcome === "didnt" || step.error);
++	if (stoppedAt >= 0) execution.stoppedAt = stoppedAt;
++	return execution;
+ }
+ 
+ function aggregateExecutions(steps: ExecutionTrace[]): ExecutionTrace {
+ 	const outcomes = steps.map((step) => step.outcome);
+-	const outcome: ActOutcome = outcomes.includes("didnt") ? "didnt" : outcomes.includes("unknown") ? "unknown" : "worked";
++	const outcome: ActOutcome = outcomes.includes("unknown") ? "unknown" : outcomes.includes("didnt") ? "didnt" : "worked";
+ 	const fallback = steps.find((step) => step.escalatedToForeground);
+ 	return executionTrace("act", steps.every((step) => step.variant === "stealth") ? "stealth" : "default", {
+ 		outcome,
  		steps,
  		actionCount: steps.length,
  		rootDelta: steps.flatMap((step) => step.rootDelta ?? []),
@@ -1219,7 +2038,89 @@ index a1f3a86..d40776e 100644
  		escalatedToForeground: Boolean(fallback),
  		escalationReason: fallback?.escalationReason,
  		backgroundAttempt: fallback?.backgroundAttempt,
-@@ -2175,7 +2204,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
+@@ -1867,6 +1914,7 @@ async function terminalDesktopActionResult(
+ 		// A failed identity probe cannot prove that the root closed.
+ 	}
+ 	const targetClosed = exactRootAvailable === false;
++	const interrupted = execution.error?.code === "interrupted_unknown" || execution.steps?.some(step => step.error?.code === "interrupted_unknown");
+ 	if (targetClosed && !(execution.rootDelta ?? []).some((delta) => delta.change === "closed" && delta.pid === target.pid && (delta.ref === target.windowRef || delta.ref === target.nativeWindowRef))) {
+ 		execution.rootDelta = [
+ 			...(execution.rootDelta ?? []),
+@@ -1880,7 +1928,7 @@ async function terminalDesktopActionResult(
+ 			},
+ 		];
+ 	}
+-	if (targetClosed && condition) {
++	if (targetClosed && condition && !interrupted) {
+ 		const verificationStatus = condition.gone ? "verified" : "failed";
+ 		execution.verification = {
+ 			status: verificationStatus,
+@@ -1918,9 +1966,10 @@ async function terminalDesktopActionResult(
+ 		execution,
+ 		error: { code, message },
+ 	};
++	const delivery = interrupted ? "The action may have been delivered" : "The action was delivered";
+ 	const result = targetClosed
+-		? `The action was delivered, and its source root ${target.appName} — ${target.windowTitle} closed before a successor observation could be captured.`
+-		: `The action was delivered, but its source root ${target.appName} — ${target.windowTitle} could not be observed afterward: ${message}`;
++		? `${delivery}, and its source root ${target.appName} — ${target.windowTitle} closed before a successor observation could be captured.`
++		: `${delivery}, but its source root ${target.appName} — ${target.windowTitle} could not be observed afterward: ${message}`;
+ 	return {
+ 		content: [{ type: "text", text: `${result}\nNo successor state was created. Call find_roots, then observe_ui to continue.` }],
+ 		details,
+@@ -1941,8 +1990,9 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
+ 		const headless = getComputerUseConfig().headless;
+ 		const execution = await dispatchUiTransaction(actions, target, look, headless, signal);
+ 		const executedActions = actions.slice(0, execution.actionCount ?? actions.length);
++		const interrupted = execution.error?.code === "interrupted_unknown" || execution.steps?.some(step => step.error?.code === "interrupted_unknown");
+ 		try {
+-			if (condition) {
++			if (condition && !interrupted) {
+ 				const { text: expectedText, role: expectedRole, value: expectedValue, scopeExact, gone, timeoutMs } = condition;
+ 				const beforePresent = outlineConditionPresent(look.parsedOutline!, condition);
+ 				const desiredWasPreexisting = beforePresent !== gone;
+@@ -1958,7 +2008,7 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
+ 					timeoutMs,
+ 				}, { signal, timeoutMs: timeoutMs + 2_000 });
+ 				execution.verification = {
+-					status: verification.found ? (desiredWasPreexisting ? "preexisting" : "verified") : "failed",
++					status: verification.found ? (desiredWasPreexisting ? "preexisting" : "verified") : verification.complete === false ? "unverified" : "failed",
+ 					text: expectedText,
+ 					role: expectedRole,
+ 					value: expectedValue,
+@@ -1968,15 +2018,28 @@ async function performDesktopTransaction(params: ActParams, actions: UiAction[],
+ 				execution.outcome = outcomeAfterCheck(execution.outcome ?? "unknown", execution.verification.status);
+ 				if (!verification.found) {
+ 					execution.error = {
+-						code: "postcondition_failed",
+-						message: `The action was delivered but its postcondition was not satisfied within ${timeoutMs}ms.`,
++						code: verification.complete === false ? "postcondition_unverified" : "postcondition_failed",
++						message: verification.complete === false
++							? "The action was delivered, but part of the window could not be read (or it is larger than the scan limit), so its postcondition could not be established. Observe again before deciding what to do next."
++							: `The action was delivered but its postcondition was not satisfied within ${timeoutMs}ms.`,
+ 					};
+ 				}
+ 			} else {
+ 				await sleep(settleMsForExecution(execution), signal);
+ 			}
+ 			const capture = await captureCurrentTarget(signal, "auto", AUTO_IMAGE_MAX_DIMENSION, target);
+-			execution.outcome = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions, (ref) => nodeByRef(capture.outline, ref)?.value);
++			if (!interrupted) {
++				const readableValue = (outline: Outline | undefined, ref: string) => {
++					const node = outline ? nodeByRef(outline, ref) : undefined;
++					return !node || node.valueReadable === false || /password|secure/i.test(`${node.role} ${node.subrole}`) ? undefined : node.value;
++				};
++				const observed = outcomeAfterObservedValues(execution.outcome ?? "unknown", executedActions,
++					(ref) => readableValue(capture.outline, ref), (ref) => readableValue(look.parsedOutline, ref));
++				// Values can contradict a claimed success, but a matching text write
++				// never certifies a different postcondition that failed or went unverified.
++				const postconditionUnmet = execution.verification?.status === "failed" || execution.verification?.status === "unverified";
++				if (!(postconditionUnmet && observed === "worked")) execution.outcome = observed;
++			}
+ 			for (const action of executedActions) {
+ 				state.currentNote = noteAfterAct(state.currentNote ?? noteBefore, action.ref, capture.outline, { window: noteWindowForTarget(capture.target, capture.look), rootDelta: execution.rootDelta });
+ 			}
+@@ -2175,7 +2238,7 @@ async function performLaunchBrowser(params: LaunchBrowserParams, signal?: AbortS
  	if (requestedUrl && !/^https?:\/\//i.test(requestedUrl)) throw new Error("launch_browser.url must be an absolute HTTP(S) URL.");
  	const url = requestedUrl ?? "about:blank";
  	const profileDir = path.join(os.tmpdir(), `pi-${browser}-cdp-${port}`);
@@ -1228,7 +2129,7 @@ index a1f3a86..d40776e 100644
  	runtimeState.managedBrowser?.kill("SIGTERM");
  	const args = [
  		`--remote-debugging-port=${port}`,
-@@ -2276,27 +2305,41 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
+@@ -2276,27 +2339,41 @@ function makeToolExecutor<P, D>(tool: string, perform: (params: P, signal?: Abor
  		_onUpdate: AgentToolUpdateCallback<D> | undefined,
  		ctx: ExtensionContext,
  	): Promise<AgentToolResult<D>> => {
@@ -1287,7 +2188,7 @@ index a1f3a86..d40776e 100644
  	savedStates.clear();
  	clearStoredOutputs();
  	runtimeState.windowRefs.clear();
-@@ -2403,3 +2446,9 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
+@@ -2403,3 +2480,9 @@ export function reconstructStateFromBranch(ctx: ExtensionContext): void {
  		}
  	}
  }
@@ -2327,3 +3228,434 @@ index 0000000..46c24a2
 +++ b/src/platform/macos/helper-identity.d.mts
 @@ -0,0 +1 @@
 +export function verifyHelperExecutable(actual: string, expected: string, signal?: AbortSignal): Promise<boolean>;
+diff --git a/native/macos/accessibility_contract.swift b/native/macos/accessibility_contract.swift
+new file mode 100644
+index 0000000..1baf14e
+--- /dev/null
++++ b/native/macos/accessibility_contract.swift
+@@ -0,0 +1,192 @@
++import Foundation
++import ApplicationServices
++
++struct BridgeFailure: Error {
++    let message: String
++    let code: String
++}
++
++/// A responder may act before returning an IPC error. Dispatch once and only
++/// permit a different mechanism when the API explicitly reports unsupported.
++func dispatchAXMutation(_ operation: String, dispatch: () -> AXError) throws -> Bool {
++    switch dispatch() {
++    case .success: return true
++    case .actionUnsupported, .notImplemented: return false
++    case .invalidUIElement:
++        throw BridgeFailure(message: "The accessibility target is stale. Observe again.", code: "stale_ref")
++    case .apiDisabled:
++        throw BridgeFailure(message: "Accessibility permission is unavailable.", code: "permission_denied")
++    case .illegalArgument:
++        throw BridgeFailure(message: "The accessibility operation rejected its arguments.", code: "invalid_args")
++    default:
++        throw BridgeFailure(message: "\(operation) may have taken effect. Observe again before continuing; do not repeat it automatically.", code: "interrupted_unknown")
++    }
++}
++
++/// A value write answers "this attribute cannot be set" (or rejects the value)
++/// before acting. Those refusals are as certain as an unsupported action; every
++/// other error is still ambiguous and stops.
++func dispatchAXValueWrite(_ operation: String, dispatch: () -> AXError) throws -> Bool {
++    try dispatchAXMutation(operation) {
++        switch dispatch() {
++        case .attributeUnsupported, .illegalArgument: return .actionUnsupported
++        case let status: return status
++        }
++    }
++}
++
++/// How one attribute read turned out. Unsupported or empty attributes, and
++/// non-text values (the numbers on checkboxes, sliders and scroll bars), are
++/// known to hold no text. A destroyed element is gone. Only a failed read
++/// (a busy or unresponsive app) leaves the answer unknown.
++enum AXTextRead: Equatable {
++    case string(String)
++    case empty
++    case gone
++    case unknown
++
++    init(status: AXError, value: CFTypeRef?) {
++        switch status {
++        case .success: self = (value as? String).map { .string($0) } ?? .empty
++        case .attributeUnsupported, .noValue, .notImplemented: self = .empty
++        case .invalidUIElement: self = .gone
++        default: self = .unknown
++        }
++    }
++
++    var text: String? {
++        switch self {
++        case .string(let value): return value
++        case .empty: return ""
++        case .gone, .unknown: return nil
++        }
++    }
++}
++
++func axIsSecureText(role: String, subrole: String) -> Bool {
++    role == "AXSecureTextField" || subrole == "AXSecureTextField"
++}
++
++/// Whether one element satisfies a wait condition: true, false, or nil when a
++/// failed read leaves it unknown. A destroyed element no longer satisfies it,
++/// and a password field's value is never read, so it never matches a value.
++func axConditionMatch(role expectedRole: String?, text: String?, value expectedValue: String?,
++    read: (CFString) -> AXTextRead) -> Bool? {
++    let roleRead = read(kAXRoleAttribute as CFString)
++    if roleRead == .gone { return false }
++    guard let role = roleRead.text else { return nil }
++    if let expectedRole, !expectedRole.isEmpty, role != expectedRole { return false }
++    let wantsText = text?.isEmpty == false, wantsValue = expectedValue?.isEmpty == false
++    guard wantsText || wantsValue else { return true }
++    let subroleRead = read(kAXSubroleAttribute as CFString)
++    if subroleRead == .gone { return false }
++    guard let subrole = subroleRead.text else { return nil }
++    let secure = axIsSecureText(role: role, subrole: subrole)
++    let valueRead: AXTextRead = secure ? .empty : read(kAXValueAttribute as CFString)
++    if valueRead == .gone { return false }
++    if let expectedValue, wantsValue {
++        if secure { return false }
++        guard let value = valueRead.text else { return nil }
++        if value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != expectedValue { return false }
++    }
++    if let text, wantsText {
++        let parts = [read(kAXTitleAttribute as CFString), read(kAXDescriptionAttribute as CFString), valueRead]
++        if parts.contains(.gone) { return false }
++        // Any readable part that contains the text settles it; otherwise an
++        // unreadable part leaves it unknown.
++        if parts.contains(where: { $0.text?.lowercased().contains(text) == true }) { return true }
++        if parts.contains(.unknown) { return nil }
++        return false
++    }
++    return true
++}
++
++/// Text can land after the input call returns. Read again for a short settle
++/// window before concluding it did not, so a late value is not mistaken for a
++/// missing one (which would invite a duplicate retry).
++func axSettledRead(attempts: Int, read: () -> String?, done: (String) -> Bool, pause: () throws -> Void) rethrows -> String? {
++    var value = read(), remaining = attempts
++    while let current = value, !done(current), remaining > 0 {
++        try pause()
++        remaining -= 1
++        value = read()
++    }
++    return value
++}
++
++struct AXControlIdentity {
++    let pid: Int32
++    let processInstance: String?
++    let role: String
++    let subrole: String
++    let identifier: String
++    let title: String
++    let description: String
++
++    func matches(_ live: AXControlIdentity) -> Bool {
++        guard pid == live.pid, processInstance == live.processInstance,
++              role == live.role, subrole == live.subrole, identifier == live.identifier else { return false }
++        // Labels are the identity evidence only when there is no native id.
++        return !identifier.isEmpty || (title == live.title && description == live.description)
++    }
++}
++
++/// Retain the actual object and parent chain. Never search for a replacement
++/// by label, geometry or proximity after a saved control disappears.
++///
++/// The retained object must still answer. Whatever the observation could read
++/// (its identity, its parent chain up to the application) must be unchanged
++/// and must still lead to the observed root. When the observation could not
++/// read one of them, the retained object itself remains the evidence, as it
++/// was before identities were recorded.
++func pinnedAXTargetMatches<Element>(saved: AXControlIdentity?, live: AXControlIdentity?,
++    savedParents: [Element]?, liveParents: [Element]?, target: Element, root: Element?,
++    same: (Element, Element) -> Bool) -> Bool {
++    guard let live else { return false }
++    if let saved, !saved.matches(live) { return false }
++    guard let savedParents else { return true }
++    guard let liveParents, let root, savedParents.count == liveParents.count,
++          zip(savedParents, liveParents).allSatisfy({ same($0.0, $0.1) }) else { return false }
++    return same(target, root) || liveParents.contains(where: { same($0, root) })
++}
++
++func axBatchOutcome(_ outcomes: [String]) -> String {
++    outcomes.contains("unknown") ? "unknown" : outcomes.contains("didnt") ? "didnt" : "worked"
++}
++
++func axGoneIsVerified(matchFound: Bool, complete: Bool) -> Bool {
++    !matchFound && complete
++}
++
++struct AXTreeTraversal<Node> {
++    let nodes: [Node]
++    /// The depth or node limit stopped the walk before the whole tree.
++    let cut: Bool
++    /// A child list could not be read.
++    let readFailed: Bool
++    var complete: Bool { !cut && !readFailed }
++}
++
++func boundedAXTree<Node, Identity: Hashable>(root: Node, maxDepth: Int, maxNodes: Int,
++    identity: (Node) -> Identity, children: (Node) -> (nodes: [Node], complete: Bool)) -> AXTreeTraversal<Node> {
++    let limit = max(1, maxNodes)
++    var queue = [(root, 0)], output: [Node] = [], seen = Set<Identity>()
++    var index = 0, cut = false, readFailed = false
++    while index < queue.count {
++        let (node, depth) = queue[index]
++        index += 1
++        guard seen.insert(identity(node)).inserted else { continue }
++        output.append(node)
++        let read = children(node)
++        if !read.complete { readFailed = true }
++        if depth >= maxDepth {
++            if !read.nodes.isEmpty { cut = true }
++            continue
++        }
++        for child in read.nodes {
++            if queue.count >= limit { cut = true; break }
++            queue.append((child, depth + 1))
++        }
++    }
++    return AXTreeTraversal(nodes: output, cut: cut, readFailed: readFailed)
++}
+diff --git a/native/macos/accessibility_contract_tests.swift b/native/macos/accessibility_contract_tests.swift
+new file mode 100644
+index 0000000..2c5ff23
+--- /dev/null
++++ b/native/macos/accessibility_contract_tests.swift
+@@ -0,0 +1,178 @@
++import Foundation
++import ApplicationServices
++
++@main
++struct AccessibilityContractTests {
++    static func main() throws {
++        // The fake application applies its action and then loses its reply.
++        // Neither redispatch nor a physical fallback may repeat that effect.
++        for status: AXError in [.failure, .cannotComplete, .noValue, .attributeUnsupported] {
++            var effects = 0, fallback = 0
++            do {
++                if try !dispatchAXMutation("Save", dispatch: { effects += 1; return status }) { fallback += 1 }
++                preconditionFailure("Ambiguous dispatch must stop")
++            } catch let failure as BridgeFailure {
++                precondition(failure.code == "interrupted_unknown")
++            }
++            precondition(effects == 1 && fallback == 0)
++        }
++        var delivered = 0
++        let accepted = try dispatchAXMutation("Save") { delivered += 1; return .success }
++        precondition(accepted && delivered == 1)
++        let unsupported = try dispatchAXMutation("Save") { .actionUnsupported }
++        precondition(!unsupported)
++        for (status, code): (AXError, String) in [(.invalidUIElement, "stale_ref"), (.apiDisabled, "permission_denied"), (.illegalArgument, "invalid_args")] {
++            do {
++                _ = try dispatchAXMutation("Save") { status }
++                preconditionFailure("Rejected dispatch must fail")
++            } catch let failure as BridgeFailure { precondition(failure.code == code) }
++        }
++        precondition(axBatchOutcome(["worked", "unknown", "didnt"]) == "unknown")
++
++        // A value write refused before acting ("cannot set this attribute", or
++        // a rejected value) is certain and changes nothing; it is not reported
++        // as an effect that may have happened. Lost replies still stop once.
++        for status: AXError in [.attributeUnsupported, .illegalArgument, .actionUnsupported, .notImplemented] {
++            var writes = 0
++            let applied = try dispatchAXValueWrite("AXValue") { writes += 1; return status }
++            precondition(!applied && writes == 1)
++        }
++        for status: AXError in [.failure, .cannotComplete] {
++            var writes = 0
++            do {
++                _ = try dispatchAXValueWrite("AXValue") { writes += 1; return status }
++                preconditionFailure("A lost value-write reply must stop")
++            } catch let failure as BridgeFailure { precondition(failure.code == "interrupted_unknown" && writes == 1) }
++        }
++
++        // Attribute reads: numbers (checkboxes, sliders, scroll bars) and
++        // unsupported attributes hold no text; a destroyed element is gone;
++        // only a failed read is unknown.
++        precondition(AXTextRead(status: .success, value: "Save" as CFString) == .string("Save"))
++        precondition(AXTextRead(status: .success, value: NSNumber(value: 0.5)) == .empty)
++        precondition(AXTextRead(status: .success, value: kCFBooleanTrue) == .empty)
++        precondition(AXTextRead(status: .attributeUnsupported, value: nil) == .empty)
++        precondition(AXTextRead(status: .noValue, value: nil) == .empty)
++        precondition(AXTextRead(status: .invalidUIElement, value: nil) == .gone)
++        precondition(AXTextRead(status: .cannotComplete, value: nil) == .unknown)
++        precondition(AXTextRead(status: .failure, value: nil) == .unknown)
++
++        // A real window: a scroll bar and a checkbox carry numbers, a password
++        // field holds a secret, and a "Saving…" label is present or not.
++        struct FakeElement {
++            var role: String, subrole = "", title = "", description = ""
++            var value: AXTextRead = .empty
++            var failing: Set<String> = []
++            var destroyed = false
++            func read(_ attribute: CFString) -> AXTextRead {
++                if destroyed { return .gone }
++                let name = attribute as String
++                if failing.contains(name) { return .unknown }
++                switch name {
++                case kAXRoleAttribute: return .string(role)
++                case kAXSubroleAttribute: return subrole.isEmpty ? .empty : .string(subrole)
++                case kAXTitleAttribute: return title.isEmpty ? .empty : .string(title)
++                case kAXDescriptionAttribute: return description.isEmpty ? .empty : .string(description)
++                case kAXValueAttribute:
++                    precondition(subrole != "AXSecureTextField", "A password value must never be read")
++                    return value
++                default: return .empty
++                }
++            }
++        }
++        let scrollBar = FakeElement(role: "AXScrollBar", value: AXTextRead(status: .success, value: NSNumber(value: 0.25)))
++        let checkbox = FakeElement(role: "AXCheckBox", title: "Remember me", value: AXTextRead(status: .success, value: NSNumber(value: 1)))
++        let password = FakeElement(role: "AXTextField", subrole: "AXSecureTextField", title: "Password")
++        let saving = FakeElement(role: "AXStaticText", value: .string("Saving…"))
++        func check(_ window: [FakeElement], text: String? = nil, role: String? = nil, value: String? = nil) -> (found: Bool, complete: Bool) {
++            var found = false, complete = true
++            for element in window {
++                switch axConditionMatch(role: role, text: text, value: value, read: element.read) {
++                case true?: found = true
++                case nil: complete = false
++                default: break
++                }
++            }
++            return (found, complete)
++        }
++        let present = check([scrollBar, checkbox, password, saving], text: "saving")
++        precondition(present.found)
++        let after = check([scrollBar, checkbox, password], text: "saving")
++        precondition(!after.found && after.complete, "Number-valued controls must not make a disappearance unverifiable")
++        precondition(axGoneIsVerified(matchFound: after.found, complete: after.complete))
++        precondition(check([checkbox], text: "remember").found, "Text in a title still matches beside a number value")
++        precondition(check([password], role: "AXTextField", value: "hunter2") == (false, true), "A password never matches a value and never blocks the check")
++        // A busy app answering nothing leaves the absence unknown...
++        var busy = saving; busy.failing = [kAXValueAttribute as String]
++        let unknown = check([scrollBar, busy], text: "saving")
++        precondition(!unknown.found && !unknown.complete)
++        // ...unless a readable part already settles the match.
++        var labelled = busy; labelled.title = "Saving…"
++        precondition(check([labelled], text: "saving").found)
++        // A destroyed element no longer satisfies the condition.
++        var destroyed = saving; destroyed.destroyed = true
++        precondition(check([scrollBar, destroyed], text: "saving") == (false, true))
++
++        // Late text is read before concluding it is missing, without writing again.
++        var reads = 0, pauses = 0
++        let late = axSettledRead(attempts: 9, read: { reads += 1; return reads >= 4 ? "hello" : "" },
++            done: { $0 == "hello" }, pause: { pauses += 1 })
++        precondition(late == "hello" && pauses == 3)
++        reads = 0; pauses = 0
++        let never = axSettledRead(attempts: 9, read: { reads += 1; return "" }, done: { $0 == "hello" }, pause: { pauses += 1 })
++        precondition(never == "" && pauses == 9 && reads == 10)
++        precondition(axSettledRead(attempts: 9, read: { nil }, done: { _ in true }, pause: {}) == nil)
++
++        func identity(pid: Int32 = 7, instance: String? = "original", role: String = "AXButton",
++                      identifier: String = "save", title: String = "Save") -> AXControlIdentity {
++            AXControlIdentity(pid: pid, processInstance: instance, role: role, subrole: "",
++                identifier: identifier, title: title, description: "")
++        }
++        func matches(_ saved: AXControlIdentity?, _ live: AXControlIdentity?, savedParents: [String]? = ["window", "app"],
++                     parents: [String]? = ["window", "app"], root: String = "window") -> Bool {
++            pinnedAXTargetMatches(saved: saved, live: live, savedParents: savedParents,
++                liveParents: parents, target: "button", root: root, same: ==)
++        }
++        precondition(matches(identity(), identity()))
++        precondition(!matches(identity(), identity(pid: 8)))
++        precondition(!matches(identity(), identity(instance: "pid-reused")))
++        precondition(!matches(identity(), identity(role: "AXTextField")))
++        precondition(!matches(identity(), identity(identifier: "delete")))
++        precondition(!matches(identity(), nil), "A control that no longer answers is refused")
++        precondition(!matches(identity(), identity(), parents: nil), "A chain that was readable must still be readable")
++        precondition(!matches(identity(), identity(), parents: ["other-window", "app"]))
++        precondition(!matches(identity(), identity(), root: "unrelated-window"))
++        precondition(!matches(identity(identifier: ""), identity(identifier: "", title: "Delete")))
++        precondition(matches(identity(), identity(title: "Save changes")))
++        // What the observation could not read is not invented: the retained
++        // object itself stays the evidence, as it was before identities existed.
++        precondition(matches(nil, identity()), "An identity unreadable at observation falls back to the retained object")
++        precondition(matches(identity(), identity(), savedParents: nil, parents: nil), "A chain unreadable at observation is not required later")
++        precondition(matches(identity(instance: nil), identity(instance: nil)))
++        // A remote view's chain crosses into the host app and still reaches the root.
++        precondition(matches(identity(), identity(), savedParents: ["panel-service-group", "window", "app"],
++            parents: ["panel-service-group", "window", "app"]))
++
++        // Test the same bounded walker used by the native helper: a tree cut
++        // or failed child read cannot prove a dialog/control disappeared, and
++        // the two are told apart so a cut answers at once.
++        let tree = ["window": ["panel"], "panel": ["Save"], "Save": []]
++        func walk(depth: Int = 64, limit: Int = 2000, failing: String? = nil) -> AXTreeTraversal<String> {
++            boundedAXTree(root: "window", maxDepth: depth, maxNodes: limit, identity: { $0 }, children: {
++                $0 == failing ? ([], false) : (tree[$0] ?? [], true)
++            })
++        }
++        for read in [walk(depth: 1), walk(limit: 2), walk(failing: "panel")] {
++            precondition(!read.complete && !read.nodes.contains("Save"))
++            precondition(!axGoneIsVerified(matchFound: false, complete: read.complete))
++        }
++        precondition(walk(depth: 1).cut && !walk(depth: 1).readFailed)
++        precondition(walk(limit: 2).cut && !walk(limit: 2).readFailed)
++        precondition(!walk(failing: "panel").cut && walk(failing: "panel").readFailed)
++        let full = walk()
++        precondition(full.complete && full.nodes == ["window", "panel", "Save"])
++        precondition(!axGoneIsVerified(matchFound: full.nodes.contains("Save"), complete: full.complete))
++        precondition(axGoneIsVerified(matchFound: full.nodes.contains("Deleted"), complete: full.complete))
++        print("PASS accessibility dispatch, retained identity and incomplete-tree contracts")
++    }
++}
+diff --git a/src/outline.ts b/src/outline.ts
+index 67849ae..2c15f76 100644
+--- a/src/outline.ts
++++ b/src/outline.ts
+@@ -25,6 +25,7 @@ export interface OutlineNode {
+ 	title: string;
+ 	description: string;
+ 	value: string;
++	valueReadable?: boolean;
+ 	actions: string[];
+ 	canPress: boolean;
+ 	canFocus: boolean;
+@@ -184,6 +185,7 @@ function parseNode(raw: unknown, parent?: OutlineNode): OutlineNode {
+ 		title: toString(record.title),
+ 		description: toString(record.description),
+ 		value: toString(record.value),
++		...(typeof record.valueReadable === "boolean" ? { valueReadable: record.valueReadable } : {}),
+ 		actions: Array.isArray(record.actions) ? record.actions.filter((value): value is string => typeof value === "string") : [],
+ 		canPress: toBoolean(record.canPress),
+ 		canFocus: toBoolean(record.canFocus),
+@@ -574,6 +576,7 @@ function copyNodeFields(target: OutlineNode, source: OutlineNode, preserveWireRe
+ 	target.title = source.title;
+ 	target.description = source.description;
+ 	target.value = source.value;
++	target.valueReadable = source.valueReadable;
+ 	target.actions = [...source.actions];
+ 	target.canPress = source.canPress;
+ 	target.canFocus = source.canFocus;
+@@ -586,7 +589,7 @@ function copyNodeFields(target: OutlineNode, source: OutlineNode, preserveWireRe
+ 	target.focused = source.focused;
+ 	target.offscreen = source.offscreen;
+ 	target.pictureOnly = source.pictureOnly;
+-	target.truncated = false;
++	target.truncated = source.truncated;
+ 	target.scrollExtent = source.scrollExtent ? { ...source.scrollExtent } : undefined;
+ 	target.text = source.text.map((text) => ({ ...text, rect: text.rect ? { ...text.rect } : undefined }));
+ }
+diff --git a/src/platform/types.ts b/src/platform/types.ts
+index 450d497..12307c1 100644
+--- a/src/platform/types.ts
++++ b/src/platform/types.ts
+@@ -196,6 +196,7 @@ export interface PlatformWaitForRequest extends PlatformTarget {
+ 
+ export interface PlatformWaitForResponse {
+ 	found: boolean;
++	complete?: boolean;
+ 	gone?: boolean;
+ 	timedOut?: boolean;
+ 	nodeCount?: number;
