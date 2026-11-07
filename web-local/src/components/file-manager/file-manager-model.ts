@@ -1,4 +1,5 @@
 import type { TreeEntry } from "../../types";
+import { descendantFolders, folderAncestors, folderTreeRows, type NestableFolder } from "../../../../src/shared/folder-nesting";
 
 /**
  * Pure helpers for the file manager layout (docs/product-model.md, "File
@@ -272,4 +273,30 @@ export function fileManagerSuggestions(input: { selection: ReadonlyArray<{ kind:
   else if (input.inSubfolder) suggestions = ["What’s in here?", "Organize this folder", "What changed this week?"];
   else suggestions = ["What’s in here?", "What changed this week?", "Organize this folder", "Find duplicate files"];
   return suggestions.slice(0, !selection.length && input.automationsOn ? 2 : 4);
+}
+
+/** One work-folder row in the sidebar's tree. */
+export interface SidebarWorkFolderRow<T extends NestableFolder> {
+  workFolder: T;
+  depth: number;
+  /** Every work-folder inside it, at any depth: a caret shows when there is one. */
+  inside: T[];
+  open: boolean;
+}
+
+/**
+ * The sidebar's work-folders (owner request, 2026-11-07): each sub
+ * work-folder under its parent, A–Z at every level, shown only while every
+ * work-folder around it is open.
+ */
+export function sidebarWorkFolderRows<T extends NestableFolder>(workFolders: readonly T[], open: readonly string[]): SidebarWorkFolderRow<T>[] {
+  const openIds = new Set(open);
+  return folderTreeRows(workFolders)
+    .filter((row) => folderAncestors(row.workFolder, workFolders).every((ancestor) => openIds.has(ancestor.id)))
+    .map((row) => ({ workFolder: row.workFolder, depth: row.depth, inside: descendantFolders(row.workFolder, workFolders), open: openIds.has(row.workFolder.id) }));
+}
+
+/** The closed work-folders around one, outermost first: opening them brings it into view. */
+export function closedSidebarParents(workFolder: NestableFolder, workFolders: readonly NestableFolder[], open: readonly string[]): string[] {
+  return folderAncestors(workFolder, workFolders).map((item) => item.id).filter((id) => !open.includes(id));
 }

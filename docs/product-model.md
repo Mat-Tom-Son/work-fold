@@ -667,7 +667,12 @@ Files, so a native front end could later sit on the same server.
   History, and what History cannot keep, such as a deleted Chat or a removed
   work-folder, stays in Settings → Recently Deleted. A work-folder's dot pulses while
   its Worker runs and turns green when a Chat has a reply nobody has read; the
-  same dots mark History's Chat rows and the History tab.
+  same dots mark History's Chat rows and the History tab. A work-folder
+  registered inside another sits under it, indented, behind a caret in the
+  left gutter (owner request, 2026-11-07): the caret (or the arrow keys)
+  shows and hides the work-folders inside, the sidebar remembers which are
+  open, a closed parent shows its sub work-folders' activity on its own dot,
+  and going into a sub work-folder opens its parents.
 - **Standard Folders** are ordinary folders, not work-folders: no Worker,
   History, or `.work-fold/` record. The host resolves each from the home folder
   and lists it only when it exists; macOS asks for access the first time one is

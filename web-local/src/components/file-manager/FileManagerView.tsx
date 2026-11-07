@@ -22,6 +22,7 @@ import { untitledChatLabel } from "../../constants";
 import { isMacOS, workFolderEntryNativePath } from "../../lib/platform";
 import { deleteLocalFileRequest, deleteLocalFilesRequest, type PendingDelete } from "../../lib/pending-deletes";
 import { readStoredJsonValue, writeStoredJsonValue } from "../../lib/storage";
+import { combineActivityStatuses } from "../../lib/folder-nesting";
 import { useWorkFolderCustomizations } from "../../hooks/useWorkFolderCustomizations";
 import { WorkFolderAppearanceModal, type WorkFolderAppearanceSection } from "../modals/WorkFolderAppearanceModal";
 import type { ModelScope } from "../panes/AiModelsPane";
@@ -35,6 +36,7 @@ import type { WorkFolderAppearanceState } from "../../../../src/shared/work-fold
 import type { WorkFolderUiFixture } from "../../fixtures/work-folder-fixture";
 import type { AgentStatus, ChatDraftRequest, ChatSendRequest, ConversationSummary, FileContextMenuState, RestrictedAppInstalled, TreeEntry, WorkFolderSummary } from "../../types";
 import {
+  closedSidebarParents,
   defaultFileManagerSort,
   fileKindLabel,
   fileManagerIcon,
@@ -54,6 +56,7 @@ import {
   type FileManagerSort,
   type FileManagerSortKey,
   type FileManagerView as FileManagerViewMode,
+  sidebarWorkFolderRows,
 } from "./file-manager-model";
 import {
   placeApiBase,
@@ -85,6 +88,8 @@ import { useFolderAutomations } from "../../hooks/useFolderAutomations";
 const viewStorageKey = "work-fold.file-manager.view.v1";
 const panelStorageKey = "work-fold.file-manager.panel.v1";
 const sortStorageKey = "work-fold.file-manager.sort.v1";
+/** work-folders whose sub work-folders are shown in the sidebar. */
+const sidebarOpenStorageKey = "work-fold.file-manager.sidebar-open.v1";
 const typeSelectResetMs = 900;
 
 /** The desktop calls for one place's files. */
@@ -135,6 +140,18 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
   const [forward, setForward] = useState<FileManagerLocation[]>([]);
   const place = location.place;
   const workFolder = place.kind === "work-folder" ? workFolders.find((item) => item.id === place.id) ?? null : null;
+  // Sub work-folders sit under their parent in the sidebar behind a caret
+  // (owner request, 2026-11-07); the parent of one is the deepest work-folder
+  // that contains it, as everywhere else (src/shared/folder-nesting.ts).
+  const [sidebarOpen, setSidebarOpenState] = useState<string[]>(() => readStoredJsonValue(sidebarOpenStorageKey, (value) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [], []));
+  const setSidebarOpen = (next: string[]) => { setSidebarOpenState(next); writeStoredJsonValue(sidebarOpenStorageKey, next); };
+  const toggleSidebarFolder = (id: string) => setSidebarOpen(sidebarOpen.includes(id) ? sidebarOpen.filter((item) => item !== id) : [...sidebarOpen, id]);
+  // Going into a sub work-folder opens its parents, so where you are is always in view.
+  useEffect(() => {
+    if (!workFolder) return;
+    const closed = closedSidebarParents(workFolder, workFolders, sidebarOpen);
+    if (closed.length) setSidebarOpen([...sidebarOpen, ...closed]);
+  }, [workFolder?.id, workFolders]); // eslint-disable-line react-hooks/exhaustive-deps
   const standardFolder = place.kind === "standard" ? standard.folders.find((item) => item.id === place.id) ?? null : null;
   const placeName = workFolder?.name
     ?? standardFolder?.name
@@ -1445,17 +1462,27 @@ export function FileManagerView({ workFolder: activeWorkFolder, workFolders, app
         </> : null}
         <div className="fm-sidebar-heading"><span id="fm-work-folders-heading">work-folders</span><button type="button" className="fm-heading-add" aria-label="Add a work-folder" title="Add a work-folder" aria-haspopup="menu" onClick={openAddWorkFolderMenu}><Add16Regular /></button></div>
         <ul className="fm-sidebar-list" aria-labelledby="fm-work-folders-heading">
-          {workFolders.map((item) => {
+          {sidebarWorkFolderRows(workFolders, sidebarOpen).map(({ workFolder: item, depth, inside, open }) => {
             const look = folderLook(item);
             const current = isCurrent({ kind: "work-folder", id: item.id });
-            return <li key={item.id}>
+            // A closed parent shows its sub work-folders' activity on its own row.
+            const status = inside.length && !open ? combineActivityStatuses([activity.folderStatuses[item.id], ...inside.map((child) => activity.folderStatuses[child.id])]) ?? undefined : activity.folderStatuses[item.id];
+            return <li key={item.id} className="fm-sidebar-node" style={{ "--fm-depth": depth } as CSSProperties}>
+              {inside.length ? <button type="button" className={`fm-sidebar-caret${open ? " is-open" : ""}`} aria-expanded={open} aria-label={`${open ? "Hide" : "Show"} work-folders inside ${item.name}`} title={open ? "Hide work-folders inside" : "Show work-folders inside"} onClick={() => toggleSidebarFolder(item.id)}>
+                <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2l3.5 3-3.5 3z" fill="currentColor" /></svg>
+              </button> : null}
               <button type="button" className={`fm-sidebar-item${current ? " is-current" : ""}${sidebarDrop === placeKey({ kind: "work-folder", id: item.id }) ? " is-drop-target" : ""}`} aria-current={current ? "page" : undefined} onClick={() => navigate({ place: { kind: "work-folder", id: item.id }, path: "" })} onContextMenu={(event) => void openActionMenu(item, event)}
+                onKeyDown={(event) => {
+                  if (!inside.length) return;
+                  if (event.key === "ArrowRight" && !open) { event.preventDefault(); toggleSidebarFolder(item.id); }
+                  if (event.key === "ArrowLeft" && open) { event.preventDefault(); toggleSidebarFolder(item.id); }
+                }}
                 onDragOver={(event) => sidebarDragOver({ kind: "work-folder", id: item.id }, event)}
                 onDragLeave={() => setSidebarDrop(null)}
                 onDrop={(event) => void sidebarDropInto({ kind: "work-folder", id: item.id }, item.name, event)}>
                 <span className="fm-sidebar-icon"><TintedFolder color={look.color} symbol={look.symbol} /></span>
                 <span className="fm-sidebar-name">{item.name}</span>
-                <ActivityDot status={activity.folderStatuses[item.id]} />
+                <ActivityDot status={status} />
               </button>
             </li>;
           })}

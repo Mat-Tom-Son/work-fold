@@ -3303,3 +3303,58 @@
 :root[data-theme] .app-shell .fm-chat .chat-panel.is-in-panel .message.user .message-footer {
   display: none;
 }
+
+/* Sub work-folders (owner request, 2026-11-07): each sits under its parent,
+   indented, and a caret in the left gutter shows or hides them, as Finder
+   shows a folder's contents in list view. Top-level rows keep the same
+   alignment as Standard Folders. */
+.fm-sidebar-node {
+  position: relative;
+}
+
+.fm-sidebar-node .fm-sidebar-item {
+  padding-left: calc(8px + var(--fm-depth, 0) * 16px);
+}
+
+.fm-sidebar-caret {
+  position: absolute;
+  top: 0;
+  /* In the scroll area's 10px gutter and the row's own left padding. */
+  left: calc(var(--fm-depth, 0) * 16px - 10px);
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fm-text3);
+  cursor: default;
+}
+
+.fm-sidebar-caret:hover {
+  color: var(--fm-text);
+}
+
+.fm-sidebar-caret svg {
+  width: 10px;
+  height: 10px;
+  transition: transform 120ms ease;
+}
+
+.fm-sidebar-caret.is-open svg {
+  transform: rotate(90deg);
+}
+
+.fm-sidebar-caret:focus-visible {
+  outline: 2px solid var(--fm-accent);
+  outline-offset: -1px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-sidebar-caret svg {
+    transition: none;
+  }
+}

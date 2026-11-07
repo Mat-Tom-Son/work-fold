@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  closedSidebarParents,
   fileKindLabel,
   collapseCrumbs,
   fileManagerPathBar,
@@ -17,6 +18,7 @@ import {
   normalizeFileManagerView,
   parentPath,
   rangeSelection,
+  sidebarWorkFolderRows,
   sortFileManagerEntries,
   typeSelectMatch,
 } from "../web-local/src/components/file-manager/file-manager-model.js";
@@ -172,3 +174,27 @@ test("suggested messages are plain fallbacks: up to four, two when Automations a
   assert.deepEqual(fileManagerSuggestions({ selection: [{ kind: "folder" }], inSubfolder: false }), ["What’s in here?", "Organize this folder"]);
   assert.deepEqual(fileManagerSuggestions({ selection: [{ kind: "file" }, { kind: "file" }], inSubfolder: false }), ["Summarize each", "Put these in a folder", "Give them clearer names"]);
 });
+
+test("sub work-folders sit under their parent behind a caret, shown only while their parents are open", () => {
+  const folder = (id: string, name: string, root: string) => ({ id, name, workFolderRoot: root });
+  const home = folder("home", "Home projects", "/Users/you/Documents/Home projects");
+  const bath = folder("bath", "Bathroom remodel", "/Users/you/Documents/Home projects/Bathroom remodel");
+  const tile = folder("tile", "Tile", "/Users/you/Documents/Home projects/Bathroom remodel/Tile");
+  const trip = folder("trip", "Japan trip", "/Users/you/Trips/Japan trip");
+  const all = [trip, tile, home, bath];
+  const shown = (open: string[]) => sidebarWorkFolderRows(all, open).map((row) => `${"  ".repeat(row.depth)}${row.workFolder.name}${row.inside.length ? (row.open ? " (open)" : " (closed)") : ""}`);
+
+  // Closed by default: only top-level work-folders, A–Z, with a caret where one holds others.
+  assert.deepEqual(shown([]), ["Home projects (closed)", "Japan trip"]);
+  assert.deepEqual(shown(["home"]), ["Home projects (open)", "  Bathroom remodel (closed)", "Japan trip"]);
+  assert.deepEqual(shown(["home", "bath"]), ["Home projects (open)", "  Bathroom remodel (open)", "    Tile", "Japan trip"]);
+  // A grandchild stays hidden while any work-folder around it is closed.
+  assert.deepEqual(shown(["bath"]), ["Home projects (closed)", "Japan trip"]);
+  // A parent counts every work-folder inside it, for its combined activity dot.
+  assert.deepEqual(sidebarWorkFolderRows(all, []).find((row) => row.workFolder.id === "home")?.inside.map((item) => item.id).sort(), ["bath", "tile"]);
+  // Going into Tile opens its closed parents, outermost first.
+  assert.deepEqual(closedSidebarParents(tile, all, []), ["home", "bath"]);
+  assert.deepEqual(closedSidebarParents(tile, all, ["home"]), ["bath"]);
+  assert.deepEqual(closedSidebarParents(trip, all, []), []);
+});
+
