@@ -70,7 +70,7 @@
     "source": "https://github.com/injaneity/pi-computer-use/tree/4b8dbd7eaa13328ab1a8a4b55d0be0b077de7d62",
     "license": "MIT",
     "patch": "pi-computer-use-0.5.1.patch",
-    "sha256": "1113a5db5faa0328ca02a92f04cd3644bc384d3df2d008b63b091a5f160ea6cc",
+    "sha256": "bee057699474dec0e16019d44a32c138be0deccbfbe76eff97a46bb0a062ac16",
     "files": [
       {
         "path": "extensions/computer-use.ts",
@@ -80,7 +80,7 @@
       {
         "path": "native/macos/bridge.swift",
         "before": "adb5a4eb6ada931a5cbc16761fec7dbe27a290900326a4142bd7f4097865a7ba",
-        "after": "317b7ca3f24ca42e53749a62075d456f0054843d574f5bd044065a6a4d67bb7a"
+        "after": "f57b57111748db2c4b10d7f79a7bae4fa3558872048fd34881370054818c318c"
       },
       {
         "path": "native/macos/request_lifecycle.swift",
@@ -180,12 +180,12 @@
       {
         "path": "native/macos/accessibility_contract.swift",
         "before": null,
-        "after": "621e8ab92f2603f7939e79f4e72e27b2fe4af5db794669dcc6195a31057bc1fd"
+        "after": "f918abf32d3b9c4e33f8ee249e938b0c3a9d069a42be519f67a337da97b0861c"
       },
       {
         "path": "native/macos/accessibility_contract_tests.swift",
         "before": null,
-        "after": "2f372585734037b763b65fd7b6ad4cfa16e97ee52ff77cb874acd0064a798858"
+        "after": "50f76b80968c7fe8d0dbc3e94722e558b36370c2a51a05153d4bf3d8924894b9"
       },
       {
         "path": "src/outline.ts",

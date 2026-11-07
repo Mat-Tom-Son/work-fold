@@ -229,7 +229,9 @@ automatic duplicate send or submission.
 On macOS, Computer Control retains the original accessibility control, process
 instance and parent chain and rechecks what it could read at input time.
 Changed targets require a new observation; the helper never substitutes a nearby
-matching control. Ambiguous accessibility dispatch errors stop the transaction
+matching control. Optional identity fields are pinned individually when readable,
+so a native text area that omits one remains usable without weakening the fields
+it did expose. Ambiguous accessibility dispatch errors stop the transaction
 with an uncertain outcome, without replay or physical fallback; a write the app
 refuses before acting is reported as not applied. Text results wait out a short
 settle window, and a field that still lacks its text stops the batch. Readable

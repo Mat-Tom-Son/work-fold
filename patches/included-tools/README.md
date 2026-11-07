@@ -47,6 +47,13 @@ as the evidence, as before. The observed root is checked directly instead of
 being re-paired with a window by geometry. Each node's attributes are read once
 and shared by the outline and its identity.
 
+Optional identity attributes retain their individual readability. TextEdit's
+text areas can omit a title, description or subrole while still exposing their
+role, native id and parent chain. Those retained controls remain usable, and a
+previously unreadable attribute becoming available does not invalidate them.
+Every recorded field must still match and remain readable at action time;
+process, role, native-id and parent-chain changes continue to refuse dispatch.
+
 Accessibility actions dispatch once. Unsupported actions can choose another
 mechanism; ambiguous IPC errors return `interrupted_unknown` and stop without
 replay or physical fallback. A value write that the app refuses before acting
